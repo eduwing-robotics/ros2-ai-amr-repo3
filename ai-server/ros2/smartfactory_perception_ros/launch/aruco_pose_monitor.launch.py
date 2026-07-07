@@ -34,7 +34,7 @@ def generate_launch_description():
             DeclareLaunchArgument("log_period_sec", default_value="0.5"),
             DeclareLaunchArgument(
                 "ai_server_pythonpath",
-                default_value="/home/codelab/Desktop/Project/SmartFactory/services/ai-server",
+                default_value="",
             ),
             Node(
                 package="smartfactory_perception_ros",

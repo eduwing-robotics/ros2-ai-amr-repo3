@@ -29,8 +29,7 @@ Usage: $(basename "$0") <command> [args]
 SmartFactory lab-friendly Vision entrypoint. It hides profile/env details for the
 current GoPro global camera + TurtleBot Pi camera lab setup.
 
-All-in-one live runtime (tmux is optional; set SF_VISION_TMUX_GUARD_ENABLED=true
-to require Smartfactory:3:Development):
+All-in-one live runtime:
   $(basename "$0") low-load            # low-load WebRTC: GoPro full + tb3_1/tb3_2, lift_roi WebRTC off
   $(basename "$0") all                 # full WebRTC: GoPro full+lift_roi + tb3_1/tb3_2 + MJPEG fallback
   $(basename "$0") stream              # same as all; operator-friendly alias

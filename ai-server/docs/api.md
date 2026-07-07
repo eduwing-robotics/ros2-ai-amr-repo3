@@ -2,6 +2,8 @@
 
 AI Server is evidence/advisory only. It never writes Main DB state, never emits `/cmd_vel`, and never owns task, inventory, stop, or navigation decisions.
 
+This is the operator quick reference. The canonical Main-facing contract is `docs/contracts/ai-server-api.md`.
+
 ## Core endpoints
 
 | Method | Path | Purpose |

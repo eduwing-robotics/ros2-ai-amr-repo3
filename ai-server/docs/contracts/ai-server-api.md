@@ -1,8 +1,6 @@
 # AI Server API reference
 
-This document lists the deploy package API surface that operators and Main may
-rely on. The AI Server is advisory/evidence-only: it does not publish robot
-motion commands, call Nav2, write Main DB truth, or mutate inventory state.
+This is the canonical Main-facing API contract for the deploy package. The AI Server is advisory/evidence-only: it does not publish robot motion commands, call Nav2, write Main DB truth, or mutate inventory state.
 
 ## Core endpoints
 

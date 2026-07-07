@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass
-from pathlib import Path
 import os
 import sys
 import time
+from collections import deque
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Sequence
 
 import cv2
 import numpy as np
-from cv_bridge import CvBridge
 import rclpy
+from cv_bridge import CvBridge
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -19,18 +19,11 @@ from sensor_msgs.msg import CompressedImage, Image
 
 
 def _ensure_ai_server_app_importable() -> None:
-    """Allow this ROS package to reuse services/ai-server pure logic in-place.
-
-    In development this package lives under ``<repo>/ros2/...`` while the shared
-    deterministic perception helpers live under ``<repo>/services/ai-server``.
-    The central-PC monitor is intentionally a thin ROS adapter around that pure
-    code.  Operators may also set ``SMARTFACTORY_AI_SERVER_PYTHONPATH`` when the
-    package is installed outside the repository tree.
-    """
+    """Allow this ROS adapter to reuse AI Server pure logic in-place."""
 
     try:
-        import app.docking  # noqa: F401
         import app.detectors  # noqa: F401
+        import app.docking  # noqa: F401
         return
     except ModuleNotFoundError:
         pass
@@ -39,10 +32,11 @@ def _ensure_ai_server_app_importable() -> None:
     if env_value := os.environ.get("SMARTFACTORY_AI_SERVER_PYTHONPATH"):
         candidates.append(Path(env_value).expanduser())
     if repo_root := os.environ.get("SMARTFACTORY_REPO_ROOT"):
-        candidates.append(Path(repo_root).expanduser() / "services" / "ai-server")
-    candidates.append(Path.cwd() / "services" / "ai-server")
+        root = Path(repo_root).expanduser()
+        candidates.extend([root, root / "ai-server"])
+    candidates.append(Path.cwd())
     for parent in Path(__file__).resolve().parents:
-        candidates.append(parent / "services" / "ai-server")
+        candidates.append(parent)
 
     for candidate in candidates:
         if (candidate / "app" / "docking.py").exists():

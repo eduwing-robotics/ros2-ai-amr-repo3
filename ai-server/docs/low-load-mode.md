@@ -18,5 +18,4 @@ The setup downloads the default pretrained weights used by the low-load profile:
 These files are runtime artifacts, not repository files. To use another model,
 override `VISION_MODEL_PATH` and `VISION_MODEL_SOURCE_CONFIG_JSON` before launch.
 
-The runtime can run in a normal terminal. Set `SF_VISION_TMUX_GUARD_ENABLED=true`
-only if you want to force the old `Smartfactory:3:Development` tmux pane.
+Use `./scripts/vision/sf_lab.sh urls low-load` after launch to print the active WebRTC URLs and MJPEG diagnostic fallbacks.

@@ -1,7 +1,9 @@
 # Live API Smoke Tests
 
 Use these checks after `./scripts/vision/sf_lab.sh low-load` is running with the lab cameras connected.
-They are live hardware checks, not replacements for pytest. They do not send robot motion commands.
+Skip this document when GoPro/PiCam hardware is unavailable. These checks are manual hardware validation, not pytest replacements, and they do not send robot motion commands.
+
+Record the run date, connected cameras, and any saved evidence images alongside the test result.
 
 ## 1. Runtime and source health
 
@@ -78,3 +80,13 @@ file /tmp/global_cam_01_overlay.jpg
 ```
 
 Expected: ZoneROI polygons, readable zone labels, and visible ArUco marker labels on the current lab surface.
+
+## Validation checklist
+
+- Global camera stream is visible at the low-load WebRTC URL.
+- `global_cam_01/full` overlay updates and is not stale.
+- ZoneROI alignment matches the lab pickup/dropoff surface.
+- ArUco item marker IDs `20..49` are detected in the configured ZoneROI.
+- Lift/load evidence returns the expected controlled-case statuses: `PASS`, `FAIL`, `UNCERTAIN`, `NO_DECISION`.
+- PiCam person-hazard advisory updates for each connected TurtleBot source.
+- Runtime restart/control API remains disabled or protected by the approved token/allow-list.

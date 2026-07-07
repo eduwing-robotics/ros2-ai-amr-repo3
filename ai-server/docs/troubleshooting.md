@@ -25,3 +25,11 @@ create `.venv/` and download the default pretrained weights under `models/`.
 ## mDNS/hostname not reachable
 
 Use direct IP/port URLs from `./scripts/vision/sf_lab.sh urls low-load`, then fix local DNS/mDNS separately.
+
+## WebRTC and MJPEG overlays differ
+
+WebRTC is the primary browser stream; MJPEG is a diagnostic fallback. After code or ZoneROI config changes, restart low-load and compare the active URLs from:
+
+```bash
+./scripts/vision/sf_lab.sh urls low-load
+```

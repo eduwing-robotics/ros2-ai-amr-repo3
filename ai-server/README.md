@@ -46,18 +46,9 @@ cd ai-server
 
 Runtime restart/control APIs stay disabled unless the operator explicitly configures the runtime-control token and allow-list environment variables.
 
-The live runtime does not require tmux by default. If an operator wants the old
-pane guard, run with `SF_VISION_TMUX_GUARD_ENABLED=true`.
-
 ## Hardware validation boundary
 
-Automated tests are no-hardware checks. Hardware-required validation must be recorded separately:
-
-1. Global camera stream is visible and not stale.
-2. `global_cam_01/full` overlay updates within the expected stale threshold.
-3. ArUco item markers `20..49` are visible inside configured ZoneROI(s).
-4. Lift/load endpoint returns expected `PASS`, `FAIL`, `UNCERTAIN`, and `NO_DECISION` evidence under controlled cases.
-5. PiCam person-hazard advisory updates for each connected TurtleBot camera.
+Automated tests are no-hardware checks. When lab cameras are available, use `docs/live-api-smoke-tests.md` to record the manual GoPro/PiCam/ArUco validation.
 
 ## API and contracts
 
