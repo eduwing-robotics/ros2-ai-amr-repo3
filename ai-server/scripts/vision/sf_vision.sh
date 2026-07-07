@@ -622,7 +622,11 @@ run_enabled_preflights() {
   if is_truthy "${SF_VISION_GOPRO_ENABLED}"; then
     local py="${AI_SERVER_VENV_DIR}/bin/python"
     "${py}" "${ROOT_DIR}/scripts/vision/run_gopro_smart_roi_adapter.py" --check
-    "${py}" "${ROOT_DIR}/scripts/vision/start_gopro_webcam_stream.py" --help > /dev/null
+    if gopro_adapter_input_needs_managed_stream; then
+      "${py}" "${ROOT_DIR}/scripts/vision/start_gopro_webcam_stream.py" --help > /dev/null
+    else
+      validate_direct_gopro_adapter_input_for_preflight
+    fi
   fi
   if is_truthy "${SF_VISION_WEBRTC_SIDECAR_ENABLED}"; then
     "${ROOT_DIR}/scripts/vision/run_webrtc_sidecar_mediamtx.sh" --check
@@ -663,11 +667,61 @@ gopro_adapter_input_needs_managed_stream() {
   esac
 }
 
+gopro_adapter_input_is_video_device() {
+  case "${GOPRO_ADAPTER_INPUT:-}" in
+    /dev/video*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+gopro_video_device_label() {
+  local input="${GOPRO_ADAPTER_INPUT:-}" link target
+  [ -n "${input}" ] || return 0
+  for link in /dev/v4l/by-id/* /dev/v4l/by-path/*; do
+    [ -L "${link}" ] || continue
+    target="$(readlink -f "${link}" 2> /dev/null || true)"
+    if [ "${target}" = "${input}" ]; then
+      printf '%s' "$(basename "${link}")"
+      return 0
+    fi
+  done
+  command -v v4l2-ctl > /dev/null 2>&1 || return 0
+  v4l2-ctl -d "${input}" --info 2> /dev/null | awk -F: '/Card type/ {sub(/^[[:space:]]+/, "", $2); print $2; exit}'
+}
+
+gopro_direct_video_input_allowed() {
+  is_truthy "${SF_VISION_ALLOW_NON_GOPRO_VIDEO_INPUT:-false}" && return 0
+  if ! gopro_adapter_input_is_video_device; then
+    return 0
+  fi
+  local label
+  label="$(gopro_video_device_label || true)"
+  [[ "${label}" =~ [Gg]o[Pp]ro|HERO|2672 ]]
+}
+
+validate_direct_gopro_adapter_input_for_preflight() {
+  if gopro_direct_video_input_allowed; then
+    return 0
+  fi
+  local label
+  label="$(gopro_video_device_label || true)"
+  echo "ERROR: refusing GOPRO_ADAPTER_INPUT=${GOPRO_ADAPTER_INPUT}: video device is not identified as GoPro/HERO${label:+ (${label})}" >&2
+  echo "Set SF_VISION_ALLOW_NON_GOPRO_VIDEO_INPUT=true only for explicit local webcam smoke tests." >&2
+  return 2
+}
+
 start_gopro_stream() {
   if ! is_truthy "${SF_VISION_GOPRO_ENABLED}"; then
     return 0
   fi
   if ! gopro_adapter_input_needs_managed_stream; then
+    if ! gopro_direct_video_input_allowed; then
+      local label
+      label="$(gopro_video_device_label || true)"
+      record_warning "WARN: refusing GOPRO_ADAPTER_INPUT=${GOPRO_ADAPTER_INPUT}: video device is not identified as GoPro/HERO${label:+ (${label})}; skipping global_cam_01 adapter"
+      GOPRO_STREAM_AVAILABLE=false
+      return 0
+    fi
     echo "[sf-vision] using direct GoPro/global camera adapter input: ${GOPRO_ADAPTER_INPUT}; skipping managed OpenGoPro stream helper"
     GOPRO_STREAM_AVAILABLE=true
     return 0

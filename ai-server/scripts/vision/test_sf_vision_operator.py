@@ -218,6 +218,16 @@ def test_mediamtx_first_adapter_probe_is_bounded_and_non_fatal_to_fallbacks() ->
     assert "return 0" in body[body.index("start_gopro_mediamtx_first()") :]
 
 
+
+def test_operator_refuses_non_gopro_direct_video_input_by_default() -> None:
+    body = SCRIPT.read_text()
+
+    assert "SF_VISION_ALLOW_NON_GOPRO_VIDEO_INPUT" in body
+    assert "video device is not identified as GoPro/HERO" in body
+    assert "skipping global_cam_01 adapter" in body
+    assert "gopro_video_device_label" in body
+
+
 def test_operator_treats_hardware_children_as_optional_without_hiding_core_failures() -> None:
     body = SCRIPT.read_text()
 
