@@ -1,0 +1,428 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smartfactory.local/contracts/vision-event.schema.json",
+  "title": "SmartFactory VisionEvent v1",
+  "description": "API-first contract for AI Server evidence events sent to Main Server/WMS-lite. AI Server emits evidence only; WMS-lite owns final state transitions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "timestamp",
+    "source",
+    "event_kind",
+    "class_name",
+    "confidence",
+    "metadata",
+    "robot_id",
+    "frame_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "vision-event.v1"
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "global_cam_01",
+        "tb3_1_picam",
+        "tb3_2_picam"
+      ]
+    },
+    "robot_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "tb3_1",
+        "tb3_2",
+        null
+      ]
+    },
+    "frame_id": {
+      "type": "string",
+      "examples": [
+        "global_camera_frame",
+        "tb3_1_pi_camera_optical_frame"
+      ]
+    },
+    "event_kind": {
+      "type": "string",
+      "enum": [
+        "CANDIDATE",
+        "CONFIRMED",
+        "CLEARED",
+        "STALE"
+      ]
+    },
+    "class_name": {
+      "type": "string",
+      "enum": [
+        "aruco_marker",
+        "qr_marker",
+        "apriltag_marker",
+        "person",
+        "obstacle",
+        "box",
+        "dropped_item",
+        "pallet",
+        "unknown"
+      ]
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "bbox_xyxy": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "number"
+      }
+    },
+    "track_id": {
+      "type": [
+        "integer",
+        "string",
+        "null"
+      ]
+    },
+    "marker_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Decoded marker ID. Required by policy before WMS confirms item/slot identity."
+    },
+    "zone": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "examples": [
+        "INBOUND",
+        "STORAGE_A",
+        "OUTBOUND",
+        "WAIT"
+      ]
+    },
+    "roi_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "examples": [
+        "STORAGE_A01_ROI",
+        "ROBOT_PATH_FRONT_ROI"
+      ]
+    },
+    "pose_estimate": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "description": "Optional 2D/tag-pose estimate only. No depth camera is required in MVP1.",
+      "required": [
+        "method",
+        "x",
+        "y",
+        "yaw",
+        "confidence"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "APRILTAG_POSE",
+            "ARUCO_POSE",
+            "GLOBAL_HOMOGRAPHY",
+            "KNOWN_SIZE_ESTIMATE"
+          ]
+        },
+        "x": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "y": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "yaw": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "confidence": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "depth_median_m": {
+      "type": "null",
+      "description": "Reserved for future depth-camera variants. Must remain null in MVP1."
+    },
+    "wms_hint": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "TAG_DETECTED",
+        "SLOT_CANDIDATE",
+        "ITEM_CANDIDATE",
+        "PERSON_CANDIDATE",
+        "OBSTACLE_CANDIDATE",
+        "DROPPED_ITEM_CANDIDATE",
+        "VISION_STALE",
+        null
+      ],
+      "description": "Non-authoritative hint. WMS-lite decides final task/slot/exception state."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "n_frame_count",
+        "policy_version",
+        "model"
+      ],
+      "properties": {
+        "n_frame_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policy_version": {
+          "type": "string"
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "image_width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "image_height": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "latency_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "frame_seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "Optional latest-frame sequence number used to bind canvas overlay metadata to the exact video frame that produced this event."
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "const": "global_cam_01"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "then": {
+        "properties": {
+          "robot_id": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "const": "tb3_1_picam"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "then": {
+        "properties": {
+          "robot_id": {
+            "const": "tb3_1"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "const": "tb3_2_picam"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "then": {
+        "properties": {
+          "robot_id": {
+            "const": "tb3_2"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_kind": {
+            "const": "STALE"
+          }
+        },
+        "required": [
+          "event_kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "class_name": {
+            "const": "unknown"
+          },
+          "confidence": {
+            "type": "null"
+          },
+          "bbox_xyxy": {
+            "type": "null"
+          },
+          "wms_hint": {
+            "const": "VISION_STALE"
+          }
+        },
+        "required": [
+          "class_name",
+          "confidence",
+          "wms_hint"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_kind": {
+            "const": "CONFIRMED"
+          },
+          "class_name": {
+            "enum": [
+              "aruco_marker",
+              "qr_marker",
+              "apriltag_marker"
+            ]
+          }
+        },
+        "required": [
+          "event_kind",
+          "class_name"
+        ]
+      },
+      "then": {
+        "properties": {
+          "marker_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "marker_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event_kind": {
+            "enum": [
+              "CANDIDATE",
+              "CONFIRMED"
+            ]
+          },
+          "class_name": {
+            "enum": [
+              "person",
+              "obstacle",
+              "box",
+              "dropped_item",
+              "pallet",
+              "unknown"
+            ]
+          }
+        },
+        "required": [
+          "event_kind",
+          "class_name"
+        ]
+      },
+      "then": {
+        "properties": {
+          "bbox_xyxy": {
+            "type": "array",
+            "minItems": 4,
+            "maxItems": 4,
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "required": [
+          "bbox_xyxy"
+        ]
+      }
+    }
+  ]
+}

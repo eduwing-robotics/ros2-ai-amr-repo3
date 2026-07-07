@@ -1,0 +1,37 @@
+{
+  "schema_version": "vision-monitor-event.v1",
+  "task_id": 305,
+  "command_id": 5,
+  "trusted": false,
+  "observed_at": "2026-06-30T04:00:00Z",
+  "image_url": null,
+  "policy_version": "mvp2",
+  "threshold_set_id": "lift_evidence_fixture_v1",
+  "event_id": "00000000-0000-4000-8000-000000000105",
+  "event_type": "LIFT_LOAD_UNCERTAIN",
+  "source": "global_cam_01",
+  "robot_id": "tb3_2",
+  "result": "UNCERTAIN",
+  "severity": "LOW",
+  "confidence": 0.43,
+  "reason_code": "UNCERTAIN_ROI_CONFLICT",
+  "profile_id": "lift_evidence_burst_v1",
+  "data_json": {
+    "result": "UNCERTAIN",
+    "reason_code": "UNCERTAIN_ROI_CONFLICT",
+    "policy_version": "mvp2",
+    "profile_id": "lift_evidence_burst_v1",
+    "threshold_set_id": "lift_evidence_fixture_v1",
+    "assignment_status": "AMBIGUOUS",
+    "related_robot_ids": [
+      "tb3_1"
+    ],
+    "task_id_ref": 305,
+    "ai_judgement": {
+      "verification_status": "UNCERTAIN",
+      "expected_count": 1,
+      "observed_count": null,
+      "accepted_frames": 2
+    }
+  }
+}

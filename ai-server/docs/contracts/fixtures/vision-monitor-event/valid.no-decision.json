@@ -1,0 +1,29 @@
+{
+  "schema_version": "vision-monitor-event.v1",
+  "task_id": null,
+  "command_id": null,
+  "trusted": false,
+  "observed_at": "2026-06-30T04:00:00Z",
+  "image_url": null,
+  "policy_version": "mvp2",
+  "threshold_set_id": "drop_watch_fixture_v1",
+  "event_id": "00000000-0000-4000-8000-000000000106",
+  "event_type": "NO_DECISION",
+  "source": "global_cam_01",
+  "robot_id": null,
+  "result": "NO_DECISION",
+  "severity": "INFO",
+  "confidence": null,
+  "reason_code": "POLICY_NOT_APPLICABLE",
+  "profile_id": "drop_watch_global_v1",
+  "data_json": {
+    "result": "NO_DECISION",
+    "reason_code": "POLICY_NOT_APPLICABLE",
+    "policy_version": "mvp2",
+    "profile_id": "drop_watch_global_v1",
+    "threshold_set_id": "drop_watch_fixture_v1",
+    "assignment_status": "UNASSIGNED",
+    "related_robot_ids": [],
+    "task_id_ref": null
+  }
+}

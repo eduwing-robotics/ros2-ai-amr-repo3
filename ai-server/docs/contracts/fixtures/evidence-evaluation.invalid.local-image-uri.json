@@ -1,0 +1,41 @@
+{
+  "schema_version": "evidence-evaluation.v1",
+  "evaluation_id": "aaaaaaaa-9999-4999-8999-999999999999",
+  "source": "global_cam_01",
+  "view": "lift_roi",
+  "operation": "PICKUP",
+  "expected_evidence_type": "ITEM_PICKED",
+  "proposed_event_type": "ITEM_PICKED",
+  "verification_status": "PASS",
+  "validity": "VALID_CANDIDATE",
+  "reason_code": "COUNT_MATCH_AND_STABLE",
+  "confidence": 0.87,
+  "trusted": false,
+  "image_uri": "/tmp/local/api/v1/evidence/images/global_cam_01/lift_roi/2026-06-24/local-path-leak.jpg",
+  "task_ref": {
+    "task_id": 123,
+    "command_id": 456,
+    "location_id": "STORAGE_A_01"
+  },
+  "data_json": {
+    "ai_judgement": {
+      "verification_status": "PASS",
+      "validity": "VALID_CANDIDATE",
+      "reason_code": "COUNT_MATCH_AND_STABLE",
+      "expected_count": 1,
+      "observed_count": 1,
+      "stable_frames": 3
+    },
+    "original_contract": "lift-roi-evidence.v1",
+    "original_payload": {
+      "verification": {
+        "status": "CONFIRMED",
+        "reason": "pickup_verified"
+      },
+      "load": {
+        "count": 1
+      }
+    }
+  },
+  "observed_at": "2026-06-24T17:10:00+09:00"
+}

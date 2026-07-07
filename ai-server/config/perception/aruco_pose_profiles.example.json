@@ -1,0 +1,42 @@
+{
+  "profiles": {
+    "tb3_1_lab_marker_7": {
+      "description": "Robot-free synthetic/API profile for generated ArUco fixture tests. Replace intrinsics before real tuning.",
+      "source": "tb3_1_picam",
+      "marker_id": "ARUCO_4X4_50_7",
+      "marker_size_m": 0.08,
+      "camera": {
+        "fx": 600.0,
+        "fy": 600.0,
+        "cx": 80.0,
+        "cy": 80.0,
+        "dist_coeffs": [0.0, 0.0, 0.0, 0.0, 0.0]
+      },
+      "tuning": {
+        "target_distance_m": 0.45,
+        "target_lateral_offset_m": 0.0,
+        "target_yaw_rad": 0.0,
+        "notes": "Tuning-only values; AI Server uses only marker_size_m and camera intrinsics for pose evidence."
+      }
+    },
+    "tb3_1_picam_marker_0_placeholder": {
+      "description": "Placeholder based on Robot1 live QA marker ID 0. Must be calibrated before active docking.",
+      "source": "tb3_1_picam",
+      "marker_id": "ARUCO_4X4_50_0",
+      "marker_size_m": 0.08,
+      "camera": {
+        "fx": 600.0,
+        "fy": 600.0,
+        "cx": 320.0,
+        "cy": 240.0,
+        "dist_coeffs": [0.0, 0.0, 0.0, 0.0, 0.0]
+      },
+      "tuning": {
+        "target_distance_m": 0.45,
+        "target_lateral_offset_m": 0.0,
+        "target_yaw_rad": 0.0,
+        "notes": "Placeholder only; update after passive tuning."
+      }
+    }
+  }
+}

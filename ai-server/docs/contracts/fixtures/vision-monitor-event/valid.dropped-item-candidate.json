@@ -1,0 +1,30 @@
+{
+  "schema_version": "vision-monitor-event.v1",
+  "task_id": 202,
+  "command_id": null,
+  "trusted": false,
+  "observed_at": "2026-06-30T04:00:00Z",
+  "image_url": null,
+  "policy_version": "mvp2",
+  "threshold_set_id": "drop_watch_fixture_v1",
+  "event_id": "00000000-0000-4000-8000-000000000102",
+  "event_type": "DROPPED_ITEM_CANDIDATE",
+  "source": "global_cam_01",
+  "robot_id": "tb3_2",
+  "result": "CANDIDATE",
+  "severity": "MEDIUM",
+  "confidence": 0.69,
+  "reason_code": "TARGET_ITEM_OUTSIDE_DYNAMIC_CARRIER_ROI",
+  "profile_id": "drop_watch_global_v1",
+  "data_json": {
+    "result": "CANDIDATE",
+    "reason_code": "TARGET_ITEM_OUTSIDE_DYNAMIC_CARRIER_ROI",
+    "policy_version": "mvp2",
+    "profile_id": "drop_watch_global_v1",
+    "threshold_set_id": "drop_watch_fixture_v1",
+    "assignment_status": "OWNED",
+    "related_robot_ids": [],
+    "task_id_ref": 202,
+    "source_event_id": "policy-drop-1"
+  }
+}

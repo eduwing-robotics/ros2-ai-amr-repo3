@@ -1,0 +1,26 @@
+{
+  "schema_version": "vision-monitor-event.v1",
+  "task_id": null,
+  "command_id": null,
+  "trusted": true,
+  "observed_at": "2026-06-30T04:00:00Z",
+  "image_url": null,
+  "policy_version": "mvp2",
+  "threshold_set_id": "person_pretrained_nano_v1",
+  "event_id": "00000000-0000-4000-8000-000000000203",
+  "event_type": "HUMAN_DETECTED",
+  "source": "tb3_2_picam",
+  "robot_id": "tb3_2",
+  "result": "ADVISORY",
+  "severity": "CRITICAL",
+  "confidence": 0.88,
+  "reason_code": "HUMAN_DETECTED",
+  "profile_id": "person_drive_picam_v1",
+  "data_json": {
+    "result": "ADVISORY",
+    "reason_code": "HUMAN_DETECTED",
+    "policy_version": "mvp2",
+    "profile_id": "person_drive_picam_v1",
+    "threshold_set_id": "person_pretrained_nano_v1"
+  }
+}

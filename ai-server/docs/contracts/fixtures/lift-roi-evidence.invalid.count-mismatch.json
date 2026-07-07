@@ -1,0 +1,57 @@
+{
+  "schema_version": "lift-roi-evidence.v1",
+  "evidence_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  "timestamp": "2026-06-11T12:15:00+09:00",
+  "source": "tb3_1_picam",
+  "robot_id": "tb3_1",
+  "frame_id": "tb3_1_pi_camera_optical_frame",
+  "operation": "PICKUP",
+  "task_id": "TASK-IN-0002",
+  "image": {"width": 640, "height": 480},
+  "roi": {
+    "roi_id": "TB3_1_LIFT_ROI",
+    "kind": "LIFT",
+    "polygon_xy": [[220, 180], [420, 180], [440, 360], [200, 360]]
+  },
+  "expected_count": 2,
+  "stable_frames": 5,
+  "count_stable": true,
+  "lift_sensor": {
+    "lift_up": true,
+    "lift_down_complete": null,
+    "backoff_complete": null
+  },
+  "load": {
+    "count": 2,
+    "empty": false,
+    "accepted_items": [
+      {
+        "class_name": "box",
+        "bbox_xyxy": [240, 210, 310, 290],
+        "confidence": 0.91,
+        "track_id": "box-1",
+        "evidence_type": "bbox",
+        "mask_area_px": null,
+        "center_inside_roi": true,
+        "overlap_ratio": 0.98,
+        "reason": "accepted"
+      }
+    ],
+    "rejected_items": []
+  },
+  "dropped_item_count": 0,
+  "verification": {
+    "status": "CONFIRMED",
+    "reason": "pickup_verified"
+  },
+  "policy": {
+    "policy_version": "mvp1-lift-roi",
+    "load_classes": ["box", "pallet"],
+    "min_confidence": 0.5,
+    "min_overlap_ratio": 0.6
+  },
+  "metadata": {
+    "model": "mock-yolo-seg",
+    "latency_ms": 14.2
+  }
+}

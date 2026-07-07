@@ -1,0 +1,234 @@
+{
+  "schema_version": "smartfactory-zone-roi-draft.v1",
+  "source": "global_cam_01",
+  "status": "draft_operator_tuned_pixel_normalized",
+  "image_size": {
+    "width": 1920,
+    "height": 1080
+  },
+  "coordinate_space": "normalized_full_frame_xy",
+  "created_from": {
+    "date": "2026-07-03",
+    "reference_image": ".run/vision/debug/zone_current_global_overlay_now.jpg",
+    "marker_visibility_sample": ".run/vision/debug/zone_marker_visibility_current_60.json",
+    "preview_image": "docs/presentation/sprint6/assets/03-global-zone-roi-draft.jpg"
+  },
+  "map_roi": {
+    "polygon_normalized": [
+      [
+        0.18,
+        0.01
+      ],
+      [
+        0.9,
+        0.01
+      ],
+      [
+        0.82,
+        0.98
+      ],
+      [
+        0.26,
+        0.98
+      ]
+    ],
+    "roi_marker_ids": [
+      11,
+      12
+    ],
+    "freeze_marker_ids_all": [
+      6,
+      12
+    ]
+  },
+  "fixed_reference_marker_roles": {
+    "inbound_zone_markers": [
+      0,
+      1
+    ],
+    "charging_zone_markers": [
+      3,
+      4
+    ],
+    "outbound_zone_markers": [
+      5,
+      6
+    ],
+    "storage_zone_markers": [
+      9,
+      10
+    ],
+    "map_boundary_markers": [
+      11,
+      12
+    ]
+  },
+  "location_aliases": {
+    "inbound": "inbound_static_item_zone",
+    "outbound": "outbound_static_item_zone",
+    "storage_1": "storage_upper_static_item_zone",
+    "storage_2": "storage_lower_static_item_zone"
+  },
+  "zones": [
+    {
+      "zone_id": "inbound_static_item_zone",
+      "label_ko": "입고구역",
+      "role": "allowed_static_item_zone",
+      "natural_item_location": true,
+      "reference_markers": [
+        0,
+        1
+      ],
+      "polygon_normalized": [
+        [
+          0.255,
+          0.735
+        ],
+        [
+          0.375,
+          0.735
+        ],
+        [
+          0.375,
+          0.98
+        ],
+        [
+          0.26,
+          0.98
+        ]
+      ],
+      "notes": "A1/A0 주변 하단 좌측 입고 구역 초안. A0/A1이 간헐적이라 현재 화면 기준 보수적으로 넓게 잡음."
+    },
+    {
+      "zone_id": "charging_reference_zone",
+      "label_ko": "충전구역",
+      "role": "robot_charging_reference_zone",
+      "natural_item_location": false,
+      "reference_markers": [
+        3,
+        4
+      ],
+      "polygon_normalized": [
+        [
+          0.225,
+          0.49
+        ],
+        [
+          0.37,
+          0.49
+        ],
+        [
+          0.37,
+          0.74
+        ],
+        [
+          0.245,
+          0.74
+        ]
+      ],
+      "notes": "A3/A4 주변. 로봇 충전/대기 참고 구역이며 target item 정상 방치 구역으로는 보지 않음."
+    },
+    {
+      "zone_id": "outbound_static_item_zone",
+      "label_ko": "출고구역",
+      "role": "allowed_static_item_zone",
+      "natural_item_location": true,
+      "reference_markers": [
+        5,
+        6
+      ],
+      "polygon_normalized": [
+        [
+          0.19,
+          0.095
+        ],
+        [
+          0.345,
+          0.095
+        ],
+        [
+          0.345,
+          0.47
+        ],
+        [
+          0.225,
+          0.47
+        ]
+      ],
+      "notes": "A5/A6 주변 상단 좌측 출고 구역 초안. A6은 안정적으로 보이고 A5는 부분적으로 보임."
+    },
+    {
+      "zone_id": "storage_upper_static_item_zone",
+      "label_ko": "창고구역 상단",
+      "role": "allowed_static_item_zone",
+      "natural_item_location": true,
+      "reference_markers": [
+        9,
+        10
+      ],
+      "polygon_normalized": [
+        [
+          0.485,
+          0.455
+        ],
+        [
+          0.705,
+          0.455
+        ],
+        [
+          0.705,
+          0.575
+        ],
+        [
+          0.485,
+          0.575
+        ]
+      ],
+      "notes": "A9/A10 구조물 위쪽 약 30cm 구역 초안."
+    },
+    {
+      "zone_id": "storage_lower_static_item_zone",
+      "label_ko": "창고구역 하단",
+      "role": "allowed_static_item_zone",
+      "natural_item_location": true,
+      "reference_markers": [
+        9,
+        10
+      ],
+      "polygon_normalized": [
+        [
+          0.485,
+          0.69
+        ],
+        [
+          0.705,
+          0.69
+        ],
+        [
+          0.705,
+          0.85
+        ],
+        [
+          0.485,
+          0.85
+        ]
+      ],
+      "notes": "A9/A10 구조물 아래쪽 약 30cm 구역 초안. 중앙 10cm 벽/구조물 구간은 제외."
+    }
+  ],
+  "drop_watch_policy_draft": {
+    "normal_static_item_zone_ids": [
+      "inbound_static_item_zone",
+      "outbound_static_item_zone",
+      "storage_upper_static_item_zone",
+      "storage_lower_static_item_zone"
+    ],
+    "normal_dynamic_item_zone_sources": [
+      "dynamic_carrier_roi_by_robot_pose"
+    ],
+    "not_normal_static_item_zone_ids": [
+      "charging_reference_zone"
+    ],
+    "draft_rule": "MapROI 안의 target_item이 normal_static_item_zone 또는 active DynamicCarrierROI 안에 있으면 정상 후보, 그 밖에 지속적으로 보이면 DROPPED_ITEM_CANDIDATE 후보."
+  }
+}

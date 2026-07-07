@@ -1,0 +1,36 @@
+{
+  "schema_version": "evidence-evaluation.v1",
+  "evaluation_id": "22222222-2222-4222-8222-222222222222",
+  "source": "global_cam_01",
+  "view": "lift_roi",
+  "operation": "PICKUP",
+  "expected_evidence_type": "ITEM_PICKED",
+  "proposed_event_type": "ERROR",
+  "verification_status": "FAIL",
+  "validity": "INVALID_CANDIDATE",
+  "reason_code": "COUNT_MISMATCH",
+  "confidence": 0.74,
+  "trusted": false,
+  "image_uri": "/api/v1/evidence/images/global_cam_01/lift_roi/2026-06-24/count-mismatch-22222222-2222-4222-8222-222222222222.jpg",
+  "task_ref": {
+    "task_id": 123,
+    "command_id": 456,
+    "location_id": "STORAGE_A_01"
+  },
+  "data_json": {
+    "ai_judgement": {
+      "verification_status": "FAIL",
+      "validity": "INVALID_CANDIDATE",
+      "reason_code": "COUNT_MISMATCH",
+      "expected_count": 2,
+      "observed_count": 1,
+      "stable_frames": 4
+    },
+    "original_contract": "lift-roi-evidence.v1",
+    "original_payload": {
+      "verification": {"status": "REJECTED", "reason": "count_mismatch"},
+      "load": {"count": 1}
+    }
+  },
+  "observed_at": "2026-06-24T17:11:00+09:00"
+}

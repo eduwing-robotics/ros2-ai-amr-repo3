@@ -1,0 +1,51 @@
+{
+  "schema_version": "evidence-evaluation.v1",
+  "evaluation_id": "55555555-5555-4555-8555-555555555555",
+  "source": "global_cam_01",
+  "view": "full",
+  "operation": "MONITOR",
+  "expected_evidence_type": "ITEM_DROPPED_CANDIDATE",
+  "proposed_event_type": null,
+  "verification_status": "UNCERTAIN",
+  "validity": "NEEDS_REVIEW",
+  "reason_code": "LOW_PIXEL_BUDGET",
+  "confidence": null,
+  "trusted": false,
+  "image_uri": null,
+  "task_ref": {
+    "task_id": "TASK-LOW-PIXEL",
+    "command_id": null,
+    "location_id": "AISLE_01"
+  },
+  "data_json": {
+    "ai_judgement": {
+      "verification_status": "UNCERTAIN",
+      "validity": "NEEDS_REVIEW",
+      "reason_code": "LOW_PIXEL_BUDGET",
+      "expected_count": null,
+      "observed_count": null,
+      "stable_frames": 0,
+      "quality_details": {
+        "object_size_m": 0.04,
+        "effective_object_px": 12.8,
+        "min_object_px": 16.0
+      }
+    },
+    "original_contract": null,
+    "original_payload": null,
+    "alert_window": {
+      "policy_version": "gopro-sparse-alert-window.v1",
+      "source": "global_cam_01",
+      "view": "full",
+      "operation": "MONITOR",
+      "trigger_reason_code": "LOW_PIXEL_BUDGET",
+      "observed_at": "2026-06-24T17:14:00+09:00",
+      "pre_roll_s": 1.0,
+      "post_roll_s": 2.0,
+      "max_frames": 30,
+      "retention_hours": 24,
+      "advisory_only": true
+    }
+  },
+  "observed_at": "2026-06-24T17:14:00+09:00"
+}

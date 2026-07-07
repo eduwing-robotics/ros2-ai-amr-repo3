@@ -1,0 +1,24 @@
+{
+  "schema_version": "vision-event.v1",
+  "event_id": "not-a-uuid",
+  "timestamp": "not-a-date",
+  "source": "global_cam_01",
+  "robot_id": null,
+  "frame_id": "global_camera_frame",
+  "event_kind": "CANDIDATE",
+  "class_name": "box",
+  "confidence": 0.75,
+  "bbox_xyxy": [10, 20, 100, 200],
+  "track_id": 1,
+  "marker_id": null,
+  "zone": "STORAGE_A",
+  "roi_id": "STORAGE_A01_ROI",
+  "pose_estimate": null,
+  "depth_median_m": null,
+  "wms_hint": "ITEM_CANDIDATE",
+  "metadata": {
+    "n_frame_count": 5,
+    "policy_version": "mvp1",
+    "model": "yolo11n.pt"
+  }
+}

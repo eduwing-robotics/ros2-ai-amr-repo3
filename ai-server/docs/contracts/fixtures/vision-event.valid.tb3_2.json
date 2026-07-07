@@ -1,0 +1,27 @@
+{
+  "schema_version": "vision-event.v1",
+  "event_id": "33333333-3333-4333-8333-333333333333",
+  "timestamp": "2026-06-09T15:30:02+09:00",
+  "source": "tb3_2_picam",
+  "robot_id": "tb3_2",
+  "frame_id": "tb3_2_pi_camera_optical_frame",
+  "event_kind": "CANDIDATE",
+  "class_name": "person",
+  "confidence": 0.66,
+  "bbox_xyxy": [80, 50, 200, 300],
+  "track_id": 7,
+  "marker_id": null,
+  "zone": "ROBOT_PATH",
+  "roi_id": "TB3_2_FRONT_ROI",
+  "pose_estimate": null,
+  "depth_median_m": null,
+  "wms_hint": "PERSON_CANDIDATE",
+  "metadata": {
+    "n_frame_count": 3,
+    "policy_version": "mvp1",
+    "model": "yolo11n.pt",
+    "image_width": 640,
+    "image_height": 480,
+    "latency_ms": 91.1
+  }
+}

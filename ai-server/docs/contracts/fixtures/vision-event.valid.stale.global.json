@@ -1,0 +1,27 @@
+{
+  "schema_version": "vision-event.v1",
+  "event_id": "66666666-6666-4666-8666-666666666666",
+  "timestamp": "2026-06-09T15:30:05+09:00",
+  "source": "global_cam_01",
+  "robot_id": null,
+  "frame_id": "global_camera_frame",
+  "event_kind": "STALE",
+  "class_name": "unknown",
+  "confidence": null,
+  "bbox_xyxy": null,
+  "track_id": null,
+  "marker_id": null,
+  "zone": "STORAGE_A",
+  "roi_id": "STORAGE_A01_ROI",
+  "pose_estimate": null,
+  "depth_median_m": null,
+  "wms_hint": "VISION_STALE",
+  "metadata": {
+    "n_frame_count": 0,
+    "policy_version": "mvp1",
+    "model": null,
+    "image_width": null,
+    "image_height": null,
+    "latency_ms": null
+  }
+}

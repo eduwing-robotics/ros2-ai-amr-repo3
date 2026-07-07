@@ -1,0 +1,95 @@
+# SmartFactory docking / parking tuning template.
+# Copy this file into a session folder before tuning and edit the copy.
+
+session:
+  operator: ""
+  robot_id: "tb3_1"
+  date: "2026-06-11"
+  mode: "passive"  # passive | low_speed_active
+  notes: ""
+
+ros:
+  domain_id: null
+  image_topic_compressed: "/camera/image_raw/compressed"
+  image_topic_raw: "/camera/image_raw"
+  odom_topic: "/odom"
+  scan_topic: "/scan"
+  cmd_vel_topic: "/cmd_vel"  # documentation only; do not publish in passive mode
+
+camera:
+  frame_id: "tb3_1_pi_camera_optical_frame"
+  width: 640
+  height: 480
+  # Replace with calibrated values before active docking.
+  intrinsics:
+    fx: 600.0
+    fy: 600.0
+    cx: 320.0
+    cy: 240.0
+    dist_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+markers:
+  dictionary: "DICT_4X4_50"
+  default_marker_size_m: 0.08
+  stations:
+    inbound:
+      marker_id: "ARUCO_4X4_50_0"
+      marker_size_m: 0.08
+      target_distance_m: 0.45
+      target_lateral_offset_m: 0.0
+      target_yaw_rad: 0.0
+    storage:
+      marker_id: "ARUCO_4X4_50_1"
+      marker_size_m: 0.08
+      target_distance_m: 0.45
+      target_lateral_offset_m: 0.0
+      target_yaw_rad: 0.0
+    outbound:
+      marker_id: "ARUCO_4X4_50_2"
+      marker_size_m: 0.08
+      target_distance_m: 0.45
+      target_lateral_offset_m: 0.0
+      target_yaw_rad: 0.0
+    charge:
+      marker_id: "ARUCO_4X4_50_3"
+      marker_size_m: 0.08
+      target_distance_m: 0.40
+      target_lateral_offset_m: 0.0
+      target_yaw_rad: 0.0
+
+docking:
+  tolerances:
+    lateral_m: 0.04
+    distance_m: 0.04
+    yaw_rad: 0.0872664626  # 5 degrees
+    stable_frames: 5
+  gains:
+    distance: 0.35
+    lateral: 1.2
+    yaw: 0.8
+  limits:
+    # Passive tuning must not publish these commands. These are initial active-tuning caps only.
+    max_linear_mps: 0.03
+    max_angular_radps: 0.20
+  safety:
+    marker_lost_stop: true
+    stale_timeout_ms: 300
+    require_user_permission_for_cmd_vel: true
+
+lift_roi:
+  image_size: [640, 480]
+  lift_polygon_xy:
+    - [220, 180]
+    - [420, 180]
+    - [440, 360]
+    - [200, 360]
+  floor_dropped_item_polygon_xy:
+    - [0, 260]
+    - [640, 260]
+    - [640, 480]
+    - [0, 480]
+  load_classes: ["box", "pallet"]
+  min_confidence: 0.5
+  min_bbox_overlap_ratio: 0.6
+  min_mask_overlap_ratio: 0.6
+  stable_frames: 5

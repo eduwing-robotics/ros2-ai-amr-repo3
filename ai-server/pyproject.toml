@@ -1,0 +1,13 @@
+[tool.pytest.ini_options]
+testpaths = ["tests", "scripts/vision"]
+pythonpath = ["."]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = [".venv", ".venv-*", ".pytest_cache", ".ruff_cache"]
+
+[tool.ruff.lint]
+select = ["F", "I", "E"]
+ignore = ["E501"]

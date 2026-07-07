@@ -1,0 +1,24 @@
+{
+  "schema_version": "vision-event.v1",
+  "event_id": "55555555-5555-4555-8555-555555555555",
+  "timestamp": "2026-06-09T15:30:04+09:00",
+  "source": "global_cam_01",
+  "robot_id": null,
+  "frame_id": "global_camera_frame",
+  "event_kind": "CANDIDATE",
+  "class_name": "obstacle",
+  "confidence": 0.8,
+  "bbox_xyxy": [1, 2, 3, 4],
+  "track_id": null,
+  "marker_id": null,
+  "zone": "STORAGE_A",
+  "roi_id": "STORAGE_A01_ROI",
+  "pose_estimate": null,
+  "depth_median_m": 1.23,
+  "wms_hint": "OBSTACLE_CANDIDATE",
+  "metadata": {
+    "n_frame_count": 3,
+    "policy_version": "mvp1",
+    "model": "yolo11n.pt"
+  }
+}

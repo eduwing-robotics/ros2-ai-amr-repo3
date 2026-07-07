@@ -1,0 +1,33 @@
+{
+  "schema_version": "evidence-evaluation.v1",
+  "evaluation_id": "66666666-6666-4666-8666-666666666666",
+  "source": "global_cam_01",
+  "view": "full",
+  "operation": "MONITOR",
+  "expected_evidence_type": "ITEM_DROPPED_CANDIDATE",
+  "proposed_event_type": null,
+  "verification_status": "PASS",
+  "validity": "VALID_CANDIDATE",
+  "reason_code": "LOW_PIXEL_BUDGET",
+  "confidence": null,
+  "trusted": false,
+  "image_uri": null,
+  "task_ref": {
+    "task_id": "TASK-INVALID-QUALITY",
+    "command_id": null,
+    "location_id": "AISLE_01"
+  },
+  "data_json": {
+    "ai_judgement": {
+      "verification_status": "PASS",
+      "validity": "VALID_CANDIDATE",
+      "reason_code": "LOW_PIXEL_BUDGET",
+      "expected_count": null,
+      "observed_count": null,
+      "stable_frames": 0
+    },
+    "original_contract": null,
+    "original_payload": null
+  },
+  "observed_at": "2026-06-24T17:15:00+09:00"
+}

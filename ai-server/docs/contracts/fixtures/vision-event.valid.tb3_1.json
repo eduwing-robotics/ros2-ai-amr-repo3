@@ -1,0 +1,33 @@
+{
+  "schema_version": "vision-event.v1",
+  "event_id": "22222222-2222-4222-8222-222222222222",
+  "timestamp": "2026-06-09T15:30:01+09:00",
+  "source": "tb3_1_picam",
+  "robot_id": "tb3_1",
+  "frame_id": "tb3_1_pi_camera_optical_frame",
+  "event_kind": "CONFIRMED",
+  "class_name": "apriltag_marker",
+  "confidence": 0.94,
+  "bbox_xyxy": [210, 130, 278, 198],
+  "track_id": null,
+  "marker_id": "DOCK_A_TAG_01",
+  "zone": "INBOUND",
+  "roi_id": "TB3_1_FRONT_ROI",
+  "pose_estimate": {
+    "method": "APRILTAG_POSE",
+    "x": 0.42,
+    "y": 0.03,
+    "yaw": -0.08,
+    "confidence": 0.83
+  },
+  "depth_median_m": null,
+  "wms_hint": "TAG_DETECTED",
+  "metadata": {
+    "n_frame_count": 3,
+    "policy_version": "mvp1",
+    "model": null,
+    "image_width": 640,
+    "image_height": 480,
+    "latency_ms": 24.7
+  }
+}

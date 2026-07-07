@@ -1,0 +1,9 @@
+globs:
+  - "README.md"
+  - "docs/**/*.md"
+ignores:
+  - ".venv/**"
+  - ".venv-*/**"
+config:
+  MD013: false
+  MD033: false

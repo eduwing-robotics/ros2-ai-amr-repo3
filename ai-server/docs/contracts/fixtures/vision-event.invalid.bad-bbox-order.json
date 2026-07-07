@@ -1,0 +1,24 @@
+{
+  "schema_version": "vision-event.v1",
+  "event_id": "99999999-9999-4999-8999-999999999999",
+  "timestamp": "2026-06-09T15:30:08+09:00",
+  "source": "global_cam_01",
+  "robot_id": null,
+  "frame_id": "global_camera_frame",
+  "event_kind": "CANDIDATE",
+  "class_name": "box",
+  "confidence": 0.75,
+  "bbox_xyxy": [260, 210, 120, 80],
+  "track_id": 15,
+  "marker_id": null,
+  "zone": "STORAGE_A",
+  "roi_id": "STORAGE_A01_ROI",
+  "pose_estimate": null,
+  "depth_median_m": null,
+  "wms_hint": "ITEM_CANDIDATE",
+  "metadata": {
+    "n_frame_count": 5,
+    "policy_version": "mvp1",
+    "model": "yolo11n.pt"
+  }
+}

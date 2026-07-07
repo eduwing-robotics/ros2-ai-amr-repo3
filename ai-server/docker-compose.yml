@@ -1,0 +1,23 @@
+services:
+  ai-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      AI_SERVER_HOST: 0.0.0.0
+      AI_SERVER_PORT: "8100"
+      ARUCO_POSE_PROFILES_PATH: /app/ai-server/config/perception/aruco_pose_profiles.example.json
+      VISION_SOURCE_REGISTRY_PATH: /app/ai-server/config/vision/sources.yaml
+      VISION_MODEL_WORKER_ENABLED: "${VISION_MODEL_WORKER_ENABLED:-false}"
+      VISION_MODEL_TASK: "${VISION_MODEL_TASK:-segment}"
+      VISION_MODEL_DEVICE: "${VISION_MODEL_DEVICE:-cpu}"
+      MAIN_SERVER_URL: "${MAIN_SERVER_URL:-http://smartfactory-main.local:8088}"
+    ports:
+      - "${AI_SERVER_PORT:-8100}:8100"
+    volumes:
+      - ./config:/app/ai-server/config:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/api/v1/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3

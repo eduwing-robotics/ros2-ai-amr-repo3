@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://smartfactory.local/contracts/vision-monitor-event.v1.schema.json",
+  "title": "SmartFactory VisionMonitorEvent v1",
+  "description": "Compact Main-facing AI Server monitor/evidence payload. This contract is advisory-only and intentionally excludes bbox/mask/raw detections and any control-action output.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "event_type",
+    "source",
+    "robot_id",
+    "task_id",
+    "command_id",
+    "result",
+    "severity",
+    "confidence",
+    "reason_code",
+    "trusted",
+    "observed_at",
+    "image_url",
+    "policy_version",
+    "profile_id",
+    "threshold_set_id",
+    "data_json"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "const": "vision-monitor-event.v1"},
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "HUMAN_DETECTED",
+        "DROPPED_ITEM_CANDIDATE",
+        "ITEM_PICKED",
+        "ITEM_PLACED",
+        "LIFT_LOAD_EVIDENCE",
+        "LIFT_LOAD_UNCERTAIN",
+        "NO_DECISION",
+        "NO_ACTIVE_MONITOR",
+        "IGNORED"
+      ]
+    },
+    "source": {"type": "string", "enum": ["global_cam_01", "tb3_1_picam", "tb3_2_picam"]},
+    "robot_id": {"type": ["string", "null"], "enum": ["tb3_1", "tb3_2", null]},
+    "task_id": {"type": ["integer", "string", "null"]},
+    "command_id": {"type": ["integer", "string", "null"]},
+    "result": {
+      "type": "string",
+      "enum": ["ADVISORY", "CANDIDATE", "PASS", "FAIL", "UNCERTAIN", "NO_DECISION", "NO_ACTIVE_MONITOR", "IGNORED"]
+    },
+    "severity": {"type": "string", "enum": ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+    "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "reason_code": {
+      "type": "string",
+      "enum": [
+        "HUMAN_DETECTED",
+        "TARGET_ITEM_OUTSIDE_DYNAMIC_CARRIER_ROI",
+        "TARGET_ITEM_INSIDE_DYNAMIC_CARRIER_ROI",
+        "EXPECTED_ITEM_VISIBLE_IN_DYNAMIC_CARRIER_ROI",
+        "EXPECTED_ITEM_MISSING_IN_DYNAMIC_CARRIER_ROI",
+        "EXPECTED_ITEM_COUNT_MATCH_AND_STABLE",
+        "EXPECTED_ITEM_COUNT_MISMATCH",
+        "LOW_CONFIDENCE",
+        "LOW_PIXEL_BUDGET",
+        "IGNORED_ALLOWED_ZONE",
+        "NO_ACTIVE_MONITOR",
+        "NO_RELEVANT_DETECTION",
+        "ROI_CONFLICT",
+        "UNCERTAIN_ROI_CONFLICT",
+        "AMBIGUOUS_DYNAMIC_CARRIER_ROI",
+        "MODEL_UNAVAILABLE",
+        "SOURCE_STALE",
+        "POLICY_NOT_APPLICABLE"
+      ]
+    },
+    "trusted": {"type": "boolean", "const": false},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "image_url": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "pattern": "^/api/v1/(vision|evidence)/[A-Za-z0-9_./?=&%:-]+$"
+    },
+    "policy_version": {"type": "string", "minLength": 1},
+    "profile_id": {"type": "string", "minLength": 1},
+    "threshold_set_id": {"type": "string", "minLength": 1},
+    "data_json": {"$ref": "#/$defs/compact_data_json"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"result": {"const": "NO_ACTIVE_MONITOR"}}, "required": ["result"]},
+      "then": {"properties": {"event_type": {"const": "NO_ACTIVE_MONITOR"}, "reason_code": {"const": "NO_ACTIVE_MONITOR"}}}
+    },
+    {
+      "if": {"properties": {"result": {"const": "NO_DECISION"}}, "required": ["result"]},
+      "then": {"properties": {"event_type": {"const": "NO_DECISION"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "HUMAN_DETECTED"}}, "required": ["event_type"]},
+      "then": {"properties": {"result": {"const": "ADVISORY"}, "reason_code": {"const": "HUMAN_DETECTED"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"const": "DROPPED_ITEM_CANDIDATE"}}, "required": ["event_type"]},
+      "then": {"properties": {"result": {"enum": ["ADVISORY", "CANDIDATE"]}, "source": {"const": "global_cam_01"}}}
+    },
+    {
+      "if": {"properties": {"event_type": {"enum": ["ITEM_PICKED", "ITEM_PLACED"]}}, "required": ["event_type"]},
+      "then": {"properties": {"result": {"const": "PASS"}}}
+    },
+    {
+      "if": {"properties": {"result": {"const": "UNCERTAIN"}}, "required": ["result"]},
+      "then": {"properties": {"event_type": {"enum": ["LIFT_LOAD_UNCERTAIN", "NO_DECISION"]}}}
+    }
+  ],
+  "$defs": {
+    "compact_value": {
+      "anyOf": [
+        {"type": "null"},
+        {"type": "boolean"},
+        {"type": "number"},
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "E_STOP",
+              "HOLD",
+              "STOP_COMMAND",
+              "MOTION_CANCELLED"
+            ]
+          }
+        },
+        {
+          "type": "array",
+          "items": {"$ref": "#/$defs/compact_value"}
+        },
+        {"$ref": "#/$defs/compact_object"}
+      ]
+    },
+    "compact_object": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/compact_value"},
+      "propertyNames": {
+        "not": {
+          "enum": [
+            "bbox",
+            "bbox_xyxy",
+            "mask",
+            "mask_rle",
+            "polygon",
+            "raw_detections",
+            "detections",
+            "E_STOP",
+            "HOLD",
+            "STOP_COMMAND",
+            "MOTION_CANCELLED"
+          ]
+        }
+      }
+    },
+    "compact_data_json": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/compact_value"},
+      "propertyNames": {
+        "not": {
+          "enum": [
+            "bbox",
+            "bbox_xyxy",
+            "mask",
+            "mask_rle",
+            "polygon",
+            "raw_detections",
+            "detections",
+            "E_STOP",
+            "HOLD",
+            "STOP_COMMAND",
+            "MOTION_CANCELLED"
+          ]
+        }
+      },
+      "required": ["result", "reason_code", "policy_version", "profile_id", "threshold_set_id"],
+      "properties": {
+        "result": {
+          "type": "string",
+          "enum": ["ADVISORY", "CANDIDATE", "PASS", "FAIL", "UNCERTAIN", "NO_DECISION", "NO_ACTIVE_MONITOR", "IGNORED"]
+        },
+        "reason_code": {"type": "string"},
+        "policy_version": {"type": "string"},
+        "profile_id": {"type": "string"},
+        "threshold_set_id": {"type": "string"},
+        "assignment_status": {"type": ["string", "null"], "enum": ["OWNED", "AMBIGUOUS", "UNASSIGNED", "NOT_APPLICABLE", null]},
+        "related_robot_ids": {
+          "type": "array",
+          "items": {"type": "string", "enum": ["tb3_1", "tb3_2"]},
+          "uniqueItems": true
+        },
+        "task_id_ref": {"type": ["integer", "string", "null"]},
+        "source_event_id": {"type": ["string", "null"]},
+        "ai_judgement": {
+          "anyOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/compact_object"}
+          ]
+        }
+      }
+    }
+  }
+}

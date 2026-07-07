@@ -1,0 +1,457 @@
+{
+  "$id": "https://smartfactory.local/contracts/lift-roi-evidence.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SmartFactory LiftRoiEvidence v1",
+  "description": "AI Server evidence payload for lift ROI load counting and pickup/dropoff verification. This is separate from VisionEvent v1; WMS/Main owns final task and inventory state transitions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_id",
+    "timestamp",
+    "source",
+    "robot_id",
+    "frame_id",
+    "operation",
+    "task_id",
+    "image",
+    "roi",
+    "expected_count",
+    "stable_frames",
+    "count_stable",
+    "lift_sensor",
+    "load",
+    "dropped_item_count",
+    "verification",
+    "policy",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "lift-roi-evidence.v1",
+      "type": "string"
+    },
+    "evidence_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "timestamp": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "source": {
+      "enum": [
+        "global_cam_01",
+        "tb3_1_picam",
+        "tb3_2_picam"
+      ],
+      "type": "string"
+    },
+    "robot_id": {
+      "enum": [
+        "tb3_1",
+        "tb3_2",
+        null
+      ],
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "frame_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "operation": {
+      "enum": [
+        "PICKUP",
+        "DROPOFF",
+        "MONITOR"
+      ],
+      "type": "string"
+    },
+    "task_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "image": {
+      "$ref": "#/$defs/image"
+    },
+    "roi": {
+      "$ref": "#/$defs/roi"
+    },
+    "expected_count": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "stable_frames": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "count_stable": {
+      "type": "boolean"
+    },
+    "lift_sensor": {
+      "$ref": "#/$defs/lift_sensor"
+    },
+    "load": {
+      "$ref": "#/$defs/load_evaluation"
+    },
+    "dropped_item_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "verification": {
+      "$ref": "#/$defs/verification"
+    },
+    "policy": {
+      "$ref": "#/$defs/policy"
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "const": "global_cam_01"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "then": {
+        "properties": {
+          "robot_id": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "const": "tb3_1_picam"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "then": {
+        "properties": {
+          "robot_id": {
+            "const": "tb3_1"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "source": {
+            "const": "tb3_2_picam"
+          }
+        },
+        "required": [
+          "source"
+        ]
+      },
+      "then": {
+        "properties": {
+          "robot_id": {
+            "const": "tb3_2"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "point_xy": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "number"
+      }
+    },
+    "roi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "roi_id",
+        "kind",
+        "polygon_xy"
+      ],
+      "properties": {
+        "roi_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "LIFT",
+            "DROPPED_ITEM",
+            "TARGET_SLOT"
+          ],
+          "type": "string"
+        },
+        "polygon_xy": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/point_xy"
+          }
+        }
+      }
+    },
+    "lift_sensor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lift_up",
+        "lift_down_complete",
+        "backoff_complete"
+      ],
+      "properties": {
+        "lift_up": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "lift_down_complete": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "backoff_complete": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "item_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "class_name",
+        "bbox_xyxy",
+        "confidence",
+        "track_id",
+        "evidence_type",
+        "mask_area_px",
+        "center_inside_roi",
+        "overlap_ratio",
+        "reason"
+      ],
+      "properties": {
+        "class_name": {
+          "enum": [
+            "box",
+            "pallet",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "bbox_xyxy": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number"
+          }
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "track_id": {
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        },
+        "evidence_type": {
+          "enum": [
+            "bbox",
+            "instance_mask"
+          ],
+          "type": "string"
+        },
+        "mask_area_px": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "center_inside_roi": {
+          "type": "boolean"
+        },
+        "overlap_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reason": {
+          "enum": [
+            "accepted",
+            "class_not_load",
+            "low_confidence",
+            "center_outside_roi",
+            "insufficient_roi_overlap",
+            "invalid_mask_shape",
+            "unknown"
+          ],
+          "type": "string"
+        }
+      }
+    },
+    "load_evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "empty",
+        "accepted_items",
+        "rejected_items"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "empty": {
+          "type": "boolean"
+        },
+        "accepted_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item_decision"
+          }
+        },
+        "rejected_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item_decision"
+          }
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "CONFIRMED",
+            "CANDIDATE",
+            "FAILED"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_version",
+        "load_classes",
+        "min_confidence",
+        "min_overlap_ratio"
+      ],
+      "properties": {
+        "policy_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "load_classes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "box",
+              "pallet"
+            ],
+            "type": "string"
+          }
+        },
+        "min_confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "min_overlap_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "latency_ms"
+      ],
+      "properties": {
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "latency_ms": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

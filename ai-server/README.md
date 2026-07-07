@@ -1,0 +1,79 @@
+# SmartFactory AI Server Deploy Package
+
+This folder is the standalone deploy root for the SmartFactory AI Server. It is designed to be copied as `ai-server/` into the target deployment repository and run from this directory without referencing the original SmartFactory monorepo.
+
+## Current capability
+
+- FastAPI AI Server on port `8100`.
+- Camera frame ingest, latest-frame/overlay APIs, MJPEG/WebRTC-oriented stream discovery, and low-load lab operator scripts.
+- Main-facing ArUco + ZoneROI lift/load evidence endpoint: `POST /api/v1/vision/evidence/lift-load/evaluate`.
+- Person-hazard advisory/read-model APIs for PiCam sources. AI Server emits evidence/advisory state only; Main/Movement owns task, inventory, stop, slow, and motion decisions.
+
+Legacy `/api/v1/lift-roi/evaluate*` endpoints are not part of this deploy package.
+
+## Quick start: no hardware
+
+```bash
+cd ai-server
+./scripts/ai/setup_ai_server_env.sh
+./scripts/ai/test_ai_server.sh
+./scripts/ai/run_ai_server.sh --reload
+```
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8100/api/v1/health
+```
+
+## Low-load lab runtime
+
+Low-load mode keeps stream/operator ergonomics while limiting inference load.
+Run `./scripts/ai/setup_ai_server_env.sh` first. It creates `.venv/`, installs
+the model runtime, and prepares the default pretrained weights under `models/`
+(`yolov8n.pt`, `yolov8s-seg.pt`). The generated environment and weights are
+ignored by git.
+
+```bash
+cd ai-server
+./scripts/vision/sf_lab.sh low-load
+./scripts/vision/sf_lab.sh status
+./scripts/vision/sf_lab.sh urls low-load
+./scripts/vision/sf_lab.sh api health
+./scripts/vision/sf_lab.sh api streams
+./scripts/vision/sf_lab.sh api worker-status global_cam_01
+```
+
+Runtime restart/control APIs stay disabled unless the operator explicitly configures the runtime-control token and allow-list environment variables.
+
+The live runtime does not require tmux by default. If an operator wants the old
+pane guard, run with `SF_VISION_TMUX_GUARD_ENABLED=true`.
+
+## Hardware validation boundary
+
+Automated tests are no-hardware checks. Hardware-required validation must be recorded separately:
+
+1. Global camera stream is visible and not stale.
+2. `global_cam_01/full` overlay updates within the expected stale threshold.
+3. ArUco item markers `20..49` are visible inside configured ZoneROI(s).
+4. Lift/load endpoint returns expected `PASS`, `FAIL`, `UNCERTAIN`, and `NO_DECISION` evidence under controlled cases.
+5. PiCam person-hazard advisory updates for each connected TurtleBot camera.
+
+## API and contracts
+
+- API reference: `docs/api.md`
+- Lift/load contract: `docs/contracts/lift-load-evidence.md`
+- OpenAPI snapshot and JSON schemas: `docs/contracts/`
+
+## Quality gates
+
+```bash
+cd ai-server
+./scripts/ai/test_ai_server.sh
+bash -n scripts/ai/*.sh scripts/vision/*.sh
+python3 scripts/validate/validate_deployment_assets.py
+python3 scripts/validate/self_containment_audit.py
+.venv/bin/python -m ruff check app tests scripts
+```
+
+The final command requires dev dependencies from `requirements-dev.txt`.

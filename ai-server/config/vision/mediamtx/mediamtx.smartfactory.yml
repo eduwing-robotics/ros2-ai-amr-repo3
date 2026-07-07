@@ -1,0 +1,41 @@
+# SmartFactory Vision MediaMTX sidecar reference config.
+#
+# The operator runner `scripts/vision/run_webrtc_sidecar_mediamtx.sh` generates
+# a runtime copy under `.run/vision/webrtc-sidecar/mediamtx.yml` with profile
+# ports and public host injected. Keep this file as a human-readable baseline.
+
+logLevel: info
+logDestinations: [stdout]
+
+api: true
+apiAddress: 127.0.0.1:19997
+metrics: false
+pprof: false
+playback: false
+
+rtsp: true
+rtspTransports: [tcp]
+rtspAddress: 127.0.0.1:18554
+rtmp: false
+hls: false
+srt: false
+moq: false
+
+webrtc: true
+webrtcAddress: :8889
+webrtcEncryption: false
+webrtcAllowOrigins: ["http://smartfactory-main.local:8088", "http://localhost:8088", "http://127.0.0.1:8088"]
+webrtcLocalUDPAddress: :8189
+webrtcLocalTCPAddress: ""
+webrtcIPsFromInterfaces: true
+webrtcAdditionalHosts: [smartfactory-vision.local]
+
+pathDefaults:
+  source: publisher
+  overridePublisher: false
+
+paths:
+  global_cam_01_full:
+    source: publisher
+  global_cam_01_lift_roi:
+    source: publisher

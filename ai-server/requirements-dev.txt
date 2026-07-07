@@ -1,0 +1,6 @@
+-r requirements.txt
+pre-commit
+pytest
+ruff
+shellcheck-py
+shfmt-py

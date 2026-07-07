@@ -1,0 +1,57 @@
+{
+  "schema_version": "lift-roi-evidence.v1",
+  "evidence_id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  "timestamp": "2026-06-11T12:12:00+09:00",
+  "source": "global_cam_01",
+  "robot_id": null,
+  "frame_id": "global_camera_frame",
+  "operation": "DROPOFF",
+  "task_id": "TASK-OUT-0001",
+  "image": {"width": 1280, "height": 720},
+  "roi": {
+    "roi_id": "OUTBOUND_SLOT_A_ROI",
+    "kind": "TARGET_SLOT",
+    "polygon_xy": [[500, 220], [760, 220], [790, 520], [470, 520]]
+  },
+  "expected_count": 1,
+  "stable_frames": 3,
+  "count_stable": true,
+  "lift_sensor": {
+    "lift_up": null,
+    "lift_down_complete": true,
+    "backoff_complete": true
+  },
+  "load": {
+    "count": 1,
+    "empty": false,
+    "accepted_items": [
+      {
+        "class_name": "pallet",
+        "bbox_xyxy": [540, 260, 720, 470],
+        "confidence": 0.86,
+        "track_id": 12,
+        "evidence_type": "bbox",
+        "mask_area_px": null,
+        "center_inside_roi": true,
+        "overlap_ratio": 0.91,
+        "reason": "accepted"
+      }
+    ],
+    "rejected_items": []
+  },
+  "dropped_item_count": 0,
+  "verification": {
+    "status": "CONFIRMED",
+    "reason": "dropoff_vision_verified"
+  },
+  "policy": {
+    "policy_version": "mvp1-lift-roi",
+    "load_classes": ["box", "pallet"],
+    "min_confidence": 0.5,
+    "min_overlap_ratio": 0.6
+  },
+  "metadata": {
+    "model": "mock-yolo-det",
+    "latency_ms": 18.0
+  }
+}

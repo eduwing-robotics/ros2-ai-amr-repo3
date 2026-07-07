@@ -1,0 +1,45 @@
+{
+  "schema_version": "lift-roi-evidence.v1",
+  "evidence_id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  "timestamp": "2026-06-11T12:16:00+09:00",
+  "source": "tb3_1_picam",
+  "robot_id": "tb3_2",
+  "frame_id": "tb3_1_pi_camera_optical_frame",
+  "operation": "MONITOR",
+  "task_id": null,
+  "image": {"width": 640, "height": 480},
+  "roi": {
+    "roi_id": "TB3_1_LIFT_ROI",
+    "kind": "LIFT",
+    "polygon_xy": [[220, 180], [420, 180], [440, 360], [200, 360]]
+  },
+  "expected_count": null,
+  "stable_frames": 1,
+  "count_stable": false,
+  "lift_sensor": {
+    "lift_up": null,
+    "lift_down_complete": null,
+    "backoff_complete": null
+  },
+  "load": {
+    "count": 0,
+    "empty": true,
+    "accepted_items": [],
+    "rejected_items": []
+  },
+  "dropped_item_count": 0,
+  "verification": {
+    "status": "CANDIDATE",
+    "reason": "monitor_only"
+  },
+  "policy": {
+    "policy_version": "mvp1-lift-roi",
+    "load_classes": ["box", "pallet"],
+    "min_confidence": 0.5,
+    "min_overlap_ratio": 0.6
+  },
+  "metadata": {
+    "model": null,
+    "latency_ms": null
+  }
+}
