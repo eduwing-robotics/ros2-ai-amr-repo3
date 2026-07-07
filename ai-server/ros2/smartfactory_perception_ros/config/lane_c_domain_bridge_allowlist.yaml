@@ -1,0 +1,41 @@
+# SmartFactory Lane C ROS domain bridge allowlist (passive only).
+# This file is documentation/config seed; do not expose the full ROS graph.
+# The forbidden section below documents denied motion/control/introspection topics.
+allowed_ingest_topics:
+  - topic: /tb3_1/camera/image_raw/compressed
+    type: sensor_msgs/msg/CompressedImage
+    direction: robot_to_central
+    source_id: tb3_1_picam
+  - topic: /tb3_2/camera/image_raw/compressed
+    type: sensor_msgs/msg/CompressedImage
+    direction: robot_to_central
+    source_id: tb3_2_picam
+  - topic: /global_camera/image_raw/compressed
+    type: sensor_msgs/msg/CompressedImage
+    direction: camera_to_central
+    source_id: global_cam_01
+allowed_publish_topics:
+  - topic: /sf/vision/sources/tb3_1_picam/overlay/compressed
+    type: sensor_msgs/msg/CompressedImage
+    direction: central_to_gui
+  - topic: /sf/vision/sources/tb3_2_picam/overlay/compressed
+    type: sensor_msgs/msg/CompressedImage
+    direction: central_to_gui
+  - topic: /sf/vision/sources/global_cam_01/overlay/compressed
+    type: sensor_msgs/msg/CompressedImage
+    direction: central_to_gui
+  - topic: /sf/vision/events
+    type: std_msgs/msg/String
+    direction: central_to_main_or_gui
+forbidden_topic_globs:
+  - /cmd_vel
+  - '*/cmd_vel'
+  - /navigate_to_pose
+  - /follow_path
+  - /controller_server/*
+  - /bt_navigator/*
+  - /waypoint_follower/*
+  - /parameter_events
+  - /rosout
+  - /tf
+  - /tf_static

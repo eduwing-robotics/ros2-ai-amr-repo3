@@ -655,10 +655,24 @@ start_gopro() {
   fi
 }
 
+
+gopro_adapter_input_needs_managed_stream() {
+  case "${GOPRO_ADAPTER_INPUT:-}" in
+    udp://0.0.0.0:${GOPRO_PORT:-8554} | udp://:${GOPRO_PORT:-8554} | "") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 start_gopro_stream() {
   if ! is_truthy "${SF_VISION_GOPRO_ENABLED}"; then
     return 0
   fi
+  if ! gopro_adapter_input_needs_managed_stream; then
+    echo "[sf-vision] using direct GoPro/global camera adapter input: ${GOPRO_ADAPTER_INPUT}; skipping managed OpenGoPro stream helper"
+    GOPRO_STREAM_AVAILABLE=true
+    return 0
+  fi
+
   local py="${AI_SERVER_VENV_DIR}/bin/python"
   if [ ! -x "${py}" ]; then
     echo "ERROR: AI Server python not found: ${py}" >&2

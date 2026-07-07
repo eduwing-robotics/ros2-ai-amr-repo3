@@ -10,6 +10,7 @@ htmlcov/
 *.log
 logs/
 run/
+.run/
 media/
 captures/
 models/

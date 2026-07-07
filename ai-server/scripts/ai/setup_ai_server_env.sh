@@ -20,6 +20,7 @@ fi
 "${VENV_DIR}/bin/python" -m pip install --upgrade pip setuptools wheel
 "${VENV_DIR}/bin/python" -m pip install -r "${SERVICE_DIR}/requirements-dev.txt"
 "${VENV_DIR}/bin/python" -m pip install -r "${SERVICE_DIR}/requirements-model.txt"
+"${VENV_DIR}/bin/python" -m pip install -r "${SERVICE_DIR}/requirements-gopro.txt"
 
 mkdir -p "${MODEL_DIR}"
 (
