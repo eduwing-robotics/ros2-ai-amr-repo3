@@ -177,7 +177,7 @@ def test_overlay_renderer_uses_explicit_polygon_label_anchor(monkeypatch):
     frame = store.put_decoded(source="global_cam_01", image_bgr=image)
     captured_labels = []
 
-    def capture_label(image, text, x, y, color):
+    def capture_label(image, text, x, y, color, **_kwargs):
         captured_labels.append((text, x, y, color))
 
     monkeypatch.setattr(overlay_module, "_draw_label", capture_label)

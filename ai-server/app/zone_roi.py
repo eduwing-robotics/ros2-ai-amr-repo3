@@ -316,6 +316,8 @@ def zone_to_overlay_event(
         "overlay_polygon_xy": polygon_xy,
         "overlay_color_bgr": color_bgr,
         "overlay_label": f"{label_prefix} {zone.label}",
+        "overlay_label_scale": 0.7,
+        "overlay_label_thickness": 2,
         "overlay_label_xy": _label_anchor_xy(
             polygon_xy,
             image_width=image_width,

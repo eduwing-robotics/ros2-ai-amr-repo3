@@ -57,18 +57,29 @@ def _local_clock_label() -> str:
     return datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
 
 
-def _draw_label(image: np.ndarray, text: str, x: int, y: int, color: tuple[int, int, int]) -> None:
+def _draw_label(
+    image: np.ndarray,
+    text: str,
+    x: int,
+    y: int,
+    color: tuple[int, int, int],
+    *,
+    scale: float = 0.45,
+    thickness: int = 1,
+) -> None:
     font = cv2.FONT_HERSHEY_SIMPLEX
-    scale = 0.45
-    thickness = 1
+    scale = max(0.1, float(scale))
+    thickness = max(1, int(thickness))
+    pad_x = max(3, int(round(7 * scale)))
+    pad_y = max(2, int(round(5 * scale)))
     (text_width, text_height), baseline = cv2.getTextSize(text, font, scale, thickness)
-    y_top = max(0, y - text_height - baseline - 4)
-    x_right = min(image.shape[1] - 1, x + text_width + 6)
-    cv2.rectangle(image, (x, y_top), (x_right, y_top + text_height + baseline + 4), color, -1)
+    y_top = max(0, y - text_height - baseline - (pad_y * 2))
+    x_right = min(image.shape[1] - 1, x + text_width + (pad_x * 2))
+    cv2.rectangle(image, (x, y_top), (x_right, y_top + text_height + baseline + (pad_y * 2)), color, -1)
     cv2.putText(
         image,
         text,
-        (x + 3, y_top + text_height + 1),
+        (x + pad_x, y_top + text_height + pad_y),
         font,
         scale,
         (255, 255, 255),
@@ -153,7 +164,17 @@ def _draw_overlay_polygon(image: np.ndarray, event: dict[str, Any], *, stale: bo
     label = metadata.get("overlay_label") if isinstance(metadata, dict) else None
     if isinstance(label, str) and label:
         x, y = _overlay_label_xy(event, polygon[0])
-        _draw_label(image, label, max(0, x), max(14, y), color)
+        scale = metadata.get("overlay_label_scale", 0.45) if isinstance(metadata, dict) else 0.45
+        thickness = metadata.get("overlay_label_thickness", 1) if isinstance(metadata, dict) else 1
+        _draw_label(
+            image,
+            label,
+            max(0, x),
+            max(14, y),
+            color,
+            scale=float(scale) if isinstance(scale, int | float) else 0.45,
+            thickness=int(thickness) if isinstance(thickness, int | float) else 1,
+        )
 
 
 def _is_visual_overlay_event(event: dict[str, Any]) -> bool:
