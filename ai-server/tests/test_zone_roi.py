@@ -85,6 +85,33 @@ def test_zone_roi_config_builds_visual_overlay_events(tmp_path) -> None:
     assert events[1]["metadata"]["overlay_label"] == "REF charging"
 
 
+
+def test_zone_roi_config_accepts_explicit_overlay_label_anchor(tmp_path) -> None:
+    path = _zone_config(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["zones"][0]["overlay_label_anchor_normalized"] = [0.25, 0.3]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    config = load_zone_roi_config(path)
+    events = zone_roi_overlay_events(
+        config,
+        source="global_cam_01",
+        image_width=200,
+        image_height=100,
+    )
+
+    assert events[0]["metadata"]["overlay_label_xy"] == [50.0, 30.0]
+
+
+def test_zone_roi_config_rejects_invalid_overlay_label_anchor(tmp_path) -> None:
+    path = _zone_config(tmp_path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["zones"][0]["overlay_label_anchor_normalized"] = [1.2, 0.3]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="overlay_label_anchor_normalized"):
+        load_zone_roi_config(path)
+
 def test_zone_roi_draft_config_uses_compact_storage_labels() -> None:
     config = load_zone_roi_config(
         REPO_ROOT / "config" / "vision" / "zone_rois" / "global_cam_01_lab_draft.json"

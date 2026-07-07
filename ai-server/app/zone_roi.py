@@ -19,6 +19,7 @@ class ZoneRoi:
     natural_item_location: bool
     polygon_normalized: tuple[Point, ...]
     reference_markers: tuple[int, ...] = ()
+    overlay_label_anchor_normalized: Point | None = None
     notes: str = ""
 
 
@@ -77,25 +78,35 @@ def _parse_reference_markers(value: Any, *, path: str) -> tuple[int, ...]:
     return tuple(markers)
 
 
+def _parse_normalized_point(value: Any, *, path: str) -> Point:
+    if not isinstance(value, list | tuple) or len(value) != 2:
+        raise ValueError(f"{path} must be [x, y]")
+    x_raw, y_raw = value
+    if isinstance(x_raw, bool) or isinstance(y_raw, bool):
+        raise ValueError(f"{path} coordinates must be numeric")
+    try:
+        x = float(x_raw)
+        y = float(y_raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{path} coordinates must be numeric") from exc
+    if not math.isfinite(x) or not math.isfinite(y) or x < 0.0 or x > 1.0 or y < 0.0 or y > 1.0:
+        raise ValueError(f"{path} coordinates must be finite numbers in [0, 1]")
+    return (x, y)
+
+
 def _parse_normalized_polygon(value: Any, *, path: str) -> tuple[Point, ...]:
     if not isinstance(value, list) or len(value) < 3:
         raise ValueError(f"{path} must be a list of at least 3 normalized x/y points")
-    points: list[Point] = []
-    for index, item in enumerate(value):
-        if not isinstance(item, list | tuple) or len(item) != 2:
-            raise ValueError(f"{path}[{index}] must be [x, y]")
-        x_raw, y_raw = item
-        if isinstance(x_raw, bool) or isinstance(y_raw, bool):
-            raise ValueError(f"{path}[{index}] coordinates must be numeric")
-        try:
-            x = float(x_raw)
-            y = float(y_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"{path}[{index}] coordinates must be numeric") from exc
-        if not math.isfinite(x) or not math.isfinite(y) or x < 0.0 or x > 1.0 or y < 0.0 or y > 1.0:
-            raise ValueError(f"{path}[{index}] coordinates must be finite numbers in [0, 1]")
-        points.append((x, y))
-    return tuple(points)
+    return tuple(
+        _parse_normalized_point(item, path=f"{path}[{index}]")
+        for index, item in enumerate(value)
+    )
+
+
+def _parse_optional_normalized_point(value: Any, *, path: str) -> Point | None:
+    if value is None:
+        return None
+    return _parse_normalized_point(value, path=path)
 
 
 def _parse_location_aliases(value: Any, *, path: str) -> dict[str, str]:
@@ -157,6 +168,10 @@ def load_zone_roi_config(path: str | Path, *, enabled: bool = True) -> ZoneRoiCo
                 ),
                 reference_markers=_parse_reference_markers(
                     zone.get("reference_markers"), path=f"zones[{index}].reference_markers"
+                ),
+                overlay_label_anchor_normalized=_parse_optional_normalized_point(
+                    zone.get("overlay_label_anchor_normalized"),
+                    path=f"zones[{index}].overlay_label_anchor_normalized",
                 ),
                 notes=_optional_string(zone.get("notes")),
             )
@@ -249,8 +264,21 @@ def find_zone_by_id(config: ZoneRoiConfig, zone_id: str) -> ZoneRoi | None:
 
 
 def _label_anchor_xy(
-    polygon_xy: list[list[float]], *, image_width: int, image_height: int
+    polygon_xy: list[list[float]],
+    *,
+    image_width: int,
+    image_height: int,
+    anchor_normalized: Point | None = None,
 ) -> list[float]:
+    if anchor_normalized is not None:
+        x = anchor_normalized[0] * image_width
+        y = anchor_normalized[1] * image_height
+        max_x = float(max(0, image_width - 1))
+        max_y = float(max(14, image_height - 1))
+        return [
+            max(0.0, min(max_x, x)),
+            max(14.0, min(max_y, y)),
+        ]
     # Place zone labels just inside the polygon instead of on the border.
     # The renderer treats y as a text baseline, so this keeps the label
     # readable and avoids covering/being covered by the top ROI line.
@@ -292,6 +320,7 @@ def zone_to_overlay_event(
             polygon_xy,
             image_width=image_width,
             image_height=image_height,
+            anchor_normalized=zone.overlay_label_anchor_normalized,
         ),
         "zone_roi": {
             "zone_id": zone.zone_id,

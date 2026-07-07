@@ -97,7 +97,11 @@
           0.98
         ]
       ],
-      "notes": "A1/A0 주변 하단 좌측 입고 구역 초안. 우측 경계를 확장해 바닥 기준 마커 배치 여유를 포함함."
+      "notes": "A1/A0 주변 하단 좌측 입고 구역 초안. 우측 경계를 확장해 바닥 기준 마커 배치 여유를 포함함.",
+      "overlay_label_anchor_normalized": [
+        0.265,
+        0.785
+      ]
     },
     {
       "zone_id": "charging_reference_zone",
@@ -126,7 +130,11 @@
           0.74
         ]
       ],
-      "notes": "A3/A4 주변 충전/대기 참고 구역. 우측 경계를 확장해 현장 바닥 기준 여유를 포함하며 target item 정상 방치 구역으로는 보지 않음."
+      "notes": "A3/A4 주변 충전/대기 참고 구역. 우측 경계를 확장해 현장 바닥 기준 여유를 포함하며 target item 정상 방치 구역으로는 보지 않음.",
+      "overlay_label_anchor_normalized": [
+        0.235,
+        0.525
+      ]
     },
     {
       "zone_id": "outbound_static_item_zone",
@@ -155,7 +163,11 @@
           0.47
         ]
       ],
-      "notes": "A5/A6 주변 상단 좌측 출고 구역 초안. 우측 경계를 확장해 바닥 기준 마커 배치 여유를 포함함."
+      "notes": "A5/A6 주변 상단 좌측 출고 구역 초안. 우측 경계를 확장해 바닥 기준 마커 배치 여유를 포함함.",
+      "overlay_label_anchor_normalized": [
+        0.205,
+        0.135
+      ]
     },
     {
       "zone_id": "storage_upper_static_item_zone",
@@ -184,7 +196,11 @@
           0.575
         ]
       ],
-      "notes": "A9/A10 구조물 위쪽 구역 초안. 상단 경계를 위로 확장해 바닥 기준 마커 배치 여유를 포함함."
+      "notes": "A9/A10 구조물 위쪽 구역 초안. 상단 경계를 위로 확장해 바닥 기준 마커 배치 여유를 포함함.",
+      "overlay_label_anchor_normalized": [
+        0.5,
+        0.395
+      ]
     },
     {
       "zone_id": "storage_lower_static_item_zone",
@@ -213,7 +229,11 @@
           0.94
         ]
       ],
-      "notes": "A9/A10 구조물 아래쪽 구역 초안. 하단 경계를 아래로 확장해 바닥 기준 마커 배치 여유를 포함함."
+      "notes": "A9/A10 구조물 아래쪽 구역 초안. 하단 경계를 아래로 확장해 바닥 기준 마커 배치 여유를 포함함.",
+      "overlay_label_anchor_normalized": [
+        0.5,
+        0.735
+      ]
     }
   ],
   "drop_watch_policy_draft": {

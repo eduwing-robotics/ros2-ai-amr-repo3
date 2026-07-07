@@ -62,6 +62,7 @@ Automated tests are no-hardware checks. Hardware-required validation must be rec
 ## API and contracts
 
 - API reference: `docs/api.md`
+- Live API smoke tests: `docs/live-api-smoke-tests.md`
 - Lift/load contract: `docs/contracts/lift-load-evidence.md`
 - OpenAPI snapshot and JSON schemas: `docs/contracts/`
 

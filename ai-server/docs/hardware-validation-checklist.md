@@ -1,6 +1,6 @@
 # Hardware Validation Checklist
 
-Record these checks separately from no-hardware automated tests.
+Record these checks separately from no-hardware automated tests. See `docs/live-api-smoke-tests.md` for command examples.
 
 - [ ] Global camera stream visible at the low-load URL.
 - [ ] Overlay for `global_cam_01/full` updates and is not stale.
