@@ -182,3 +182,27 @@ def test_raw_video_rtsp_publisher_command_is_low_latency_h264() -> None:
     assert "zerolatency" in command
     assert "keyint=15:min-keyint=15:scenecut=0" in command
     assert command[-1] == "rtsp://127.0.0.1:18554/tb3_1_picam_full"
+
+
+def test_letterbox_frame_and_events_scales_overlay_label_anchor() -> None:
+    frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    events = [
+        {
+            "class_name": "zone_roi",
+            "metadata": {
+                "overlay_polygon_xy": [[480, 270], [960, 270], [960, 540], [480, 540]],
+                "overlay_label": "ZONE inbound",
+                "overlay_label_xy": [528, 826.2],
+                "overlay_label_scale": 0.7,
+                "overlay_label_thickness": 2,
+            },
+        }
+    ]
+
+    _, mapped = letterbox_frame_and_events_bgr(frame, events, width=960, height=540)
+
+    metadata = mapped[0]["metadata"]
+    assert metadata["overlay_polygon_xy"] == [[240, 135], [480, 135], [480, 270], [240, 270]]
+    assert metadata["overlay_label_xy"] == [264, 413]
+    assert metadata["overlay_label_scale"] == 0.7
+    assert metadata["overlay_label_thickness"] == 2

@@ -183,6 +183,14 @@ def letterbox_frame_and_events_bgr(
                     break
             if polygon:
                 copied_metadata["overlay_polygon_xy"] = polygon
+        raw_label_xy = metadata.get("overlay_label_xy")
+        if isinstance(raw_label_xy, list | tuple) and len(raw_label_xy) == 2:
+            try:
+                copied_metadata["overlay_label_xy"] = map_point(
+                    float(raw_label_xy[0]), float(raw_label_xy[1])
+                )
+            except (TypeError, ValueError):
+                pass
         return copied_metadata
 
     mapped: list[dict[str, Any]] = []
