@@ -34,6 +34,12 @@ the model runtime, and prepares the default pretrained weights under `models/`
 (`yolov8n.pt`, `yolov8s-seg.pt`). The generated environment and weights are
 ignored by git.
 
+For TurtleBot PiCam sources, the runtime loads
+`config/ros/fastdds-smartfactory.env` by default. If the lab robot or operator
+PC addresses differ, set `SMARTFACTORY_ROBOT_PEERS` and
+`SMARTFACTORY_OPERATOR_PEERS` before launch, or point `SF_VISION_ROS_ENV_FILE`
+at a small local override file.
+
 ```bash
 cd ai-server
 ./scripts/vision/sf_lab.sh low-load

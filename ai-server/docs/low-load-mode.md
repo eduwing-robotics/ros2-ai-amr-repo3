@@ -18,4 +18,14 @@ The setup downloads the default pretrained weights used by the low-load profile:
 These files are runtime artifacts, not repository files. To use another model,
 override `VISION_MODEL_PATH` and `VISION_MODEL_SOURCE_CONFIG_JSON` before launch.
 
+PiCam sources use the FastDDS robot-network defaults in
+`config/ros/fastdds-smartfactory.env`. For a different lab address plan, set
+`SMARTFACTORY_ROBOT_PEERS` and `SMARTFACTORY_OPERATOR_PEERS`, or set
+`SF_VISION_ROS_ENV_FILE` to a local override file before starting low-load mode.
+Check the resolved `ROS/DDS discovery` block with:
+
+```bash
+./scripts/vision/sf_vision.sh print-config lab-gopro-tb3-low-load
+```
+
 Use `./scripts/vision/sf_lab.sh urls low-load` after launch to print the active WebRTC URLs and MJPEG diagnostic fallbacks.

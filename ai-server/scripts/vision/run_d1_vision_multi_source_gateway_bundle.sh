@@ -141,6 +141,7 @@ check_prereqs() {
   if [ "${VISION_MODEL_WORKER_ENABLED}" = "true" ] && [ -n "${VISION_MODEL_SOURCE_CONFIG_JSON:-}" ]; then
     sf_validate_vision_model_source_config_json "${VISION_MODEL_SOURCE_CONFIG_JSON}"
   fi
+  warn_ros_discovery_config
   python3 -m py_compile "${ROOT_DIR}/scripts/vision/run_d1_vision_stream_gateway.py"
   (
     # shellcheck disable=SC1090
@@ -163,10 +164,11 @@ PY
 }
 
 print_config() {
-  local ip public_host
+  local ip public_host ros_setup
   ip="$(sf_lan_ip "${VISION_MAIN_HOST:-}")"
   ip="${ip:-127.0.0.1}"
   public_host="${VISION_PUBLIC_HOST:-smartfactory-vision.local}"
+  ros_setup="${ROS_SETUP:-/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash}"
   cat << CONFIG
 D1 Main-compatible multi-source gateway bundle
   root: ${ROOT_DIR}
@@ -181,6 +183,15 @@ D1 Main-compatible multi-source gateway bundle
   pipeline: async=${VISION_GATEWAY_ASYNC_PIPELINE}, inline_process=${VISION_GATEWAY_PROCESS_FRAME_INLINE}, frame_process_path=${VISION_GATEWAY_FRAME_PROCESS_PATH}, period=${VISION_GATEWAY_PERIOD_SEC}s, output_period=${VISION_GATEWAY_PUBLISH_OUTPUT_PERIOD_SEC}s, retry_failed=${VISION_GATEWAY_RETRY_FAILED_FRAME}
   model_source_config: ${VISION_MODEL_SOURCE_CONFIG_JSON:-<none>}
   upstreams: ${VISION_STREAM_SOURCE_UPSTREAMS_JSON}
+
+ROS/DDS discovery:
+  ros_env_file: ${SF_VISION_ROS_ENV_FILE_LOADED:-<none>}
+  ROS_DISTRO=${ROS_DISTRO:-<unset>}
+  ROS_SETUP=${ros_setup}
+  RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-<unset>}
+  ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-<unset>}
+  ROS_STATIC_PEERS=${ROS_STATIC_PEERS:-<unset>}
+  FASTRTPS_DEFAULT_PROFILES_FILE=${FASTRTPS_DEFAULT_PROFILES_FILE:-<unset>}
 
 Main/GUI recommended stable base URLs (hostname-first):
   VISION_API_BASE_URL=http://${public_host}:${AI_SERVER_PORT}
@@ -206,6 +217,21 @@ Detected LAN fallback evidence (configure explicitly only if hostname resolution
   VISION_STREAM_FALLBACK_BASE_URL=http://${ip}:${VISION_STREAM_GATEWAY_PORT}
   LMS_VISION_STREAM_FALLBACK_BASE_URL=http://${ip}:${VISION_STREAM_GATEWAY_PORT}
 CONFIG
+}
+
+warn_ros_discovery_config() {
+  if ! is_truthy "${VISION_SOURCE_1_ENABLED:-true}" && ! is_truthy "${VISION_SOURCE_2_ENABLED:-true}"; then
+    return 0
+  fi
+  if [ "${RMW_IMPLEMENTATION:-}" != "rmw_fastrtps_cpp" ]; then
+    echo "[multi-gateway] WARN: PiCam sources are enabled but RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-<unset>} (expected rmw_fastrtps_cpp for the current FastDDS robot setup)" >&2
+  fi
+  if [ "${ROS_AUTOMATIC_DISCOVERY_RANGE:-}" != "LOCALHOST" ]; then
+    echo "[multi-gateway] WARN: PiCam sources are enabled but ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-<unset>} (expected LOCALHOST with static peers)" >&2
+  fi
+  if [ -z "${ROS_STATIC_PEERS:-}" ]; then
+    echo "[multi-gateway] WARN: PiCam sources are enabled but ROS_STATIC_PEERS is empty; FastDDS LOCALHOST/static-peer robot discovery may fail" >&2
+  fi
 }
 
 PIDS=()
@@ -357,17 +383,20 @@ main() {
       exit 0
       ;;
     --check)
+      sf_load_ros_network_env "${ROOT_DIR}"
       set_defaults
       check_prereqs
       print_config
       exit 0
       ;;
     --print-config)
+      sf_load_ros_network_env "${ROOT_DIR}"
       set_defaults
       print_config
       exit 0
       ;;
     --smoke-local)
+      sf_load_ros_network_env "${ROOT_DIR}"
       set_defaults
       smoke_local
       exit 0
@@ -378,8 +407,9 @@ main() {
       usage >&2
       exit 2
       ;;
-  esac
+	  esac
 
+  sf_load_ros_network_env "${ROOT_DIR}"
   set_defaults
   check_prereqs
   print_config

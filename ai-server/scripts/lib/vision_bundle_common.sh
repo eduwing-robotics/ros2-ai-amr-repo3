@@ -70,6 +70,51 @@ sf_ros_double() {
   fi
 }
 
+sf_env_truthy() {
+  case "${1:-}" in
+    1 | true | TRUE | yes | YES | y | Y | on | ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+sf_load_ros_network_env() {
+  local root_dir="${1:?root_dir is required}"
+  local default_file="${root_dir}/config/ros/fastdds-smartfactory.env"
+  local env_file="${SF_VISION_ROS_ENV_FILE:-}"
+  local loaded=""
+
+  if ! sf_env_truthy "${SF_VISION_ROS_ENV_ENABLED:-true}"; then
+    export SF_VISION_ROS_ENV_FILE_LOADED="<disabled>"
+    return 0
+  fi
+
+  if [ -n "${env_file}" ]; then
+    case "${env_file}" in
+      /*) ;;
+      *) env_file="${root_dir}/${env_file}" ;;
+    esac
+    if [ ! -f "${env_file}" ]; then
+      echo "ERROR: ROS network env file not found: ${env_file}" >&2
+      return 2
+    fi
+    # shellcheck disable=SC1090
+    source "${env_file}"
+    loaded="${env_file}"
+  fi
+
+  # Load the deploy default after an optional operator file so local peer
+  # variables from that file can shape the generated FastDDS defaults.
+  if sf_env_truthy "${SF_VISION_DEFAULT_ROS_ENV_ENABLED:-true}" &&
+    [ -f "${default_file}" ] &&
+    [ "${env_file:-}" != "${default_file}" ]; then
+    # shellcheck disable=SC1090
+    source "${default_file}"
+    loaded="${loaded:+${loaded};}${default_file}"
+  fi
+
+  export SF_VISION_ROS_ENV_FILE_LOADED="${loaded}"
+}
+
 sf_validate_vision_model_source_config_json() {
   local payload="${1:-}"
   [ -n "${payload}" ] || return 0

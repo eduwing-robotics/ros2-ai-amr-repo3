@@ -95,6 +95,9 @@ load_profile() {
   set -a
   # shellcheck disable=SC1090
   source "${PROFILE_FILE}"
+  set +a
+  sf_load_ros_network_env "${ROOT_DIR}"
+  set -a
   if [ -n "${SF_VISION_RUNTIME_OVERRIDE_FILE:-}" ]; then
     if [ ! -f "${SF_VISION_RUNTIME_OVERRIDE_FILE}" ]; then
       echo "ERROR: SF_VISION_RUNTIME_OVERRIDE_FILE not found: ${SF_VISION_RUNTIME_OVERRIDE_FILE}" >&2
@@ -183,6 +186,7 @@ load_profile() {
   export VISION_WEBRTC_COMPOSITOR_HEARTBEAT_MAX_AGE_S="${VISION_WEBRTC_COMPOSITOR_HEARTBEAT_MAX_AGE_S:-5}"
   export WEBRTC_SIDECAR_INPUT_MAX_FPS="${WEBRTC_SIDECAR_INPUT_MAX_FPS:-15}"
   export WEBRTC_SIDECAR_TARGET_FPS="${WEBRTC_SIDECAR_TARGET_FPS:-15}"
+  export SF_VISION_ROS_ENV_FILE_LOADED="${SF_VISION_ROS_ENV_FILE_LOADED:-}"
   export SF_VISION_TMUX_GUARD_ENABLED="${SF_VISION_TMUX_GUARD_ENABLED:-false}"
   export SF_VISION_TMUX_REQUIRED_CONTEXT="${SF_VISION_TMUX_REQUIRED_CONTEXT:-Smartfactory:3:Development}"
   if is_truthy "${SF_VISION_WEBRTC_SIDECAR_ENABLED}"; then
@@ -218,9 +222,10 @@ api_base_url() {
 }
 
 print_config() {
-  local ip
+  local ip ros_setup
   ip="$(sf_lan_ip "${VISION_MAIN_HOST:-}" || true)"
   ip="${ip:-127.0.0.1}"
+  ros_setup="${ROS_SETUP:-/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash}"
   cat << CONFIG
 SmartFactory Vision operator config
   profile: ${PROFILE}
@@ -237,6 +242,15 @@ Processes selected by profile:
   source1_enabled: ${VISION_SOURCE_1_ENABLED:-true} (${VISION_SOURCE_1_ID:-tb3_1_picam}, domain=${VISION_SOURCE_1_DOMAIN:-2})
   source2_enabled: ${VISION_SOURCE_2_ENABLED:-true} (${VISION_SOURCE_2_ID:-tb3_2_picam}, domain=${VISION_SOURCE_2_DOMAIN:-5})
   picam_publish_webrtc: ${PICAM_PUBLISH_WEBRTC}
+
+ROS/DDS discovery:
+  ros_env_file: ${SF_VISION_ROS_ENV_FILE_LOADED:-<none>}
+  ROS_DISTRO=${ROS_DISTRO:-<unset>}
+  ROS_SETUP=${ros_setup}
+  RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-<unset>}
+  ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-<unset>}
+  ROS_STATIC_PEERS=${ROS_STATIC_PEERS:-<unset>}
+  FASTRTPS_DEFAULT_PROFILES_FILE=${FASTRTPS_DEFAULT_PROFILES_FILE:-<unset>}
 
 Main-facing URLs:
   VISION_API_BASE_URL=$(api_base_url)
@@ -435,11 +449,17 @@ ensure_not_running() {
 }
 
 record_summary() {
-  cat > "${SUMMARY_FILE}" << SUMMARY
+cat > "${SUMMARY_FILE}" << SUMMARY
 PROFILE=${PROFILE}
 PROFILE_FILE=${PROFILE_FILE}
+SF_VISION_ROS_ENV_FILE_LOADED=${SF_VISION_ROS_ENV_FILE_LOADED:-}
 SF_VISION_RUNTIME_OVERRIDE_FILE=${SF_VISION_RUNTIME_OVERRIDE_FILE:-}
 SF_RUNTIME_CONTROL_RUN_ID=${SF_RUNTIME_CONTROL_RUN_ID:-}
+ROS_DISTRO=${ROS_DISTRO:-}
+RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-}
+ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-}
+ROS_STATIC_PEERS=${ROS_STATIC_PEERS:-}
+FASTRTPS_DEFAULT_PROFILES_FILE=${FASTRTPS_DEFAULT_PROFILES_FILE:-}
 VISION_API_BASE_URL=$(api_base_url)
 VISION_STREAM_BASE_URL=$(public_base_url)
 LMS_VISION_STREAM_BASE_URL=$(public_base_url)
@@ -616,6 +636,7 @@ run_enabled_preflights() {
   bash -n "${BASH_SOURCE[0]}"
   bash -n "${ROOT_DIR}/scripts/vision/run_d1_vision_multi_source_gateway_bundle.sh"
   bash -n "${ROOT_DIR}/scripts/vision/run_webrtc_sidecar_mediamtx.sh"
+  warn_ros_discovery_config
   if is_truthy "${SF_VISION_BUNDLE_ENABLED}"; then
     "${ROOT_DIR}/scripts/vision/run_d1_vision_multi_source_gateway_bundle.sh" --check
   fi
@@ -630,6 +651,24 @@ run_enabled_preflights() {
   fi
   if is_truthy "${SF_VISION_WEBRTC_SIDECAR_ENABLED}"; then
     "${ROOT_DIR}/scripts/vision/run_webrtc_sidecar_mediamtx.sh" --check
+  fi
+}
+
+warn_ros_discovery_config() {
+  if ! is_truthy "${SF_VISION_BUNDLE_ENABLED:-true}"; then
+    return 0
+  fi
+  if ! is_truthy "${VISION_SOURCE_1_ENABLED:-true}" && ! is_truthy "${VISION_SOURCE_2_ENABLED:-true}"; then
+    return 0
+  fi
+  if [ "${RMW_IMPLEMENTATION:-}" != "rmw_fastrtps_cpp" ]; then
+    echo "[sf-vision] WARN: PiCam sources are enabled but RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-<unset>} (expected rmw_fastrtps_cpp for the current FastDDS robot setup)" >&2
+  fi
+  if [ "${ROS_AUTOMATIC_DISCOVERY_RANGE:-}" != "LOCALHOST" ]; then
+    echo "[sf-vision] WARN: PiCam sources are enabled but ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-<unset>} (expected LOCALHOST with static peers)" >&2
+  fi
+  if [ -z "${ROS_STATIC_PEERS:-}" ]; then
+    echo "[sf-vision] WARN: PiCam sources are enabled but ROS_STATIC_PEERS is empty; FastDDS LOCALHOST/static-peer robot discovery may fail" >&2
   fi
 }
 
