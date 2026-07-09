@@ -1,0 +1,101 @@
+{
+  "robots": [
+    {
+      "robot_id": "tb3_burger_01",
+      "bridge_robot_id": "tb3_1",
+      "ros_domain_id": 2,
+      "center_domain_id": 1,
+      "namespace": "/tb3_burger_01",
+      "teleop_command_topic": "/mission/tb3_1/teleop_cmd",
+      "camera_topic": "/mission/tb3_1/camera/compressed",
+      "capabilities": [
+        "navigate",
+        "inbound",
+        "outbound",
+        "charge",
+        "lift"
+      ],
+      "enabled": true,
+      "active_map_yaml": "map/robot1_map.yaml",
+      "aruco_detection_topic": "/mission/tb3_1/aruco/detections",
+      "lift": {
+        "enabled": false,
+        "topics": {
+          "cmd_move": "/lift/cmd_move",
+          "cmd_home": "/lift/cmd_home",
+          "cmd_stop": "/lift/cmd_stop",
+          "position": "/lift/position",
+          "direction": "/lift/direction",
+          "limit_lower": "/lift/limit_lower"
+        },
+        "load_height_mm": 43.0,
+        "carry_height_mm": 50.0,
+        "unload_height_mm": 6.0,
+        "home_on_unload": false,
+        "position_tolerance_mm": 2.0,
+        "ready_timeout_sec": 3.0,
+        "move_timeout_sec": 45.0,
+        "home_timeout_sec": 25.0,
+        "levels": {
+          "1": {
+            "load_height_mm": 43.0,
+            "unload_height_mm": 6.0
+          },
+          "2": {
+            "load_height_mm": 50.0,
+            "unload_height_mm": 6.0
+          }
+        }
+      }
+    },
+    {
+      "robot_id": "tb3_burger_02",
+      "bridge_robot_id": "tb3_2",
+      "ros_domain_id": 5,
+      "center_domain_id": 1,
+      "namespace": "/tb3_burger_02",
+      "teleop_command_topic": "/mission/tb3_2/teleop_cmd",
+      "camera_topic": "/mission/tb3_2/camera/compressed",
+      "capabilities": [
+        "navigate",
+        "inbound",
+        "outbound",
+        "charge",
+        "lift"
+      ],
+      "enabled": true,
+      "active_map_yaml": "map/robot2_map.yaml",
+      "aruco_detection_topic": "/mission/tb3_2/aruco/detections",
+      "lift": {
+        "enabled": true,
+        "topics": {
+          "cmd_move": "/lift/cmd_move",
+          "cmd_home": "/lift/cmd_home",
+          "cmd_stop": "/lift/cmd_stop",
+          "position": "/lift/position",
+          "direction": "/lift/direction",
+          "limit_lower": "/lift/limit_lower"
+        },
+        "load_height_mm": 43.0,
+        "carry_height_mm": 50.0,
+        "unload_height_mm": 6.0,
+        "command_scale": 1.282,
+        "home_on_unload": false,
+        "position_tolerance_mm": 2.0,
+        "ready_timeout_sec": 3.0,
+        "move_timeout_sec": 45.0,
+        "home_timeout_sec": 25.0,
+        "levels": {
+          "1": {
+            "load_height_mm": 43.0,
+            "unload_height_mm": 6.0
+          },
+          "2": {
+            "load_height_mm": 50.0,
+            "unload_height_mm": 6.0
+          }
+        }
+      }
+    }
+  ]
+}

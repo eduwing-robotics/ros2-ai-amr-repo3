@@ -1,0 +1,9 @@
+name: tb3_1_to_center
+from_domain: 2
+to_domain: 1
+
+topics:
+  mission/tb3_1/camera/compressed:
+    type: sensor_msgs/msg/CompressedImage
+  mission/tb3_1/aruco/detections:
+    type: std_msgs/msg/String

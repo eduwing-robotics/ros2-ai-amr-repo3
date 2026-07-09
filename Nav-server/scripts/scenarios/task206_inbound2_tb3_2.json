@@ -1,0 +1,46 @@
+{
+  "scenario_id": "task206_inbound2_tb3_2",
+  "captured_at": "2026-07-03T17:44+09:00",
+  "description": "LMS task 206 — tb3_2 입고2: leave_dock → move_to_point → dock_transfer(load, marker 1)",
+  "robot_id": "tb3_2",
+  "task_id": 206,
+  "nav_base": "http://127.0.0.1:8002",
+  "map": "map/robot2_map.yaml",
+  "ros_domain_id": 5,
+  "callback_url": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
+  "commands": [
+    {
+      "step": 1,
+      "kind": "leave_dock",
+      "command_id": "task-206-tb3_2-leave_dock-MANUAL",
+      "observed_command_id": "task-206-tb3_2-leave_dock-20260703T084418124664",
+      "params": {},
+      "notes": "대기 주차에서 후진 탈출. 실측: 0.05 m/s, 7.0 s"
+    },
+    {
+      "step": 2,
+      "kind": "move_to_point",
+      "command_id": "task-206-tb3_2-move_inbound2-MANUAL",
+      "params": {
+        "x": -0.05,
+        "y": 0.079,
+        "yaw": -1.57
+      },
+      "params_alternative_waypoint": {
+        "waypoint_id": "inbound_slot_2_approach"
+      },
+      "notes": "실측 Nav2 goal (-0.050, 0.079). zones.json approach는 (0.473, 0.44) — 맵 불일치 주의"
+    },
+    {
+      "step": 3,
+      "kind": "dock_transfer",
+      "command_id": "task-206-tb3_2-dock_inbound2-MANUAL",
+      "params": {
+        "aruco_marker_id": 1,
+        "action": "load",
+        "level": 1
+      },
+      "notes": "입고2 ArUco. step 2 ARRIVED 후에만 전송. detector 필요"
+    }
+  ]
+}

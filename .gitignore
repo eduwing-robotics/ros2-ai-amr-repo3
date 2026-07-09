@@ -216,3 +216,26 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- ros2-ai-amr-repo3 / Nav stack ---
+logs/
+tmp/
+backups/
+worklog/*.log
+worklog/insert_snapshots/
+*.pid
+.omx/
+LEGACY/
+
+# Map tuning backups and local camera captures
+**/map/*.bak
+**/map/*.bak.*
+**/map/*.jpg
+**/map/*.png
+**/map/*.svg
+**/map/camera_snapshot_*
+
+# ROS build artifacts (if colcon workspaces are added later)
+build/
+install/
+log/

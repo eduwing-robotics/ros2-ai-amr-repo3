@@ -1,0 +1,49 @@
+{
+  "nav_pc_host": "192.168.30.4",
+  "robot2_fixed_ip": "192.168.30.102",
+  "robot_fixed_ips": {
+    "tb3_burger_02": "192.168.30.102",
+    "tb3_2": "192.168.30.102"
+  },
+  "webhook_endpoint": "http://127.0.0.1:8088/api/v1/movement/command-events",
+  "robots": [
+    {
+      "robot_id": "tb3_burger_01",
+      "nav_api_url": "http://192.168.30.4:8001",
+      "ros_domain_id": 2,
+      "bridge_robot_id": "tb3_1",
+      "center_domain_id": 1,
+      "robot_fixed_ip": null,
+      "mission_types": [
+        "inbound",
+        "outbound"
+      ],
+      "nav_api_fallback_url": "http://192.168.30.4:8001"
+    },
+    {
+      "robot_id": "tb3_burger_02",
+      "nav_api_url": "http://192.168.30.4:8002",
+      "ros_domain_id": 5,
+      "bridge_robot_id": "tb3_2",
+      "center_domain_id": 1,
+      "robot_fixed_ip": "192.168.30.102",
+      "mission_types": [
+        "inbound",
+        "outbound"
+      ],
+      "nav_api_fallback_url": "http://192.168.30.4:8002"
+    }
+  ],
+  "nav_pc_fallback_host": "192.168.30.4",
+  "webhook_fallback_endpoint": "http://127.0.0.1:8088/api/v1/movement/command-events",
+  "main_public_base_url": "http://127.0.0.1:8088",
+  "main_api_base": "http://127.0.0.1:8088/api/v1",
+  "command_events_endpoint": "http://127.0.0.1:8088/api/v1/movement/command-events",
+  "movement_results_endpoint": "http://127.0.0.1:8088/api/v1/movement/results",
+  "robot_status_endpoint_template": "http://127.0.0.1:8088/api/v1/movement/robots/{robot_name}/status",
+  "main_public_fallback_base_url": "http://127.0.0.1:8088",
+  "main_api_fallback_base": "http://127.0.0.1:8088/api/v1",
+  "command_events_fallback_endpoint": "http://127.0.0.1:8088/api/v1/movement/command-events",
+  "movement_results_fallback_endpoint": "http://127.0.0.1:8088/api/v1/movement/results",
+  "robot_status_fallback_endpoint_template": "http://127.0.0.1:8088/api/v1/movement/robots/{robot_name}/status"
+}

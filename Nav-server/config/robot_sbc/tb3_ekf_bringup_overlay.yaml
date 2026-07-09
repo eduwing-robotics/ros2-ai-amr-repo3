@@ -1,0 +1,8 @@
+# Overlay for TurtleBot3 bringup when EKF publishes odom->base_footprint TF.
+# Load after default burger params (TB3_EKF_MODE=1 on robot SBC).
+/**:
+  diff_drive_controller:
+    ros__parameters:
+      odometry:
+        publish_tf: false
+        use_imu: false
