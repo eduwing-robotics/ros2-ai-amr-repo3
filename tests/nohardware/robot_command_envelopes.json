@@ -1,0 +1,55 @@
+{
+  "schema_version": "nohardware.robot-command-envelopes.v1",
+  "commands": [
+    {
+      "name": "dock_transfer_load",
+      "envelope": {
+        "command_id": "nohardware-dock-load-1",
+        "robot_id": "tb3_1",
+        "task_id": 9001,
+        "kind": "dock_transfer",
+        "dry_run": true,
+        "params": {
+          "aruco_marker_id": 7,
+          "action": "load",
+          "level": 2,
+          "lift_height_mm": 50,
+          "lift_timeout_sec": 30
+        },
+        "callback_url": "http://main.test/api/v1/movement/command-events"
+      }
+    },
+    {
+      "name": "aruco_align_charge",
+      "envelope": {
+        "command_id": "nohardware-align-charge-1",
+        "robot_id": "tb3_1",
+        "task_id": 9002,
+        "kind": "aruco_align",
+        "dry_run": true,
+        "params": {
+          "aruco_marker_id": 3,
+          "final": "charge",
+          "tolerance": {"xy_m": 0.05}
+        },
+        "callback_url": "http://main.test/api/v1/movement/command-events"
+      }
+    },
+    {
+      "name": "aruco_align_park",
+      "envelope": {
+        "command_id": "nohardware-align-park-1",
+        "robot_id": "tb3_1",
+        "task_id": 9003,
+        "kind": "aruco_align",
+        "dry_run": true,
+        "params": {
+          "aruco_marker_id": 3,
+          "final": "park",
+          "tolerance": {"xy_m": 0.05}
+        },
+        "callback_url": "http://main.test/api/v1/movement/command-events"
+      }
+    }
+  ]
+}

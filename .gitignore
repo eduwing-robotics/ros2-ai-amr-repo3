@@ -216,3 +216,37 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Integrated service local/runtime artifacts
+ai-server/.venv/
+main-server/.venv/
+nav-server/.venv/
+ai-server/node_modules/
+main-server/node_modules/
+main-server/frontend/**/node_modules/
+nav-server/node_modules/
+ai-server/logs/
+main-server/logs/
+nav-server/logs/
+ai-server/data/
+main-server/data/
+main-server/backend/data/
+main-server/database/snapshot/
+nav-server/data/
+ai-server/runtime/
+main-server/runtime/
+nav-server/runtime/
+ai-server/*.log
+main-server/*.log
+nav-server/*.log
+ai-server/**/*.log
+main-server/**/*.log
+nav-server/**/*.log
+
+# Keep imported service source directories despite generic Python lib/ ignore above
+!main-server/frontend/web/src/lib/
+!main-server/frontend/web/src/lib/**
+!main-server/scripts/lib/
+!main-server/scripts/lib/**
+!main-server/scripts/launch/lib/
+!main-server/scripts/launch/lib/**
