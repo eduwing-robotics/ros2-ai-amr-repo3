@@ -14,6 +14,9 @@ for py in "${NAV_PY}" "${MAIN_PY}" "${AI_PY}"; do
   fi
 done
 
+echo "[nohardware-tcp] Main Movement helper accepts primary routing only"
+"${MAIN_PY}" -m pytest -q "${ROOT_DIR}/tests/nohardware/test_main_movement_client_contract.py"
+
 if [[ ! -f "${ROS_SETUP}" ]]; then
   echo "[nohardware-tcp] missing ROS setup ${ROS_SETUP}" >&2
   exit 127
@@ -150,7 +153,6 @@ echo "[nohardware-tcp] Main HttpMovementClient -> Nav POST /robot-commands + GET
   cd "${ROOT_DIR}/main-server/backend"
   LMS_MOVEMENT_BASE_URL="${NAV_BASE}/movement-api/v1" \
   LMS_MOVEMENT_BASE_URLS="tb3_1=${NAV_BASE}/movement-api/v1" \
-  LMS_MOVEMENT_FALLBACK_BASE_URLS="" \
   LMS_MOVEMENT_HMAC_SECRET="${NOHARDWARE_HMAC_SECRET}" \
   "${MAIN_PY}" "${ROOT_DIR}/tests/nohardware/check_main_movement_tcp.py" --base "${NAV_BASE}/movement-api/v1"
 )
@@ -186,7 +188,6 @@ echo "[nohardware-tcp] signed AI person advisory -> Main trusted stop/hold -> si
   LMS_PERSON_HAZARD_ENABLED=true \
   LMS_MOVEMENT_BASE_URL="${NAV_BASE}" \
   LMS_MOVEMENT_BASE_URLS="tb3_1=${NAV_BASE}" \
-  LMS_MOVEMENT_FALLBACK_BASE_URLS="" \
   LMS_MOVEMENT_HMAC_SECRET="${NOHARDWARE_HMAC_SECRET}" \
   LMS_VISION_API_BASE_URL="${AI_BASE}" \
   LMS_VISION_API_FALLBACK_BASE_URL="" \

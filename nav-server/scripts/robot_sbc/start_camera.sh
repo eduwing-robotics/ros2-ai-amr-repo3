@@ -4,7 +4,7 @@
 set -eo pipefail
 
 DOMAIN="${ROS_DOMAIN_ID:-5}"
-WS_SETUP="${WS_SETUP:-/home/musk/turtlebot3_ws/install/setup.bash}"
+WS_SETUP="${WS_SETUP:?WS_SETUP must point to the TurtleBot3 overlay setup.bash}"
 CAMERA_BACKEND="${CAMERA_BACKEND:-picamera2}"
 BRINGUP_WAIT_SEC="${BRINGUP_WAIT_SEC:-10}"
 CAMERA_START_RETRIES="${CAMERA_START_RETRIES:-2}"
@@ -46,8 +46,12 @@ source /opt/ros/jazzy/setup.bash
 export LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH:-}
 export LIBCAMERA_IPA_MODULE_PATH=/usr/lib/aarch64-linux-gnu/libcamera/ipa
 export LIBCAMERA_IPA_PROXY_PATH=/usr/libexec/aarch64-linux-gnu/libcamera
+if [[ ! -f "$WS_SETUP" ]]; then
+  echo "[robot_sbc] ERROR: TurtleBot3 workspace overlay not found: $WS_SETUP" >&2
+  exit 1
+fi
 # shellcheck source=/dev/null
-[[ -f "$WS_SETUP" ]] && source "$WS_SETUP"
+source "$WS_SETUP"
 export ROS_DOMAIN_ID="$DOMAIN"
 
 echo "[robot_sbc] waiting ${BRINGUP_WAIT_SEC}s for bringup before camera..."

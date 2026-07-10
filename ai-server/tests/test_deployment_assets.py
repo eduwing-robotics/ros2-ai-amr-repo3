@@ -67,3 +67,16 @@ def test_deployment_asset_validator_passes():
     )
 
     assert "Deployment assets validated." in result.stdout
+
+
+def test_snapshot_launch_does_not_embed_a_machine_specific_repo_path():
+    launch = (
+        ROOT
+        / "ros2"
+        / "smartfactory_perception_ros"
+        / "launch"
+        / "ai_snapshot_clients.launch.py"
+    ).read_text(encoding="utf-8")
+
+    assert "/home/" not in launch
+    assert "'repo_root'" not in launch

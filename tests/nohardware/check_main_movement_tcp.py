@@ -53,7 +53,6 @@ def main() -> int:
 
     client = HttpMovementClient(
         base_urls={"tb3_1": args.base.rstrip("/")},
-        fallback_urls={},
         fallback_url=args.base.rstrip("/"),
         timeout_sec=3.0,
     )

@@ -25,10 +25,6 @@ class HttpMovementClientTest(unittest.TestCase):
                 "tb3_1": "http://nav.local:8001/movement-api/v1",
                 "tb3_2": "http://nav.local:8002/movement-api/v1",
             },
-            {
-                "tb3_1": "http://192.168.10.54:8001/movement-api/v1",
-                "tb3_2": "http://192.168.10.54:8002/movement-api/v1",
-            },
             "http://nav.local:8001/movement-api/v1",
             timeout_sec=1.0,
         )
@@ -50,19 +46,18 @@ class HttpMovementClientTest(unittest.TestCase):
         self.assertEqual(body["robot_id"], "tb3_1")
         self.assertEqual(body["robot_name"], "tb3_1")
 
-    def test_robot_command_retries_on_unreachable(self) -> None:
+    def test_robot_command_primary_failure_is_audited(self) -> None:
         envelope = {"command_id": "cmd-2", "kind": "dock_transfer", "params": {}}
-        ok = BytesIO(b'{"accepted": true}')
-        with patch("app.services.movement.urlopen") as urlopen:
-            urlopen.side_effect = [
-                URLError("name not resolved"),
-                ok,
-            ]
-            result = self.client.robot_command("tb3_1", envelope)
-        self.assertTrue(result.get("accepted"))
-        self.assertEqual(urlopen.call_count, 2)
-        fallback_req = urlopen.call_args_list[1].args[0]
-        self.assertEqual(fallback_req.full_url, "http://192.168.10.54:8001/robot-commands")
+        with patch("app.services.movement.urlopen", side_effect=URLError("name not resolved")) as urlopen, patch(
+            "app.services.movement.finish_call"
+        ) as finish_call:
+            with self.assertRaises(MovementClientError):
+                self.client.robot_command("tb3_1", envelope)
+        self.assertEqual(urlopen.call_count, 1)
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://nav.local:8001/robot-commands")
+        finish_call.assert_called_once()
+        self.assertEqual(finish_call.call_args.args[1:3], (False, "unreachable"))
 
     def test_command_status_uses_robot_commands_path(self) -> None:
         with patch("app.services.movement.urlopen") as urlopen:

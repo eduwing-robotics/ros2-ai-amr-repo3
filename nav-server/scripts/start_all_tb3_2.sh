@@ -28,8 +28,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROBOT_SBC_DIR="$SCRIPT_DIR/robot_sbc"
+# shellcheck source=lib/local_hardware.sh
+source "$SCRIPT_DIR/lib/local_hardware.sh"
 LOG_DIR="${LOG_DIR:-$ROOT/logs}"
 SESSION_MARKER="$LOG_DIR/tb3_2_stack.session"
+
+# Load only the local hardware connection settings.  This deliberately does
+# not source the file: command substitutions and other shell syntax remain
+# literal values instead of being executed.
+load_local_hardware_env
 
 SESSION="${SESSION:-tb3_2_stack}"
 DOMAIN="${DOMAIN:-5}"
@@ -44,13 +51,13 @@ export DISPLAY="${DISPLAY:-:1}"
 WITH_ROBOT="${WITH_ROBOT:-1}"
 WITH_LIFT="${WITH_LIFT:-1}"
 WITH_EKF="${WITH_EKF:-0}"
-LIFT_WS_SETUP="${LIFT_WS_SETUP:-/home/musk/lift_project/ros2_ws/install/setup.bash}"
+LIFT_WS_SETUP="${LIFT_WS_SETUP:-}"
 LIFT_SERIAL_PORT="${LIFT_SERIAL_PORT:-}"
 LIFT_BRIDGE_PKG="${LIFT_BRIDGE_PKG:-lift_bridge}"
 ROBOT_SSH="${ROBOT_SSH:-musk@192.168.30.102}"
 ROBOT_USB="${ROBOT_USB:-/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00}"
 CAMERA_LAUNCH="${CAMERA_LAUNCH:-turtlebot3_bringup camera.launch.py}"
-ROBOT_WS_SETUP="${ROBOT_WS_SETUP:-/home/musk/turtlebot3_ws/install/setup.bash}"
+ROBOT_WS_SETUP="${ROBOT_WS_SETUP:-}"
 ROBOT_LDS_MODEL="${ROBOT_LDS_MODEL:-LDS-03}"
 ROBOT_BRINGUP_WAIT_SEC="${ROBOT_BRINGUP_WAIT_SEC:-10}"
 ROBOT_TOPIC_WAIT_SEC="${ROBOT_TOPIC_WAIT_SEC:-120}"
@@ -58,26 +65,12 @@ CAMERA_TOPIC_WAIT_SEC="${CAMERA_TOPIC_WAIT_SEC:-60}"
 STATUS_DELAY_SEC="${STATUS_DELAY_SEC:-50}"
 MODE="${MODE:-terminator}"
 
-# ssh 비번 (기본 1234). sshpass 우선, 없으면 SSH_ASKPASS 헬퍼 사용.
+# SSH keys are the default. Password authentication is opt-in and requires sshpass.
 # bringup/카메라는 stdin 파이프(bash -s)를 쓰므로 -tt 사용하지 않음.
-ROBOT_PW="${ROBOT_PW:-1234}"
-SSH_ASKPASS_HELPER="$SCRIPT_DIR/ssh_askpass_robot.sh"
-SSH_USE_ASKPASS=0
-SSH_MODE="interactive"
-if [[ -n "$ROBOT_PW" ]] && command -v sshpass >/dev/null 2>&1; then
-  SSH_CMD=(sshpass -p "$ROBOT_PW" ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8)
-  SSH_MODE="sshpass"
-elif [[ -n "$ROBOT_PW" && -x "$SSH_ASKPASS_HELPER" ]]; then
-  export ROBOT_PW
-  export SSH_ASKPASS="$SSH_ASKPASS_HELPER"
-  export SSH_ASKPASS_REQUIRE=force
-  export DISPLAY="${DISPLAY:-:1}"
-  SSH_CMD=(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 -o BatchMode=no)
-  SSH_USE_ASKPASS=1
-  SSH_MODE="askpass"
-else
-  SSH_CMD=(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8)
-  SSH_MODE="interactive"
+ROBOT_PW="${ROBOT_PW:-}"
+configure_robot_ssh 8
+if [[ -n "$ROBOT_PW" && "$SSH_MODE" == "key" ]]; then
+  printf '[start_all] %s\n' "ROBOT_PW was supplied but sshpass is unavailable; using SSH key authentication."
 fi
 
 TMUX_BIN="$(command -v tmux || true)"
@@ -89,6 +82,10 @@ die() { printf '[start_all] ERROR: %s\n' "$*" >&2; exit 1; }
 
 preflight_robot_ssh() {
   [[ "$WITH_ROBOT" == "1" ]] || return 0
+  [[ -n "$ROBOT_WS_SETUP" ]] || die "ROBOT_WS_SETUP must point to the SBC TurtleBot3 overlay setup.bash when WITH_ROBOT=1"
+  if [[ "$WITH_LIFT" == "1" ]]; then
+    [[ -n "$LIFT_WS_SETUP" ]] || die "LIFT_WS_SETUP must point to the SBC lift overlay setup.bash when WITH_LIFT=1"
+  fi
   log "로봇 SBC ssh 연결 확인: $ROBOT_SSH (mode=$SSH_MODE)"
   local out err rc
   out=$("${SSH_CMD[@]}" "$ROBOT_SSH" "echo ssh_ok" 2>&1) && rc=0 || rc=$?
@@ -96,91 +93,141 @@ preflight_robot_ssh() {
     log "로봇 SBC ssh OK"
     return 0
   fi
-  # sshpass 실패 시 askpass 로 한 번 더 시도
-  if [[ "$SSH_MODE" == "sshpass" && -x "$SSH_ASKPASS_HELPER" ]]; then
-    log "sshpass 실패 — SSH_ASKPASS 로 재시도"
-    export ROBOT_PW SSH_ASKPASS="$SSH_ASKPASS_HELPER" SSH_ASKPASS_REQUIRE=force
-    export DISPLAY="${DISPLAY:-:1}"
-    out=$(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 -o BatchMode=no \
-      "$ROBOT_SSH" "echo ssh_ok" 2>&1) && rc=0 || rc=$?
-    if [[ $rc -eq 0 ]] && grep -q ssh_ok <<<"$out"; then
-      SSH_CMD=(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 -o BatchMode=no)
-      SSH_USE_ASKPASS=1
-      SSH_MODE="askpass"
-      log "로봇 SBC ssh OK (askpass)"
-      return 0
-    fi
-    err="$out"
-  else
-    err="$out"
-  fi
+  err="$out"
   if grep -qi "no route to host\|network is unreachable" <<<"$err"; then
     die "로봇 SBC 네트워크 연결 불가 ($ROBOT_SSH). 로봇 전원/WiFi·유선·IP(192.168.30.102) 확인 후 재시도."
   fi
   if grep -qi "permission denied\|authentication failed" <<<"$err"; then
-    die "로봇 SBC ssh 인증 실패. 비번(ROBOT_PW=$ROBOT_PW) 확인 또는: ssh-copy-id $ROBOT_SSH"
+    die "로봇 SBC ssh authentication failed. Configure an SSH key for $ROBOT_SSH, or explicitly supply ROBOT_PW with sshpass installed."
   fi
-  die "로봇 SBC ssh 실패 ($ROBOT_SSH): ${err:-unknown error}"
+  die "로봇 SBC ssh failed ($ROBOT_SSH)."
 }
 
 ssh_robot() {
   "${SSH_CMD[@]}" "$ROBOT_SSH" "$@"
 }
 
+shell_assignment() {
+  local name="$1" value="$2" quoted
+  printf -v quoted '%q' "$value"
+  printf '%s=%s\n' "$name" "$quoted"
+}
+
+shell_array() {
+  local name="$1" value quoted
+  shift
+  printf '%s=(' "$name"
+  for value in "$@"; do
+    printf -v quoted '%q' "$value"
+    printf ' %s' "$quoted"
+  done
+  printf ' )\n'
+}
+
+shell_export_assignment() {
+  local name="$1" value="$2" quoted
+  printf -v quoted '%q' "$value"
+  printf 'export %s=%s\n' "$name" "$quoted"
+}
+
+shell_command() {
+  local arg quoted
+  for arg in "$@"; do
+    printf -v quoted '%q' "$arg"
+    printf '%s ' "$quoted"
+  done
+  printf '\n'
+}
+
+ssh_robot_script_body() {
+  local remote_env_name="$1" remote_env_ref="$2" script="$3"
+  local -n remote_env_values="$remote_env_ref"
+  shell_array SSH_CMD "${SSH_CMD[@]}"
+  shell_assignment ROBOT_SSH "$ROBOT_SSH"
+  shell_array "$remote_env_name" "${remote_env_values[@]}"
+  printf '"${SSH_CMD[@]}" "$ROBOT_SSH" "${%s[@]}" bash -s < ' "$remote_env_name"
+  printf '%q\n' "$script"
+}
+
 ssh_robot_bringup_body() {
-  local ekf_exports="TB3_EKF_MODE=$WITH_EKF"
+  local -a remote_env=(
+    env
+    "ROS_DOMAIN_ID=$DOMAIN"
+    "LDS_MODEL=$ROBOT_LDS_MODEL"
+    "USB_PORT=$ROBOT_USB"
+    "WS_SETUP=$ROBOT_WS_SETUP"
+    "TB3_EKF_MODE=$WITH_EKF"
+  )
   if [[ "$WITH_EKF" == "1" ]]; then
     "${SSH_CMD[@]}" "$ROBOT_SSH" "cat > /tmp/tb3_ekf_bringup_overlay.yaml" \
       < "$ROOT/config/robot_sbc/tb3_ekf_bringup_overlay.yaml" 2>/dev/null || true
-    ekf_exports="TB3_EKF_MODE=1 TB3_EKF_OVERLAY=/tmp/tb3_ekf_bringup_overlay.yaml"
+    remote_env+=("TB3_EKF_OVERLAY=/tmp/tb3_ekf_bringup_overlay.yaml")
   fi
-  cat <<EOF
-${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN LDS_MODEL=$ROBOT_LDS_MODEL USB_PORT='$ROBOT_USB' WS_SETUP='$ROBOT_WS_SETUP' $ekf_exports; bash -s" < "$ROBOT_SBC_DIR/start_bringup.sh"
-EOF
+  ssh_robot_script_body REMOTE_ENV remote_env "$ROBOT_SBC_DIR/start_bringup.sh"
 }
 
 ssh_robot_camera_body() {
-  cat <<EOF
-${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN BRINGUP_WAIT_SEC=$ROBOT_BRINGUP_WAIT_SEC CAMERA_LAUNCH='$CAMERA_LAUNCH' WS_SETUP='$ROBOT_WS_SETUP'; bash -s" < "$ROBOT_SBC_DIR/start_camera.sh"
-EOF
+  local -a remote_env=(
+    env
+    "ROS_DOMAIN_ID=$DOMAIN"
+    "BRINGUP_WAIT_SEC=$ROBOT_BRINGUP_WAIT_SEC"
+    "CAMERA_LAUNCH=$CAMERA_LAUNCH"
+    "WS_SETUP=$ROBOT_WS_SETUP"
+  )
+  ssh_robot_script_body REMOTE_ENV remote_env "$ROBOT_SBC_DIR/start_camera.sh"
 }
 
 ssh_robot_lift_body() {
-  cat <<EOF
-${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN LIFT_WS_SETUP='$LIFT_WS_SETUP' LIFT_SERIAL_PORT='$LIFT_SERIAL_PORT' LIFT_BRIDGE_PKG='$LIFT_BRIDGE_PKG'; bash -s" < "$ROBOT_SBC_DIR/start_lift_bridge.sh"
-EOF
+  local -a remote_env=(
+    env
+    "ROS_DOMAIN_ID=$DOMAIN"
+    "LIFT_WS_SETUP=$LIFT_WS_SETUP"
+    "LIFT_SERIAL_PORT=$LIFT_SERIAL_PORT"
+    "LIFT_BRIDGE_PKG=$LIFT_BRIDGE_PKG"
+  )
+  ssh_robot_script_body REMOTE_ENV remote_env "$ROBOT_SBC_DIR/start_lift_bridge.sh"
 }
 
 cmd_nav2_rviz() {
-  local ekf_flag=""
+  local -a nav_command=(
+    "$SCRIPT_DIR/run_nav2_with_initial_pose.sh"
+    --robot tb3_2 --domain "$DOMAIN" --map "$MAP"
+    --x "$INIT_X" --y "$INIT_Y" --yaw "$INIT_YAW"
+    --delay 16 --repeat 10 --startup-retry 90
+  )
   if [[ "$WITH_EKF" == "1" ]]; then
-    ekf_flag="--with-ekf"
+    nav_command+=(--with-ekf)
   fi
-  cat <<EOF
-cd '$ROOT'
-export ROS_DOMAIN_ID=$DOMAIN ROS_LOCALHOST_ONLY=0 DISPLAY='$DISPLAY' WITH_EKF=$WITH_EKF
-echo '[nav2-rviz] bringup 토픽 대기... (WITH_EKF=$WITH_EKF)'
-'$SCRIPT_DIR/wait_for_robot_topics.sh' $DOMAIN $ROBOT_TOPIC_WAIT_SEC || echo '[nav2-rviz] WARNING: odom/scan 미수신 — Nav2 계속 시도'
-exec scripts/run_nav2_with_initial_pose.sh --robot tb3_2 --domain $DOMAIN --map '$MAP' --x $INIT_X --y $INIT_Y --yaw $INIT_YAW --delay 16 --repeat 10 --startup-retry 90 $ekf_flag
-EOF
+  shell_command cd "$ROOT"
+  shell_export_assignment ROS_DOMAIN_ID "$DOMAIN"
+  shell_export_assignment ROS_LOCALHOST_ONLY 0
+  shell_export_assignment DISPLAY "$DISPLAY"
+  shell_export_assignment WITH_EKF "$WITH_EKF"
+  printf 'printf %s\\n '
+  printf '%q\n' "[nav2-rviz] bringup 토픽 대기... (WITH_EKF=$WITH_EKF)"
+  shell_command "$SCRIPT_DIR/wait_for_robot_topics.sh" "$DOMAIN" "$ROBOT_TOPIC_WAIT_SEC"
+  printf '%s\n' "ec=\$?; (( ec == 0 )) || echo '[nav2-rviz] WARNING: odom/scan 미수신 — Nav2 계속 시도'"
+  printf 'exec '
+  shell_command "${nav_command[@]}"
 }
 
 # detector: SBC 카메라 토픽 대기 → ArUco detector (죽으면 자동 재시작)
 cmd_detector2() {
-  cat <<EOF
-cd '$ROOT'
-export ROS_DOMAIN_ID=$DOMAIN
+  shell_command cd "$ROOT"
+  shell_export_assignment ROS_DOMAIN_ID "$DOMAIN"
+  shell_export_assignment DETECTOR_LOG "$LOG_DIR/detector2_tb3_2.log"
+  local ros_setup_q
+  printf -v ros_setup_q '%q' "$ROS_SETUP"
+  printf 'source %s 2>/dev/null || true\n' "$ros_setup_q"
+  cat <<'EOF'
 export ROBOT_ID=tb3_burger_02
 export ARUCO_MARKER_SIZE_M=0.04
 export START_CAMERA_LAUNCH=0
 export START_CAMERA_RELAY=1
-DETECTOR_LOG='$LOG_DIR/detector2_tb3_2.log'
-# shellcheck source=/dev/null
-source '$ROS_SETUP' 2>/dev/null || true
 set +e
 echo "========================================"
 echo "  detector2 (ArUco) — robot-camera 옆 pane"
-echo "  log: $LOG_DIR/detector2_tb3_2.log"
+printf '%s\n' "  log: $DETECTOR_LOG"
 echo "========================================"
 while true; do
   echo '[detector2] 카메라 /camera/image_raw/compressed 대기 중...'
@@ -199,18 +246,18 @@ EOF
 }
 
 cmd_nav_servers() {
-  printf "cd '%s' && exec scripts/start_nav_servers.sh foreground\n" "$ROOT"
+  shell_command cd "$ROOT"
+  printf 'exec '
+  shell_command "$SCRIPT_DIR/start_nav_servers.sh" foreground
 }
 
 cmd_status() {
-  cat <<EOF
-cd '$ROOT'
-sleep $STATUS_DELAY_SEC
-scripts/start_all_tb3_2.sh status
-echo
-echo '(재점검: scripts/start_all_tb3_2.sh status)'
-exec bash
-EOF
+  shell_command cd "$ROOT"
+  shell_command sleep "$STATUS_DELAY_SEC"
+  shell_command "$SCRIPT_DIR/start_all_tb3_2.sh" status
+  printf '%s\n' 'echo'
+  printf '%s\n' "echo '(재점검: scripts/start_all_tb3_2.sh status)'"
+  shell_command exec bash
 }
 
 remote_stop_robot() {
@@ -268,10 +315,11 @@ require_tmux() {
 }
 
 new_win() {
-  local name="$1"; shift
-  local cmd="$*"
+  local name="$1" script="$2" script_q message_q
+  printf -v script_q '%q' "$script"
+  printf -v message_q '%q' "[$name] 종료됨 - Enter로 닫기"
   tmux new-window -t "$SESSION" -n "$name" \
-    "bash -lc '$cmd; echo; echo \"[$name] 종료됨 - Enter로 닫기\"; read'"
+    "bash $script_q; echo; printf '%s\\n' $message_q; read"
 }
 
 write_run_script() {
@@ -287,14 +335,21 @@ write_run_script() {
 }
 
 open_win() {
-  local title="$1"; shift
-  gnome-terminal --title="$title" -- bash -lc "$*; echo; echo \"[$title] 종료됨 - Enter로 닫기\"; read" &
+  local title="$1" script="$2" script_q message_q
+  printf -v script_q '%q' "$script"
+  printf -v message_q '%q' "[$title] 종료됨 - Enter로 닫기"
+  gnome-terminal --title="$title" -- bash -lc "bash $script_q; echo; printf '%s\\n' $message_q; read" &
   sleep 1
+}
+
+prepare_robot_start() {
+  preflight_robot_ssh
 }
 
 start_stack_tmux() {
   require_tmux
   tmux has-session -t "$SESSION" 2>/dev/null && die "이미 '$SESSION' 세션 있습니다. stop 먼저."
+  prepare_robot_start
   log "tmux 세션 시작 (WITH_ROBOT=$WITH_ROBOT WITH_LIFT=$WITH_LIFT WITH_EKF=$WITH_EKF)"
 
   if [[ "$WITH_ROBOT" == "1" ]]; then
@@ -306,25 +361,27 @@ start_stack_tmux() {
     camera_sh="$(write_run_script robot-camera "$(ssh_robot_camera_body)")"
     detector_sh="$(write_run_script detector2 "$(cmd_detector2)")"
     tmux new-session -d -s "$SESSION" -n "robot-bringup" \
-      "bash -lc '$bringup_sh; echo; echo [robot-bringup] 종료; read'"
+      "bash $(printf '%q' "$bringup_sh"); echo; printf '%s\\n' '[robot-bringup] 종료'; read"
     if [[ -n "$lift_sh" ]]; then
       new_win "robot-lift" "$lift_sh"
     fi
     new_win "robot-camera" "$camera_sh"
     new_win "detector2" "$detector_sh"
   else
+    detector_sh="$(write_run_script detector2 "$(cmd_detector2)")"
     tmux new-session -d -s "$SESSION" -n "detector2" \
-      "bash -lc '$(write_run_script detector2 "$(cmd_detector2)"); echo; echo [detector2] 종료; read'"
+      "bash $(printf '%q' "$detector_sh"); echo; printf '%s\\n' '[detector2] 종료'; read"
   fi
-  new_win "nav2-rviz" "$(cmd_nav2_rviz)"
+  new_win "nav2-rviz" "$(write_run_script nav2-rviz "$(cmd_nav2_rviz)")"
   sleep 2
-  new_win "nav-servers" "$(cmd_nav_servers)"
-  new_win "status" "$(cmd_status)"
+  new_win "nav-servers" "$(write_run_script nav-servers "$(cmd_nav_servers)")"
+  new_win "status" "$(write_run_script status "$(cmd_status)")"
   log "attach: scripts/start_all_tb3_2.sh attach"
 }
 
 start_windows() {
   [[ -n "$TERM_BIN" ]] || die "gnome-terminal 필요"
+  prepare_robot_start
   if [[ "$WITH_ROBOT" == "1" ]]; then
     open_win "robot-bringup" "$(write_run_script robot-bringup "$(ssh_robot_bringup_body)")"
     if [[ "$WITH_LIFT" == "1" ]]; then
@@ -335,15 +392,15 @@ start_windows() {
   else
     open_win "detector2" "$(write_run_script detector2 "$(cmd_detector2)")"
   fi
-  open_win "nav2-rviz" "$(cmd_nav2_rviz)"
+  open_win "nav2-rviz" "$(write_run_script nav2-rviz "$(cmd_nav2_rviz)")"
   sleep 2
-  open_win "nav-servers" "$(cmd_nav_servers)"
-  open_win "status" "$(cmd_status)"
+  open_win "nav-servers" "$(write_run_script nav-servers "$(cmd_nav_servers)")"
+  open_win "status" "$(write_run_script status "$(cmd_status)")"
 }
 
 start_terminator() {
   [[ -n "$TERMINATOR_BIN" ]] || die "terminator 필요 (sudo apt install terminator)"
-  preflight_robot_ssh
+  prepare_robot_start
   if [[ "$WITH_ROBOT" == "1" ]]; then
     log "로봇 SBC 카메라 스크립트 배포"
     "$ROBOT_SBC_DIR/deploy_camera_to_sbc.sh" || die "카메라 스크립트 SBC 배포 실패"
@@ -470,13 +527,15 @@ def term(name, parent, order, title, cmd):
     )
 
 # robot stack (bringup / optional lift)
-term("term_bringup", "robot_row", 0, "robot-bringup", need("robot-bringup"))
+if "robot-bringup" in by_title:
+    term("term_bringup", "robot_row", 0, "robot-bringup", need("robot-bringup"))
 if "robot-lift" in by_title:
     term("term_lift", "robot_row", 1, "robot-lift", need("robot-lift"))
 
-# vision row — camera | detector2 나란히 (항상 보이게)
-term("term_camera", "vision_row", 0, "robot-camera", need("robot-camera"))
-term("term_detector", "vision_row", 1, "detector2", need("detector2"))
+# vision row — camera | detector2 나란히 (카메라는 WITH_ROBOT일 때만)
+if "robot-camera" in by_title:
+    term("term_camera", "vision_row", 0, "robot-camera", need("robot-camera"))
+term("term_detector", "vision_row", 1 if "robot-camera" in by_title else 0, "detector2", need("detector2"))
 
 # right column
 term("term_nav2", "right_col", 0, "nav2-rviz", need("nav2-rviz"))
@@ -574,7 +633,7 @@ status_stack() {
   else echo "없음 (카메라 pane 확인)"; fi
 
   printf 'ArUco /mission/tb3_2/aruco/detections: '
-  aruco_pub=$(timeout 3 ros2 topic info /mission/tb3_2/aruco/detections 2>/dev/null | awk '/Publisher count:/ {print $3}' | head -1)
+  aruco_pub=$(timeout 3 ros2 topic info /mission/tb3_2/aruco/detections 2>/dev/null | awk '/Publisher count:/ {print $3}' | head -1 || true)
   if [[ "${aruco_pub:-0}" -ge 1 ]]; then
     echo "OK (publisher=$aruco_pub)"
   else
@@ -586,8 +645,8 @@ status_stack() {
 
   echo ""
   echo "===== Lift (DOMAIN=$DOMAIN) ====="
-  lift_subs=$(timeout 4 ros2 topic info /lift/cmd_move 2>/dev/null | awk '/Subscription count:/ {print $3}' | head -1)
-  lift_pub=$(timeout 4 ros2 topic info /lift/position 2>/dev/null | awk '/Publisher count:/ {print $3}' | head -1)
+  lift_subs=$(timeout 4 ros2 topic info /lift/cmd_move 2>/dev/null | awk '/Subscription count:/ {print $3}' | head -1 || true)
+  lift_pub=$(timeout 4 ros2 topic info /lift/position 2>/dev/null | awk '/Publisher count:/ {print $3}' | head -1 || true)
   if [[ "${lift_subs:-0}" -ge 1 && "${lift_pub:-0}" -ge 1 ]]; then
     echo "lift_bridge OK (cmd_move subs=$lift_subs, position pub=$lift_pub)"
   elif [[ "${lift_subs:-0}" -ge 1 ]]; then

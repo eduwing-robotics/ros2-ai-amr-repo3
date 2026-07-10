@@ -19,11 +19,10 @@ HOST="${LMS_DEV_HOST:-0.0.0.0}"
 PORT="${LMS_API_PORT:-8088}"
 VITE_PORT="${LMS_VITE_PORT:-5173}"
 
-# 현장 고정 호스트 (hostname-first). .env 플레이스홀더·fake일 때 기본값으로 사용.
+# Site hostnames are configuration only; this script never fills in field IP fallbacks.
 SITE_MOVEMENT_HOST="${SITE_MOVEMENT_HOST:-smartfactory-nav.local}"
 SITE_CAMERA_HOST="${SITE_CAMERA_HOST:-smartfactory-nav.local}"
 SITE_VISION_HOST="${SITE_VISION_HOST:-smartfactory-vision.local}"
-SITE_VISION_FALLBACK_IP="${SITE_VISION_FALLBACK_IP:-192.168.10.59}"
 SITE_MOVEMENT_MAP_ID="${SITE_MOVEMENT_MAP_ID:-robot1_map}"
 
 BUILD=0
@@ -138,8 +137,8 @@ VISION_STREAM="$(read_env_var LMS_VISION_STREAM_BASE_URL "http://${SITE_VISION_H
 if [[ "$VISION_STREAM" == *"<"* ]]; then
   VISION_STREAM="http://${SITE_VISION_HOST}:8090"
 fi
-VISION_FB="$(read_env_var LMS_VISION_API_FALLBACK_BASE_URL "http://${SITE_VISION_FALLBACK_IP}:8100")"
-VISION_STREAM_FB="$(read_env_var LMS_VISION_STREAM_FALLBACK_BASE_URL "http://${SITE_VISION_FALLBACK_IP}:8090")"
+VISION_FB="$(read_env_var LMS_VISION_API_FALLBACK_BASE_URL "")"
+VISION_STREAM_FB="$(read_env_var LMS_VISION_STREAM_FALLBACK_BASE_URL "")"
 MAP_ID="$(read_env_var LMS_MOVEMENT_ACTIVE_MAP_ID "$SITE_MOVEMENT_MAP_ID")"
 [[ "$MAP_ID" == "Main_map" ]] || [[ "$MAP_ID" == "map" ]] && MAP_ID="$SITE_MOVEMENT_MAP_ID"
 
@@ -163,17 +162,11 @@ export LMS_VISION_STREAM_FALLBACK_BASE_URL="$VISION_STREAM_FB"
 PUBLIC_BASE="$(read_env_var LMS_PUBLIC_BASE_URL "http://smartfactory-main.local:8088")"
 export LMS_PUBLIC_BASE_URL="$PUBLIC_BASE"
 
-DB_URL="$(read_env_var LMS_DATABASE_URL "")"
-if [[ -z "$DB_URL" ]]; then
-  DB_URL="$(grep -E '^LMS_DATABASE_URL=' "$ROOT/.env.example" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
-fi
-export LMS_DATABASE_URL="${DB_URL:-postgresql://lms:lms@localhost:5433/lms_mvp}"
-
 # shellcheck source=/dev/null
 source "$ROOT/scripts/lib/pg_bootstrap.sh"
 pg_ensure_running
 
-echo "[real] PostgreSQL $LMS_DATABASE_URL"
+echo "[real] PostgreSQL $(pg_redact_url "$LMS_DATABASE_URL")"
 echo "  Movement  http://${MOVEMENT_HOST}:8001|8002/movement-api/v1  map=${MAP_ID}"
 echo "  Camera    http://${CAMERA_HOST}:$(read_env_var LMS_CAMERA_API_PORT 8080)  ros ws://$(read_env_var LMS_CAMERA_STREAM_PORT 9090)"
 echo "  Vision    $(read_env_var LMS_VISION_STREAM_BASE_URL "http://${SITE_VISION_HOST}:8090")"

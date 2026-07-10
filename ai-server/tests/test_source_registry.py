@@ -1,4 +1,7 @@
+import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -110,6 +113,23 @@ def test_source_registry_rejects_invalid_evidence_imgsz_bool(tmp_path: Path):
         load_source_registry(path)
 
 
+def test_source_registry_rejects_view_parent_that_is_not_declared(tmp_path: Path):
+    path = tmp_path / "sources.yaml"
+    path.write_text(
+        _source_registry_yaml_with_budget_line("preview_media_fps: 30")
+        + """
+      - view_id: crop
+        kind: cropped
+        parent_view: missing
+        can_confirm_internal_color_indexing: false
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SourceRegistryError, match="parent_view must reference an existing view"):
+        load_source_registry(path)
+
+
 def test_source_registry_view_contract_keeps_realsense_planned_and_view_scoped():
     registry = get_settings().source_registry
     source = registry.get("global_depth_01")
@@ -154,21 +174,48 @@ def test_contract_schema_source_enums_match_registry():
         assert schema["properties"]["source"]["enum"] == source_ids
 
 
-def test_generated_source_registry_snapshot_matches_registry():
-    registry = get_settings().source_registry.as_snapshot()
-    generated = json.loads(
-        (
-            REPO_ROOT / "docs" / "contracts" / "generated" / "source-registry.snapshot.json"
-        ).read_text(encoding="utf-8")
-    )
-    fixture = json.loads(
-        (REPO_ROOT / "docs" / "contracts" / "fixtures" / "source-registry.valid.json").read_text(
-            encoding="utf-8"
-        )
+def test_source_registry_generator_does_not_emit_static_registry_copies():
+    result = subprocess.run(
+        [sys.executable, "scripts/generate/generate_source_registry_surfaces.py"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
-    assert generated == registry
-    assert fixture == registry
+    assert result.returncode == 0, result.stderr
+    assert not (REPO_ROOT / "docs/contracts/generated/source-registry.snapshot.json").exists()
+    assert not (REPO_ROOT / "docs/contracts/fixtures/source-registry.valid.json").exists()
+
+
+def test_contract_validator_accepts_authoritative_source_registry_without_static_copy():
+    result = subprocess.run(
+        [sys.executable, "scripts/validate/validate_contracts.py"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_contract_validator_reports_source_enum_drift():
+    validator_path = REPO_ROOT / "scripts/validate/validate_contracts.py"
+    spec = importlib.util.spec_from_file_location("validate_contracts", validator_path)
+    assert spec and spec.loader
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    source_ids = get_settings().source_registry.source_ids
+    drifted_schema = {"properties": {"source": {"enum": source_ids[:-1]}}}
+    failures: list[str] = []
+
+    validator.validate_source_registry_surfaces(failures, drifted_schema, drifted_schema)
+
+    assert failures == [
+        "VisionEvent source enum does not match source registry",
+        "LiftRoiEvidence source enum does not match source registry",
+    ]
 
 
 def _source_property(schema: dict, path: str, method: str, name: str = "source") -> dict:

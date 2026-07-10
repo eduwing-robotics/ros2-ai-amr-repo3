@@ -22,7 +22,7 @@
 
 field audit은 declarative robot/bridge/domain/API port, map/image, route URL, waypoint/dock/ArUco, task seed, AI source 연결의 일관성을 검사한다. network reachability와 physical-coordinate accuracy는 검사하지 않는다.
 
-TCP smoke는 실제 Nav·AI FastAPI app과 Main HTTP client를 동적 localhost port에서 연결한다. 실제 signed gateway frame ingress는 unsigned request를 거부하고 signed request를 수락한다. TCP seam은 `PRE_DROP_OFF` PASS와 AI person advisory→Main trusted stop→signed Nav E-stop/clear/recovery를 검증하며 두 enabled map profile을 기동한다. DB seam은 Docker `postgres:16-alpine` 컨테이너에 실제 Main schema/seed를 적용하고 PostgreSQL 7-way concurrency seam을 검증한 뒤 container를 제거한다.
+TCP smoke는 실제 Nav·AI FastAPI app과 Main HTTP client를 동적 localhost port에서 연결한다. 실제 signed gateway frame ingress는 unsigned request를 거부하고 signed request를 수락한다. TCP seam은 `PRE_DROP_OFF` PASS와 AI person advisory→Main trusted stop→signed Nav E-stop/clear/recovery를 검증하며 enabled map profile을 기동한다. DB seam은 Docker `postgres:16-alpine` 컨테이너에 실제 Main schema/seed를 적용하고 PostgreSQL reservation·orchestration·recovery 동시성 경계를 검증한 뒤 container를 제거한다.
 
 DB seam은 AI 서비스를 기동하지 않는 persistence/concurrency 전용 subprocess이므로
 `LMS_PERSON_HAZARD_ENABLED=false`를 **그 subprocess에만** 명시한다. 이는 AI 인증 없는

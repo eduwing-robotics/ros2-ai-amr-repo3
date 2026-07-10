@@ -5,6 +5,7 @@ import os
 import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -46,11 +47,9 @@ def _env_flag(name: str, default: str = "false") -> bool:
 _load_dotenv()
 
 # docs/reference/MAIN_SERVER_COMMUNICATION_SPEC.md 기준 로봇별 Movement API 기본 주소.
-# hostname-first: LMS_MOVEMENT_HOST(기본 smartfactory-nav.local), 실패 시 LMS_MOVEMENT_FALLBACK_HOST(기본 192.168.10.54).
-# 더 세밀한 덮어쓰기가 필요하면 LMS_MOVEMENT_BASE_URLS / LMS_MOVEMENT_FALLBACK_BASE_URLS를 사용한다.
+# 더 세밀한 덮어쓰기가 필요하면 LMS_MOVEMENT_BASE_URLS를 사용한다.
 #   형식: "tb3_1=http://host:8001/movement-api/v1,tb3_2=http://host:8002/movement-api/v1"
 _DEFAULT_MOVEMENT_HOST = os.getenv("LMS_MOVEMENT_HOST", "smartfactory-nav.local")
-_DEFAULT_MOVEMENT_FALLBACK_HOST = os.getenv("LMS_MOVEMENT_FALLBACK_HOST", "192.168.10.54")
 
 
 def _movement_host_urls(host: str) -> dict[str, str]:
@@ -61,12 +60,6 @@ def _movement_host_urls(host: str) -> dict[str, str]:
 
 
 _DEFAULT_BASE_URLS = _movement_host_urls(_DEFAULT_MOVEMENT_HOST)
-_DEFAULT_FALLBACK_BASE_URLS = (
-    _movement_host_urls(_DEFAULT_MOVEMENT_FALLBACK_HOST) if _DEFAULT_MOVEMENT_FALLBACK_HOST else {}
-)
-
-
-
 # Camera 서버도 IP가 바뀌는 현장 운용을 고려해 host 하나로 기본 endpoint를 만든다.
 # 실제 stream 경로가 다르면 LMS_CAMERA_STREAM_URL_TEMPLATE만 덮어쓴다.
 _DEFAULT_CAMERA_HOST = os.getenv("LMS_CAMERA_HOST", "192.168.10.51")
@@ -95,9 +88,18 @@ def _movement_base_urls() -> dict[str, str]:
     return parsed or dict(_DEFAULT_BASE_URLS)
 
 
-def _movement_fallback_base_urls() -> dict[str, str]:
-    parsed = _parse_base_urls(os.getenv("LMS_MOVEMENT_FALLBACK_BASE_URLS", ""))
-    return parsed or dict(_DEFAULT_FALLBACK_BASE_URLS)
+def _database_url() -> str:
+    """Use an explicit URL, or derive the local Compose URL from its secret."""
+    configured = os.getenv("LMS_DATABASE_URL", "").strip() or os.getenv("DATABASE_URL", "").strip()
+    if configured:
+        return configured
+    password = os.getenv("LMS_POSTGRES_PASSWORD", "")
+    if not password:
+        return ""
+    host = os.getenv("LMS_POSTGRES_HOST", "localhost").strip() or "localhost"
+    port = os.getenv("LMS_POSTGRES_PORT", "5433").strip() or "5433"
+    database = os.getenv("LMS_POSTGRES_DB", "lms_mvp").strip() or "lms_mvp"
+    return f"postgresql://lms:{quote(password, safe='')}@{host}:{port}/{database}"
 
 
 def _movement_robot_keys() -> dict[str, str]:
@@ -144,7 +146,7 @@ class Settings:
     nohardware_callback_allowlist: tuple[str, ...] = field(default_factory=lambda: _parse_csv(os.getenv("LMS_NOHARDWARE_CALLBACK_ALLOWLIST", "")))
     data_dir: Path = field(default_factory=lambda: _resolve_repo_path(os.getenv("LMS_DATA_DIR", "data")))
     # PostgreSQL runtime DB. Required by current DB policy.
-    database_url: str = os.getenv("LMS_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
+    database_url: str = field(default_factory=_database_url)
     # ROS map.yaml / map.pgm 파일을 두는 폴더. 하위 폴더까지 스캔한다.
     # 상대경로는 프로세스 CWD가 아니라 레포 루트 기준으로 해석한다(서버는 backend/에서 뜬다).
     map_assets_dir: Path = field(default_factory=lambda: _resolve_repo_path(os.getenv("LMS_MAP_ASSETS_DIR", "maps")))
@@ -156,7 +158,6 @@ class Settings:
     )
     # 로봇별 주소 맵 (포트 라우팅: tb3_1->8001, tb3_2->8002).
     movement_base_urls: dict[str, str] = field(default_factory=_movement_base_urls)
-    movement_fallback_base_urls: dict[str, str] = field(default_factory=_movement_fallback_base_urls)
     movement_robot_keys: dict[str, str] = field(default_factory=_movement_robot_keys)
     movement_timeout_sec: float = float(os.getenv("LMS_MOVEMENT_TIMEOUT_SEC", "3.0"))
     movement_health_timeout_sec: float = float(os.getenv("LMS_MOVEMENT_HEALTH_TIMEOUT_SEC", "0.8"))

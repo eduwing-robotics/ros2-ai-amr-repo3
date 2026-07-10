@@ -6,7 +6,13 @@ FAILED=0
 
 echo "[nohardware] field-config: ${ROOT_DIR}/scripts/test-nohardware-config.sh"
 "${ROOT_DIR}/scripts/test-nohardware-config.sh"
-echo "[nohardware] field-config: PASSED"
+status=$?
+if [[ ${status} -ne 0 ]]; then
+  echo "[nohardware] field-config: FAILED (${status})" >&2
+  FAILED=1
+else
+  echo "[nohardware] field-config: PASSED"
+fi
 
 run_pytest() {
   local service="$1"

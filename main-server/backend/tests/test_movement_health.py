@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import sys
 import unittest
+from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.services.movement_health import health_urls_for, http_health
+from app.core.config import settings
+from app.services.movement_health import health_bases_for, health_urls_for, http_health
 
 BASE = "http://nav.local:8001/movement-api/v1"
 
@@ -36,6 +38,20 @@ class MovementHealthTest(unittest.TestCase):
                 "http://nav.local:8001/health",
             ],
         )
+
+    def test_health_uses_configured_primary_base(self) -> None:
+        configured = replace(
+            settings,
+            movement_base_urls={"tb3_1": BASE},
+        )
+        with patch("app.services.movement_health.settings", configured), patch(
+            "app.services.movement_health.urlopen", side_effect=URLError("name not resolved")
+        ) as urlopen:
+            result = http_health("tb3_1")
+            self.assertEqual(health_bases_for("tb3_1"), [BASE])
+        self.assertFalse(result["ok"])
+        self.assertTrue(urlopen.call_count >= 1)
+        self.assertTrue(all(call.args[0].full_url.startswith(BASE) or call.args[0].full_url == "http://nav.local:8001/health" for call in urlopen.call_args_list))
 
     @patch("app.services.movement_health.health_bases_for", return_value=[BASE])
     def test_http_health_uses_versioned_health_first(self, _bases) -> None:

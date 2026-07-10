@@ -279,12 +279,10 @@ class HttpMovementClient(MovementClient):
     def __init__(
         self,
         base_urls: dict[str, str],
-        fallback_urls: dict[str, str],
         fallback_url: str,
         timeout_sec: float,
     ):
         self.base_urls = {k: v.rstrip("/") for k, v in base_urls.items()}
-        self.fallback_urls = {k: v.rstrip("/") for k, v in fallback_urls.items()}
         self.fallback_url = fallback_url.rstrip("/")
         self.timeout_sec = timeout_sec
 
@@ -298,11 +296,7 @@ class HttpMovementClient(MovementClient):
     def _bases_for(self, robot_id: str) -> list[str]:
         key = movement_robot_key(robot_id)
         primary = self.base_urls.get(key, self.fallback_url)
-        fallback = self.fallback_urls.get(key, "")
-        bases = [primary]
-        if fallback and fallback != primary:
-            bases.append(fallback)
-        return bases
+        return [primary]
 
     def _base_for(self, robot_id: str) -> str:
         return self._bases_for(robot_id)[0]
@@ -396,40 +390,19 @@ class HttpMovementClient(MovementClient):
         """핸드오프 §4: POST /robot-commands (서버 루트, movement-api/v1 prefix 없음)."""
         key = movement_robot_key(robot_id)
         body = {**envelope, "robot_id": key, "robot_name": key}
-        last_error: MovementClientError | None = None
-        for base in self._bases_for(robot_id):
-            url = f"{self._api_origin(base)}/robot-commands"
-            try:
-                return self._post_json(url, body, kind="robot_command")
-            except MovementClientError as exc:
-                if exc.status_code is not None:
-                    raise
-                last_error = exc
-        raise last_error or MovementClientError("movement unreachable")
+        return self._post_json(
+            f"{self._api_origin(self._base_for(robot_id))}/robot-commands",
+            body,
+            kind="robot_command",
+        )
 
     def _get_json_for_robot(self, robot_id: str, path: str, *, kind: str) -> dict[str, Any]:
-        last_error: MovementClientError | None = None
         rel = path if path.startswith("/") else f"/{path}"
-        for base in self._bases_for(robot_id):
-            try:
-                return self._get_json(f"{base}{rel}", robot_id, kind=kind)
-            except MovementClientError as exc:
-                if exc.status_code is not None:
-                    raise
-                last_error = exc
-        raise last_error or MovementClientError("movement unreachable")
+        return self._get_json(f"{self._base_for(robot_id)}{rel}", robot_id, kind=kind)
 
     def _post_json_for_robot(self, robot_id: str, path: str, payload: dict[str, Any], *, kind: str) -> dict[str, Any]:
-        last_error: MovementClientError | None = None
         rel = path if path.startswith("/") else f"/{path}"
-        for base in self._bases_for(robot_id):
-            try:
-                return self._post_json(f"{base}{rel}", payload, kind=kind)
-            except MovementClientError as exc:
-                if exc.status_code is not None:
-                    raise
-                last_error = exc
-        raise last_error or MovementClientError("movement unreachable")
+        return self._post_json(f"{self._base_for(robot_id)}{rel}", payload, kind=kind)
 
     def _post_json(self, url: str, payload: dict[str, Any], *, kind: str) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8")
@@ -488,7 +461,6 @@ def create_movement_client() -> MovementClient:
     if mode == "http":
         return HttpMovementClient(
             settings.movement_base_urls,
-            settings.movement_fallback_base_urls,
             settings.movement_base_url,
             settings.movement_timeout_sec,
         )

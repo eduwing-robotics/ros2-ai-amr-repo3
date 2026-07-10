@@ -5,8 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DEFAULT_SIMULATOR_ROOT="/home/lucas/slam_nav_ws/Simulator"
-SIMULATOR_ROOT="${SIMULATOR_ROOT:-$DEFAULT_SIMULATOR_ROOT}"
+SIMULATOR_ROOT="${SIMULATOR_ROOT:-}"
 NAV2_REFECTOR_ROOT="${NAV2_REFECTOR_ROOT:-$(cd "$ROOT/.." && pwd)}"
 NAV_API_VENV="${NAV_API_VENV:-$ROOT/.venv}"
 SIM_PROFILE="${SIM_PROFILE:-sample}"
@@ -25,21 +24,25 @@ Usage:
   scripts/sim_ops.sh multi         # start Gazebo + Nav2 + both API ports 8001/8002
 
 Common overrides:
-  SIMULATOR_ROOT=/home/lucas/slam_nav_ws/Simulator
-  NAV2_REFECTOR_ROOT=/home/lucas
+  SIMULATOR_ROOT=/path/to/Simulator
+  NAV2_REFECTOR_ROOT=/path/to/nav2-refector-root
   SIM_PROFILE=sample
   MAP_NAME=sample
   BASE_URL=http://localhost:8001
   ROBOT_NAME=tb3_1
-  NAV_API_VENV=/home/lucas/slam_nav_ws/.venv
+  NAV_API_VENV=/path/to/nav-server/.venv
 
 Notes:
+  SIMULATOR_ROOT is required because the simulator lives outside this repository.
   The simulator expects NAV2_REFECTOR_ROOT/slam_nav_ws.
-  For this workspace the default NAV2_REFECTOR_ROOT is /home/lucas.
 EOF
 }
 
 require_simulator() {
+  if [[ -z "$SIMULATOR_ROOT" ]]; then
+    echo "[sim_ops] SIMULATOR_ROOT must point to the external Simulator workspace" >&2
+    exit 1
+  fi
   if [[ ! -d "$SIMULATOR_ROOT" ]]; then
     echo "[sim_ops] missing simulator root: $SIMULATOR_ROOT" >&2
     exit 1

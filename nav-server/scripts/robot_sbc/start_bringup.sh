@@ -7,7 +7,7 @@ set -eo pipefail
 DOMAIN="${ROS_DOMAIN_ID:-5}"
 LDS_MODEL="${LDS_MODEL:-LDS-03}"
 USB_PORT="${USB_PORT:-/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00}"
-WS_SETUP="${WS_SETUP:-/home/musk/turtlebot3_ws/install/setup.bash}"
+WS_SETUP="${WS_SETUP:?WS_SETUP must point to the TurtleBot3 overlay setup.bash}"
 TB3_EKF_MODE="${TB3_EKF_MODE:-0}"
 
 source /opt/ros/jazzy/setup.bash

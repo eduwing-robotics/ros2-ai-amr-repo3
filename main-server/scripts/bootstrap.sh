@@ -11,17 +11,19 @@ ENV_EXAMPLE="$ROOT/.env.example"
 DB_SNAPSHOT="$ROOT/database/snapshot/current_pg.dump"
 
 SKIP_DB=0
+LOCAL_DEV=0
 FORCE=0
 FORCE_DB_RESTORE=0
 for arg in "$@"; do
   case "$arg" in
     --skip-db) SKIP_DB=1 ;;
+    --local-dev) LOCAL_DEV=1 ;;
     --force) FORCE=1 ;;
     --force-db-restore) FORCE_DB_RESTORE=1 ;;
     -h|--help)
       sed -n '2,7p' "$0"
       echo
-      echo "Usage: ./scripts/bootstrap.sh [--skip-db] [--force] [--force-db-restore]"
+      echo "Usage: ./scripts/bootstrap.sh [--skip-db] [--local-dev] [--force] [--force-db-restore]"
       exit 0
       ;;
     *)
@@ -153,8 +155,12 @@ else
 fi
 
 if [[ "$SKIP_DB" -eq 0 ]]; then
-  echo "[bootstrap] PostgreSQL 준비"
-  "$ROOT/scripts/setup_pg.sh"
+  if [[ "$LOCAL_DEV" -ne 1 ]]; then
+    echo "[bootstrap] ERROR: database bootstrap is local-only; pass --local-dev or --skip-db." >&2
+    exit 2
+  fi
+  echo "[bootstrap] explicit local-development PostgreSQL 준비"
+  "$ROOT/scripts/setup_pg.sh" --local-dev
   if [[ -f "$DB_SNAPSHOT" ]]; then
     DB_SNAPSHOT_STAMP="$STATE_DIR/current_pg.dump.sha"
     if [[ "$FORCE" -eq 1 || "$FORCE_DB_RESTORE" -eq 1 ]] || ! stamp_matches "$DB_SNAPSHOT_STAMP" "$DB_SNAPSHOT"; then

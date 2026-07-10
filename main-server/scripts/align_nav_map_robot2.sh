@@ -16,12 +16,16 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
 MAIN_BASE="${MAIN_BASE:-http://localhost:8088}"
 NAV_PULL_BASE="${NAV_PULL_BASE:-${LMS_PUBLIC_BASE_URL:-http://smartfactory-main.local:8088}}"
 API_BASE="${MAIN_BASE%/}/api/v1"
 NAV_HOST="${NAV_HOST:-192.168.30.4}"
 TARGET_MAP="${TARGET_MAP:-robot2_map}"
-NAV_MAP_DIR="${NAV_MAP_DIR:-/home/lucas/slam_nav_ws/map}"
+# The repository map directory is suitable for local development.  A deployed
+# Nav PC workspace is external to this repository and must be supplied before
+# its restart command can run.
+NAV_MAP_DIR="${NAV_MAP_DIR:-$REPO_ROOT/nav-server/map}"
 PY="${PYTHON:-python3}"
 
 fail() { echo "[align-nav] FAIL: $*" >&2; exit 1; }
@@ -92,6 +96,16 @@ set -euo pipefail
 MAP_DIR="$NAV_MAP_DIR"
 MAIN="$NAV_PULL_BASE"
 TARGET="$TARGET_MAP"
+NAV_WORKSPACE="\${NAV_WORKSPACE:-}"
+
+if [[ -z "\$NAV_WORKSPACE" ]]; then
+  echo "NAV_WORKSPACE is required: set it to the external Nav workspace containing scripts/start_nav_servers.sh" >&2
+  exit 1
+fi
+if [[ ! -x "\$NAV_WORKSPACE/scripts/start_nav_servers.sh" ]]; then
+  echo "NAV_WORKSPACE does not contain an executable scripts/start_nav_servers.sh: \$NAV_WORKSPACE" >&2
+  exit 1
+fi
 
 sudo mkdir -p "\$MAP_DIR"
 curl -fsS "\$MAIN/api/v1/map-assets/\$TARGET/map.yaml" -o "\$MAP_DIR/\$TARGET.yaml"
@@ -101,8 +115,8 @@ curl -fsS "\$MAIN/api/v1/map-assets/\$TARGET/map.pgm" -o "\$MAP_DIR/\$TARGET.pgm
 #   \$MAP_DIR/\$TARGET.yaml
 # 예: scripts/start_nav_servers.sh / launch 파일의 default map 경로 수정
 
-cd /home/lucas/slam_nav_ws
-scripts/start_nav_servers.sh restart   # 또는 현장 restart 절차
+cd "\$NAV_WORKSPACE"
+"\$NAV_WORKSPACE/scripts/start_nav_servers.sh" restart   # 또는 현장 restart 절차
 
 # tb3_1 (:8001) 과 tb3_2 (:8002) 모두 확인:
 curl -s "http://${NAV_HOST}:8001/movement-api/v1/map-state" | jq '.active_map_id,.width,.height,.resolution'

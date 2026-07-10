@@ -22,7 +22,7 @@ fi
 
 cd "$ROOT"
 
-echo "[check_all] py_compile nav_app + scripts/nav_server.py"
+echo "[check_all] py_compile nav_app + deployment scripts"
 "$PYTHON_BIN" -m py_compile \
   nav_app/bootstrap.py \
   nav_app/app.py \
@@ -49,7 +49,12 @@ echo "[check_all] py_compile nav_app + scripts/nav_server.py"
   nav_app/services/robot_context.py \
   nav_app/services/route_helpers.py \
   nav_app/services/status_helpers.py \
-  scripts/nav_server.py
+  scripts/nav_server.py \
+  scripts/logistics_navigator.py \
+  map/generate_factory_map.py
+
+echo "[check_all] ruff"
+"$PYTHON_BIN" -m ruff check nav_app scripts/nav_server.py scripts/logistics_navigator.py map/generate_factory_map.py tests
 
 echo "[check_all] pytest (ROS-free unit layer)"
 "$PYTHON_BIN" -m pytest tests/ -q
@@ -57,9 +62,12 @@ echo "[check_all] pytest (ROS-free unit layer)"
 echo "[check_all] config validators"
 "$PYTHON_BIN" "$SCRIPT_DIR/validate_robot_domains.py" --config "$ROOT/config/robots.json" --bridge-dir "$ROOT/config/domain_bridge"
 "$PYTHON_BIN" "$SCRIPT_DIR/validate_zones.py"
+"$PYTHON_BIN" -c 'from nav_app.config import MAIN_SERVER_ROUTES; assert MAIN_SERVER_ROUTES["nav_pc_host"]'
 
 echo "[check_all] shell syntax"
-bash -n "$SCRIPT_DIR/sim_ops.sh"
+while IFS= read -r -d '' script; do
+  bash -n "$script"
+done < <(find "$SCRIPT_DIR" -type f -name '*.sh' -print0)
 
 echo "[check_all] smoke layer (requires running nav servers for full pass)"
 echo "  optional: SIMULATION_MODE=1 scripts/smoke_nav_servers.sh"

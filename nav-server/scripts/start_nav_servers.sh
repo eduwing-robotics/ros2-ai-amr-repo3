@@ -22,7 +22,7 @@ TB3_1_PORT="${TB3_1_PORT:-8001}"
 TB3_2_PORT="${TB3_2_PORT:-8002}"
 HOST="${HOST:-0.0.0.0}"
 DRY_RUN_MISSION="${DRY_RUN_MISSION:-0}"
-MAIN_API_BASE="${MAIN_API_BASE:-http://192.168.30.9:8088/api/v1}"
+MAIN_API_BASE="${MAIN_API_BASE:-}"
 
 usage() {
   cat <<'EOF'
@@ -38,8 +38,8 @@ Environment overrides:
   TB3_1_PORT=8001
   TB3_2_PORT=8002
   HOST=0.0.0.0
-  MAIN_API_BASE=http://127.0.0.1:8088/api/v1
-  LOG_DIR=/home/lucas/slam_nav_ws/logs
+  MAIN_API_BASE=https://smartfactory-main.local:8088/api/v1
+  LOG_DIR=logs
   DRY_RUN_MISSION=1
 
 Examples:

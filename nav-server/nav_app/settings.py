@@ -9,6 +9,8 @@ ACTIVE_ROBOT_ID = os.getenv("ROBOT_ID", "tb3_burger_01")
 SUPPORTED_MISSION_TYPES = {"inbound", "outbound"}
 ENV_MAIN_API_BASE = os.getenv("MAIN_API_BASE", "").rstrip("/")
 LMS_PUBLIC_BASE_URL = os.getenv("LMS_PUBLIC_BASE_URL", "").rstrip("/")
+ENV_NAV_PC_HOST = os.getenv("NAV_PC_HOST", "").strip()
+ENV_WEBHOOK_ENDPOINT = os.getenv("WEBHOOK_ENDPOINT", "").rstrip("/")
 CALLBACK_TIMEOUT_SEC = float(os.getenv("MAIN_CALLBACK_TIMEOUT_SEC", "2.0"))
 # Same value as Main LMS_MOVEMENT_HMAC_SECRET. Nav never logs this secret.
 MAIN_CALLBACK_HMAC_SECRET = os.getenv("NAV_MAIN_HMAC_SECRET", os.getenv("LMS_MOVEMENT_HMAC_SECRET", "")).strip()

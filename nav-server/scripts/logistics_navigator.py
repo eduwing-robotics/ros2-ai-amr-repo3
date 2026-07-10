@@ -40,6 +40,15 @@ ROOT = Path(__file__).resolve().parents[1]
 ZONES_PATH = ROOT / "map" / "zones.json"
 
 
+def nav2_active_wait_is_skipped() -> bool:
+    """Allow bypassing Nav2 lifecycle readiness only in explicit simulation."""
+    skip_wait = os.getenv("NAV2_SKIP_ACTIVE_WAIT", "0").strip().lower() in ("1", "true", "yes", "on")
+    simulation_mode = os.getenv("SIMULATION_MODE", "0").strip().lower() in ("1", "true", "yes", "on")
+    if skip_wait and not simulation_mode:
+        raise RuntimeError("NAV2_SKIP_ACTIVE_WAIT=1 is only permitted when SIMULATION_MODE=1")
+    return skip_wait
+
+
 class SafetyManager:
     """시스템의 안전과 운용 모드를 관리합니다."""
     def __init__(self):
@@ -236,8 +245,7 @@ class LogisticsNavigator(Node):
         with self.nav2_ready_lock:
             if self.nav2_ready:
                 return True
-            skip_wait = os.getenv("NAV2_SKIP_ACTIVE_WAIT", "0").strip().lower() in ("1", "true", "yes", "on")
-            if skip_wait:
+            if nav2_active_wait_is_skipped():
                 self.nav2_ready = True
                 self.get_logger().info("Nav2 active wait skipped; using available action servers.")
                 return True
@@ -1360,7 +1368,8 @@ def main():
         try:
             # Nav2 활성화 대기
             print("Nav2 시스템 확인 중...")
-            navigator.nav.waitUntilNav2Active(localizer="amcl")
+            if not navigator.ensure_nav2_ready():
+                raise RuntimeError("Nav2 active state check failed")
 
             # 이동 수행
             navigator.go_to_waypoint(command)

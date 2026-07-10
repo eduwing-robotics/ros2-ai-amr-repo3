@@ -28,12 +28,15 @@ except ImportError as exc:  # pragma: no cover
     ) from exc
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from app.source_registry import load_source_registry  # noqa: E402
+
 VISION_EVENT_SCHEMA_PATH = ROOT / "docs/contracts/vision-event.schema.json"
 LIFT_ROI_EVIDENCE_SCHEMA_PATH = ROOT / "docs/contracts/lift-roi-evidence.schema.json"
 EVIDENCE_EVALUATION_SCHEMA_PATH = ROOT / "docs/contracts/evidence-evaluation.v1.schema.json"
 FIXTURE_DIR = ROOT / "docs/contracts/fixtures"
-SOURCE_REGISTRY_SNAPSHOT_PATH = ROOT / "docs/contracts/generated/source-registry.snapshot.json"
-SOURCE_REGISTRY_FIXTURE_PATH = FIXTURE_DIR / "source-registry.valid.json"
+SOURCE_REGISTRY_PATH = ROOT / "config/vision/sources.yaml"
 MARKER_CLASSES = {"aruco_marker", "qr_marker", "apriltag_marker"}
 DETECTION_CLASSES = {"person", "obstacle", "box", "dropped_item", "pallet", "unknown"}
 EVIDENCE_IMAGE_ROUTE_PREFIX = "/api/v1/evidence/images/"
@@ -49,11 +52,7 @@ def load_json(path: Path) -> Any:
         return json.load(f)
 
 
-SOURCE_REGISTRY = (
-    load_json(SOURCE_REGISTRY_SNAPSHOT_PATH)
-    if SOURCE_REGISTRY_SNAPSHOT_PATH.exists()
-    else {"sources": []}
-)
+SOURCE_REGISTRY = load_source_registry(SOURCE_REGISTRY_PATH).as_snapshot()
 SOURCE_BY_ID = {item["source_id"]: item for item in SOURCE_REGISTRY.get("sources", [])}
 
 
@@ -263,7 +262,7 @@ def validate_source_registry_surfaces(
     failures: list[str], vision_schema: dict[str, Any], lift_roi_schema: dict[str, Any]
 ) -> None:
     if not SOURCE_BY_ID:
-        failures.append("source registry snapshot is missing or empty")
+        failures.append("authoritative source registry is empty")
         return
     source_ids = SOURCE_REGISTRY.get("source_ids")
     all_source_ids = SOURCE_REGISTRY.get("all_source_ids")
@@ -279,12 +278,6 @@ def validate_source_registry_surfaces(
         failures.append("VisionEvent source enum does not match source registry")
     if lift_roi_schema.get("properties", {}).get("source", {}).get("enum") != source_ids:
         failures.append("LiftRoiEvidence source enum does not match source registry")
-    if SOURCE_REGISTRY_FIXTURE_PATH.exists():
-        fixture = load_json(SOURCE_REGISTRY_FIXTURE_PATH)
-        if fixture != SOURCE_REGISTRY:
-            failures.append("source-registry.valid.json fixture does not match generated snapshot")
-    else:
-        failures.append("source-registry.valid.json fixture is missing")
 
 
 def validate_fixture_set(

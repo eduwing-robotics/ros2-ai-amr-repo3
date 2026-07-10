@@ -104,11 +104,11 @@ def fake_health(robot_id: str) -> dict[str, Any]:
 
 
 def http_health(robot_id: str) -> dict[str, Any]:
-    """Movement 서버의 /health를 짧은 timeout으로 조회한다 (primary + fallback URL).
+    """Movement 서버의 primary endpoint에서 /health를 짧은 timeout으로 조회한다.
 
     Movement base URL은 보통 ``/movement-api/v1`` prefix까지 포함한다. 따라서
     versioned ``{base}/health``를 먼저 확인하고, 기존 root ``/health``는 호환
-    폴백으로 둔다. health endpoint만 불일치하는 현장에서는 pose API 응답을
+    경로로 둔다. health endpoint만 불일치하는 현장에서는 pose API 응답을
     서버 연결성의 보조 신호로 사용한다.
     """
     last_failed: dict[str, Any] | None = None
@@ -126,14 +126,10 @@ def http_health(robot_id: str) -> dict[str, Any]:
 
 
 def health_bases_for(robot_id: str) -> list[str]:
-    """Movement command client와 동일한 primary/fallback 순서를 사용한다."""
+    """Probe only the robot's configured primary Movement endpoint."""
     key = movement_robot_key(robot_id)
     primary = settings.movement_base_urls.get(key, settings.movement_base_url).rstrip("/")
-    fallback = settings.movement_fallback_base_urls.get(key, "").rstrip("/")
-    bases = [primary]
-    if fallback and fallback != primary:
-        bases.append(fallback)
-    return bases
+    return [primary]
 
 
 def health_urls_for(base: str) -> list[str]:

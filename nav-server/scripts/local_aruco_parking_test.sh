@@ -3,7 +3,7 @@
 # This keeps the Nav server path active and sends a local Movement command.
 #
 # Typical robot1 test:
-#   cd /home/lucas/slam_nav_ws
+#   cd <nav-server-root>
 #   MARKER_ID=0 ROBOT_ID=tb3_burger_01 scripts/local_aruco_parking_test.sh
 #
 # If camera launch is already running on the robot SBC, keep START_CAMERA_LAUNCH=0.

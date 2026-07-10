@@ -17,8 +17,6 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 SERVICE_DIR = ROOT
 CONTRACT_DIR = ROOT / "docs" / "contracts"
-GENERATED_DIR = CONTRACT_DIR / "generated"
-FIXTURE_DIR = CONTRACT_DIR / "fixtures"
 
 VENV_PYTHON = SERVICE_DIR / ".venv" / "bin" / "python"
 VENV_DIR = SERVICE_DIR / ".venv"
@@ -59,18 +57,12 @@ def main() -> int:
     _update_source_enum(CONTRACT_DIR / "vision-event.schema.json", source_ids)
     _update_source_enum(CONTRACT_DIR / "lift-roi-evidence.schema.json", source_ids)
 
-    snapshot = registry.as_snapshot()
-    _write_json(GENERATED_DIR / "source-registry.snapshot.json", snapshot)
-    _write_json(FIXTURE_DIR / "source-registry.valid.json", snapshot)
-
     app = create_app()
     _write_json(CONTRACT_DIR / "ai-server-openapi.json", app.openapi())
 
     print("Generated source registry surfaces:")
     print(f"- {CONTRACT_DIR / 'vision-event.schema.json'}")
     print(f"- {CONTRACT_DIR / 'lift-roi-evidence.schema.json'}")
-    print(f"- {GENERATED_DIR / 'source-registry.snapshot.json'}")
-    print(f"- {FIXTURE_DIR / 'source-registry.valid.json'}")
     print(f"- {CONTRACT_DIR / 'ai-server-openapi.json'}")
     return 0
 

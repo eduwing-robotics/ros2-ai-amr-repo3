@@ -13,6 +13,7 @@ import math
 import re
 import subprocess
 import sys
+from ipaddress import IPv4Address
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -21,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 NAV = ROOT / "nav-server"
 MAIN = ROOT / "main-server"
 AI = ROOT / "ai-server"
+
+
 def fail(message: str) -> None:
     raise AssertionError(message)
 
@@ -44,10 +47,27 @@ def require_url(value: object, label: str) -> None:
         fail(f"{label} must be an absolute HTTP(S) URL with host and port: {value!r}")
 
 
-def require_ip(value: object, label: str) -> None:
-    octets = str(value).split(".")
-    if len(octets) != 4 or any(not part.isdigit() or not 0 <= int(part) <= 255 for part in octets):
-        fail(f"{label} must be an IPv4 address: {value!r}")
+def require_network_host(value: object, label: str) -> None:
+    """Accept a routable IPv4 address or RFC-style DNS hostname.
+
+    The field contract is hostname-first, but an operator may supply a LAN IPv4
+    address where a host is accepted.  Loopback and malformed host values must
+    never pass the static deployment audit.
+    """
+    host = str(value).rstrip(".")
+    try:
+        address = IPv4Address(host)
+    except ValueError:
+        hostname_labels = host.split(".")
+        is_dns_name = bool(host) and len(host) <= 253 and all(
+            re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", hostname_label)
+            for hostname_label in hostname_labels
+        )
+        if not is_dns_name or host.lower() == "localhost":
+            fail(f"{label} must be a valid DNS hostname or IPv4 address: {value!r}")
+        return
+    if address.is_loopback:
+        fail(f"{label} must not use a loopback address: {value!r}")
 
 
 def yaml_scalar(path: Path, key: str) -> str | None:
@@ -181,12 +201,13 @@ def check_robots_routes_maps_bridges() -> tuple[list[dict], dict]:
         for key in ("bridge_robot_id", "ros_domain_id", "center_domain_id"):
             if route.get(key) != robot.get(key):
                 fail(f"{robot_id} route {key} must match robots.json")
-        for key in ("nav_api_url", "nav_api_fallback_url"):
-            require_url(route.get(key), f"{robot_id}.{key}")
-            parsed = urlparse(str(route[key]))
-            if parsed.port != robot["api_port"]:
-                fail(f"{robot_id}.{key} port must equal api_port")
-            require_ip(parsed.hostname, f"{robot_id}.{key} hostname")
+        if "nav_api_fallback_url" in route:
+            fail(f"{robot_id} must not declare automatic fixed-IP fallback routing")
+        require_url(route.get("nav_api_url"), f"{robot_id}.nav_api_url")
+        parsed = urlparse(str(route["nav_api_url"]))
+        if parsed.port != robot["api_port"]:
+            fail(f"{robot_id}.nav_api_url port must equal api_port")
+        require_network_host(parsed.hostname, f"{robot_id}.nav_api_url hostname")
         if f"/mission/{bridge_id}/teleop_cmd" != robot.get("teleop_command_topic"):
             fail(f"{robot_id} teleop topic must use bridge_robot_id")
         if f"/mission/{bridge_id}/camera/compressed" != robot.get("camera_topic"):
@@ -205,11 +226,9 @@ def check_robots_routes_maps_bridges() -> tuple[list[dict], dict]:
                 fail(f"{path.relative_to(ROOT)} does not match {robot_id} domains/topics")
 
     unique([route.get("nav_api_url") for route in route_robots], "robot nav_api_url")
-    require_ip(routes.get("nav_pc_host"), "main_server_routes.nav_pc_host")
-    for alias, ip in routes.get("robot_fixed_ips", {}).items():
-        require_ip(ip, f"robot_fixed_ips.{alias}")
-        if alias not in robot_by_id and alias not in {robot["bridge_robot_id"] for robot in robots}:
-            fail(f"robot_fixed_ips.{alias} has no robot mapping")
+    require_network_host(routes.get("nav_pc_host"), "main_server_routes.nav_pc_host")
+    if routes.get("robot_fixed_ips"):
+        fail("main_server_routes must not declare fixed-IP robot routing")
     return robots, routes
 
 

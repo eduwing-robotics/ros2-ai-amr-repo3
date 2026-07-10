@@ -9,6 +9,13 @@
 #
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/local_hardware.sh
+source "$SCRIPT_DIR/lib/local_hardware.sh"
+load_local_hardware_env
+
+LIFT_WS_SETUP="${LIFT_WS_SETUP:?LIFT_WS_SETUP must point to the SBC lift overlay setup.bash}"
+
 BASE="${MOVEMENT_API_URL:-http://127.0.0.1:8002}"
 ROBOT_ID="${ROBOT_ID:-tb3_2}"
 ROBOT_NAME="${ROBOT_NAME:-tb3_2}"
@@ -19,8 +26,9 @@ PRE_INSERT_MM="${PRE_INSERT_MM:-50}"
 UNLOAD_MM="${UNLOAD_MM:-12}"
 TRAVEL_MM="${TRAVEL_MM:-50}"
 ROBOT_SSH="${ROBOT_SSH:-musk@192.168.30.102}"
-ROBOT_PW="${ROBOT_PW:-1234}"
 TS=$(date +%s)
+
+configure_robot_ssh 25
 
 case "${SLOT,,}" in
   a) WX=0.026; WY=-0.025; WYAW=0.0; MARKER=7; DIST=0.385; LABEL="warehouse_a" ;;
@@ -34,10 +42,15 @@ lift_move() {
   local mm="$1"
   echo ""
   echo "======== lift -> ${mm}mm ========"
-  sshpass -p "$ROBOT_PW" ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=25 "$ROBOT_SSH" \
-    "export ROS_DOMAIN_ID=5; source /opt/ros/jazzy/setup.bash; source /home/musk/lift_project/ros2_ws/install/setup.bash;
-     ros2 topic pub --once /lift/cmd_move std_msgs/msg/Float32 \"{data: ${mm}.0}\" >/dev/null; sleep 12;
-     echo -n position=; timeout 5 ros2 topic echo /lift/position --once 2>/dev/null | awk '/^data:/ {print \$2; exit}'"
+  "${SSH_CMD[@]}" "$ROBOT_SSH" \
+    env ROS_DOMAIN_ID=5 LIFT_WS_SETUP="$LIFT_WS_SETUP" LIFT_MM="$mm" bash -s <<'REMOTE'
+source /opt/ros/jazzy/setup.bash
+source "$LIFT_WS_SETUP"
+ros2 topic pub --once /lift/cmd_move std_msgs/msg/Float32 "{data: ${LIFT_MM}.0}" >/dev/null
+sleep 12
+echo -n position=
+timeout 5 ros2 topic echo /lift/position --once 2>/dev/null | awk '/^data:/ {print $2; exit}'
+REMOTE
 }
 
 poll() {

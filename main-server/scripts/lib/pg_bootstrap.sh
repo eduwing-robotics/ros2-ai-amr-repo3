@@ -1,167 +1,79 @@
 #!/usr/bin/env bash
-# PostgreSQL bootstrap helpers for real.sh (PHASE_60).
+# PostgreSQL configuration helpers.  Runtime startup verifies a configured DB;
+# it never creates one or switches to another database.
 # shellcheck disable=SC2034
 set -euo pipefail
 
-pg_compose_file() {
-  echo "${ROOT}/docker-compose.pg.yml"
+pg_read_env_value() {
+  local key="$1" line
+  [[ "${LMS_DISABLE_DOTENV:-}" != "1" ]] || return 0
+  [[ -f "${ROOT}/.env" ]] || return 0
+  line="$(grep -E "^${key}=" "${ROOT}/.env" | tail -n1 || true)"
+  [[ -n "$line" ]] && printf '%s' "${line#*=}" | tr -d "'\""
 }
 
-pg_default_url() {
-  if [[ -f "${ROOT}/.env.example" ]]; then
-    local line
-    line="$(grep -E '^LMS_DATABASE_URL=' "${ROOT}/.env.example" | tail -n1 || true)"
-    if [[ -n "$line" ]]; then
-      echo "${line#*=}" | tr -d '"' | tr -d "'"
-      return
-    fi
+pg_redact_url() {
+  local url="$1" authority
+  authority="${url#*://}"
+  if [[ "$authority" == "$url" || "$authority" != *"@"* ]]; then
+    printf '%s\n' 'configured (redacted)'
+    return
   fi
-  echo "postgresql://lms:lms@localhost:5433/lms_mvp"
+  authority="${authority##*@}"
+  authority="${authority%%/*}"
+  authority="${authority%%\?*}"
+  printf 'host=%s\n' "$authority"
 }
 
-pg_host_port_from_url() {
-  local url="$1"
-  if [[ "$url" =~ @([^:/]+):([0-9]+)/ ]]; then
-    echo "${BASH_REMATCH[1]} ${BASH_REMATCH[2]}"
+pg_urlencode() {
+  local value="$1"
+  if [[ -x "${BACKEND:-${ROOT}/backend}/.venv/bin/python" ]]; then
+    "${BACKEND:-${ROOT}/backend}/.venv/bin/python" -c 'import sys; from urllib.parse import quote; print(quote(sys.argv[1], safe=""))' "$value"
   else
-    echo "localhost 5433"
+    # PostgreSQL passwords used for deployment must not contain URL-reserved
+    # characters when the backend venv is unavailable.
+    [[ "$value" =~ ^[A-Za-z0-9._~-]+$ ]] || return 1
+    printf '%s\n' "$value"
   fi
-}
-
-pg_port_open() {
-  local host="$1" port="$2"
-  if command -v nc >/dev/null 2>&1; then
-    nc -z "$host" "$port" >/dev/null 2>&1
-    return $?
-  fi
-  if command -v ss >/dev/null 2>&1; then
-    ss -ltn | grep -q ":${port} "
-    return $?
-  fi
-  return 1
 }
 
 pg_ensure_url() {
   local url="${LMS_DATABASE_URL:-${DATABASE_URL:-}}"
-  if [[ -z "$url" ]] && [[ -n "${DB_URL:-}" ]]; then
-    url="$DB_URL"
-  fi
+  local password="${LMS_POSTGRES_PASSWORD:-}"
+  [[ -n "$url" ]] || url="$(pg_read_env_value LMS_DATABASE_URL)"
+  [[ -n "$password" ]] || password="$(pg_read_env_value LMS_POSTGRES_PASSWORD)"
   if [[ -z "$url" ]]; then
-    url="$(pg_default_url)"
-    echo "[pg] LMS_DATABASE_URL 미설정 — 기본값 사용: $url"
-    echo "[pg] 영구 설정: .env 에 LMS_DATABASE_URL=... 추가"
+    if [[ -z "$password" ]]; then
+      echo "[pg] ERROR: set LMS_DATABASE_URL or LMS_POSTGRES_PASSWORD; no database default is permitted." >&2
+      return 1
+    fi
+    local encoded host port database
+    encoded="$(pg_urlencode "$password")" || {
+      echo "[pg] ERROR: cannot safely derive LMS_DATABASE_URL without the backend venv." >&2
+      return 1
+    }
+    host="${LMS_POSTGRES_HOST:-$(pg_read_env_value LMS_POSTGRES_HOST)}"; host="${host:-localhost}"
+    port="${LMS_POSTGRES_PORT:-$(pg_read_env_value LMS_POSTGRES_PORT)}"; port="${port:-5433}"
+    database="${LMS_POSTGRES_DB:-$(pg_read_env_value LMS_POSTGRES_DB)}"; database="${database:-lms_mvp}"
+    url="postgresql://lms:${encoded}@${host}:${port}/${database}"
   fi
   export LMS_DATABASE_URL="$url"
   export DATABASE_URL="$url"
 }
 
-pg_try_docker_up() {
-  local compose
-  compose="$(pg_compose_file)"
-  [[ -f "$compose" ]] || return 1
-  if ! command -v docker >/dev/null 2>&1; then
-    return 1
-  fi
-  if ! docker compose version >/dev/null 2>&1; then
-    return 1
-  fi
-  echo "[pg] docker compose 로 PostgreSQL 기동 ($compose)"
-  docker compose -f "$compose" up -d
-  return 0
-}
-
-pg_wait_ready() {
-  local host="$1" port="$2" tries="${3:-30}"
-  local i
-  for ((i = 1; i <= tries; i++)); do
-    if pg_port_open "$host" "$port"; then
-      if command -v docker >/dev/null 2>&1 && docker compose -f "$(pg_compose_file)" ps 2>/dev/null | grep -q healthy; then
-        echo "[pg] PostgreSQL ready (docker healthy)"
-        return 0
-      fi
-      if pg_port_open "$host" "$port"; then
-        echo "[pg] PostgreSQL port $port open"
-        return 0
-      fi
-    fi
-    sleep 1
-  done
-  return 1
-}
-
 pg_probe_url() {
-  local url="$1"
-  [[ -x "${BACKEND:-${ROOT}/backend}/.venv/bin/python" ]] || return 1
-  LMS_DATABASE_URL="$url" "${BACKEND:-${ROOT}/backend}/.venv/bin/python" -c "
-import os, psycopg
-with psycopg.connect(os.environ['LMS_DATABASE_URL'], connect_timeout=3):
-    pass
-" 2>/dev/null
-}
-
-pg_reload_url_from_env() {
-  if [[ -f "${ROOT}/.env" ]]; then
-    local line
-    line="$(grep -E '^LMS_DATABASE_URL=' "${ROOT}/.env" | tail -n1 || true)"
-    if [[ -n "$line" ]]; then
-      export LMS_DATABASE_URL="$(echo "${line#*=}" | tr -d '"' | tr -d "'")"
-      export DATABASE_URL="$LMS_DATABASE_URL"
-    fi
-  fi
-}
-
-pg_native_url() {
-  echo "postgresql://lms:lms@localhost:5432/lms_mvp"
+  local url="$1" python="${BACKEND:-${ROOT}/backend}/.venv/bin/python"
+  [[ -x "$python" ]] || return 1
+  LMS_DATABASE_URL="$url" "$python" -c 'import os, psycopg; psycopg.connect(os.environ["LMS_DATABASE_URL"], connect_timeout=3).close()' 2>/dev/null
 }
 
 pg_ensure_running() {
   pg_ensure_url
   if pg_probe_url "$LMS_DATABASE_URL"; then
-    echo "[pg] PostgreSQL 연결 확인 ($LMS_DATABASE_URL)"
+    echo "[pg] PostgreSQL connection verified"
     return 0
   fi
-  local native_url
-  native_url="$(pg_native_url)"
-  if [[ "$LMS_DATABASE_URL" != "$native_url" ]] && pg_probe_url "$native_url"; then
-    echo "[pg] .env URL 실패 — 로컬 Postgres(:5432) 사용"
-    if [[ -x "$ROOT/scripts/setup_pg.sh" ]]; then
-      LMS_DATABASE_URL="$native_url" "$ROOT/scripts/setup_pg.sh" && pg_reload_url_from_env
-      pg_probe_url "$LMS_DATABASE_URL" && return 0
-    fi
-    export LMS_DATABASE_URL="$native_url"
-    export DATABASE_URL="$native_url"
-    return 0
-  fi
-  read -r pg_host pg_port <<<"$(pg_host_port_from_url "$LMS_DATABASE_URL")"
-  if pg_port_open "$pg_host" "$pg_port"; then
-    echo "[pg] ERROR: 포트는 열려 있으나 인증/DB 연결 실패 ($LMS_DATABASE_URL)" >&2
-    echo "[pg]   ./scripts/setup_pg.sh 실행" >&2
-    return 1
-  fi
-  if pg_try_docker_up; then
-    read -r pg_host pg_port <<<"$(pg_host_port_from_url "$LMS_DATABASE_URL")"
-    if pg_wait_ready "$pg_host" "$pg_port" && pg_probe_url "$LMS_DATABASE_URL"; then
-      return 0
-    fi
-    echo "[pg] ERROR: docker Postgres가 준비되지 않았다." >&2
-    return 1
-  fi
-  if pg_port_open localhost 5432; then
-    echo "[pg] :5433 없음, 로컬 Postgres(:5432) 감지 — DB 준비 시도..." >&2
-    if [[ -x "$ROOT/scripts/setup_pg.sh" ]]; then
-      if [[ -t 0 ]] && [[ -t 1 ]]; then
-        "$ROOT/scripts/setup_pg.sh" && pg_reload_url_from_env && pg_probe_url "$LMS_DATABASE_URL"
-        return $?
-      fi
-      echo "[pg] 최초 1회 DB 생성 (sudo 필요):" >&2
-      echo "  cd $ROOT" >&2
-      echo "  sudo -u postgres psql -d postgres -v ON_ERROR_STOP=1 < database/setup_native_pg.sql" >&2
-      echo "  ./scripts/setup_pg.sh && ./scripts/real.sh --dev" >&2
-      return 1
-    fi
-  fi
-  echo "[pg] ERROR: PostgreSQL에 연결할 수 없다 ($pg_host:$pg_port)." >&2
-  echo "[pg]   ./scripts/setup_pg.sh" >&2
-  echo "[pg]   또는 docker compose -f docker-compose.pg.yml up -d" >&2
+  echo "[pg] ERROR: configured PostgreSQL is unavailable or rejected credentials; refusing startup." >&2
+  echo "[pg] Set LMS_DATABASE_URL/LMS_POSTGRES_PASSWORD correctly. Local bootstrap requires ./scripts/setup_pg.sh --local-dev." >&2
   return 1
 }

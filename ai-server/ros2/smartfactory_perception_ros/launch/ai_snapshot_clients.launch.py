@@ -53,10 +53,6 @@ def generate_launch_description():
         DeclareLaunchArgument('use_ai_server', default_value='false'),
         DeclareLaunchArgument('use_wms_bridge', default_value='false'),
         DeclareLaunchArgument('use_nav2', default_value='false'),
-        DeclareLaunchArgument(
-            'repo_root',
-            default_value='/home/codelab/Desktop/Project/SmartFactory',
-        ),
         DeclareLaunchArgument('ai_server_host', default_value='127.0.0.1'),
         DeclareLaunchArgument('ai_server_port', default_value='8100'),
         DeclareLaunchArgument('main_server_url', default_value='http://127.0.0.1:8000'),

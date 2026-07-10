@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate a Nav2 occupancy grid from the provided factory layout image.
 
-This keeps the wall size/length/position from /home/lucas/Downloads/image (1).png,
-while using the same occupancy style as /home/lucas/map.pgm:
+The reference layout is supplied explicitly with --reference-image or
+FACTORY_MAP_REFERENCE_IMAGE. It uses the same occupancy style as the output map:
 - 205 unknown gray margin/background
 - 254 white free space inside the mapped room
 - 0 black occupied wall lines
@@ -13,10 +13,11 @@ Outputs:
 """
 
 from pathlib import Path
+import argparse
+import os
 import math
 from PIL import Image
 
-REFERENCE_IMAGE = Path("/home/lucas/Downloads/image (1).png")
 ROOT = Path(__file__).resolve().parent
 PGM_PATH = ROOT / "map.pgm"
 YAML_PATH = ROOT / "map.yaml"
@@ -33,7 +34,7 @@ SLOT_HEIGHT_M = 0.05
 SLOT_SPACING_M = 0.10
 
 
-def wall_bbox(image: Image.Image) -> tuple[int, int, int, int]:
+def wall_bbox(image: Image.Image, reference_image: Path) -> tuple[int, int, int, int]:
     xs: list[int] = []
     ys: list[int] = []
     for y in range(image.height):
@@ -43,7 +44,7 @@ def wall_bbox(image: Image.Image) -> tuple[int, int, int, int]:
                 xs.append(x)
                 ys.append(y)
     if not xs:
-        raise ValueError(f"no wall pixels found in {REFERENCE_IMAGE}")
+        raise ValueError(f"no wall pixels found in {reference_image}")
     return min(xs), min(ys), max(xs), max(ys)
 
 
@@ -215,13 +216,13 @@ def add_logistics_slots(grid: list[list[int]]) -> None:
     add_bottom_zone_slots(grid)
 
 
-def build_map() -> list[list[int]]:
-    if not REFERENCE_IMAGE.exists():
-        raise FileNotFoundError(f"missing reference image: {REFERENCE_IMAGE}")
+def build_map(reference_image: Path) -> list[list[int]]:
+    if not reference_image.is_file():
+        raise FileNotFoundError(f"missing reference image: {reference_image}")
 
-    image = Image.open(REFERENCE_IMAGE).convert("RGB")
-    crop = image.crop(square_crop_box(wall_bbox(image), image.size))
-    # Keep the same kind of unknown gray margin as /home/lucas/map.pgm.
+    image = Image.open(reference_image).convert("RGB")
+    crop = image.crop(square_crop_box(wall_bbox(image, reference_image), image.size))
+    # Keep the same kind of unknown gray margin as the generated map.
     # The destination box preserves the reference image's visible margin ratio
     # inside a 59x59 SLAM-style canvas instead of stretching walls edge-to-edge.
     dest_left = 3
@@ -272,15 +273,30 @@ def write_yaml() -> None:
     )
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--reference-image",
+        default=os.getenv("FACTORY_MAP_REFERENCE_IMAGE"),
+        help="Factory layout image (or set FACTORY_MAP_REFERENCE_IMAGE).",
+    )
+    args = parser.parse_args()
+    if not args.reference_image:
+        parser.error("--reference-image or FACTORY_MAP_REFERENCE_IMAGE is required")
+    args.reference_image = Path(args.reference_image).expanduser()
+    return args
+
+
 def main() -> None:
-    grid = build_map()
+    args = parse_args()
+    grid = build_map(args.reference_image)
     write_pgm(grid)
     write_yaml()
     counts = {UNKNOWN: 0, FREE: 0, OCCUPIED: 0}
     for row in grid:
         for value in row:
             counts[value] = counts.get(value, 0) + 1
-    print(f"reference: {REFERENCE_IMAGE}")
+    print(f"reference: {args.reference_image}")
     print(f"generated: {PGM_PATH}")
     print(f"generated: {YAML_PATH}")
     print(f"size: {WIDTH} x {HEIGHT} px, resolution={RESOLUTION:.6f} m/px, physical={WIDTH * RESOLUTION:.3f}m x {HEIGHT * RESOLUTION:.3f}m")

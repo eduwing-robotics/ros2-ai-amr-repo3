@@ -37,7 +37,7 @@ trap cleanup EXIT INT TERM
 python3 "$SCRIPT_DIR/mock_main_server.py" --host "$MOCK_HOST" --port "$MOCK_PORT" >/tmp/slam_nav_movement_mock_main.log 2>&1 &
 MOCK_PID="$!"
 
-DRY_RUN_MISSION=1 MAIN_API_BASE="$MAIN_API_BASE" "$SCRIPT_DIR/run_nav_servers.sh" >/tmp/slam_nav_movement_api.log 2>&1 &
+DRY_RUN_MISSION=1 NAV_NOHARDWARE=1 NAV_NOHARDWARE_CALLBACK_ALLOWLIST="$MOCK_URL" MAIN_API_BASE="$MAIN_API_BASE" "$SCRIPT_DIR/run_nav_servers.sh" >/tmp/slam_nav_movement_api.log 2>&1 &
 NAV_PID="$!"
 
 python3 - "$MOCK_URL" "$TB3_1_URL" "$TB3_2_URL" <<'PYSMOKE'
@@ -99,11 +99,11 @@ wait_url(f"{tb3_2_url}/movement-api/v1/health", "tb3_2 movement api")
 
 endpoints_1 = request_json("GET", f"{tb3_1_url}/movement-api/v1/endpoints")
 endpoints_2 = request_json("GET", f"{tb3_2_url}/movement-api/v1/endpoints")
-expected_robot2_ip = "192.168.30.102"
-if endpoints_1.get("robot_fixed_ips", {}).get("tb3_2") != expected_robot2_ip:
-    raise SystemExit(f"[smoke_movement_api] endpoint contract missing tb3_2 fixed IP: {endpoints_1}")
-if endpoints_2.get("robot_fixed_ip") != expected_robot2_ip:
-    raise SystemExit(f"[smoke_movement_api] tb3_2 endpoint contract wrong robot_fixed_ip: {endpoints_2}")
+for endpoints in (endpoints_1, endpoints_2):
+    if endpoints.get("nav_pc_host") != "smartfactory-nav.local":
+        raise SystemExit(f"[smoke_movement_api] endpoint contract must use configured Nav hostname: {endpoints}")
+    if "fallback" in endpoints or "robot_fixed_ip" in endpoints:
+        raise SystemExit(f"[smoke_movement_api] endpoint contract exposes retired automatic fallback fields: {endpoints}")
 
 robots_1 = request_json("GET", f"{tb3_1_url}/movement-api/v1/robots")
 robots_2 = request_json("GET", f"{tb3_2_url}/movement-api/v1/robots")

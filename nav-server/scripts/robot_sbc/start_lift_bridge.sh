@@ -3,24 +3,23 @@
 set -eo pipefail
 
 DOMAIN="${ROS_DOMAIN_ID:-5}"
-LIFT_WS="${LIFT_WS_SETUP:-$HOME/lift_project/ros2_ws/install/setup.bash}"
+LIFT_WS_SETUP="${LIFT_WS_SETUP:?LIFT_WS_SETUP must point to the SBC lift overlay setup.bash}"
 LIFT_BRIDGE_PKG="${LIFT_BRIDGE_PKG:-lift_bridge}"
 LIFT_SERIAL_PORT="${LIFT_SERIAL_PORT:-}"
 
 source /opt/ros/jazzy/setup.bash
-if [[ ! -f "$LIFT_WS" ]]; then
-  echo "[robot_sbc] ERROR: lift workspace not found: $LIFT_WS" >&2
-  echo "[robot_sbc] SBC에 ~/lift_project 배포 후 colcon build, 또는 LIFT_WS_SETUP 지정" >&2
+if [[ ! -f "$LIFT_WS_SETUP" ]]; then
+  echo "[robot_sbc] ERROR: lift workspace overlay not found: $LIFT_WS_SETUP" >&2
   exit 1
 fi
 # shellcheck source=/dev/null
-source "$LIFT_WS"
+source "$LIFT_WS_SETUP"
 
 export ROS_DOMAIN_ID="$DOMAIN"
 export TURTLEBOT3_MODEL=burger
 
 echo "[robot_sbc] lift_bridge start DOMAIN=$DOMAIN"
-echo "[robot_sbc] lift_ws=$LIFT_WS"
+echo "[robot_sbc] lift_ws=$LIFT_WS_SETUP"
 
 ros_args=()
 if [[ -n "$LIFT_SERIAL_PORT" ]]; then

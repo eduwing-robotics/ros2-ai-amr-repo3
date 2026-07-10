@@ -9,7 +9,7 @@ cd "$1" || exit 1
 echo "[launcher] LMS real server preparing..."
 echo "[launcher] root: $1"
 echo
-./scripts/bootstrap.sh
+./scripts/bootstrap.sh --local-dev
 echo
 echo "[launcher] LMS real server starting..."
 ./scripts/real.sh --dev
@@ -50,5 +50,5 @@ fi
 
 cd "$ROOT"
 echo "[launcher] No supported terminal emulator found. Starting in current process."
-./scripts/bootstrap.sh
+./scripts/bootstrap.sh --local-dev
 exec ./scripts/real.sh --dev

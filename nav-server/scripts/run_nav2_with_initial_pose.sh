@@ -15,7 +15,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
-TURTLEBOT3_SETUP="${TURTLEBOT3_SETUP:-/home/lucas/turtlebot3_ws/install/setup.bash}"
+TURTLEBOT3_SETUP="${TURTLEBOT3_SETUP:?TURTLEBOT3_SETUP must point to the TurtleBot3 overlay setup.bash}"
 MAP_YAML="${MAP_YAML:-$ROOT/map/robot1_map.yaml}"
 NAV2_PARAMS_FILE="${NAV2_PARAMS_FILE:-$ROOT/config/nav2/burger_smartfactory.yaml}"
 EKF_PARAMS_FILE="${EKF_PARAMS_FILE:-$ROOT/config/robot_localization/ekf_tb3_burger.yaml}"

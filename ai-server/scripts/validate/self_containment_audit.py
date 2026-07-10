@@ -18,8 +18,10 @@ FORBIDDEN = [
 ]
 ALLOW = {
     "docs/deploy-inventory.md",  # source inventory intentionally names historical source paths
+    "history/import/deploy-inventory.md",  # archived source inventory retains historical paths
     "scripts/validate/self_containment_audit.py",  # this audit declares the forbidden patterns
 }
+MARKDOWNLINT_OMX_IGNORE = re.compile(r'^\s*-\s*["\']?\.omx/\*\*["\']?\s*(?:#.*)?$')
 
 
 def is_text_file(path: Path) -> bool:
@@ -33,14 +35,14 @@ def is_text_file(path: Path) -> bool:
     return path.suffix in TEXT_SUFFIXES
 
 
-def main() -> None:
+def find_failures(root: Path = ROOT) -> list[str]:
     failures: list[str] = []
-    for path in sorted(ROOT.rglob("*")):
+    for path in sorted(root.rglob("*")):
         if not path.is_file() or any(
-            part.startswith(".venv") for part in path.relative_to(ROOT).parts
+            part.startswith(".venv") for part in path.relative_to(root).parts
         ):
             continue
-        rel = path.relative_to(ROOT).as_posix()
+        rel = path.relative_to(root).as_posix()
         if rel in ALLOW or not is_text_file(path):
             continue
         try:
@@ -48,8 +50,17 @@ def main() -> None:
         except UnicodeDecodeError:
             continue
         for pattern in FORBIDDEN:
+            if pattern.pattern == r"\.omx" and rel == ".markdownlint-cli2.yaml":
+                text = "\n".join(
+                    line for line in text.splitlines() if not MARKDOWNLINT_OMX_IGNORE.match(line)
+                )
             if pattern.search(text):
                 failures.append(f"{rel}: forbidden pattern {pattern.pattern}")
+    return failures
+
+
+def main() -> None:
+    failures = find_failures()
     if failures:
         raise SystemExit("Self-containment audit failed:\n" + "\n".join(failures))
     print("Self-containment audit passed.")
