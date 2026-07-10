@@ -3,7 +3,7 @@ from __future__ import annotations
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.conditions import IfCondition, UnlessCondition
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -27,6 +27,10 @@ def _gateway_node(*, name, source_id, image_topic, overlay_topic, condition):
                 "image_topic": image_topic,
                 "image_transport": "compressed",
                 "ai_server_url": LaunchConfiguration("ai_server_url"),
+                "gateway_hmac_secret": LaunchConfiguration("gateway_hmac_secret"),
+                "gateway_auth_debug_enabled": ParameterValue(
+                    LaunchConfiguration("gateway_auth_debug_enabled"), value_type=bool
+                ),
                 "frame_process_path": LaunchConfiguration("frame_process_path"),
                 "request_timeout_sec": ParameterValue(
                     LaunchConfiguration("request_timeout_sec"), value_type=float
@@ -97,6 +101,11 @@ def generate_launch_description():
             DeclareLaunchArgument("use_tb3_2_picam", default_value="false"),
             DeclareLaunchArgument("use_global_cam", default_value="false"),
             DeclareLaunchArgument("ai_server_url", default_value="http://127.0.0.1:8100"),
+            DeclareLaunchArgument(
+                "gateway_hmac_secret",
+                default_value=EnvironmentVariable("VISION_GATEWAY_HMAC_SECRET", default_value=""),
+            ),
+            DeclareLaunchArgument("gateway_auth_debug_enabled", default_value="false"),
             DeclareLaunchArgument(
                 "frame_process_path",
                 default_value="/api/v1/vision/frame/process",

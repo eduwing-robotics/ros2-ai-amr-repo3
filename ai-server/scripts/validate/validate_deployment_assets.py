@@ -31,8 +31,8 @@ def main() -> None:
     service = compose["services"]["ai-server"]
     require(service["build"]["dockerfile"] == "Dockerfile", "compose must use local Dockerfile")
     require(
-        "${AI_SERVER_PORT:-8100}:8100" in service.get("ports", []),
-        "compose must publish only AI API port",
+        "127.0.0.1:${AI_SERVER_PORT:-8100}:8100" in service.get("ports", []),
+        "compose must bind the AI API port to loopback",
     )
     published = "\n".join(str(port) for port in service.get("ports", []))
     for forbidden_port in ("9090", "11311", "11811", "18090", "18091", "7400", "7600"):

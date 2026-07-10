@@ -3,8 +3,8 @@
 - Date: 2026-07-06
 - Status: active Main-facing MVP contract
 - Endpoint: `POST /api/v1/vision/evidence/lift-load/evaluate`
-- Purpose: Main calls once around pick/drop transitions to get global-camera
-  ArUco + ZoneROI evidence. AI Server returns advisory evidence only.
+- Purpose: Main calls once around pick/drop/pre-dropoff transitions to get
+  global-camera ArUco + ZoneROI evidence. AI Server returns advisory evidence only.
 
 ## Request
 
@@ -42,7 +42,7 @@ item markers/count in the requested ZoneROI.
 | `robot_id` | Main | `tb3_1` or `tb3_2`. |
 | `task_id` | Main | Optional trace id. |
 | `command_id` | Main | Optional command trace id. |
-| `operation` | Main | `PICK_UP` or `DROP_OFF`; compatibility aliases accepted. |
+| `operation` | Main | `PICK_UP`, `DROP_OFF`, or `PRE_DROP_OFF`; compatibility aliases `PICKUP`, `DROPOFF`, and `PRE_DROPOFF` are accepted. |
 | `expected_item_id` | Main | Stored/returned as metadata only. |
 | `expected_marker_id` | Main/AI mapping | ArUco item id `20..49`; `0..19` reserved. |
 | `expected_item_count` | Main | MVP expects `1`; `0` is rejected. |
@@ -119,6 +119,11 @@ must not guess.
 | `UNCERTAIN` | Evidence is insufficient; retry or ask operator. |
 | `NO_DECISION` | Missing/unsupported context such as no frame, stale source, unmapped zone, or invalid config. |
 
+For `PRE_DROP_OFF`, the same ZoneROI + expected ArUco item marker stability
+check is used, but a `PASS` event is `ITEM_PLACEMENT_READY` rather than
+`ITEM_PLACED`. This means the lift-down command precondition is satisfied by stable
+destination/slot evidence; it does **not** assert the item was already placed.
+
 AI Server does not issue `HOLD`, `E_STOP`, motion commands, DB writes, or
 inventory truth changes.
 
@@ -129,6 +134,8 @@ inventory truth changes.
 - `robot_id` must be `tb3_1` or `tb3_2`.
 - `expected_marker_id` must be `20..49`.
 - `min_pass_frames` must be less than or equal to `burst_frames`.
+- `PRE_DROP_OFF` / `PRE_DROPOFF` normalizes to `PRE_DROP_OFF` and PASS emits
+  `ITEM_PLACEMENT_READY`, not `ITEM_PLACED`.
 - Response/event excludes bbox, mask, polygon, raw detections, and control
   actions.
 - If config/frame/mapping is unavailable, the API fails closed as `NO_DECISION`.

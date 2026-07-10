@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any
 
+import rclpy
 import requests
 from cv_bridge import CvBridge
-import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage, Image
@@ -28,7 +28,6 @@ from .vision_frame_gateway_helpers import (
     build_ai_server_url,
     frame_seq_from_post_response,
     overlay_seq_from_metadata,
-    topic_has_forbidden_fragment,
 )
 from .vision_frame_gateway_http import (
     HttpResult,
@@ -93,6 +92,8 @@ class VisionFrameGateway(Node):
         self.declare_parameter("image_topic", "/tb3_1/camera/image_raw/compressed")
         self.declare_parameter("image_transport", "compressed")
         self.declare_parameter("ai_server_url", "http://127.0.0.1:8100")
+        self.declare_parameter("gateway_hmac_secret", "")
+        self.declare_parameter("gateway_auth_debug_enabled", False)
         self.declare_parameter("frame_ingest_path", "/api/v1/vision/frame")
         self.declare_parameter("frame_process_path", "/api/v1/vision/frame/process")
         self.declare_parameter("worker_tick_path", "/api/v1/vision/worker/tick")
@@ -123,6 +124,10 @@ class VisionFrameGateway(Node):
         self.source_id = str(self.get_parameter("source_id").value)
         self.image_topic = str(self.get_parameter("image_topic").value)
         self.image_transport = str(self.get_parameter("image_transport").value).strip().lower()
+        self.gateway_hmac_secret = str(self.get_parameter("gateway_hmac_secret").value).strip()
+        self.gateway_auth_debug_enabled = bool(
+            self.get_parameter("gateway_auth_debug_enabled").value
+        )
         ai_server_url = str(self.get_parameter("ai_server_url").value)
         self.frame_ingest_url = build_ai_server_url(
             ai_server_url, str(self.get_parameter("frame_ingest_path").value)
@@ -173,6 +178,10 @@ class VisionFrameGateway(Node):
             raise ValueError(
                 f"image_transport must be one of {sorted(VALID_IMAGE_TRANSPORTS)}, "
                 f"got {self.image_transport!r}"
+            )
+        if not self.gateway_hmac_secret and not self.gateway_auth_debug_enabled:
+            raise ValueError(
+                "gateway_hmac_secret is required unless gateway_auth_debug_enabled is explicitly true"
             )
         assert_safe_input_topic(self.image_topic)
         assert_safe_publish_topic(self.overlay_topic, role="overlay")
@@ -430,6 +439,7 @@ class VisionFrameGateway(Node):
             timeout=self.request_timeout_sec,
             force=self.force_worker_tick,
             stale=self.mark_worker_tick_stale,
+            gateway_hmac_secret=self.gateway_hmac_secret,
         )
         if not frame_result.ok:
             self._frame_post_failures += 1
@@ -457,6 +467,7 @@ class VisionFrameGateway(Node):
             source_id=self.source_id,
             image_file=image_file,
             timeout=self.request_timeout_sec,
+            gateway_hmac_secret=self.gateway_hmac_secret,
         )
         if not frame_result.ok:
             self._frame_post_failures += 1

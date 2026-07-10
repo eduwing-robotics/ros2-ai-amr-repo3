@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 from fastapi.responses import FileResponse
 from jsonschema import ValidationError as JsonSchemaValidationError
 from pydantic import BaseModel, Field
@@ -36,6 +36,7 @@ from ..openapi_schemas import (
     _json_response_openapi,
 )
 from ..runtime_state import RuntimeContext
+from ..security import require_protected_debug_mutation
 from .dependencies import ContextGetter
 
 
@@ -478,14 +479,17 @@ def register_evidence_routes(app, *, context_getter: ContextGetter) -> None:
 
     app.post(
         "/api/v1/evidence/evaluate",
+        dependencies=[Depends(require_protected_debug_mutation)],
         responses={
             200: _json_response_openapi(
                 "Connector-facing advisory EvidenceEvaluation v1",
                 _evidence_evaluation_openapi_schema(),
             ),
             400: ERROR_RESPONSE_OPENAPI,
+            401: ERROR_RESPONSE_OPENAPI,
             422: ERROR_RESPONSE_OPENAPI,
             500: ERROR_RESPONSE_OPENAPI,
+            503: ERROR_RESPONSE_OPENAPI,
         },
     )(evaluate_route)
     app.get(

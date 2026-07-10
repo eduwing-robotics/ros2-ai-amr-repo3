@@ -5,6 +5,8 @@ from typing import Any
 
 import requests
 
+from .vision_frame_gateway_auth import build_gateway_auth_headers
+
 
 @dataclass(frozen=True)
 class HttpResult:
@@ -23,6 +25,37 @@ def _response_json(response: requests.Response) -> Any | None:
         return None
 
 
+def _post_multipart(
+    *,
+    session: requests.Session,
+    url: str,
+    data: dict[str, str],
+    image_file: tuple[str, str, bytes],
+    timeout: float,
+    gateway_hmac_secret: str,
+) -> requests.Response:
+    filename, content_type, image_bytes = image_file
+    if not gateway_hmac_secret:
+        return session.post(
+            url,
+            data=data,
+            files={"image": (filename, image_bytes, content_type)},
+            timeout=timeout,
+        )
+    prepared = requests.Request(
+        "POST", url, data=data, files={"image": (filename, image_bytes, content_type)}
+    ).prepare()
+    body = prepared.body
+    if not isinstance(body, bytes):
+        body = (body or "").encode()
+    prepared.headers.update(
+        build_gateway_auth_headers(
+            secret=gateway_hmac_secret, method="POST", url=url, body=body
+        )
+    )
+    return session.send(prepared, timeout=timeout)
+
+
 def post_frame(
     *,
     session: requests.Session,
@@ -30,14 +63,16 @@ def post_frame(
     source_id: str,
     image_file: tuple[str, str, bytes],
     timeout: float,
+    gateway_hmac_secret: str = "",
 ) -> HttpResult:
-    filename, content_type, image_bytes = image_file
     try:
-        response = session.post(
-            url,
+        response = _post_multipart(
+            session=session,
+            url=url,
             data={"source": source_id},
-            files={"image": (filename, image_bytes, content_type)},
+            image_file=image_file,
             timeout=timeout,
+            gateway_hmac_secret=gateway_hmac_secret,
         )
     except requests.Timeout:
         return HttpResult(ok=False, status_code=None, error="AI Server frame POST timed out")
@@ -66,18 +101,20 @@ def post_frame_process(
     timeout: float,
     force: bool = True,
     stale: bool = False,
+    gateway_hmac_secret: str = "",
 ) -> HttpResult:
-    filename, content_type, image_bytes = image_file
     try:
-        response = session.post(
-            url,
+        response = _post_multipart(
+            session=session,
+            url=url,
             data={
                 "source": source_id,
                 "force": str(bool(force)).lower(),
                 "stale": str(bool(stale)).lower(),
             },
-            files={"image": (filename, image_bytes, content_type)},
+            image_file=image_file,
             timeout=timeout,
+            gateway_hmac_secret=gateway_hmac_secret,
         )
     except requests.Timeout:
         return HttpResult(ok=False, status_code=None, error="AI Server frame process timed out")

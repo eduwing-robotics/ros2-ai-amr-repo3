@@ -104,6 +104,22 @@ def test_dropoff_pass_maps_to_item_placed_and_satisfies_command_progress():
     assert command_progress_satisfied(row) is True
 
 
+def test_pre_dropoff_pass_maps_to_placement_ready_and_satisfies_command_progress():
+    evaluation = _lift_marker_evaluation(operation="PRE_DROP_OFF")
+
+    row = evidence_event_row_from_lift_evaluation(
+        evaluation,
+        operation="PRE_DROP_OFF",
+        robot_id="tb3_1",
+        task_id=1004,
+        command_id=14,
+    )
+
+    assert row["event_type"] == "ITEM_PLACEMENT_READY"
+    assert command_progress_satisfied(row) is True
+    assert row["trusted"] is False
+
+
 def test_uncertain_lift_evidence_does_not_satisfy_command_progress():
     evaluation = _lift_marker_evaluation(operation="PICKUP", result="UNCERTAIN")
 

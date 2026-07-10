@@ -35,6 +35,36 @@ This is the canonical Main-facing API contract for the deploy package. The AI Se
 | Runtime status | `GET /api/v1/operator/runtime/status` | Low-load restart API status and allowlisted params. |
 | Runtime restart | `POST /api/v1/operator/runtime/low-load/restart` | Protected low-load restart request. Disabled unless configured. |
 
+## Mutation authentication and debug ingress
+
+`GET` health, discovery, stream, and latest-state routes remain public
+read-only surfaces. Production mutation routes require replay-protected Main
+service HMAC: `X-SF-Timestamp`, `X-SF-Nonce`, and `X-SF-Signature`. The
+signature is HMAC-SHA256 over the exact UTF-8 payload:
+
+```text
+METHOD\nPATH_AND_QUERY\nTIMESTAMP\nNONCE\nSHA256_HEX(BODY)
+```
+
+`MAIN_HMAC_SECRET` must be shared only with Main. Missing configuration returns
+`503`; missing, stale, invalid, or replayed signatures return `401`.
+
+The ROS `vision_frame_gateway` has a separate least-privilege credential:
+`VISION_GATEWAY_HMAC_SECRET`. It may call only `POST /api/v1/vision/frame` and
+`POST /api/v1/vision/frame/process`, using the same canonical payload with
+`X-SF-Timestamp`, `X-SF-Nonce`, and `X-SF-Gateway-Signature` instead of
+`X-SF-Signature`. Missing gateway configuration returns `503`; unsigned,
+stale, invalid, or replayed requests return `401` and do not update the frame
+cache. `AI_DEBUG_MUTATIONS_ENABLED=true` is the sole explicit isolated
+test/lab bypass and must never be enabled for production evidence.
+
+The frame/process/synthetic/worker/detect/evidence-evaluate debug routes share
+the latest-frame cache with signed evidence evaluation. They are HMAC-protected
+by default so an unauthenticated caller cannot seed evidence. Set
+`AI_DEBUG_MUTATIONS_ENABLED=true` only for an isolated fixture or lab process
+that is not used for production evidence. Monitor-state and lift/load evidence
+routes always require HMAC.
+
 Removed from the active API surface:
 
 - `POST /api/v1/lift-roi/evaluate`

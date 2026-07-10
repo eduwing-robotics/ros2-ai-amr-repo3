@@ -5,9 +5,9 @@ from typing import Any
 
 import cv2
 import numpy as np
+import rclpy
 import requests
 from cv_bridge import CvBridge
-import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data

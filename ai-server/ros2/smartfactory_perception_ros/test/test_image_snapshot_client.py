@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import rclpy
 import requests
 from cv_bridge import CvBridge
-import rclpy
 from sensor_msgs.msg import CompressedImage, Image
-
 from smartfactory_perception_ros.image_snapshot_client import (
     ImageSnapshotClient,
     build_detect_url,

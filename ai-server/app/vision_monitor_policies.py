@@ -262,6 +262,8 @@ def _lift_event_type(*, operation: str, result: str) -> str:
         return "ITEM_PICKED"
     if operation == "DROPOFF":
         return "ITEM_PLACED"
+    if operation == "PRE_DROP_OFF":
+        return "ITEM_PLACEMENT_READY"
     return "LIFT_LOAD_EVIDENCE"
 
 
@@ -277,7 +279,7 @@ def _compact_lift_result(
     confidence: float | None,
 ) -> dict[str, Any]:
     event_type = _lift_event_type(operation=operation, result=result)
-    command_satisfying = result == "PASS" and event_type in {"ITEM_PICKED", "ITEM_PLACED"}
+    command_satisfying = result == "PASS" and event_type in {"ITEM_PICKED", "ITEM_PLACED", "ITEM_PLACEMENT_READY"}
     return {
         "event_type": event_type,
         "result": result,

@@ -5,6 +5,13 @@ Skip this document when GoPro/PiCam hardware is unavailable. These checks are ma
 
 Record the run date, connected cameras, and any saved evidence images alongside the test result.
 
+## Authentication prerequisite
+
+The mutation examples below require Main's replay-protected HMAC headers. Run
+them through Main or a trusted signer using `MAIN_HMAC_SECRET`; raw unauthenticated
+`curl` calls are expected to return `401` in production. Do not set
+`AI_DEBUG_MUTATIONS_ENABLED=true` on a live evidence-producing service.
+
 ## 1. Runtime and source health
 
 ```bash

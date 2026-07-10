@@ -1,27 +1,24 @@
 from __future__ import annotations
 
-import json
-
 import cv2
 import numpy as np
 import pytest
-import requests
 import rclpy
+import requests
+from rclpy.qos import ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
-
 from smartfactory_perception_ros.qos_profiles import build_bounded_image_qos_profile
 from smartfactory_perception_ros.vision_frame_gateway import (
     PendingFrameWork,
     VisionFrameGateway,
     assert_safe_input_topic,
     assert_safe_publish_topic,
-    build_qos_profile,
     build_ai_server_url,
+    build_qos_profile,
     post_frame,
     post_frame_process,
     post_worker_tick,
 )
-from rclpy.qos import ReliabilityPolicy
 
 
 class FakeResponse:
@@ -200,6 +197,8 @@ def test_gateway_posts_latest_compressed_frame_and_does_not_create_motion_publis
         args=[
             "--ros-args",
             "-p",
+            "gateway_auth_debug_enabled:=true",
+            "-p",
             "source_id:=tb3_1_picam",
             "-p",
             "image_topic:=/camera/image_raw/compressed",
@@ -240,6 +239,8 @@ def test_gateway_default_inline_processes_latest_compressed_frame():
         args=[
             "--ros-args",
             "-p",
+            "gateway_auth_debug_enabled:=true",
+            "-p",
             "source_id:=tb3_1_picam",
             "-p",
             "image_topic:=/camera/image_raw/compressed",
@@ -278,6 +279,8 @@ def test_gateway_diagnostics_shape_stays_stable():
     rclpy.init(
         args=[
             "--ros-args",
+            "-p",
+            "gateway_auth_debug_enabled:=true",
             "-p",
             "source_id:=tb3_1_picam",
             "-p",
@@ -326,6 +329,8 @@ def test_gateway_async_shutdown_stops_worker_and_closes_session():
         args=[
             "--ros-args",
             "-p",
+            "gateway_auth_debug_enabled:=true",
+            "-p",
             "source_id:=tb3_1_picam",
             "-p",
             "image_topic:=/camera/image_raw/compressed",
@@ -350,6 +355,8 @@ def test_gateway_can_publish_safe_overlay_and_evidence_from_ai_server_state():
     rclpy.init(
         args=[
             "--ros-args",
+            "-p",
+            "gateway_auth_debug_enabled:=true",
             "-p",
             "source_id:=tb3_1_picam",
             "-p",
@@ -408,6 +415,8 @@ def test_async_pipeline_work_slot_is_bounded_and_drop_old():
         args=[
             "--ros-args",
             "-p",
+            "gateway_auth_debug_enabled:=true",
+            "-p",
             "source_id:=tb3_1_picam",
             "-p",
             "image_topic:=/camera/image_raw/compressed",
@@ -449,6 +458,8 @@ def test_gateway_rejects_unsafe_publish_parameter_before_running():
     rclpy.init(
         args=[
             "--ros-args",
+            "-p",
+            "gateway_auth_debug_enabled:=true",
             "-p",
             "overlay_topic:=/cmd_vel",
         ]

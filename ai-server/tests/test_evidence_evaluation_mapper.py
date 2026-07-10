@@ -339,3 +339,24 @@ def test_evidence_evaluation_observability_records_counter_and_structured_log(ca
     assert log_payloads[-1]["event"] == "evidence_evaluation"
     assert log_payloads[-1]["evaluation_id"] == evaluation["evaluation_id"]
     assert log_payloads[-1]["trusted"] is False
+
+
+def test_lift_roi_mapper_pre_dropoff_proposes_placement_ready():
+    evidence = _lift_roi_evidence(
+        operation="PRE_DROP_OFF",
+        count=1,
+        expected_count=1,
+        count_stable=True,
+        verification_status="CONFIRMED",
+    )
+
+    evaluation = map_lift_roi_evidence_to_evaluation(
+        evidence,
+        view="lift_roi",
+        expected_evidence_type="ITEM_PLACEMENT_READY",
+        expected_count=1,
+    )
+
+    assert evaluation["verification_status"] == "PASS"
+    assert evaluation["proposed_event_type"] == "ITEM_PLACEMENT_READY"
+    assert evaluation["trusted"] is False

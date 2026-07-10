@@ -1,3 +1,5 @@
+import os
+import secrets
 from functools import lru_cache
 from pathlib import Path
 
@@ -27,6 +29,16 @@ class Settings(BaseSettings):
         "http://smartfactory-main.local:8088,http://localhost:8088,http://127.0.0.1:8088"
     )
     main_server_url: str = "http://smartfactory-main.local:8088"
+    # Required for Main-originated monitor/evidence mutations. Missing secret fails closed.
+    ai_no_hardware: bool = False
+    main_hmac_secret: str = Field(default_factory=lambda: os.getenv("MAIN_HMAC_SECRET", "").strip() or (secrets.token_urlsafe(32) if os.getenv("AI_NO_HARDWARE", "").lower() in {"1", "true", "yes", "on"} else ""))
+    main_hmac_clock_skew_sec: float = 60.0
+    # Dedicated, least-privilege credential for the ROS frame gateway.  It may
+    # sign only the frame ingest routes and must not be shared with Main.
+    vision_gateway_hmac_secret: str = ""
+    # Never enable on a production ingress. It exists only for isolated fixture/lab runs
+    # where the process is not allowed to contribute production evidence.
+    ai_debug_mutations_enabled: bool = False
     vision_public_host: str = "<vision-host>"
     vision_stream_gateway_port: int = 8090
     camera_sources: str = "global_cam_01,tb3_1_picam,tb3_2_picam"

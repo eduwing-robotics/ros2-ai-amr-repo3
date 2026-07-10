@@ -8,7 +8,6 @@ import pytest
 import rclpy
 from rclpy.qos import ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
-
 from smartfactory_perception_ros.qos_profiles import build_bounded_image_qos_profile
 from smartfactory_perception_ros.vision_overlay_stream_bridge import (
     BOUNDARY,

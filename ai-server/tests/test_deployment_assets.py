@@ -22,6 +22,9 @@ def test_ai_server_docker_compose_declares_isolated_api_service():
     assert service["environment"]["MAIN_SERVER_URL"] == (
         "${MAIN_SERVER_URL:-http://smartfactory-main.local:8088}"
     )
+    assert service["environment"]["VISION_GATEWAY_HMAC_SECRET"] == (
+        "${VISION_GATEWAY_HMAC_SECRET:?VISION_GATEWAY_HMAC_SECRET must be set}"
+    )
     assert "./config:/app/ai-server/config:ro" in service["volumes"]
     assert "/api/v1/health" in " ".join(service["healthcheck"]["test"])
 
@@ -31,7 +34,7 @@ def test_ai_server_docker_compose_does_not_publish_ros_or_internal_stream_ports(
     ports = compose["services"]["ai-server"].get("ports", [])
     published = "\n".join(str(port) for port in ports)
 
-    assert "${AI_SERVER_PORT:-8100}:8100" in ports
+    assert "127.0.0.1:${AI_SERVER_PORT:-8100}:8100" in ports
     for forbidden_port in ("9090", "11311", "11811", "18090", "18091", "7400", "7600"):
         assert forbidden_port not in published
 

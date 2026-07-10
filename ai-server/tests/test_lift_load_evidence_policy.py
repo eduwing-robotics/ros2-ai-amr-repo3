@@ -97,3 +97,19 @@ def test_lift_load_marker_burst_output_is_compact_no_bbox_or_control_action():
 
     assert not (flattened & {"bbox", "bbox_xyxy", "mask", "polygon", "raw_detections"})
     assert not (flattened & {"E_STOP", "HOLD", "STOP_COMMAND", "MOTION_CANCELLED"})
+
+
+def test_lift_load_marker_burst_pre_dropoff_pass_is_placement_ready():
+    result = evaluate_lift_load_marker_burst(
+        per_frame_expected_counts=[1, 1, 1],
+        per_frame_item_counts=[1, 1, 1],
+        expected_count=1,
+        operation="PRE_DROP_OFF",
+        min_pass_frames=2,
+        requested_frames=3,
+    )
+
+    assert result["result"] == "PASS"
+    assert result["event_type"] == "ITEM_PLACEMENT_READY"
+    assert result["reason_code"] == "EXPECTED_ITEM_COUNT_MATCH_AND_STABLE"
+    assert result["command_satisfying"] is True

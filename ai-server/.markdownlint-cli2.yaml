@@ -4,6 +4,9 @@ globs:
 ignores:
   - ".venv/**"
   - ".venv-*/**"
+  - "node_modules/**"
+  - "dist/**"
+  - ".omx/**"
 config:
   MD013: false
   MD033: false

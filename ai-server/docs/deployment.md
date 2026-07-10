@@ -13,7 +13,18 @@ docker compose -f docker-compose.yml config --quiet
 docker compose -f docker-compose.yml up --build ai-server
 ```
 
-The compose file publishes only the AI Server HTTP port. ROS graph, rosbridge, and internal stream ports are not published by the API container.
+The compose file binds the AI Server HTTP port to `127.0.0.1` by default.
+ROS graph, rosbridge, and internal stream ports are not published by the API
+container. Put a local authenticated reverse proxy in front of it when another
+host needs access; do not replace the loopback binding with a public port
+mapping for production evidence ingress.
+
+Set a non-empty `MAIN_HMAC_SECRET` shared with Main and a different,
+non-empty `VISION_GATEWAY_HMAC_SECRET` for the ROS `vision_frame_gateway`.
+Compose refuses to render when the gateway secret is absent. Production
+defaults keep all cache-mutating debug routes protected; leave
+`AI_DEBUG_MUTATIONS_ENABLED=false`. The API remains loopback-bound. See
+`docs/contracts/ai-server-api.md` for the signature payload and headers.
 The Docker image is optional and API-focused. It installs `requirements.lock`
 and does not include the YOLO/model runtime used by the native low-load lab
 profile.

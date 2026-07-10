@@ -96,6 +96,10 @@ def _api_error_response(
 
 
 async def request_observability_middleware(request: Request, call_next):
+    # Multipart form parsing may consume Starlette's request stream before a
+    # route dependency runs. Preserve the exact ingress bytes so HMAC checks
+    # cover the body that FastAPI later parses.
+    request.scope["smartfactory.raw_request_body"] = await request.body()
     token = _runtime_context_var.set(_app_runtime_context(request.app))
     request_id = request.headers.get("x-request-id") or str(uuid4())
     request.state.request_id = request_id

@@ -230,7 +230,7 @@ def _lift_load_evaluate_response_schema() -> dict[str, Any]:
             "robot_id": {"type": ["string", "null"], "enum": ["tb3_1", "tb3_2", None]},
             "task_id": {"type": ["integer", "string", "null"]},
             "command_id": {"type": ["integer", "string", "null"]},
-            "operation": {"type": "string", "enum": ["PICKUP", "DROPOFF"]},
+            "operation": {"type": "string", "enum": ["PICKUP", "DROPOFF", "PRE_DROP_OFF"]},
             "vision_zone_id": {"type": ["string", "null"]},
             "result": {
                 "type": "string",

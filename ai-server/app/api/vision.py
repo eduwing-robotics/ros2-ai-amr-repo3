@@ -17,7 +17,7 @@ from urllib.request import urlopen
 from uuid import uuid4
 
 import cv2
-from fastapi import File, Form, HTTPException, Query, UploadFile
+from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
@@ -63,6 +63,11 @@ from ..openapi_schemas import (
 from ..overlay import OverlayRenderResult, render_overlay
 from ..pose_profiles import ArucoPoseProfile, PoseProfileError, get_pose_profile
 from ..runtime_state import RuntimeContext, default_runtime_context
+from ..security import (
+    require_main_hmac,
+    require_protected_debug_mutation,
+    require_vision_gateway_hmac,
+)
 from ..smart_roi import (
     ROI_CROP_VIEW_KINDS,
     SmartRoiSelection,
@@ -283,7 +288,14 @@ class LiftLoadEvaluateRequest(BaseModel):
     robot_id: Literal["tb3_1", "tb3_2"]
     task_id: int | str | None = None
     command_id: int | str | None = None
-    operation: Literal["PICK_UP", "PICKUP", "DROP_OFF", "DROPOFF"]
+    operation: Literal[
+        "PICK_UP",
+        "PICKUP",
+        "DROP_OFF",
+        "DROPOFF",
+        "PRE_DROP_OFF",
+        "PRE_DROPOFF",
+    ]
     expected_item_id: str | None = None
     expected_marker_id: str | int | None = None
     expected_marker_ids: list[str | int] | None = None
@@ -2382,6 +2394,8 @@ def _normalize_lift_operation(operation: str) -> str:
         "PICKUP": "PICKUP",
         "DROP_OFF": "DROPOFF",
         "DROPOFF": "DROPOFF",
+        "PRE_DROP_OFF": "PRE_DROP_OFF",
+        "PRE_DROPOFF": "PRE_DROP_OFF",
     }
     try:
         return aliases[normalized]
@@ -2431,6 +2445,8 @@ def _lift_monitor_event_type(*, operation: str, result: str) -> str:
         return "ITEM_PICKED"
     if operation == "DROPOFF":
         return "ITEM_PLACED"
+    if operation == "PRE_DROP_OFF":
+        return "ITEM_PLACEMENT_READY"
     return "LIFT_LOAD_EVIDENCE"
 
 
@@ -2501,7 +2517,7 @@ def _build_lift_load_monitor_event(
             "observed_count": observed_count,
             "accepted_frames": accepted_frames,
             "total_frames": total_frames,
-            "command_satisfying": event_type in {"ITEM_PICKED", "ITEM_PLACED"},
+            "command_satisfying": event_type in {"ITEM_PICKED", "ITEM_PLACED", "ITEM_PLACEMENT_READY"},
         },
     }
     validate_vision_monitor_event(payload)
@@ -2942,10 +2958,13 @@ def register_vision_routes(
     )(route(vision_worker_status))
     app.post(
         "/api/v1/vision/worker/tick",
+        dependencies=[Depends(require_protected_debug_mutation)],
         responses={
+            401: ERROR_RESPONSE_OPENAPI,
             400: ERROR_RESPONSE_OPENAPI,
             422: ERROR_RESPONSE_OPENAPI,
             500: ERROR_RESPONSE_OPENAPI,
+            503: ERROR_RESPONSE_OPENAPI,
         },
     )(route(vision_worker_tick))
     app.get(
@@ -2968,12 +2987,15 @@ def register_vision_routes(
     )(route(vision_monitor_state))
     app.put(
         "/api/v1/vision/monitors/{monitor_id}/state",
+        dependencies=[Depends(require_main_hmac)],
         responses={
             200: _json_response_openapi(
                 "Vision monitor state", _vision_monitor_state_response_schema()
             ),
             400: ERROR_RESPONSE_OPENAPI,
+            401: ERROR_RESPONSE_OPENAPI,
             422: ERROR_RESPONSE_OPENAPI,
+            503: ERROR_RESPONSE_OPENAPI,
         },
     )(route(update_vision_monitor_state))
     app.get(
@@ -2988,13 +3010,16 @@ def register_vision_routes(
     )(route(person_hazard_latest))
     app.post(
         "/api/v1/vision/evidence/lift-load/evaluate",
+        dependencies=[Depends(require_main_hmac)],
         responses={
             200: _json_response_openapi(
                 "One-shot fixed ZoneROI ArUco lift-load evidence evaluation",
                 _lift_load_evaluate_response_schema(),
             ),
             400: ERROR_RESPONSE_OPENAPI,
+            401: ERROR_RESPONSE_OPENAPI,
             422: ERROR_RESPONSE_OPENAPI,
+            503: ERROR_RESPONSE_OPENAPI,
         },
     )(route(lift_load_evaluate))
     app.get(
@@ -3008,23 +3033,29 @@ def register_vision_routes(
     )(route(vision_debug_sources))
     app.post(
         "/api/v1/vision/frame",
+        dependencies=[Depends(require_vision_gateway_hmac)],
         responses={
             200: _json_response_openapi(
                 "Latest-frame ingest debug response", _frame_ingest_response_schema()
             ),
             400: ERROR_RESPONSE_OPENAPI,
+            401: ERROR_RESPONSE_OPENAPI,
             422: ERROR_RESPONSE_OPENAPI,
+            503: ERROR_RESPONSE_OPENAPI,
         },
     )(route(ingest_frame))
     app.post(
         "/api/v1/vision/frame/process",
+        dependencies=[Depends(require_vision_gateway_hmac)],
         responses={
             200: _json_response_openapi(
                 "Latest-frame ingest plus immediate overlay processing response",
                 _frame_process_response_schema(),
             ),
             400: ERROR_RESPONSE_OPENAPI,
+            401: ERROR_RESPONSE_OPENAPI,
             422: ERROR_RESPONSE_OPENAPI,
+            503: ERROR_RESPONSE_OPENAPI,
         },
     )(route(ingest_and_process_frame))
     app.get(
@@ -3069,26 +3100,32 @@ def register_vision_routes(
     )(route(metrics_snapshot))
     app.post(
         "/api/v1/vision/synthetic/frame",
+        dependencies=[Depends(require_protected_debug_mutation)],
         responses={
             200: _json_response_openapi(
                 "Synthetic frame detection response with overlay metadata",
                 _synthetic_frame_response_schema(),
             ),
             400: ERROR_RESPONSE_OPENAPI,
+            401: ERROR_RESPONSE_OPENAPI,
             422: ERROR_RESPONSE_OPENAPI,
             500: ERROR_RESPONSE_OPENAPI,
+            503: ERROR_RESPONSE_OPENAPI,
         },
     )(route(ingest_synthetic_frame))
     app.post(
         "/api/v1/detect/image",
+        dependencies=[Depends(require_protected_debug_mutation)],
         responses={
             200: _json_response_openapi(
                 "Image detection response with VisionEvent v1 events",
                 _detect_image_response_schema(),
             ),
             400: ERROR_RESPONSE_OPENAPI,
+            401: ERROR_RESPONSE_OPENAPI,
             422: ERROR_RESPONSE_OPENAPI,
             500: ERROR_RESPONSE_OPENAPI,
+            503: ERROR_RESPONSE_OPENAPI,
         },
     )(route(detect_image))
 

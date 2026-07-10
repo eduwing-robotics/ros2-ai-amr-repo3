@@ -16,6 +16,26 @@ This is the operator quick reference. The canonical Main-facing contract is `doc
 | `POST` | `/api/v1/vision/evidence/lift-load/evaluate` | Main-facing one-shot ArUco + ZoneROI lift/load evidence. |
 | `GET` | `/api/v1/vision/monitors` | Person-hazard/advisory read-model state. |
 
+## Protected mutation ingress
+
+Public health, stream discovery, latest-frame reads, and overlay reads remain
+read-only. The routes that can write the latest-frame/evidence cache are not
+public production ingress: `/vision/frame`, `/vision/frame/process`,
+`/vision/synthetic/frame`, `/vision/worker/tick`, `/detect/image`, and
+`/evidence/evaluate` require the Main service HMAC by default. The monitor and
+lift/load evidence mutations always require it.
+
+Sign the exact request body with `MAIN_HMAC_SECRET` using:
+
+```text
+METHOD + "\n" + PATH_AND_QUERY + "\n" + TIMESTAMP + "\n" + NONCE + "\n" + SHA256_HEX(BODY)
+```
+
+Send `X-SF-Timestamp`, `X-SF-Nonce`, and `X-SF-Signature` (hex HMAC-SHA256).
+Timestamps outside `MAIN_HMAC_CLOCK_SKEW_SEC` and a reused nonce are rejected.
+`AI_DEBUG_MUTATIONS_ENABLED=true` is an explicit isolated fixture/lab-only
+exception; never enable it on an ingress that contributes production evidence.
+
 ## Lift/load evidence request shape
 
 Main owns task, robot, command, item, and location identity. AI Server maps camera evidence to a compact advisory result.

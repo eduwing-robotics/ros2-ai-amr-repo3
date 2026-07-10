@@ -1,11 +1,16 @@
 import asyncio
+import hashlib
+import hmac
+import json
+import time
 from time import perf_counter
 
 import cv2
 import numpy as np
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient as FastAPITestClient
 
 from app.api import vision as vision_api
+from app.config import get_settings
 from app.factory import create_app
 from app.runtime_state import create_runtime_context
 from app.vision_monitor_profiles import (
@@ -13,6 +18,34 @@ from app.vision_monitor_profiles import (
     PERSON_DRIVE_PROFILE_ID,
     PERSON_DRIVE_THRESHOLD_SET_ID,
 )
+
+_TEST_SECRET = "test-main-hmac-secret"
+get_settings().main_hmac_secret = _TEST_SECRET
+
+
+class TestClient(FastAPITestClient):
+    """Existing monitor API tests exercise the same signed Main mutation contract."""
+
+    def request(self, method, url, *args, **kwargs):
+        get_settings().main_hmac_secret = _TEST_SECRET
+        if method.upper() in {"POST", "PUT"} and ("/monitors/" in str(url) or "lift-load/evaluate" in str(url)):
+            body = kwargs.get("content")
+            if body is None and "json" in kwargs:
+                body = json.dumps(kwargs["json"], separators=(",", ":")).encode()
+                kwargs["content"] = body
+                kwargs.pop("json")
+                headers = dict(kwargs.get("headers") or {})
+                headers["content-type"] = "application/json"
+                kwargs["headers"] = headers
+            body = body if isinstance(body, bytes) else str(body or "").encode()
+            timestamp, nonce = str(int(time.time())), "test-" + str(time.time_ns())
+            path = str(url)
+            payload = "\n".join((method.upper(), path, timestamp, nonce, hashlib.sha256(body).hexdigest())).encode()
+            signature = hmac.new(_TEST_SECRET.encode(), payload, hashlib.sha256).hexdigest()
+            headers = dict(kwargs.pop("headers", {}) or {})
+            headers.update({"X-SF-Timestamp": timestamp, "X-SF-Nonce": nonce, "X-SF-Signature": signature})
+            kwargs["headers"] = headers
+        return super().request(method, url, *args, **kwargs)
 
 
 def _client():
@@ -488,6 +521,45 @@ def test_lift_load_evaluate_passes_expected_aruco_in_requested_zone():
     assert "HOLD" not in set(_flatten(event))
 
 
+def test_lift_load_evaluate_pre_dropoff_returns_placement_ready_not_placed():
+    context = create_runtime_context()
+    client = TestClient(create_app(runtime_context=context))
+    context.frame_store.put_decoded(
+        source="global_cam_01",
+        image_bgr=_global_frame_with_marker(20, center_norm=(0.31, 0.85)),
+    )
+
+    response = client.post(
+        "/api/v1/vision/evidence/lift-load/evaluate",
+        json={
+            "source": "global_cam_01",
+            "robot_id": "tb3_1",
+            "task_id": 305,
+            "command_id": 5,
+            "operation": "PRE_DROPOFF",
+            "expected_item_id": "item-red",
+            "expected_marker_id": 20,
+            "expected_item_count": 1,
+            "vision_zone_id": "inbound_static_item_zone",
+            "burst_frames": 1,
+            "min_pass_frames": 1,
+            "sample_interval_ms": 0,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    event = body["event"]
+    assert body["result"] == "PASS"
+    assert body["operation"] == "PRE_DROP_OFF"
+    assert event["event_type"] == "ITEM_PLACEMENT_READY"
+    assert event["trusted"] is False
+    assert event["data_json"]["operation"] == "PRE_DROP_OFF"
+    assert event["data_json"]["command_satisfying"] is True
+    assert event["data_json"]["detected_marker_id"] == "ARUCO_4X4_50_20"
+    assert "ITEM_PLACED" not in {event["event_type"]}
+
+
 def test_lift_load_evaluate_default_burst_passes_with_one_frame_hit():
     context = create_runtime_context()
     client = TestClient(create_app(runtime_context=context))
@@ -828,6 +900,13 @@ def test_monitor_person_hazard_and_lift_load_routes_have_explicit_openapi_respon
         "PICKUP",
         "DROP_OFF",
         "DROPOFF",
+        "PRE_DROP_OFF",
+        "PRE_DROPOFF",
+    ]
+    assert lift_load_schema["properties"]["operation"]["enum"] == [
+        "PICKUP",
+        "DROPOFF",
+        "PRE_DROP_OFF",
     ]
     assert request_schema["properties"]["expected_item_count"]["minimum"] == 1
     assert request_schema["properties"]["min_pass_frames"]["default"] == 1

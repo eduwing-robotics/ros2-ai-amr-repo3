@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 FORBIDDEN_TOPIC_FRAGMENTS = (
     "/cmd_vel",
     "cmd_vel",

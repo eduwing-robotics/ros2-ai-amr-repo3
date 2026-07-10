@@ -5,7 +5,6 @@ import numpy as np
 import pytest
 import rclpy
 from sensor_msgs.msg import CompressedImage
-
 from smartfactory_perception_ros.aruco_pose_monitor import (
     ArucoPoseMonitor,
     PassiveArucoPoseMonitor,
@@ -14,6 +13,7 @@ from smartfactory_perception_ros.aruco_pose_monitor import (
     format_observation,
     normalize_marker_id,
 )
+
 from app.docking import CameraIntrinsics, DockingTarget, DockingTolerances
 
 

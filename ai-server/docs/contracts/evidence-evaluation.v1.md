@@ -59,7 +59,7 @@ dropped-item targets before increasing continuous inference load.
 | `source` | Vision source ID such as `global_cam_01`. |
 | `view` | Source view such as `full` or `lift_roi`. |
 | `operation` | `PICKUP`, `DROPOFF`, `MONITOR`, or `UNKNOWN`. |
-| `expected_evidence_type` | Evidence requested by connector/Main, e.g. `ITEM_PICKED`. |
+| `expected_evidence_type` | Evidence requested by connector/Main, e.g. `ITEM_PICKED` or pre-dropoff `ITEM_PLACEMENT_READY`. |
 | `proposed_event_type` | AI's proposed event type for later Main storage. |
 | `verification_status` | `PASS`, `FAIL`, or `UNCERTAIN`. |
 | `validity` | `VALID_CANDIDATE`, `INVALID_CANDIDATE`, or `NEEDS_REVIEW`. |
@@ -105,3 +105,12 @@ not as task-completion truth.
 - Proof images use server-generated `/api/v1/evidence/images/...` API paths only; request-supplied `image_uri`, absolute URLs, stale `/api/v1/evidence/files/...`, and encoded path traversal are rejected.
 - Mappers must not call Main DB or infer task state.
 - `dist/SmartFactory_MVP` is not modified.
+
+
+## Pre-dropoff advisory evidence
+
+`PRE_DROP_OFF` (alias `PRE_DROPOFF`) is normalized as a pre-dropoff operation.
+When the expected destination item marker is stable, the proposed event type is
+`ITEM_PLACEMENT_READY`; this intentionally does not mean `ITEM_PLACED`. It may
+satisfy Main's lift-down command precondition when paired with `PASS`, but does
+not authorize control actions or Main truth mutation. `trusted` remains `false`.

@@ -74,6 +74,17 @@ overlay/evidence topics:
 It rejects unsafe input/publish topics, creates no motion publishers, and never
 publishes `/cmd_vel` or calls Nav2 actions.
 
+### Gateway authentication
+
+Production frame ingress uses the dedicated `VISION_GATEWAY_HMAC_SECRET`, not
+`MAIN_HMAC_SECRET`. The launch file passes it to the sidecar as
+`gateway_hmac_secret`; the sidecar signs the exact multipart request body with
+`X-SF-Timestamp`, `X-SF-Nonce`, and `X-SF-Gateway-Signature`. The AI Server
+rejects missing, stale, invalid, and replayed signatures before a frame can
+reach the latest-frame cache. Missing credentials prevent the sidecar from
+starting. `gateway_auth_debug_enabled:=true` is only for explicitly isolated
+test/lab runs paired with `AI_DEBUG_MUTATIONS_ENABLED=true` on the AI Server.
+
 Direct Robot1 domain-2 smoke example, using the temporary camera launch topic:
 
 ```bash
@@ -84,6 +95,7 @@ ros2 launch smartfactory_perception_ros vision_frame_gateway.launch.py \
   use_tb3_1_picam:=true \
   tb3_1_picam_image_topic:=/camera/image_raw/compressed \
   ai_server_url:=http://127.0.0.1:8100 \
+  gateway_hmac_secret:="$VISION_GATEWAY_HMAC_SECRET" \
   process_with_worker_tick:=true \
   force_worker_tick:=true \
   publish_overlay:=true \

@@ -35,6 +35,7 @@
         "DROPPED_ITEM_CANDIDATE",
         "ITEM_PICKED",
         "ITEM_PLACED",
+        "ITEM_PLACEMENT_READY",
         "LIFT_LOAD_EVIDENCE",
         "LIFT_LOAD_UNCERTAIN",
         "NO_DECISION",
@@ -105,7 +106,7 @@
       "then": {"properties": {"result": {"enum": ["ADVISORY", "CANDIDATE"]}, "source": {"const": "global_cam_01"}}}
     },
     {
-      "if": {"properties": {"event_type": {"enum": ["ITEM_PICKED", "ITEM_PLACED"]}}, "required": ["event_type"]},
+      "if": {"properties": {"event_type": {"enum": ["ITEM_PICKED", "ITEM_PLACED", "ITEM_PLACEMENT_READY"]}}, "required": ["event_type"]},
       "then": {"properties": {"result": {"const": "PASS"}}}
     },
     {

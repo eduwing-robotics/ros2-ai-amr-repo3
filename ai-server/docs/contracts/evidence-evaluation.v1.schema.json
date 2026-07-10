@@ -28,7 +28,7 @@
     "evaluation_id": {"type": "string", "format": "uuid"},
     "source": {"type": "string", "enum": ["global_cam_01", "tb3_1_picam", "tb3_2_picam"]},
     "view": {"type": "string", "minLength": 1},
-    "operation": {"type": "string", "enum": ["PICKUP", "DROPOFF", "MONITOR", "UNKNOWN"]},
+    "operation": {"type": "string", "enum": ["PICKUP", "DROPOFF", "PRE_DROP_OFF", "MONITOR", "UNKNOWN"]},
     "expected_evidence_type": {
       "type": ["string", "null"],
       "enum": [
@@ -37,6 +37,7 @@
         "LOAD_DETECTED",
         "ITEM_PICKED",
         "ITEM_PLACED",
+        "ITEM_PLACEMENT_READY",
         "SLOT_CONFIRMED",
         "HUMAN_DETECTED",
         "HUMAN_CLEAR",
@@ -54,6 +55,7 @@
         "LOAD_DETECTED",
         "ITEM_PICKED",
         "ITEM_PLACED",
+        "ITEM_PLACEMENT_READY",
         "SLOT_CONFIRMED",
         "HUMAN_DETECTED",
         "HUMAN_CLEAR",

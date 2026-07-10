@@ -27,6 +27,7 @@ EVENT_TYPE_VALUES = {
     "LOAD_DETECTED",
     "ITEM_PICKED",
     "ITEM_PLACED",
+    "ITEM_PLACEMENT_READY",
     "SLOT_CONFIRMED",
     "HUMAN_DETECTED",
     "HUMAN_CLEAR",
@@ -177,7 +178,16 @@ def _clean_task_ref(value: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def _normalize_operation(value: Any) -> str:
     operation = str(value or "UNKNOWN").strip().upper()
-    return operation if operation in {"PICKUP", "DROPOFF", "MONITOR"} else "UNKNOWN"
+    aliases = {
+        "PICK_UP": "PICKUP",
+        "PICKUP": "PICKUP",
+        "DROP_OFF": "DROPOFF",
+        "DROPOFF": "DROPOFF",
+        "PRE_DROP_OFF": "PRE_DROP_OFF",
+        "PRE_DROPOFF": "PRE_DROP_OFF",
+        "MONITOR": "MONITOR",
+    }
+    return aliases.get(operation, "UNKNOWN")
 
 
 def _normalize_event_type(value: Any) -> str | None:
@@ -237,6 +247,8 @@ def _proposed_event_type_for_lift_roi(
         return "ITEM_PICKED"
     if operation == "DROPOFF":
         return "ITEM_PLACED"
+    if operation == "PRE_DROP_OFF":
+        return "ITEM_PLACEMENT_READY"
     if operation == "MONITOR":
         return "LOAD_DETECTED"
     return "STATUS"

@@ -5,6 +5,7 @@ Run from the standalone deploy root:
 ```bash
 cd ai-server
 ./scripts/ai/test_ai_server.sh
+.venv/bin/python -m pytest -q
 bash -n scripts/ai/*.sh scripts/vision/*.sh
 python3 scripts/validate/validate_contracts.py
 python3 scripts/validate/validate_deployment_assets.py
@@ -13,6 +14,10 @@ python3 scripts/validate/self_containment_audit.py
 ```
 
 Hardware checks are manual and documented in `docs/live-api-smoke-tests.md`.
+
+## Current result
+
+Root pytest passes with `480 passed`; Ruff passes.
 
 ## ShellCheck advisory exclusions
 
