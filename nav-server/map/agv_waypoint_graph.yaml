@@ -1,0 +1,48 @@
+frame_id: map
+nodes:
+  vehicle_1_approach: {x: 0.765, y: 0.58}
+  vehicle_2_approach: {x: 1.035, y: 0.58}
+  inbound_entry: {x: 0.366, y: 0.259}
+  outbound_entry: {x: 1.434, y: 0.259}
+  inbound_slot_lane: {x: 0.366, y: 0.44}
+  inbound_aisle_junction: {x: 0.366, y: 0.58}
+  outbound_slot_lane: {x: 1.434, y: 0.44}
+  outbound_aisle_junction: {x: 1.434, y: 0.58}
+  inbound_slot_1_approach: {x: 0.259, y: 0.44}
+  inbound_slot_2_approach: {x: 0.473, y: 0.44}
+  outbound_slot_1_approach: {x: 1.327, y: 0.44}
+  outbound_slot_2_approach: {x: 1.541, y: 0.44}
+  aisle_center_south: {x: 1.28, y: 0.58}
+  aisle_center_mid: {x: 1.28, y: 0.95}
+  aisle_center_north: {x: 1.28, y: 1.35}
+  warehouse_a_junction: {x: 0.54, y: 1.35}
+  warehouse_a_approach: {x: 0.54, y: 1.236}
+  warehouse_b_junction: {x: 0.54, y: 0.95}
+  warehouse_b_approach: {x: 0.54, y: 0.992}
+  warehouse_c_junction: {x: 1.26, y: 1.35}
+  warehouse_c_approach: {x: 1.26, y: 1.236}
+  warehouse_d_junction: {x: 1.26, y: 0.95}
+  warehouse_d_approach: {x: 1.26, y: 0.992}
+edges:
+  - [vehicle_1_approach, aisle_center_south]
+  - [vehicle_2_approach, aisle_center_south]
+  - [aisle_center_south, aisle_center_mid]
+  - [aisle_center_mid, aisle_center_north]
+  - [aisle_center_north, warehouse_a_junction]
+  - [warehouse_a_junction, warehouse_a_approach]
+  - [aisle_center_mid, warehouse_b_junction]
+  - [warehouse_b_junction, warehouse_b_approach]
+  - [aisle_center_north, warehouse_c_junction]
+  - [warehouse_c_junction, warehouse_c_approach]
+  - [aisle_center_mid, warehouse_d_junction]
+  - [warehouse_d_junction, warehouse_d_approach]
+  - [inbound_entry, inbound_slot_lane]
+  - [inbound_slot_lane, inbound_slot_1_approach]
+  - [inbound_slot_lane, inbound_slot_2_approach]
+  - [inbound_slot_lane, inbound_aisle_junction]
+  - [inbound_aisle_junction, aisle_center_south]
+  - [outbound_entry, outbound_slot_lane]
+  - [outbound_slot_lane, outbound_slot_1_approach]
+  - [outbound_slot_lane, outbound_slot_2_approach]
+  - [outbound_slot_lane, outbound_aisle_junction]
+  - [outbound_aisle_junction, aisle_center_south]

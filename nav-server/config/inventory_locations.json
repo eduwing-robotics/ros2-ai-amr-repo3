@@ -1,0 +1,33 @@
+{
+  "version": "factory_180cm_four_central_slots_plus_io_slots_v2",
+  "items": [
+    {
+      "item_code": "bolt",
+      "display_name": "볼트",
+      "section_id": "warehouse_section_a",
+      "approach_waypoint": "warehouse_a_approach",
+      "dock_waypoint": "warehouse_a_dock"
+    },
+    {
+      "item_code": "nut",
+      "display_name": "너트",
+      "section_id": "warehouse_section_b",
+      "approach_waypoint": "warehouse_b_approach",
+      "dock_waypoint": "warehouse_b_dock"
+    },
+    {
+      "item_code": "wire",
+      "display_name": "전선",
+      "section_id": "warehouse_section_c",
+      "approach_waypoint": "warehouse_c_approach",
+      "dock_waypoint": "warehouse_c_dock"
+    },
+    {
+      "item_code": "rubber_packing",
+      "display_name": "고무패킹",
+      "section_id": "warehouse_section_d",
+      "approach_waypoint": "warehouse_d_approach",
+      "dock_waypoint": "warehouse_d_dock"
+    }
+  ]
+}

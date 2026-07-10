@@ -1,0 +1,11 @@
+{
+  "required_top_level_fields": [
+    "policy",
+    "active_robot_id",
+    "nav_api_url",
+    "main_api_base",
+    "webhook_endpoint",
+    "resolution",
+    "robots"
+  ]
+}

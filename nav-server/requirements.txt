@@ -1,0 +1,9 @@
+# Service-only Python dependencies for nav-server API/contract tests.
+# ROS 2 packages (rclpy, geometry_msgs, nav_msgs, nav2, etc.) are provided by
+# the system ROS installation and are intentionally not installed with pip.
+fastapi==0.139.0
+pydantic==2.13.4
+PyYAML==6.0.3
+# ROS Python message packages import NumPy at runtime (for example tf2_ros -> geometry_msgs).
+numpy==2.2.6
+uvicorn==0.51.0

@@ -1,0 +1,7 @@
+name: center_to_tb3_2
+from_domain: 1
+to_domain: 5
+
+topics:
+  mission/tb3_2/teleop_cmd:
+    type: std_msgs/msg/String
