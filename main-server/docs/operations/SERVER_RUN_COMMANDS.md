@@ -43,7 +43,7 @@ curl http://localhost:8088/api/v1/movement/runtime-map-context
 curl http://localhost:8088/api/v1/maps
 ```
 
-로봇별 Movement host/port가 다르면 `LMS_MOVEMENT_BASE_URLS`를 사용한다. primary host가 unreachable이면 `LMS_MOVEMENT_FALLBACK_BASE_URLS`로 pose·명령·**health**(`/status`의 `movement_health`)가 동일한 순서로 fallback한다.
+로봇별 Movement host/port가 다르면 `LMS_MOVEMENT_BASE_URLS`를 사용한다. Main은 configured primary endpoint만 호출하며 연결 실패 시 요청을 실패로 기록한다.
 
 ```env
 LMS_MOVEMENT_BASE_URLS=tb3_1=http://<tb3_1-host>:8001/movement-api/v1,tb3_2=http://<tb3_2-host>:8002/movement-api/v1

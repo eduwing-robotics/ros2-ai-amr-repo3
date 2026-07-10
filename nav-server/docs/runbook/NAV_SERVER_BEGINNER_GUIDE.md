@@ -65,4 +65,4 @@ cd nav-server
 scripts/nav_server_status.sh
 ```
 
-Gazebo 결과는 [ROS simulation 검증](../../../docs/integration/ros-simulation-verification.md), nohardware contract는 [Nav no-hardware test](NO_HARDWARE_TESTS.md)를 따른다.
+Gazebo 결과는 [Gazebo 검증 기록](../../../docs/history/verification/ros-simulation-verification.md), nohardware contract는 [Nav no-hardware test](NO_HARDWARE_TESTS.md)를 따른다.

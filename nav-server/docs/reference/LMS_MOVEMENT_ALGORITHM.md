@@ -76,9 +76,11 @@ Nav2가 실제 local/global path를 만든다. Movement 서버는 목적지와 w
 로봇1:
 
 ```bash
-cd /home/lucas/slam_nav_ws
+export NAV_SERVER_ROOT="<repo-root>/nav-server"
+export TURTLEBOT3_SETUP="<turtlebot3-overlay>/install/setup.bash"
+cd "$NAV_SERVER_ROOT"
 source /opt/ros/jazzy/setup.bash
-source /home/lucas/turtlebot3_ws/install/setup.bash
+source "$TURTLEBOT3_SETUP"
 export ROS_DOMAIN_ID=2
 
 scripts/record_waypoint_pose.py inbound_slot_1_approach
@@ -156,8 +158,9 @@ return_to_standby -> return_waypoint
 테스트:
 
 ```bash
-cd /home/lucas/slam_nav_ws
-PYTHONPATH=/home/lucas/slam_nav_ws/scripts pytest -q \
+export NAV_SERVER_ROOT="<repo-root>/nav-server"
+cd "$NAV_SERVER_ROOT"
+PYTHONPATH="$NAV_SERVER_ROOT/scripts" pytest -q \
   tests/test_agv_grid_planner.py \
   tests/test_agv_graph_builder.py \
   tests/test_route_builder.py
@@ -166,8 +169,9 @@ PYTHONPATH=/home/lucas/slam_nav_ws/scripts pytest -q \
 robot1 map 기준 graph/inflation 검증:
 
 ```bash
-cd /home/lucas/slam_nav_ws
-PYTHONPATH=/home/lucas/slam_nav_ws/scripts scripts/validate_agv_graph.py \
+export NAV_SERVER_ROOT="<repo-root>/nav-server"
+cd "$NAV_SERVER_ROOT"
+PYTHONPATH="$NAV_SERVER_ROOT/scripts" scripts/validate_agv_graph.py \
   --map-yaml map/robot1_map.yaml \
   --graph map/agv_waypoint_graph.yaml \
   --check-path vehicle_2_approach warehouse_c_approach
@@ -176,9 +180,12 @@ PYTHONPATH=/home/lucas/slam_nav_ws/scripts scripts/validate_agv_graph.py \
 단독 실행:
 
 ```bash
-cd /home/lucas/slam_nav_ws
+export NAV_SERVER_ROOT="<repo-root>/nav-server"
+export TURTLEBOT3_SETUP="<turtlebot3-overlay>/install/setup.bash"
+cd "$NAV_SERVER_ROOT"
 source /opt/ros/jazzy/setup.bash
-ros2 launch /home/lucas/slam_nav_ws/launch/agv_follower.launch.py
+source "$TURTLEBOT3_SETUP"
+ros2 launch "$NAV_SERVER_ROOT/launch/agv_follower.launch.py"
 ```
 
 목표 waypoint 전송:

@@ -11,7 +11,7 @@ Main 관제 서버를 FastAPI, PostgreSQL, React, TypeScript, Vite 기반으로 
 - 모든 주요 상태 변경, 외부 callback, 운영자 명령, AI/Camera evidence는 DB 기록을 원칙으로 한다.
 - 브라우저는 Movement/Camera/Vision 서버를 직접 호출하지 않는다. 단, Vision WebRTC 미디어는 `VITE_VISION_WEBRTC_ENABLED=true` 빌드에서 ICE/DTLS/SRTP 미디어 전용 직결을 허용하고, 시그널링은 Main이 중계한다.
 - 현장 IP, hostname, timeout은 `.env`와 `backend/app/core/config.py`에서 관리한다.
-- 현재 기준 문서는 `docs/`와 `worklog/`에만 둔다.
+- 현재 기준 문서는 `docs/`에 둔다.
 
 ## 문서
 
@@ -23,7 +23,6 @@ Main 관제 서버를 FastAPI, PostgreSQL, React, TypeScript, Vite 기반으로 
 - [DB 실행/변경 절차](docs/operations/DB_MIGRATION.md)
 - [현재 Main API](docs/api/API_MAIN.md)
 - [서버 실행 명령어](docs/operations/SERVER_RUN_COMMANDS.md)
-- [작업 로그/phase](worklog/README.md)
 
 ## 사전 준비
 
@@ -116,7 +115,6 @@ database/schema_pg.sql         DBML 정본의 PostgreSQL DDL
 database/schema_pg_infra.sql   maps/cameras 인프라 DDL
 database/seed/mvp_pg.sql       PostgreSQL seed
 docs/                          Current documentation
-worklog/                       Phase, session, handoff notes
 maps/                          ROS map assets
 tools/                         Standalone helper tools
 ```

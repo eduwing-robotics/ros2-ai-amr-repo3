@@ -10,24 +10,19 @@ err() { echo "[docs] ERROR: $*" >&2; fail=1; }
 # WARN 은 비차단(리뷰 넛지)이다. exit code 에 영향을 주지 않는다.
 warn() { echo "[docs] WARN: $*" >&2; }
 
-# Root markdown policy.
-while IFS= read -r file; do
+# Root markdown policy. Git's inventory includes tracked files and unignored
+# working-tree files, but excludes generated ignored caches.
+while IFS= read -r -d '' file; do
+  [[ "$file" == *.md ]] || continue
   case "$file" in
-    ./README.md|./AGENTS.md) ;;
-    ./docs/*|./worklog/*) ;;
+    database/legacy/*|ref/*|slides/*) continue ;;
+  esac
+  case "$file" in
+    README.md|AGENTS.md) ;;
+    docs/*|worklog/*) ;;
     *) err "Markdown file outside allowed roots: $file" ;;
   esac
-done < <(find . \
-  -path './.git' -prune -o \
-  -path '*/.venv' -prune -o \
-  -path '*/node_modules' -prune -o \
-  -path '*/dist' -prune -o \
-  -path '*/.omx' -prune -o \
-  -path './backend/.pytest_cache' -prune -o \
-  -path './database/legacy' -prune -o \
-  -path './ref' -prune -o \
-  -path './slides' -prune -o \
-  -name '*.md' -type f -print)
+done < <(git ls-files --cached --others --exclude-standard -z)
 
 
 while IFS= read -r file; do

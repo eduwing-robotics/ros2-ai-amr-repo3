@@ -19,13 +19,21 @@
   - `tb3_burger_02`: `ROS_DOMAIN_ID=5`, bridge id `tb3_2`
 - center domain은 `ROS_DOMAIN_ID=1`이다.
 
+Nav PC 명령은 다음 변수로 실행 루트를 명시한다. 각 TurtleBot SBC의
+overlay는 해당 SBC에 설치된 경로로 설정한다.
+
+```bash
+export NAV_SERVER_ROOT="<repo-root>/nav-server"
+export TURTLEBOT3_SETUP="<turtlebot3-overlay>/install/setup.bash"
+```
+
 
 ## 0.1 단축 명령
 
 Nav PC에서는 `scripts/nav_ops.sh`를 우선 사용한다. 이 wrapper는 기존 스크립트를 없애는 것이 아니라 자주 쓰는 실행 명령을 짧게 묶은 것이다.
 
 ```bash
-cd /home/lucas/slam_nav_ws
+cd "$NAV_SERVER_ROOT"
 
 # 서버
 scripts/nav_ops.sh start
@@ -75,7 +83,7 @@ final center_px = [167.5, 52.0], image_width = 320
 재현 명령은 아래 한 줄을 우선 쓴다. 기본값이 위 성공값으로 맞춰져 있다.
 
 ```bash
-cd /home/lucas/slam_nav_ws
+cd "$NAV_SERVER_ROOT"
 MARKER_ID=0 ROBOT_ID=tb3_burger_01 scripts/local_aruco_parking_test.sh
 ```
 
@@ -167,14 +175,14 @@ ros2 topic info -v /camera/image_raw/compressed
 그 다음 Nav PC에서 detector만 실행한다. 단축 명령을 쓰면 아래처럼 실행한다.
 
 ```bash
-cd /home/lucas/slam_nav_ws
+cd "$NAV_SERVER_ROOT"
 scripts/nav_ops.sh detector1
 ```
 
 동일한 기존 명령은 아래다.
 
 ```bash
-cd /home/lucas/slam_nav_ws
+cd "$NAV_SERVER_ROOT"
 START_CAMERA_LAUNCH=0 ROBOT_ID=tb3_burger_01 scripts/run_pi_camera_aruco.sh
 ```
 
@@ -185,14 +193,14 @@ START_CAMERA_LAUNCH=0 ROBOT_ID=tb3_burger_01 scripts/run_pi_camera_aruco.sh
 1번 로봇:
 
 ```bash
-cd /home/lucas/slam_nav_ws
+cd "$NAV_SERVER_ROOT"
 ROBOT_ID=tb3_burger_01 scripts/run_pi_camera_aruco.sh
 ```
 
 2번 로봇:
 
 ```bash
-cd /home/lucas/slam_nav_ws
+cd "$NAV_SERVER_ROOT"
 ROBOT_ID=tb3_burger_02 scripts/run_pi_camera_aruco.sh
 ```
 
@@ -210,7 +218,7 @@ Nav PC에서 이 명령을 그대로 실행하면 Pi Camera component가 없어 
 center domain에서 ArUco detection 토픽을 보고, center에서 teleop 명령을 보낼 수 있게 bridge를 실행한다. 현재 카메라 원본은 로봇 domain의 `/camera/image_raw/compressed`를 detector 입력으로 직접 사용한다. center domain에서 반드시 확인해야 하는 표준 출력은 ArUco detection 토픽이다.
 
 ```bash
-cd /home/lucas/slam_nav_ws
+cd "$NAV_SERVER_ROOT"
 scripts/run_domain_bridges.sh
 ```
 
@@ -234,7 +242,7 @@ ros2 topic list | grep aruco
 Nav 서버는 로봇별 Movement API를 띄운다. 권장 명령은 백그라운드 관리 wrapper다.
 
 ```bash
-cd /home/lucas/slam_nav_ws
+cd "$NAV_SERVER_ROOT"
 scripts/nav_ops.sh start
 scripts/nav_ops.sh status
 ```
@@ -242,7 +250,7 @@ scripts/nav_ops.sh status
 직접 foreground로 띄울 때만 기존 명령을 사용한다.
 
 ```bash
-cd /home/lucas/slam_nav_ws
+cd "$NAV_SERVER_ROOT"
 scripts/run_nav_servers.sh
 ```
 
@@ -298,7 +306,7 @@ ros2 topic echo /mission/tb3_1/aruco/detections
 
 ## 5.1 도킹 알고리즘 개요
 
-슬롯·대기장 도킹은 **하이브리드 3단계**다. 상세·현장 튜닝 이력은 [`worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md`](../../worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md)의 「알고리즘 요약」을 참고한다.
+슬롯·대기장 도킹은 **하이브리드 3단계**다. 이 문서의 알고리즘·튜닝값이 현재 운영 기준이다.
 
 | 구간 | 알고리즘 | 입력 | 출력 |
 | --- | --- | --- | --- |
@@ -380,8 +388,6 @@ curl -X POST http://127.0.0.1:8001/robot-commands \
 ```bash
 ROBOT_ID=tb3_2 bash scripts/run_inbound2_b_outbound1_wait2_scenario.sh
 ```
-
-상세: [`worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md`](../../worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md)
 
 ### 6.3 aruco_align 실행
 
@@ -546,7 +552,8 @@ export DOCK_REVERSE_DURATION_SEC=0.7
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source ~/lift_project/ros2_ws/install/setup.bash
+export LIFT_WS_SETUP="<lift-overlay>/install/setup.bash"
+source "$LIFT_WS_SETUP"
 export ROS_DOMAIN_ID=5
 ros2 run lift_bridge lift_bridge
 ```
@@ -571,7 +578,7 @@ action=unload + home_on_unload=true -> HOME
 코드/설정 검증:
 
 ```bash
-cd /home/lucas/slam_nav_ws
+cd "$NAV_SERVER_ROOT"
 python3 scripts/validate_robot_domains.py
 python3 scripts/validate_zones.py
 scripts/smoke_main_contract.sh

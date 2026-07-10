@@ -48,4 +48,4 @@ flowchart LR
 | [decisions/](decisions/README.md) | ADR |
 | [contributing/](contributing/README.md) | 규약 |
 
-이미지: [assets/](assets/README.md). 발표 시각: [`../slides/`](../slides/README.md).
+이미지: [assets/](assets/README.md).

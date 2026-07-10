@@ -151,4 +151,4 @@ twist:
 | `nav_app/services/lift_client.py` | `/lift/*` |
 | `config/robots.json` | domain·topic 매핑 |
 
-**관련:** 도킹 알고리즘·E2E — [`worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md`](../../worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md)
+**관련:** [ArUco 도킹 프로토콜](../runbook/RUNBOOK_ARUCO_DOCKING.md)

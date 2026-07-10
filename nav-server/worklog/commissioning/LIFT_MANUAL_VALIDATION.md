@@ -179,12 +179,11 @@ scripts/test_lift_tb3_2.sh status
 
 | 위치 | 내용 |
 | --- | --- |
-| PC | `/home/lucas/Downloads/lift_project/` |
+| PC | `<lift-project-root>/` |
 | SBC | `~/lift_project/ros2_ws/` |
 | slam_nav_ws | `lift_client.py`, `test_lift_tb3_2.sh`, `robot_sbc/start_lift_bridge.sh` |
 
-상세 계획: [`docs/plan/LIFT_BRIDGE_ONE_SHOT_LAUNCHER_PLAN.md`](../plan/LIFT_BRIDGE_ONE_SHOT_LAUNCHER_PLAN.md)
-작업 로그: [`worklog/sessions/LIFT_INTEGRATION_2026-07-06.md`](../../worklog/sessions/LIFT_INTEGRATION_2026-07-06.md)
+현재 기동 절차는 [Robot SBC guide](../../docs/runbook/roles/robot-sbc.md)를 따른다.
 
 ---
 

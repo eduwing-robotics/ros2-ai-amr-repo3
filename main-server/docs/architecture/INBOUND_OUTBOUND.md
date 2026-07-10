@@ -80,8 +80,3 @@ flowchart TD
 | 미리보기 / 생성 | `POST /work-orders/preview`, `POST /work-orders` |
 | 단계 실행 | [TASK_ORCHESTRATION](TASK_ORCHESTRATION.md) |
 | 도킹 모델 | [ADR](../decisions/2026-06-22-docking-and-path-model.md) |
-
-## 목표(Draft)
-
-- 작업 큐에 선정 슬롯·존·사유 표시
-- 예상 경로 오버레이

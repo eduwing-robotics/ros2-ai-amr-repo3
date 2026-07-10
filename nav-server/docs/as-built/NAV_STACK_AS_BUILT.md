@@ -4,13 +4,13 @@
 분류: Engineering
 작성: 2026-06-27 12:11 KST
 최종 갱신: 2026-06-27 14:47 KST
-목적: `slam_nav_ws` 리팩토링 완료 후 현재 구현 사실을 요약한다.
+목적: 현재 Nav 서버 구현과 검증 경계를 요약한다.
 
 ## 현재 구조
 
 - 루트 Markdown은 `README.md`만 남기고, API 계약·런북·handoff·세션 로그는 각각 `docs/`, `worklog/`로 분리했다.
-- 기준 문서는 `docs/as-built`, `docs/design`, `docs/reference`, `docs/runbook`, `docs/adr`에 있다.
-- 작업 문서는 `worklog/phases`, `worklog/handoff`, `worklog/sessions`에 있다.
+- 기준 문서는 `docs/as-built`, `docs/reference`, `docs/runbook`, `docs/adr`에 있다.
+- 현장 검증 기록과 handoff는 `worklog/`에 둔다.
 - 폴더와 주요 모듈 경로 지도는 `docs/as-built/REPOSITORY_MAP.md`에 있다.
 - 실행 코드는 `scripts/` entrypoint와 `nav_app/` 패키지로 구성된다.
   - `scripts/nav_server.py`: compat wrapper (`nav_app.app:app`)
@@ -39,33 +39,26 @@
 - Legacy mission: `/robot/status`, `/mission/start`, `/robot/estop`, `/robot/clear_estop`
 - Routing table: `/robots`
 
-endpoint 스냅샷: `worklog/snapshots/NAV_SERVER_ENDPOINTS_SNAPSHOT.md`
-
 ## 검증
 
 | 계층 | 도구 | ROS-free |
 | --- | --- | --- |
-| Unit + contract | `python -m pytest tests/` (13 passed) | ✅ |
+| Unit + contract | `python -m pytest tests/` | ✅ |
 | Compile | `scripts/check_all.sh` (py_compile) | ✅ |
 | Config | `validate_robot_domains.py`, `validate_zones.py` | ✅ |
 | Smoke | `smoke_nav_servers.sh`, `smoke_movement_api.sh`, `smoke_main_contract.sh` | ❌ (`rclpy` 필요) |
 
-환경별 상세: `docs/runbook/DEVELOPMENT_VERIFICATION.md`
-리팩토링 마무리: `worklog/sessions/REFACTORING_CLOSURE.md`
+환경별 상세: [개발 검증](../runbook/DEVELOPMENT_VERIFICATION.md)
 
 ## 외부 표면
 
-- API 계약: `docs/reference/MAIN_SERVER_CONTRACT.md`, `docs/reference/CONTROL_TO_NAV2_API_SPEC.md`
-- 운영: `docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md`, `RUNBOOK_ARUCO_DOCKING.md`, `NAV_SERVER_BEGINNER_GUIDE.md`, `real-robot-validation/`
-- 패키지 ADR: `docs/adr/ADR_001_SCRIPTS_COMPATIBLE_PACKAGE_LAYOUT.md`, `ADR_002_NO_ROOT_REDIRECT_STUBS.md`
+- API 계약: [MAIN_SERVER_CONTRACT](../reference/MAIN_SERVER_CONTRACT.md) 하나
+- 운영: [시작 순서](../runbook/RUNBOOK_LMS_FULL_STARTUP.md), [ArUco 도킹](../runbook/RUNBOOK_ARUCO_DOCKING.md), [초보자 가이드](../runbook/NAV_SERVER_BEGINNER_GUIDE.md)
+- 패키지 ADR: [package layout](../adr/ADR_001_SCRIPTS_COMPATIBLE_PACKAGE_LAYOUT.md), [root redirect stubs](../adr/ADR_002_NO_ROOT_REDIRECT_STUBS.md)
 
 ## 확인 근거
 
 - `rg -n "@router\\.(get|post)" nav_app/routers/`
 - `python -m pytest tests/ -q`
-- `docs/as-built/REPOSITORY_MAP.md`
-- `worklog/sessions/POST_REFACTORING_IMPROVEMENTS_2026-06-27.md`
-- `worklog/sessions/CODE_POLICY_APPLICATION_2026-06-27.md`
-- `worklog/sessions/CODE_REVIEW_CLEANUP_2026-06-27.md`
-- `worklog/sessions/REAL_ROBOT_VALIDATION_DOCS_2026-06-27.md`
-- `worklog/sessions/REFACTORING_CLOSURE.md`
+- [Repository map](REPOSITORY_MAP.md)
+- [Development verification](../runbook/DEVELOPMENT_VERIFICATION.md)

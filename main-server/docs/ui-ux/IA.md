@@ -6,7 +6,7 @@
 최종 갱신: 2026-07-09 17:05 KST
 목적: 운영/관리 2계층 IA와 라우트 매핑을 도표로 확정한다.
 
-근거: [UX_FOUNDATION](UX_FOUNDATION.md) · [2계층 ADR](../decisions/2026-06-22-operator-admin-two-tier-ui.md). 구현 사실: [FRONTEND](FRONTEND.md).
+근거: [2계층 ADR](../decisions/2026-06-22-operator-admin-two-tier-ui.md). 구현 사실: [FRONTEND](FRONTEND.md).
 
 ## 모드
 

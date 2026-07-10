@@ -43,4 +43,4 @@ API: `POST /tasks/{id}/recovery/preview` · `POST /tasks/{id}/recovery/execute`.
 ## 관련
 
 - [TASK_ORCHESTRATION](../architecture/TASK_ORCHESTRATION.md) · [INBOUND_SCENARIO_TEST](INBOUND_SCENARIO_TEST.md)
-- [GATE_DOCKING](../interfaces/movement/GATE_DOCKING.md) — `ABORTED{reason:estop}` 콜백
+- [Nav Server contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md) — `ABORTED{reason:estop}` callback

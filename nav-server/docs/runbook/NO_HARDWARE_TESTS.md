@@ -32,7 +32,7 @@ docking yaw/alignment, insert, reverse and leave-dock velocity bursts.  A stale
 lift telemetry reading stops base and lift motion before a lift phase; E-stop is
 idempotent and always requests both the base stop and enabled-lift stop.
 
-서비스 전체 검증은 `scripts/check_all.sh`로 실행하며 현재 `142 passed, 1 skipped`다. 이 문서의 targeted tests는 다음 계약을 고정한다.
+서비스 전체 검증은 `scripts/check_all.sh`로 실행한다. 이 문서의 targeted tests는 다음 계약을 고정한다.
 
 - lift capability가 없는 `tb3_burger_01`의 `dock_transfer`는 HTTP 409 `robot_missing_capability:lift`로 거부된다.
 - Main `aruco_align.final=charge|park`는 Nav executable final로 정규화된다.

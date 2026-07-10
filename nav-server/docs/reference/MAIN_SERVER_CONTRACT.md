@@ -8,7 +8,7 @@
 
 이 문서는 메인 GUI/DB 서버와 `slam_nav_ws` Movement 서버 사이의 현재 계약을 정의한다.
 
-LMS 이동 알고리즘 정본은 `docs/reference/LMS_MOVEMENT_ALGORITHM.md`를 따른다. 운영 흐름은 `/robot-commands` 원자 명령을 LMS가 순서대로 보내는 방식이며, `/movement-api/v1/routes/*`는 호환/로컬 검증용이다.
+이 문서는 Movement HTTP endpoint, payload, 상태값, callback의 유일한 정본이다. LMS의 명령 순서는 [LMS_MOVEMENT_ALGORITHM](LMS_MOVEMENT_ALGORITHM.md)을 따른다. `/movement-api/v1/routes/*`는 호환/로컬 검증용이다.
 
 ## 1. Topology
 
@@ -480,7 +480,7 @@ GET /movement-api/v1/inventory
 GET /movement-api/v1/simulation-state
 ```
 
-현재 운영 기준 map은 `/home/lucas/slam_nav_ws/map/robot1_map.yaml`이다. `/movement-api/v1/map-state`의 `active_map_id`, `resolution`, `origin`, `width`, `height`는 Main 관제 map asset과 반드시 같아야 한다.
+현재 운영 기준 map은 `$NAV_SERVER_ROOT/map/robot1_map.yaml`이다. `/movement-api/v1/map-state`의 `active_map_id`, `resolution`, `origin`, `width`, `height`는 Main 관제 map asset과 반드시 같아야 한다.
 
 `simulation-state`는 Gazebo 없이 API 흐름만 검증할 때 사용한다.
 
@@ -564,7 +564,8 @@ GET  /movement-api/v1/commands/{command_id}
 현재 운용 기준은 로봇 SBC에서 Pi Camera를 띄우고, Nav PC에서 detector만 실행하는 방식이다. camera launch는 `/camera/image_raw/compressed`를 publish하고, detector는 이 토픽을 입력으로 받아 `/mission/{bridge_robot_id}/aruco/detections`에 JSON 검출 결과를 publish한다.
 
 ```bash
-cd /home/lucas/slam_nav_ws
+export NAV_SERVER_ROOT="<repo-root>/nav-server"
+cd "$NAV_SERVER_ROOT"
 START_CAMERA_LAUNCH=0 ROBOT_ID=tb3_burger_01 scripts/run_pi_camera_aruco.sh
 START_CAMERA_LAUNCH=0 ROBOT_ID=tb3_burger_02 scripts/run_pi_camera_aruco.sh
 ```
@@ -609,7 +610,8 @@ Main 서버는 `command_id` 기준으로 이벤트를 idempotent하게 저장해
 ## 8. Smoke Tests
 
 ```bash
-cd /home/lucas/slam_nav_ws
+export NAV_SERVER_ROOT="<repo-root>/nav-server"
+cd "$NAV_SERVER_ROOT"
 scripts/smoke_main_contract.sh
 scripts/smoke_nav_servers.sh
 scripts/smoke_movement_api.sh

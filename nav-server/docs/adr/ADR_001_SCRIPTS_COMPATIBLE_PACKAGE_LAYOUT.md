@@ -25,5 +25,5 @@
 
 ## 관련 문서
 
-- `docs/design/NAV_STACK_REFACTORING_DESIGN.md`
-- `worklog/phases/PHASE_02_NAV_SERVER_MODULARIZATION.md`
+- [현재 구현](../as-built/NAV_STACK_AS_BUILT.md)
+- [Repository map](../as-built/REPOSITORY_MAP.md)

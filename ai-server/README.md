@@ -54,14 +54,25 @@ Runtime restart/control APIs stay disabled unless the operator explicitly config
 
 ## Hardware validation boundary
 
-Automated tests are no-hardware checks. When lab cameras are available, use `docs/live-api-smoke-tests.md` to record the manual GoPro/PiCam/ArUco validation.
+Automated tests are no-hardware checks. When lab cameras are available, follow the signed [live lab smoke procedure](docs/live-api-smoke-tests.md) for manual GoPro/PiCam/ArUco validation.
 
-## API and contracts
+## Documentation
 
-- API reference: `docs/api.md`
-- Live API smoke tests: `docs/live-api-smoke-tests.md`
-- Lift/load contract: `docs/contracts/lift-load-evidence.md`
-- OpenAPI snapshot and JSON schemas: `docs/contracts/`
+Current AI Server documentation:
+
+| Area | Document |
+| --- | --- |
+| Main-facing HTTP API and schemas | [AI Server API contract](docs/contracts/ai-server-api.md) |
+| Lift/load evidence request and decision boundary | [Lift/load evidence contract](docs/contracts/lift-load-evidence.md) |
+| Evidence evaluation model | [Evidence evaluation v1](docs/contracts/evidence-evaluation.v1.md) |
+| Deploy package and runtime configuration | [Deployment](docs/deployment.md) |
+| No-hardware and live validation procedure | [Live API smoke tests](docs/live-api-smoke-tests.md) |
+| Low-load lab runtime | [Low-load mode](docs/low-load-mode.md) |
+| Test and static-analysis commands | [Quality gates](docs/quality-gates.md) |
+| Runtime failure diagnosis | [Troubleshooting](docs/troubleshooting.md) |
+| ROS 2 perception companion package | [ROS 2 package README](ros2/smartfactory_perception_ros/README.md) |
+
+Cross-service behavior is defined by the root [E2E contract](../docs/integration/e2e-contract.md).
 
 ## Quality gates
 

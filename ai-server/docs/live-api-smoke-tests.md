@@ -1,9 +1,6 @@
-# Live API Smoke Tests
+# Signed live lab smoke procedure
 
-Use these checks after `./scripts/vision/sf_lab.sh low-load` is running with the lab cameras connected.
-Skip this document when GoPro/PiCam hardware is unavailable. These checks are manual hardware validation, not pytest replacements, and they do not send robot motion commands.
-
-Record the run date, connected cameras, and any saved evidence images alongside the test result.
+Use this current procedure after `./scripts/vision/sf_lab.sh low-load` is running with the lab cameras connected. Skip this document when GoPro/PiCam hardware is unavailable. These checks are manual hardware validation, not pytest replacements, and they do not send robot motion commands.
 
 ## Authentication prerequisite
 
@@ -36,27 +33,62 @@ file /tmp/tb3_2_picam_latest.jpg
 
 Expected: a JPEG image. If the endpoint returns `404`, that PiCam has not ingested a latest frame.
 
-## 3. Person-hazard advisory for PiCam
+## 3. Signed person-hazard advisory check for PiCam
 
 The person hazard route is advisory only. It reports perception evidence for Main/Safety to decide on; it does not stop or move a robot.
 AI Server monitor events keep `trusted=false` by contract, even when confidence is high.
 
-Enable the monitor for the active check:
+Set a lab-only task ID and provide the shared secret through the shell environment; do not place it in shell history. The following standard-library helper signs each exact JSON body before it enables the monitor, refreshes it, and disables it again.
 
 ```bash
-curl -fsS -X PUT http://127.0.0.1:8100/api/v1/vision/monitors/person_drive/state \
-  -H 'content-type: application/json' \
-  -d '{"enabled":true,"source":"tb3_2_picam","operation_state":"DRIVE","task_id":20260707}' \
-  | python3 -m json.tool
-```
+export MAIN_HMAC_SECRET='set-in-current-shell-only'
+export LAB_TASK_ID="${LAB_TASK_ID:-1}"
 
-Refresh/read the latest perception state:
+python3 - <<'PY'
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import time
+from urllib.request import Request, urlopen
 
-```bash
-curl -fsS -X POST http://127.0.0.1:8100/api/v1/vision/worker/tick \
-  -H 'content-type: application/json' \
-  -d '{"source":"tb3_2_picam"}' \
-  | python3 -m json.tool
+BASE_URL = "http://127.0.0.1:8100"
+SECRET = os.environ["MAIN_HMAC_SECRET"].encode()
+TASK_ID = int(os.environ["LAB_TASK_ID"])
+
+
+def signed_json(method, path, payload):
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    timestamp = str(int(time.time()))
+    nonce = secrets.token_hex(16)
+    canonical = "\n".join(
+        (method, path, timestamp, nonce, hashlib.sha256(body).hexdigest())
+    ).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "X-SF-Timestamp": timestamp,
+        "X-SF-Nonce": nonce,
+        "X-SF-Signature": hmac.new(SECRET, canonical, hashlib.sha256).hexdigest(),
+    }
+    request = Request(BASE_URL + path, body, headers, method=method)
+    with urlopen(request) as response:
+        print(response.read().decode())
+
+
+signed_json("PUT", "/api/v1/vision/monitors/person_drive/state", {
+    "enabled": True,
+    "source": "tb3_2_picam",
+    "operation_state": "DRIVE",
+    "task_id": TASK_ID,
+})
+signed_json("POST", "/api/v1/vision/worker/tick", {"source": "tb3_2_picam"})
+signed_json("PUT", "/api/v1/vision/monitors/person_drive/state", {
+    "enabled": False,
+    "source": "tb3_2_picam",
+    "operation_state": "IDLE",
+})
+PY
 
 curl -fsS 'http://127.0.0.1:8100/api/v1/vision/hazards/person/latest?robot_id=tb3_2' \
   | python3 -m json.tool

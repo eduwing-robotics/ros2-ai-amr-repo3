@@ -1,6 +1,6 @@
 # Source provenance
 
-이 문서는 import 기준 commit만 기록한다. 구현·검증 상태는 [현재 상태 진단](current-state-diagnosis.md)을 따른다.
+이 문서는 import 기준 commit만 기록한다. 현재 구현·검증 계약은 [E2E 계약](../../integration/e2e-contract.md)을 따른다.
 
 | root path | upstream source | import baseline commit |
 | --- | --- | --- |

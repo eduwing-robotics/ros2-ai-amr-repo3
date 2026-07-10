@@ -15,7 +15,7 @@
 | 폴더/모듈 위치 | `docs/as-built/REPOSITORY_MAP.md` |
 | API 계약 | `docs/reference/MAIN_SERVER_CONTRACT.md` |
 | 개발 검증 | `docs/runbook/DEVELOPMENT_VERIFICATION.md` |
-| 실로봇 검증 | `docs/runbook/real-robot-validation/` |
+| 실로봇 검증 기록 | `worklog/commissioning/` |
 
 ## 코드 경로
 
@@ -64,10 +64,8 @@
 | `docs/reference/` | API 계약과 상세 명세 |
 | `docs/runbook/` | 반복 실행, 검증, 운영 절차 |
 | `docs/adr/` | 결정 기록 |
-| `docs/design/` | 목표/미구현 설계. 구현 완료 내용은 as-built 참조 |
-| `worklog/sessions/` | 작업 이력과 다음 시작점 |
-| `worklog/phases/` | 리팩토링 phase 기록 |
-| `worklog/handoff/` | 인수인계 기록 |
+| `worklog/commissioning/` | 현장 검증 기록 |
+| `worklog/sessions/` | 보존할 세션 관측값 |
 | `LEGACY/` | 대체 기준이 생긴 과거 문서/보존 산출물 |
 
 ## LEGACY 이동 기준

@@ -1,6 +1,11 @@
 # Quality Gate
 
-백엔드·프론트 변경 전후 **검증 명령·체크리스트**를 한곳에 둔다. 작성 규약은 [CODE_QUALITY_POLICY](../contributing/CODE_QUALITY_POLICY.md).
+상태: Active
+소유: Ops
+최종 갱신: 2026-07-10 16:01 KST
+목적: Main 변경 범위에 맞는 검증 명령과 수동 확인 항목을 안내한다.
+
+작성 규약은 [CODE_QUALITY_POLICY](../contributing/CODE_QUALITY_POLICY.md)를 따른다.
 
 ## 1. Required Gate (전체)
 
@@ -42,11 +47,6 @@ npm run lint   # errors/warnings 0 필수
 - 프론트 단위/E2E 테스트 없음
 - `ruff`/`pytest` 미설치 환경에서는 skip
 
-## Current result
-
-- Backend: `188 passed, 56 skipped`; Ruff 통과
-- Frontend lint: warnings `0`
-
 ## 4. Minimum backend tests (변경 범위에 맞게)
 
 | Area | Required | 현재 |
@@ -71,8 +71,6 @@ npm run lint   # errors/warnings 0 필수
 - 관련 `docs/ui-ux/pages/*.md` 갱신
 - 신규 `alert`/`confirm` 금지 — `FeedbackProvider`
 - 컴포넌트 300줄 초과 분리 검토, 500줄 초과 시 분리
-
-수동 확인 기록은 `worklog/`(gitignore).
 
 ## 7. CI
 

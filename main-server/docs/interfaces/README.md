@@ -74,16 +74,15 @@ Health: `GET /health` → `{"ok": true, …}`. 호스트: `LMS_MOVEMENT_HOST`, `
 
 | 방향 | 내용 | 정본 |
 | --- | --- | --- |
-| Main → Movement | health·pose·routes/commands·envelope·estop | [movement/REQUIREMENTS](movement/REQUIREMENTS.md) · [GATE_DOCKING](movement/GATE_DOCKING.md) |
-| Movement → Main | command-events·results·status·pose | [REQUIREMENTS §8](movement/REQUIREMENTS.md) |
+| Main ↔ Movement | Main이 명령 순서·결과 반영을 소유 | [Main consumer boundary](movement/README.md) · [Nav Server contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md) |
 | Main → Vision | stream/frame proxy · lift-load | [LIFT_LOAD_EVIDENCE](LIFT_LOAD_EVIDENCE.md) (본문 Vision §) |
 | Browser → Main | REST `/api/v1/*` | [api/API_MAIN](../api/API_MAIN.md) |
 
 ## Integration Quickstart
 
 1. **Config** — `GET /api/v1/system/external-config`
-2. **Pose** — `GET /api/v1/robot-poses` ([POSE_LOCALIZATION](movement/POSE_LOCALIZATION.md))
-3. **Command** — `POST /api/v1/robot-commands` (`move_to_point` dry_run → 실실행). `dock_transfer` 미구현 시 `501`
+2. **Pose** — `GET /api/v1/robot-poses`
+3. **Command** — `POST /api/v1/robot-commands`; Movement endpoint semantics follow the [Nav Server contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md).
 4. **Callback** — Movement → `POST /api/v1/movement/command-events` (누락 시 Movement `GET …/commands/{id}` 폴링)
 5. **Sync** — [MOVEMENT_SYNC_DIAGNOSTICS](../operations/MOVEMENT_SYNC_DIAGNOSTICS.md)
 
@@ -101,9 +100,8 @@ sequenceDiagram
 | 문서 | 역할 |
 | --- | --- |
 | 본 README | Main 경계·주소·Vision proxy·데이터 SoT·Quickstart |
-| [LIFT_LOAD_EVIDENCE](LIFT_LOAD_EVIDENCE.md) | Main→Vision lift-load |
-| [movement/GATE_DOCKING](movement/GATE_DOCKING.md) | 목표 envelope·게이트 |
-| [movement/REQUIREMENTS](movement/REQUIREMENTS.md) | 현행 Movement HTTP |
-| [movement/POSE_LOCALIZATION](movement/POSE_LOCALIZATION.md) | pose/localization 진단 |
+| [LIFT_LOAD_EVIDENCE](LIFT_LOAD_EVIDENCE.md) | Main의 Vision evidence 승인·보류 정책 |
+| [movement/](movement/README.md) | Main consumer boundary |
+| [Nav Server contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md) | Movement endpoint의 유일한 정본 |
 
 실행: [SERVER_RUN_COMMANDS](../operations/SERVER_RUN_COMMANDS.md).

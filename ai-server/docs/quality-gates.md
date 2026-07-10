@@ -15,10 +15,6 @@ python3 scripts/validate/self_containment_audit.py
 
 Hardware checks are manual and documented in `docs/live-api-smoke-tests.md`.
 
-## Current result
-
-Root pytest passes with `480 passed`; Ruff passes.
-
 ## ShellCheck advisory exclusions
 
 The deploy package keeps existing operator shell semantics for sourced ROS setup files, cleanup hooks, literal JSON environment defaults, and array-like command dispatch. The CI/pass command excludes these non-blocking inherited advisories while keeping syntax and higher-signal shell checks active:

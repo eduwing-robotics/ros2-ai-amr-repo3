@@ -1,69 +1,30 @@
-# Documentation Index
+# Navigation Documentation
 
-상태: Active
-분류: Docs
-작성: 2026-06-27 12:11 KST
-최종 갱신: 2026-07-03 17:55 KST
-목적: `slam_nav_ws` 기준 문서와 작업 문서의 위치를 안내한다.
+This index lists documents that describe the current navigation-server system.
+Historical material is intentionally separated into the [worklog index](../worklog/README.md).
 
-## 기준 문서
+## System reference
 
-- `as-built/NAV_STACK_AS_BUILT.md`: **현재 구현 사실 (정본)**
-- `as-built/REPOSITORY_MAP.md`: 폴더와 주요 모듈 경로 지도
-- `design/NAV_STACK_REFACTORING_DESIGN.md`: 리팩토링 목표 (Superseded → as-built 참고)
-- `adr/ADR_001_SCRIPTS_COMPATIBLE_PACKAGE_LAYOUT.md`: `scripts/` 호환 패키지 레이아웃
-- `adr/ADR_002_NO_ROOT_REDIRECT_STUBS.md`: 루트 redirect stub 미사용
+- [Current implementation](as-built/NAV_STACK_AS_BUILT.md)
+- [Repository map](as-built/REPOSITORY_MAP.md)
+- [Package-layout decisions](adr/ADR_001_SCRIPTS_COMPATIBLE_PACKAGE_LAYOUT.md)
+- [No root redirect stubs decision](adr/ADR_002_NO_ROOT_REDIRECT_STUBS.md)
 
-## API 계약
+## Integration contracts
 
-- `reference/MAIN_SERVER_CONTRACT.md`: 메인/Movement 현재 계약
-- `reference/LMS_MOVEMENT_ALGORITHM.md`: LMS가 따라야 할 현재 이동 알고리즘 정본
-- `reference/MAIN_CONTROL_LIFT_HANDOFF.md`: 메인/관제 리프트 연동 인수인계
-- `reference/CONTROL_TO_NAV2_API_SPEC.md`: 시나리오·route API 상세 명세
-- `reference/ROS_ROBOT_INTERFACE_SPECIFICATION.md`: Movement/로봇/Vision ROS topic·action 인터페이스 명세
+- [Main Server integration contract](reference/MAIN_SERVER_CONTRACT.md)
+- [LMS movement algorithm](reference/LMS_MOVEMENT_ALGORITHM.md)
+- [ROS robot interface specification](reference/ROS_ROBOT_INTERFACE_SPECIFICATION.md)
 
-## 운영 절차
+## Operations
 
-- `runbook/RUNBOOK_LMS_FULL_STARTUP.md`: 전체 bringup과 LMS 실행 순서
-- `runbook/RUNBOOK_ARUCO_DOCKING.md`: Pi Camera, ArUco, 도킹 절차
-- `runbook/RUNBOOK_GAZEBO_SIMULATION.md`: Gazebo Simulator 기반 RViz/Nav2/Movement API 테스트와 메인서버 접근 절차
-- `runbook/NAV_SERVER_BEGINNER_GUIDE.md`: 서버 실행과 기본 점검
-- `runbook/DEVELOPMENT_VERIFICATION.md`: pytest + check_all + smoke 계층 (환경별)
-- `runbook/RUNTIME_OUTPUT_POLICY.md`: runtime 산출물 정책
-- `runbook/real-robot-validation/`: 실로봇 Movement API 검증 절차와 체크리스트
-  - `TB3_2_VALIDATION_STATUS_2026-07-03.md`: tb3_2 실물 검증 진행 현황 (정본)
-  - `SCENARIO_TASK206_INBOUND2_TB3_2.md`: LMS task 206 입고2 재현
-
-## 에이전트 시작 순서
-
-기능·운영 작업 시:
-
-1. `../README.md`
-2. `README.md` (이 문서)
-3. `as-built/NAV_STACK_AS_BUILT.md`
-4. `as-built/REPOSITORY_MAP.md`
-5. 관련 `runbook/` 또는 `reference/`
-
-리팩토링 이력 확인 시 추가:
-
-6. `../worklog/sessions/REFACTORING_CLOSURE.md`
-7. `../worklog/phases/PHASE_00_REFACTORING_ROADMAP.md`
-
-## 작업 문서
-
-- `../worklog/sessions/REFACTORING_CLOSURE.md`: **리팩토링 마무리·검증 보류 기록**
-- `../worklog/sessions/POST_REFACTORING_IMPROVEMENTS_2026-06-27.md`: 후속 검증 재현성 개선 기록
-- `../worklog/sessions/CODE_POLICY_APPLICATION_2026-06-27.md`: 코드 정책 적용과 lifecycle 리팩토링 기록
-- `../worklog/sessions/CODE_REVIEW_CLEANUP_2026-06-27.md`: 코드 리뷰 후 import/lifecycle 정리 기록
-- `../worklog/sessions/REAL_ROBOT_VALIDATION_DOCS_2026-06-27.md`: 실로봇 검증 문서 추가 기록
-- `../worklog/sessions/DOCUMENT_TIMESTAMP_NORMALIZATION_2026-06-27.md`: 문서 시간 메타데이터 정리 기록
-- `../worklog/sessions/REPOSITORY_PATH_GUIDANCE_2026-06-27.md`: 폴더/모듈 경로 지도와 `tests/` 유지 판단
-- `../worklog/sessions/REFACTORING_PROGRESS.md`: phase 진행 상태 (Closed)
-- `../worklog/phases/PHASE_00_REFACTORING_ROADMAP.md`: 전체 순서와 phase 인덱스
-- `../worklog/phases/PHASE_01_DOCUMENTATION_LAYOUT.md` … `PHASE_05_RUNTIME_CLEANUP.md`
-- `../worklog/sessions/PHASE_02_CHECKPOINT.md`: server_core 2차 분리 기록 (Closed)
-
-## Legacy 위치
-
-- 기준에서 제외된 문서·런타임 스냅샷: `../LEGACY/`
-- 이동 이력: `../LEGACY/README.md`
+- [Ordered startup by role](runbook/RUNBOOK_LMS_FULL_STARTUP.md)
+- [Robot SBC guide](runbook/roles/robot-sbc.md)
+- [Navigation PC guide](runbook/roles/nav-pc.md)
+- [Main operator guide](runbook/roles/main-operator.md)
+- [Vision operator guide](runbook/roles/ai-operator.md)
+- [ArUco docking protocol](runbook/RUNBOOK_ARUCO_DOCKING.md)
+- [Gazebo acceptance](runbook/RUNBOOK_GAZEBO_SIMULATION.md)
+- [No-hardware tests](runbook/NO_HARDWARE_TESTS.md)
+- [Development verification](runbook/DEVELOPMENT_VERIFICATION.md)
+- [Runtime output policy](runbook/RUNTIME_OUTPUT_POLICY.md)

@@ -28,7 +28,7 @@ For TurtleBot3 Pi Camera streams, prefer compressed transport. In live testing,
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-cd /home/codelab/turtlebot3_ws
+cd <ros-workspace>
 colcon build --symlink-install --packages-select smartfactory_perception_ros
 colcon test --packages-select smartfactory_perception_ros --event-handlers console_direct+
 ```
@@ -39,7 +39,7 @@ Global camera/raw example:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source /home/codelab/turtlebot3_ws/install/setup.bash
+source <ros-workspace>/install/setup.bash
 ros2 launch smartfactory_perception_ros ai_snapshot_clients.launch.py \
   use_ai_snapshot_clients:=true \
   use_global_camera:=true \
@@ -89,7 +89,7 @@ Direct Robot1 domain-2 smoke example, using the temporary camera launch topic:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source /home/codelab/turtlebot3_ws/install/setup.bash
+source <ros-workspace>/install/setup.bash
 ros2 launch smartfactory_perception_ros vision_frame_gateway.launch.py \
   use_vision_frame_gateway:=true \
   use_tb3_1_picam:=true \
@@ -131,7 +131,7 @@ Launch example after `vision_frame_gateway publish_overlay:=true` is running:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source /home/codelab/Desktop/Project/SmartFactory/install/setup.bash
+source <ros-workspace>/install/setup.bash
 ros2 launch smartfactory_perception_ros vision_overlay_stream_bridge.launch.py \
   use_vision_overlay_stream_bridge:=true \
   host:=0.0.0.0 \
@@ -160,7 +160,7 @@ Direct run example:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source /home/codelab/turtlebot3_ws/install/setup.bash
+source <ros-workspace>/install/setup.bash
 export SMARTFACTORY_AI_SERVER_PYTHONPATH=/path/to/ai-server
 ros2 run smartfactory_perception_ros aruco_pose_monitor --ros-args \
   -p image_topic:=/camera/image_raw/compressed \

@@ -59,9 +59,11 @@ Load 완료 뒤 `POST_PICK_UP`, unload 직전 `PRE_DROP_OFF` evidence를 평가�
 
 Person advisory 또는 monitor outage는 Main trusted safety stop과 `AWAITING_OPERATOR`를 만든다. E-stop clear만으로 재개하지 않으며 DB recovery state와 live Movement health가 안전해야 `safe_replan`을 실행한다.
 
-## 검증
+## 검증 경계
 
-Root E2E는 authoritative field binding, 두 enabled map profile audit, actual signed gateway frame ingress, signed Main↔Nav/Main↔AI TCP, `PRE_DROP_OFF` PASS, AI person advisory→Main trusted stop→Nav E-stop/clear/recovery, PostgreSQL 7-way reservation·orchestration·recovery concurrency seam을 통과한다. Physical lift, camera, network는 별도 검증 범위다.
+Root nohardware suite는 authoritative field binding, enabled map profile audit, actual signed gateway frame ingress, signed Main↔Nav/Main↔AI TCP, `PRE_DROP_OFF` PASS, AI person advisory→Main trusted stop→Nav E-stop/clear/recovery, PostgreSQL reservation·orchestration·recovery concurrency를 검증한다. 실행 범위와 제외 항목은 [nohardware suite README](../../tests/nohardware/README.md)를 따른다.
+
+Physical lift/fork, camera quality/calibration, 현장 network reachability와 DDS transport는 별도 현장 검증이 필요하다. Gazebo 결과는 현재 acceptance가 아닌 [과거 verification record](../history/verification/ros-simulation-verification.md)다.
 
 ## No-hardware profile
 

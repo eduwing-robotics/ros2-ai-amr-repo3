@@ -36,7 +36,8 @@
 ## 개발 환경 재현
 
 ```bash
-cd /home/lucas/slam_nav_ws
+export NAV_SERVER_ROOT="<repo-root>/nav-server"
+cd "$NAV_SERVER_ROOT"
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt  # if present

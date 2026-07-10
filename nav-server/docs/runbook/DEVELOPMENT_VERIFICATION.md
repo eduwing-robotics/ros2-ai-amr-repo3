@@ -8,7 +8,7 @@ Nav 로컬 검증 계층과 실행 순서를 정의한다.
 2. **Compile:** `python -m py_compile nav_app/... scripts/nav_server.py`
 3. **Config:** `python scripts/validate_robot_domains.py`, `python scripts/validate_zones.py`
 4. **Smoke (SIMULATION_MODE=1):** `scripts/smoke_nav_servers.sh`, `scripts/smoke_movement_api.sh`, `scripts/smoke_main_contract.sh`
-5. **Real robot validation:** `docs/runbook/real-robot-validation/API_MOVEMENT_CHECKLIST.md`
+5. **Real robot validation:** `worklog/commissioning/API_MOVEMENT_CHECKLIST.md`
 
 ## 환경별 실행 가능 범위
 
@@ -36,7 +36,7 @@ absent, it exits before running checks and prints setup guidance. CI or custom
 environments can intentionally select another interpreter with
 `PYTHON_BIN=/path/to/python scripts/check_all.sh`.
 
-`check_all.sh`는 1–3 계층을 기본 실행하고 현재 `142 passed, 1 skipped`다. smoke는 Nav 서버 기동 후 **Nav PC에서** 선택 실행한다.
+`check_all.sh`는 1–3 계층을 기본 실행한다. smoke는 Nav 서버 기동 후 **Nav PC에서** 선택 실행한다.
 
 ## Smoke 전제 (Nav PC)
 

@@ -25,6 +25,5 @@
 
 ## 관련 문서
 
-- `docs/design/NAV_STACK_REFACTORING_DESIGN.md`
-- `worklog/phases/PHASE_01_DOCUMENTATION_LAYOUT.md`
-- `worklog/sessions/REFACTORING_CLOSURE.md`
+- [문서 색인](../README.md)
+- [현재 구현](../as-built/NAV_STACK_AS_BUILT.md)

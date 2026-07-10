@@ -26,7 +26,7 @@
 | E2E: 입고2→B→출고1→대기2 | ✅ `run_inbound2_b_outbound1_wait2_scenario.sh` (7/5) |
 | 슬롯 도킹 → 복귀 전체 사이클 | 🔄 LMS 연동 전체 사이클 남음 |
 
-**원샷 런처:** `scripts/start_all_tb3_2.sh` (아래 [기동 명령](#기동-명령-tb3_2-기준) 참고)
+**원샷 런처:** `scripts/start_all_tb3_2.sh` (아래 [기동 명령](#기동-명령-tb32-기준) 참고)
 
 **현재 맵:** `map/robot2_map.yaml` (Cartographer 재매핑, resolution 0.02m, origin `[-0.429, -1.480, 0]`)
 
@@ -108,14 +108,14 @@ scripts/start_all_tb3_2.sh restart   # 전체 종료 후 재기동
 scripts/start_all_tb3_2.sh stop      # Nav PC + 로봇 SBC + terminator 종료
 scripts/start_all_tb3_2.sh status    # 상태 점검
 
-# ssh 비번 자동 (sshpass 필요): ROBOT_PW=1234 가 기본값
+# SSH key authentication is preferred; local password fallback is configured in `config/local-hardware.env`.
 # SBC 수동 기동 시: WITH_ROBOT=0 scripts/start_all_tb3_2.sh
 ```
 
 > 기동 순서: **bringup → (10s) 카메라(kill 후 launch) → odom/scan 대기 → Nav2 → 서버 → 카메라 대기 → detector**. status pane은 50초 후 자동 점검.
 
 런처에 고정된 로봇 SBC 실행 파라미터 (이번 세션 실측):
-- ROS 환경: `source /opt/ros/jazzy/setup.bash` **+** `source /home/musk/turtlebot3_ws/install/setup.bash` (오버레이 필수)
+- ROS 환경: `source /opt/ros/jazzy/setup.bash` **+** `source "$TURTLEBOT3_SETUP"` (오버레이 필수)
 - 라이다: `LDS_MODEL=LDS-03`
 - 카메라 launch: `turtlebot3_bringup camera.launch.py` (`camera_low_bandwidth.launch.py`는 이 SBC에 **없음**)
 - OpenCR: `usb_port:=/dev/serial/by-id/usb-ROBOTIS_OpenCR_...`
@@ -126,7 +126,7 @@ scripts/start_all_tb3_2.sh status    # 상태 점검
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source /home/musk/turtlebot3_ws/install/setup.bash
+source "$TURTLEBOT3_SETUP"
 export ROS_DOMAIN_ID=5 TURTLEBOT3_MODEL=burger LDS_MODEL=LDS-03
 ros2 launch turtlebot3_bringup robot.launch.py \
   usb_port:=/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00
@@ -136,7 +136,7 @@ ros2 launch turtlebot3_bringup robot.launch.py \
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-source /home/musk/turtlebot3_ws/install/setup.bash
+source "$TURTLEBOT3_SETUP"
 export ROS_DOMAIN_ID=5
 ros2 launch turtlebot3_bringup camera.launch.py
 ```
@@ -190,7 +190,7 @@ scripts/scenarios/replay_task206_inbound2_tb3_2.sh
 
 | 증상 | 원인 | 조치 |
 | --- | --- | --- |
-| ssh로 bringup 시 `turtlebot3_bringup not found` | 비대화형 ssh가 `~/.bashrc`를 안 읽어 오버레이 미source | `source /home/musk/turtlebot3_ws/install/setup.bash` 추가 |
+| ssh로 bringup 시 `turtlebot3_bringup not found` | 비대화형 ssh가 `~/.bashrc`를 안 읽어 오버레이 미source | `source "$TURTLEBOT3_SETUP"` 추가 |
 | bringup `KeyError: 'LDS_MODEL'` | 비대화형 ssh에 라이다 모델 env 없음 | `export LDS_MODEL=LDS-03` 명시 |
 | `camera_low_bandwidth.launch.py not found` | 이 SBC엔 해당 파일 없음 | `camera.launch.py` 사용 |
 | 카메라 `failed to acquire camera / Device or resource busy` | 이전 카메라 프로세스가 장치 점유 | SBC에서 `pkill -f libcamera_component; pkill -f camera_container` 후 재실행 |
@@ -379,7 +379,7 @@ E2E에서 API는 DONE이었으나 실물 동작이 어긋난 원인 4가지를 �
 
 ## 2026-07-05 — 도킹 E2E·슬롯 튜닝
 
-**상세 세션 로그:** [`worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md`](../../../worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md)
+**현재 프로토콜:** [ArUco 도킹 runbook](../../docs/runbook/RUNBOOK_ARUCO_DOCKING.md)
 
 ### 한눈에 (쉬운 설명)
 
@@ -390,7 +390,7 @@ E2E에서 API는 DONE이었으나 실물 동작이 어긋난 원인 4가지를 �
 5. **insert 후**: 리프트 없으면 **4초 dwell** → **후진은 insert 실측만** (approach align 전진분은 후진에 미포함).
 6. **시나리오 시작**: hold 주차 상태면 `leave_dock` 먼저.
 
-**알고리즘:** Nav2(전역) + ArUco visual servoing(정밀) + open-loop insert/후진. → [`worklog/.../TB3_2_DOCKING_E2E_2026-07-05.md`](../../../worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md) 「알고리즘 요약」
+**알고리즘:** Nav2(전역) + ArUco visual servoing(정밀) + open-loop insert/후진. 현재 값과 절차는 [ArUco 도킹 runbook](../../docs/runbook/RUNBOOK_ARUCO_DOCKING.md)을 따른다.
 
 ### 코드·설정 변경
 
@@ -432,7 +432,7 @@ ROBOT_ID=tb3_2 bash scripts/run_inbound2_b_outbound1_wait2_scenario.sh
 | `scripts/run_inbound2_b_outbound1_wait2_scenario.sh` | 입고2→B→출고1→대기2 E2E |
 | `scripts/run_inbound1_c_wait2_scenario.sh` | inbound1→C→대기2 E2E |
 | `scripts/run_outbound2_a_wait2_scenario.sh` | outbound2→A→대기2 E2E |
-| `worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md` | 7/5 세션 쉬운 정리 |
+| `docs/runbook/RUNBOOK_ARUCO_DOCKING.md` | 현재 도킹 절차와 튜닝 기준 |
 | `scripts/scenarios/e2e_tb3_2_factory_run.sh` | tb3_2 공장 E2E (대기→입고2→C) |
 | `scripts/scenarios/e2e_tb3_2_park_and_run.sh` | 대기장 주차+leave_dock+E2E |
 | `tests/test_docking.py` | 도킹 거리/align 체인 단위 테스트 |

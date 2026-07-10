@@ -68,7 +68,7 @@ ArUco 정밀 도킹과 Nav2 경로 계획은 **Movement 서버 소유**다. LMS�
 
 - **마이그레이션(적용)**: `waypoints`에 `scan_waypoint_id`·`aruco_marker_id`·`dock_mode` 추가. 기존 sidecar는 `dock_pair_promotion.promote_dock_pairs`로 idempotent 승격.
 - **맵&구역 화면**: scan(approach)+dock 페어 배치·링크, **scan 지점에 아루코 id 입력**, **scan↔dock 연결선 + 방향 화살표**로 쌍 시각화. 보관 슬롯 dock에도 동일 적용.
-- **관제 맵**: 경로 폴리라인 오버레이. Movement **경로 콜백 계약** 필요 → `docs/interfaces/movement/REQUIREMENTS.md` 갱신 대상.
+- **관제 맵**: 경로 폴리라인 오버레이. Movement 경로·callback 계약은 [Nav Server contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md)를 따른다.
 - **주차 출차**: `aruco_align(final=hold)` 후 다음 이동 전 scan/approach로 후진 복귀한다. API 계약은 변동 가능 상태로 둔다.
 - **`work_orders._compose_scenario`**: pickup/dropoff를 `scan(Nav2) → dock(aruco)` 로 확장. aruco 스텝은 scan 지점의 `aruco_marker_id`를 params로 전달.
 - **단계적 적용**: 경로는 waypoint 폴리라인으로 먼저, Nav2 콜백 붙으면 실제 경로로 교체.

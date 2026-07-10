@@ -66,8 +66,8 @@ Router: `api/routes.py` include만 · 구현은 `api/routers/`.
 | `move_to_point` | ✅ | ui map_id→**runtime map**; context 이벤트 |
 | `manual_drive` | ✅ | teleop hold |
 | `estop` | ✅ | stop/clear |
-| `dock_transfer` | ⚠️ | marker/action/level(+lift override). dry_run OK; 실실행 404→501, 409→409 · [GATE_DOCKING](../interfaces/movement/GATE_DOCKING.md) |
-| `aruco_align` | ⚠️ | marker/final/tolerance`{xy_m,yaw_deg}` · 동일 501/409 |
+| `dock_transfer` | ⚠️ | dry-run은 지원한다. Movement가 거절하거나 미지원이면 Main이 오류를 표면화한다. |
+| `aruco_align` | ⚠️ | dry-run은 지원한다. Movement가 거절하거나 미지원이면 Main이 오류를 표면화한다. |
 
 `GET /robot-commands/{id}?robot_id=` — Movement 폴링(legacy `/commands/{id}` 폴백). `GET /aruco/latest` — readout. `POST /movement/command-events` → orchestrator. `POST /tasks/{id}/start-mission` → step0 dispatch. `GET /movement/sync-status` — 진단 + `planned_paths[]`.
 
@@ -85,4 +85,4 @@ Router: `api/routes.py` include만 · 구현은 `api/routers/`.
 
 ## 갱신
 
-path/계약 변경 시 이 문서 + [api/README](README.md) + [interfaces/](../interfaces/README.md). Movement: [REQUIREMENTS](../interfaces/movement/REQUIREMENTS.md).
+Main API 변경 시 이 문서 + [api/README](README.md) + [interfaces/](../interfaces/README.md)를 갱신한다. Movement endpoint 변경은 [Nav Server contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md)에서 관리한다.

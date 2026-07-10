@@ -75,13 +75,13 @@
 - `scripts/check_docs.sh`, `work_orders`·`movement`·`teleop`·`task_recovery`, 프론트 프리미티브, hooks, `tools/ros_pose_bridge/`.
 - 용어 병기: [architecture/GLOSSARY](../architecture/GLOSSARY.md).
 
-## 5. 에이전트 효율 강화
+## 5. 개발자 검색성 강화
 
-에이전트(LLM)는 코드를 **실행 없이 이름으로 판단**하고 grep/glob으로 탐색하며 좁은 컨텍스트로 위치를 추측한다. 아래는 그 효율을 높이는 추가 규칙이다.
+개발자는 코드 탐색에서 이름, `grep`, 파일 검색을 사용한다. 아래 규칙은 관련 파일과 심볼을 빠르게 찾고 변경 범위를 좁히는 데 목적이 있다.
 
 ### 5.1 레이어 간 이름 일치 (1순위)
 
-한 도메인은 모든 레이어에서 **같은 어간(stem)** 을 쓴다. 그러면 에이전트가 검색 없이 점프한다.
+한 도메인은 모든 레이어에서 **같은 어간(stem)** 을 쓴다. 그러면 검색 결과가 같은 도메인으로 모여 레이어 간 이동이 쉬워진다.
 
 ```text
 /robot-commands
@@ -130,9 +130,9 @@
 
 ### 5.6 도메인-우선 vs 동사-우선
 
-현재 `verb_scope`(동사 우선)로 통일돼 있다. **일관성이 선택보다 중요** → 바꾸지 않는다. 이름 안정성 = 에이전트 메모리·문서 참조 보호.
+현재 `verb_scope`(동사 우선)로 통일돼 있다. **일관성이 선택보다 중요** → 바꾸지 않는다. 이름 안정성은 검색 결과와 문서 참조를 보호한다.
 
 ## 6. 관련
 
-- 명령 이름 결정: [GATE_DOCKING](../interfaces/movement/GATE_DOCKING.md)
+- Movement 명령 이름·endpoint: [Nav Server contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md)
 - 검증 게이트: `scripts/check_all.sh` (문서만: `scripts/check_docs.sh`)

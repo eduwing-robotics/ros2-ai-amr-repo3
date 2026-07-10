@@ -19,8 +19,6 @@ flowchart LR
   Vis <-->|인식| ROS
 ```
 
-한 장 그림(발표용): [`slides/final-slide-a.png`](../../slides/final-slide-a.png).
-
 ## 요청 흐름
 
 ```mermaid
@@ -70,7 +68,7 @@ flowchart TB
 | --- | --- | --- |
 | 입출고·재고·슬롯 | 관제 | [입출고 흐름](INBOUND_OUTBOUND.md) |
 | 작업 단계 실행 | 관제 | [작업 실행 흐름](TASK_ORCHESTRATION.md) |
-| 주행·도킹·비상정지 선점 | 이동 | [GATE_DOCKING](../interfaces/movement/GATE_DOCKING.md) |
+| 주행·도킹·비상정지 선점 | 이동 | [Nav Server contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md) |
 | 영상·아루코 | 인식 | [interfaces README](../interfaces/README.md) |
 | DB SoT | 관제 | [db/](db/README.md) |
 
@@ -84,7 +82,7 @@ flowchart TB
 | 명령 API | `POST/GET /robot-commands` (`services/robot_commands.py`) |
 | Movement 미구현 | `501 movement_robot_commands_api_missing` |
 
-필드·콜백 스키마 → [GATE_DOCKING](../interfaces/movement/GATE_DOCKING.md).
+Movement 필드·callback 스키마 → [Nav Server contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md).
 
 ## 정본 지도
 

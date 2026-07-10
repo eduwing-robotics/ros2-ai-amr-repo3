@@ -1,6 +1,8 @@
-# SmartFactory MVP DB Design
+# SmartFactory MVP DB Design (external historical reference)
 
-이 패키지는 SmartFactory MVP의 DB 기반 상태머신 설계를 전달하기 위한 최종본이다.
+상태: External / Historical
+
+이 디렉터리는 외부에서 가져온 과거 DB 설계 참고자료다. Main Server의 현재 DB 기준이나 Movement 계약이 아니며, 현재 기준 문서는 `main-server/docs/`와 Nav Server의 `docs/reference/MAIN_SERVER_CONTRACT.md`를 따른다.
 
 ## 포함 파일
 

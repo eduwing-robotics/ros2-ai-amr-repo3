@@ -163,7 +163,7 @@ FE는 goto·status에 `/robot-commands` envelope를 직접 사용한다.
 
 ## Backlog
 
-설계 근거: [UX](UX_FOUNDATION.md)·[IA](IA.md). 완료된 화면 사실은 위 절을 본다.
+설계 근거: [IA](IA.md). 완료된 화면 사실은 위 절을 본다.
 
 | 항목 | 설명 | 상태 |
 | --- | --- | --- |

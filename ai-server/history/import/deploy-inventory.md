@@ -1,12 +1,14 @@
-# Deploy Inventory
+# Deploy Inventory (historical)
+
+This import record describes how the standalone deploy package was assembled. It is not current operator guidance.
 
 | Source | Target | Class | Reason |
 | --- | --- | --- | --- |
-| `services/ai-server/app/` | `app/` | include | Active FastAPI app preserving streaming, frame/overlay, person hazard, and lift/load evidence behavior. |
-| `services/ai-server/tests/` | `tests/` | adapt | No-hardware regression tests; deployment path assertions rehomed to standalone root. |
-| `services/ai-server/requirements*.txt` | `requirements*.txt` | include | Runtime/dev/model dependency inputs. `requirements.lock` stays API/Docker-focused; model deps install through local setup. |
-| `services/ai-server/Dockerfile` | `Dockerfile` | adapt | Rewritten for local `ai-server/` Docker context and `/app/ai-server` PYTHONPATH. |
-| `docker-compose.ai-server.yml` | `docker-compose.yml` | adapt | Rewritten to build local Dockerfile and publish only `8100`. |
+| Prior monorepo AI application directory | `app/` | include | Active FastAPI app preserving streaming, frame/overlay, person hazard, and lift/load evidence behavior. |
+| Prior monorepo AI test directory | `tests/` | adapt | No-hardware regression tests; deployment path assertions rehomed to standalone root. |
+| Prior monorepo AI requirements files | `requirements*.txt` | include | Runtime/dev/model dependency inputs. `requirements.lock` stays API/Docker-focused; model deps install through local setup. |
+| Prior monorepo AI Dockerfile | `Dockerfile` | adapt | Rewritten for the local deploy context and local `PYTHONPATH`. |
+| Prior AI compose file | `docker-compose.yml` | adapt | Rewritten to build the local Dockerfile and publish only `8100`. |
 | `config/vision/**` | `config/vision/**` | adapt | Source registry, profiles, MediaMTX, ZoneROI configs; absolute model paths replaced with `models/` placeholders. |
 | `config/perception/**` | `config/perception/**` | include | ArUco/docking example configs referenced by runtime/compose. |
 | `scripts/ai/**` | `scripts/ai/**` | adapt | Setup/run/test entrypoints now use `ai-server/.venv` and local validator paths. |
@@ -18,4 +20,4 @@
 | `docs/contracts` schemas, fixtures, OpenAPI, API docs | `docs/contracts/` | include/adapt | Active Main-facing contract artifacts and validator inputs. |
 | Historical reports/requests/proposals | excluded | exclude/archive | Not operator-facing and may contain stale SmartFactory-root instructions. |
 | Removed legacy lift-roi endpoint files | excluded | exclude | Legacy API surface is intentionally not shipped. |
-| `.omx/`, caches, venvs, models, media | `.gitignore` | ignore | Runtime/generated/local artifacts. |
+| Workspace metadata, caches, venvs, models, media | `.gitignore` | ignore | Runtime/generated/local artifacts. |
