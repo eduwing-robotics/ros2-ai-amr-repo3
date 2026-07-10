@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 540" width="920" height="540" role="img" aria-label="기록 화면 와이어프레임 — 이벤트·작업·이동 기록 (운영자 읽기·관리자 전체)">
+  <style>
+    text{font-family:'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif;font-size:13px;fill:#1f2933}
+    .t{font-weight:700;font-size:16px}.m{fill:#8a94a6;font-size:12px}.s{font-size:11px}
+    .side{fill:#f5f7fa;stroke:#e1e6ec}.panel{fill:#fff;stroke:#d4d9e0}.field{fill:#fff;stroke:#c7cdd6}
+    .btn{fill:#e8f0fe;stroke:#3b6fd4}.btnt{fill:#1c4fb0;font-weight:600;font-size:12px}
+    .pri{fill:#3b6fd4;stroke:#2c58b8}
+    .tag{fill:#eae6fd;stroke:#b4adee}.tagt{fill:#5b3bd4;font-size:10px;font-weight:700}
+    .otag{fill:#fdecea;stroke:#e3b4ad}.otagt{fill:#c0392b;font-size:10px;font-weight:700}
+    .head{fill:#f0f2f5;stroke:#d4d9e0}.lock{fill:#f5f7fa;stroke:#c7cdd6}
+    .ev-warn{fill:#fdf9ec}.ev-err{fill:#fef0f0}
+    rect{stroke-width:1}
+  </style>
+  <rect x="0.5" y="0.5" width="919" height="539" fill="#fff" stroke="#d4d9e0"/>
+
+  <!-- Header -->
+  <rect x="0" y="0" width="920" height="46" fill="#1f2933"/>
+  <text x="16" y="29" fill="#fff" class="t">LMS Control</text>
+  <rect x="150" y="12" width="58" height="24" rx="12" fill="none" stroke="#5a6473"/>
+  <text x="179" y="29" fill="#c7cdd6" text-anchor="middle" font-size="12">운영</text>
+  <rect x="214" y="12" width="58" height="24" rx="12" fill="#7a4fd4" stroke="#5b3bd4"/>
+  <text x="243" y="29" fill="#fff" text-anchor="middle" font-size="12">관리</text>
+  <text x="700" y="29" fill="#9fb0c9" font-size="12">공유 — 운영자 읽기 · 관리자 전체</text>
+
+  <!-- Admin sidebar -->
+  <rect x="0" y="46" width="150" height="494" class="side"/>
+  <text x="16" y="70" class="m">관리 모드</text>
+  <text x="24" y="94" class="m">맵 &amp; 구역</text>
+  <text x="20" y="120" class="m">슬롯·재고·품목</text>
+  <text x="24" y="146" class="m">동작 정의</text>
+  <text x="24" y="172" class="m">시나리오</text>
+  <text x="24" y="198" class="m">로봇·카메라</text>
+  <text x="24" y="224" class="m">시스템</text>
+  <line x1="16" y1="236" x2="134" y2="236" stroke="#d4d9e0"/>
+  <text x="16" y="254" class="m">공유</text>
+  <rect x="8" y="260" width="134" height="28" rx="6" fill="#eae6fd" stroke="#7a4fd4"/>
+  <text x="75" y="279" fill="#5b3bd4" font-weight="600" font-size="12" text-anchor="middle">기록</text>
+  <!-- 운영 모드 접근 시 설명 -->
+  <rect x="8" y="298" width="134" height="54" rx="4" fill="#f0f2f5" stroke="#d4d9e0"/>
+  <text x="16" y="316" class="m">운영 모드 진입:</text>
+  <text x="20" y="334" class="m">이벤트 ·</text>
+  <text x="20" y="352" class="m">작업기록 2탭만</text>
+
+  <!-- Page title -->
+  <text x="166" y="78" class="t">기록</text>
+  <rect x="208" y="66" width="22" height="16" rx="3" class="otag"/>
+  <text x="219" y="78" text-anchor="middle" class="otagt">O6</text>
+  <rect x="236" y="66" width="22" height="16" rx="3" class="tag"/>
+  <text x="247" y="78" text-anchor="middle" class="tagt">A</text>
+  <text x="276" y="78" class="m">이벤트·작업·이동 명령 이력 — 접근 모드에 따라 탭 범위 제한</text>
+
+  <!-- Tabs -->
+  <!-- Tab 1: 이벤트 타임라인 (active, shared) -->
+  <rect x="166" y="90" width="148" height="28" rx="6" class="pri"/>
+  <text x="240" y="108" fill="#fff" text-anchor="middle" font-size="12" font-weight="600">이벤트 타임라인</text>
+
+  <!-- Tab 2: 작업 기록 (shared) -->
+  <rect x="320" y="90" width="110" height="28" rx="6" class="field"/>
+  <text x="375" y="108" text-anchor="middle" class="m">작업 기록</text>
+
+  <!-- Tab 3: 이동 명령 (admin-only) -->
+  <rect x="436" y="90" width="116" height="28" rx="6" class="lock"/>
+  <text x="486" y="108" text-anchor="middle" class="m">이동 명령</text>
+  <rect x="546" y="94" width="22" height="16" rx="3" class="tag"/>
+  <text x="557" y="106" text-anchor="middle" class="tagt">A</text>
+
+  <!-- Tab 4: 운영자 조작 (admin-only) -->
+  <rect x="574" y="90" width="128" height="28" rx="6" class="lock"/>
+  <text x="632" y="108" text-anchor="middle" class="m">운영자 조작</text>
+  <rect x="696" y="94" width="22" height="16" rx="3" class="tag"/>
+  <text x="707" y="106" text-anchor="middle" class="tagt">A</text>
+
+  <!-- Filter row -->
+  <rect x="166" y="130" width="130" height="28" rx="4" class="field"/>
+  <text x="178" y="148" class="m">시작 날짜</text>
+  <rect x="302" y="130" width="130" height="28" rx="4" class="field"/>
+  <text x="314" y="148" class="m">종료 날짜</text>
+  <rect x="438" y="130" width="104" height="28" rx="4" class="field"/>
+  <text x="450" y="148" class="m">유형 ▾</text>
+  <rect x="548" y="130" width="104" height="28" rx="4" class="field"/>
+  <text x="560" y="148" class="m">로봇 ▾</text>
+  <rect x="658" y="130" width="148" height="28" rx="4" class="field"/>
+  <text x="670" y="148" class="m">검색</text>
+  <rect x="812" y="130" width="62" height="28" rx="5" class="btn"/>
+  <text x="843" y="148" text-anchor="middle" class="btnt">적용</text>
+
+  <!-- Table header -->
+  <rect x="166" y="170" width="738" height="24" class="head"/>
+  <text x="184" y="186" class="m">레벨</text>
+  <text x="218" y="186" class="m">시간</text>
+  <text x="338" y="186" class="m">이벤트 유형</text>
+  <text x="494" y="186" class="m">내용</text>
+  <text x="752" y="186" class="m">로봇</text>
+  <text x="828" y="186" class="m">작업#</text>
+
+  <!-- Row 1: done / green -->
+  <rect x="166" y="194" width="738" height="26" class="field"/>
+  <circle cx="184" cy="207" r="5" fill="#4ca56a"/>
+  <text x="218" y="211" class="s">10:34:52</text>
+  <text x="338" y="211" class="s">mission_done</text>
+  <text x="494" y="211" class="s">task #12 입고 완료 — BOX_A ×2</text>
+  <text x="752" y="211" class="s">tb3_2</text>
+  <text x="828" y="211" class="s">#12</text>
+
+  <!-- Row 2: warning / orange -->
+  <rect x="166" y="220" width="738" height="26" class="ev-warn" stroke="#d4d9e0"/>
+  <circle cx="184" cy="233" r="5" fill="#e0a85b"/>
+  <text x="218" y="237" class="s">10:32:10</text>
+  <text x="338" y="237" class="s">pose_stale</text>
+  <text x="494" y="237" class="s">tb3_1 위치 신호 5초 초과 — 재수신 대기</text>
+  <text x="752" y="237" class="s">tb3_1</text>
+  <text x="828" y="237" class="s">—</text>
+
+  <!-- Row 3: info / blue -->
+  <rect x="166" y="246" width="738" height="26" class="field"/>
+  <circle cx="184" cy="259" r="5" fill="#3b6fd4"/>
+  <text x="218" y="263" class="s">10:31:05</text>
+  <text x="338" y="263" class="s">task_started</text>
+  <text x="494" y="263" class="s">task #12 시작 — 슬롯 A2 배정, tb3_2</text>
+  <text x="752" y="263" class="s">tb3_2</text>
+  <text x="828" y="263" class="s">#12</text>
+
+  <!-- Row 4: info / blue -->
+  <rect x="166" y="272" width="738" height="26" class="field"/>
+  <circle cx="184" cy="285" r="5" fill="#3b6fd4"/>
+  <text x="218" y="289" class="s">10:30:48</text>
+  <text x="338" y="289" class="s">work_order_created</text>
+  <text x="494" y="289" class="s">work_order #8 생성 (입고 BOX_A ×2)</text>
+  <text x="752" y="289" class="s">—</text>
+  <text x="828" y="289" class="s">#8</text>
+
+  <!-- Row 5: error / red -->
+  <rect x="166" y="298" width="738" height="26" class="ev-err" stroke="#d4d9e0"/>
+  <circle cx="184" cy="311" r="5" fill="#c0392b"/>
+  <text x="218" y="315" class="s">10:28:33</text>
+  <text x="338" y="315" class="s">mission_failed</text>
+  <text x="494" y="315" class="s">tb3_1 경로 차단 — 재시도 대기 중</text>
+  <text x="752" y="315" class="s">tb3_1</text>
+  <text x="828" y="315" class="s">#11</text>
+
+  <!-- Row 6: done / green -->
+  <rect x="166" y="324" width="738" height="26" class="field"/>
+  <circle cx="184" cy="337" r="5" fill="#4ca56a"/>
+  <text x="218" y="341" class="s">10:25:14</text>
+  <text x="338" y="341" class="s">mission_done</text>
+  <text x="494" y="341" class="s">task #11 출고 완료 — PAL_B ×1</text>
+  <text x="752" y="341" class="s">tb3_1</text>
+  <text x="828" y="341" class="s">#11</text>
+
+  <!-- Row 7: neutral / gray -->
+  <rect x="166" y="350" width="738" height="26" class="field"/>
+  <circle cx="184" cy="363" r="5" fill="#8a94a6"/>
+  <text x="218" y="367" class="s">10:24:00</text>
+  <text x="338" y="367" class="s">robot_idle</text>
+  <text x="494" y="367" class="s">tb3_1 대기 상태 전환</text>
+  <text x="752" y="367" class="s">tb3_1</text>
+  <text x="828" y="367" class="s">—</text>
+
+  <!-- Row 8: info / blue -->
+  <rect x="166" y="376" width="738" height="26" class="field"/>
+  <circle cx="184" cy="389" r="5" fill="#3b6fd4"/>
+  <text x="218" y="393" class="s">10:20:30</text>
+  <text x="338" y="393" class="s">task_started</text>
+  <text x="494" y="393" class="s">task #11 시작 — 슬롯 B1 배정, tb3_1</text>
+  <text x="752" y="393" class="s">tb3_1</text>
+  <text x="828" y="393" class="s">#11</text>
+
+  <!-- More rows / pagination -->
+  <rect x="166" y="402" width="738" height="52" fill="#f9fafb" stroke="#e1e6ec"/>
+  <text x="535" y="425" text-anchor="middle" class="m">… 총 143건</text>
+  <text x="535" y="447" text-anchor="middle" class="m">← 이전&#160;&#160;&#160;&#160;1 / 18 페이지&#160;&#160;&#160;&#160;다음 →</text>
+
+  <!-- Legend -->
+  <rect x="166" y="488" width="14" height="14" rx="3" class="btn"/>
+  <text x="186" y="500" font-size="12">사용자 조작 (FS)</text>
+  <rect x="380" y="488" width="14" height="14" rx="3" class="panel"/>
+  <text x="400" y="500" font-size="12">시스템 표시 (BS)</text>
+  <rect x="594" y="488" width="22" height="14" rx="3" class="otag"/>
+  <text x="622" y="500" class="m">= 운영자 Job</text>
+  <rect x="746" y="488" width="22" height="14" rx="3" class="tag"/>
+  <text x="774" y="500" class="m">= 관리자 전용 탭</text>
+</svg>

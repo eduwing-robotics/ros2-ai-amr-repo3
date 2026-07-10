@@ -1,0 +1,75 @@
+<mxfile host="app.diagrams.net" modified="2026-07-09T09:40:00.000Z" agent="Cursor" version="22.1.0">
+  <diagram id="db-schema" name="LMS PG 12 tables">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="items" value="items&#10;PK id TEXT&#10;name TEXT" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="180" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="robots" value="robots&#10;PK id TEXT&#10;domain_id INT&#10;status, battery_level, last_seen_at" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="260" y="40" width="220" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="locations" value="locations&#10;PK id TEXT&#10;type, status&#10;x, y, yaw, marker_id&#10;map_id TEXT (soft, no FK)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="520" y="40" width="230" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="inventory" value="inventory&#10;PK (item_id, location_id, floor)&#10;quantity, updated_at&#10;FK→items, locations&#10;CHECK floor IN (1,2)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="790" y="40" width="250" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tasks" value="tasks&#10;PK id BIGSERIAL&#10;task_type, status, priority, quantity&#10;robot_id→robots&#10;item_id→items&#10;from/to_location_id→locations&#10;from_floor, to_floor" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="200" width="260" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="commands" value="commands&#10;PK id BIGSERIAL&#10;UNIQUE(task_type, sequence_no)&#10;command_type, target_system&#10;required_evidence_type&#10;request_template_json, timeout_sec" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="200" width="270" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="evidence_events" value="evidence_events&#10;PK id BIGSERIAL&#10;task_id BIGINT (no FK)&#10;command_id→commands&#10;event_type, source, severity&#10;trusted, data_json, observed_at" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="650" y="200" width="260" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="safety_stops" value="safety_stops&#10;PK id BIGSERIAL&#10;detected_evidence_id→evidence&#10;status OPEN/HOLDING/CLOSED&#10;opened_at, hold_until, closed_at" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="950" y="200" width="260" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="item_change_logs" value="item_change_logs (no FK)&#10;PK id BIGSERIAL&#10;task_id, item_id, location_id, floor&#10;event_type, quantity_* , reason&#10;append-only audit" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="390" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="task_logs" value="task_logs (no FK)&#10;PK id BIGSERIAL&#10;task_id, task_type, result&#10;snapshot_json, finished_at&#10;append-only result log" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;align=left;verticalAlign=top;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="360" y="390" width="280" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="maps" value="maps (infra, no FK)&#10;PK map_id TEXT&#10;name, image_url, resolution&#10;origin_x/y/yaw, width, height&#10;frame_id" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;fontSize=11;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="560" width="280" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="cameras" value="cameras (infra, no FK)&#10;PK source_id TEXT&#10;label, robot_id soft tag&#10;status, stream_url" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;verticalAlign=top;fontSize=11;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="560" width="280" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e1" style="endArrow=ERmany;startArrow=ERone;html=1;fontSize=10;" edge="1" parent="1" source="items" target="inventory">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" style="endArrow=ERmany;startArrow=ERone;html=1;fontSize=10;" edge="1" parent="1" source="locations" target="inventory">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" style="endArrow=ERmany;startArrow=ERone;html=1;fontSize=10;" edge="1" parent="1" source="robots" target="tasks">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" style="endArrow=ERmany;startArrow=ERone;html=1;fontSize=10;" edge="1" parent="1" source="items" target="tasks">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="from/to" style="endArrow=ERmany;startArrow=ERone;html=1;fontSize=10;" edge="1" parent="1" source="locations" target="tasks">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" style="endArrow=ERmany;startArrow=ERone;html=1;fontSize=10;" edge="1" parent="1" source="commands" target="evidence_events">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" style="endArrow=ERmany;startArrow=ERone;html=1;fontSize=10;" edge="1" parent="1" source="evidence_events" target="safety_stops">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="No physical FK: evidence_events.task_id, task_logs, item_change_logs&#10;maps/cameras are infra (no FK to/from business tables)" style="text;html=1;align=left;verticalAlign=top;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="700" y="560" width="420" height="50" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

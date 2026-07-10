@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 540" width="920" height="540" role="img" aria-label="관리자 로봇·카메라 화면 와이어프레임">
+  <style>
+    text{font-family:'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif;font-size:13px;fill:#1f2933}
+    .t{font-weight:700;font-size:16px}.m{fill:#8a94a6;font-size:12px}.s{font-size:11px}.xs{font-size:10px}
+    .side{fill:#f5f7fa;stroke:#e1e6ec}.panel{fill:#fff;stroke:#d4d9e0}.field{fill:#fff;stroke:#c7cdd6}
+    .btn{fill:#e8f0fe;stroke:#3b6fd4}.btnt{fill:#1c4fb0;font-weight:600;font-size:12px}
+    .pri{fill:#3b6fd4;stroke:#2c58b8}.tag{fill:#eae6fd;stroke:#b4adee}.tagt{fill:#5b3bd4;font-size:10px;font-weight:700}
+    .head{fill:#f0f2f5;stroke:#d4d9e0}.ok{fill:#e6f4ea;stroke:#4ca56a}.okt{fill:#2f7d4d;font-size:11px}
+    rect{stroke-width:1}
+  </style>
+  <rect x="0.5" y="0.5" width="919" height="539" fill="#fff" stroke="#d4d9e0"/>
+  <rect x="0" y="0" width="920" height="46" fill="#1f2933"/>
+  <text x="16" y="29" fill="#fff" class="t">LMS Control</text>
+  <rect x="150" y="12" width="58" height="24" rx="12" fill="none" stroke="#5a6473"/><text x="179" y="29" fill="#c7cdd6" text-anchor="middle" font-size="12">운영</text>
+  <rect x="214" y="12" width="58" height="24" rx="12" fill="#7a4fd4" stroke="#5b3bd4"/><text x="243" y="29" fill="#fff" text-anchor="middle" font-size="12">관리</text>
+  <text x="700" y="29" fill="#9fb0c9" font-size="12">관리자 · 설치/유지보수</text>
+  <!-- sidebar -->
+  <rect x="0" y="46" width="150" height="494" class="side"/>
+  <text x="16" y="70" class="m">관리 모드</text>
+  <text x="24" y="99" class="m">맵 &amp; 구역</text>
+  <text x="20" y="129" class="m">슬롯·재고·품목</text>
+  <text x="24" y="160" class="m">동작 정의</text>
+  <text x="24" y="190" class="m">시나리오</text>
+  <rect x="8" y="202" width="134" height="28" rx="6" fill="#eae6fd" stroke="#7a4fd4"/><text x="24" y="221" fill="#5b3bd4" font-weight="600" font-size="12">로봇·카메라</text>
+  <text x="24" y="250" class="m">시스템</text>
+  <!-- title -->
+  <text x="166" y="80" class="t">로봇 · 카메라</text>
+  <rect x="296" y="68" width="22" height="16" rx="3" class="tag"/><text x="307" y="80" text-anchor="middle" class="tagt">A7</text>
+  <text x="334" y="80" class="m">로봇/카메라 등록·점검 · 통신 로그</text>
+  <!-- robots panel -->
+  <rect x="166" y="96" width="370" height="280" rx="6" class="panel"/>
+  <text x="180" y="118" class="t" font-size="14">로봇</text>
+  <rect x="180" y="128" width="342" height="24" class="head"/><text x="190" y="145" class="m">robot_id</text><text x="290" y="145" class="m">이름</text><text x="400" y="145" class="m">상태</text><text x="470" y="145" class="m">배터리</text>
+  <rect x="180" y="152" width="342" height="26" class="field"/><text x="190" y="170">tb3_1</text><text x="290" y="170">로봇1</text><rect x="396" y="156" width="56" height="18" rx="9" class="ok"/><text x="424" y="169" class="okt" text-anchor="middle">IDLE</text><text x="478" y="170">92%</text>
+  <rect x="180" y="178" width="342" height="26" class="field"/><text x="190" y="196">tb3_2</text><text x="290" y="196">로봇2</text><rect x="396" y="182" width="70" height="18" rx="9" fill="#e8f0fe" stroke="#3b6fd4"/><text x="431" y="195" class="btnt" text-anchor="middle">RUNNING</text><text x="478" y="196">80%</text>
+  <text x="180" y="240" class="m">로봇 등록/수정</text>
+  <rect x="180" y="248" width="100" height="30" rx="4" class="field"/><text x="192" y="268" class="m">robot_id</text>
+  <rect x="288" y="248" width="100" height="30" rx="4" class="field"/><text x="300" y="268" class="m">이름</text>
+  <rect x="396" y="248" width="126" height="30" rx="4" class="field"/><text x="408" y="268" class="m">base_url</text>
+  <rect x="180" y="288" width="90" height="32" rx="6" class="pri"/><text x="225" y="309" fill="#fff" text-anchor="middle" font-weight="700" font-size="13">저장</text>
+  <rect x="278" y="288" width="110" height="32" rx="6" class="btn"/><text x="333" y="309" text-anchor="middle" class="btnt">연결 점검</text>
+  <!-- cameras panel -->
+  <rect x="556" y="96" width="348" height="280" rx="6" class="panel"/>
+  <text x="570" y="118" class="t" font-size="14">카메라 소스</text>
+  <rect x="570" y="128" width="320" height="24" class="head"/><text x="580" y="145" class="m">source_id</text><text x="680" y="145" class="m">로봇</text><text x="780" y="145" class="m">상태</text>
+  <rect x="570" y="152" width="320" height="26" class="field"/><text x="580" y="170">cam_1</text><text x="680" y="170">tb3_1</text><rect x="776" y="156" width="56" height="18" rx="9" class="ok"/><text x="804" y="169" class="okt" text-anchor="middle">연결</text>
+  <rect x="570" y="178" width="320" height="26" class="field"/><text x="580" y="196">cam_2</text><text x="680" y="196">tb3_2</text><rect x="776" y="182" width="56" height="18" rx="9" class="ok"/><text x="804" y="195" class="okt" text-anchor="middle">연결</text>
+  <text x="570" y="240" class="m">카메라 등록/수정</text>
+  <rect x="570" y="248" width="100" height="30" rx="4" class="field"/><text x="582" y="268" class="m">source_id</text>
+  <rect x="678" y="248" width="90" height="30" rx="4" class="field"/><text x="690" y="268" class="m">로봇 ▾</text>
+  <rect x="776" y="248" width="114" height="30" rx="4" class="field"/><text x="788" y="268" class="m">stream url</text>
+  <rect x="570" y="288" width="90" height="32" rx="6" class="pri"/><text x="615" y="309" fill="#fff" text-anchor="middle" font-weight="700" font-size="13">저장</text>
+  <!-- comm logs strip -->
+  <rect x="166" y="392" width="738" height="74" rx="6" class="panel"/>
+  <text x="180" y="414" class="t" font-size="14">통신 로그</text>
+  <text x="320" y="414" class="m">최근 외부 요청/응답 · 실패 추적</text>
+  <rect x="180" y="426" width="708" height="26" class="field"/><text x="192" y="444" class="s">12:30:01 · POST /missions · tb3_2 · 200 OK</text>
+  <!-- legend -->
+  <rect x="166" y="486" width="14" height="14" rx="3" class="btn"/><text x="188" y="498" class="s">사용자 조작 (FS)</text>
+  <rect x="360" y="486" width="14" height="14" rx="3" class="panel"/><text x="382" y="498" class="s">시스템 표시 (BS)</text>
+  <rect x="560" y="486" width="22" height="14" rx="3" class="tag"/><text x="588" y="498" class="s">= 대응 Job</text>
+</svg>
