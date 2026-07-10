@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]
+pydantic
+psycopg[binary]>=3.1

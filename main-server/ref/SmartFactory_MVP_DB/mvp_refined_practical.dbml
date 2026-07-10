@@ -1,0 +1,261 @@
+Project SmartFactory_MVP_Refined_Practical {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Refined MVP schema with task_logs restored.
+  Keeps practical names while minimizing columns.
+  Requested naming kept: safety_stops, reservations, from_location_id, to_location_id.
+  All entity references use *_id naming.
+  PICK_UP means ArUco docking + lift up.
+  DROP_OFF means ArUco docking + lift down.
+  task_logs stores completed/failed task result snapshots for audit and reporting.
+  '''
+}
+
+Table locations {
+  id text [pk, note: 'INBOUND_01/STORAGE_A_01/OUTBOUND_01/CHARGE_01']
+  type text [not null, note: 'AREA/WAYPOINT/SLOT/CHARGE']
+  status text [not null, note: 'AVAILABLE/RESERVED/OCCUPIED/BLOCKED/UNKNOWN']
+  parent_id text [ref: > locations.id]
+  approach_id text [ref: > locations.id]
+  x float8
+  y float8
+  yaw float8
+  marker_id integer [note: 'ArUco marker id, nullable']
+
+  indexes {
+    type
+    status
+    parent_id
+    approach_id
+  }
+}
+
+Table robots {
+  id text [pk, note: 'tb3_1/tb3_2']
+  domain_id integer [not null, note: 'ROS_DOMAIN_ID for this robot']
+  status text [not null, note: 'IDLE/RESERVED/MOVING/DOCKING/LIFTING/PAUSED/ERROR/OFFLINE/CHARGING']
+  battery_level float8
+  location_id text [ref: > locations.id]
+  active_task_id bigint
+  last_seen_at timestamptz
+
+  indexes {
+    domain_id
+    status
+    location_id
+    active_task_id
+    last_seen_at
+  }
+}
+
+Table items {
+  id text [pk, note: 'BOLT_M3/MOTOR_A/SENSOR_KIT; display value is merged into id for MVP']
+}
+
+Table inventory {
+  item_id text [not null, ref: > items.id]
+  location_id text [not null, ref: > locations.id]
+  quantity integer [not null, default: 0]
+  updated_at timestamptz
+
+  indexes {
+    (item_id, location_id) [pk]
+    location_id
+  }
+}
+
+Table tasks {
+  id bigint [pk]
+  task_type text [not null, note: 'INBOUND/OUTBOUND/MOVE/RECOVERY/CHARGING']
+  status text [not null, note: 'PENDING/RUNNING/PAUSED/COMPLETED/FAILED/CANCELLED/NEEDS_REVIEW']
+  priority integer [not null, default: 0]
+  robot_id text [ref: > robots.id]
+  item_id text [ref: > items.id]
+  quantity integer [not null, default: 1]
+  from_location_id text [ref: > locations.id]
+  to_location_id text [ref: > locations.id]
+  error_reason text
+  created_at timestamptz
+  started_at timestamptz
+  finished_at timestamptz
+
+  indexes {
+    task_type
+    status
+    robot_id
+    item_id
+    from_location_id
+    to_location_id
+    created_at
+  }
+}
+
+Table reservations {
+  id bigint [pk]
+  type text [not null, note: 'ROBOT/LOCATION/ITEM']
+  status text [not null, note: 'ACTIVE/RELEASED/EXPIRED/CANCELLED']
+  task_id bigint [not null, ref: > tasks.id]
+  robot_id text [ref: > robots.id]
+  location_id text [ref: > locations.id]
+  item_id text [ref: > items.id]
+  expires_at timestamptz
+  released_at timestamptz
+
+  indexes {
+    status
+    task_id
+    robot_id
+    location_id
+    item_id
+    expires_at
+  }
+}
+
+Table commands {
+  id bigint [pk]
+  task_id bigint [ref: > tasks.id]
+  robot_id text [ref: > robots.id]
+  sequence_no integer [not null, default: 1, note: 'command order inside a task']
+  command_type text [not null, note: 'NAV_GOAL/PICK_UP/DROP_OFF/STOP/RESUME/START_CHARGING/STOP_CHARGING']
+  target_system text [not null, note: 'NAV_SERVER/AI_SERVER/ROBOT_BRIDGE']
+  status text [not null, note: 'PENDING/SENT/ACKED/SUCCEEDED/FAILED/TIMEOUT/CANCELLED']
+  location_id text [ref: > locations.id, note: 'goal or work location for API request composition']
+  required_evidence_type text [note: 'NAV_REACHED/ITEM_PICKED/ITEM_PLACED/HUMAN_CLEAR']
+  idempotency_key text [unique, not null]
+  request_json jsonb [note: 'actual API request snapshot after composing from task/location/command fields']
+  response_json jsonb
+  deadline_at timestamptz
+  created_at timestamptz
+  updated_at timestamptz
+
+  indexes {
+    task_id
+    robot_id
+    status
+    location_id
+    required_evidence_type
+    created_at
+    (task_id, sequence_no) [unique]
+  }
+}
+
+Table evidence_events {
+  id bigint [pk]
+  event_type text [not null, note: 'NAV_REACHED/ARUCO_DETECTED/LOAD_DETECTED/ITEM_PICKED/ITEM_PLACED/SLOT_CONFIRMED/HUMAN_DETECTED/HUMAN_CLEAR/ERROR/STATUS']
+  source text [not null, note: 'global_cam_01/tb3_1_picam/nav_server/operator']
+  robot_id text [ref: > robots.id]
+  task_id bigint [ref: > tasks.id]
+  command_id bigint [ref: > commands.id]
+  location_id text [ref: > locations.id]
+  confidence float8
+  severity text [not null, default: 'INFO', note: 'INFO/WARN/ERROR/SAFETY']
+  trusted boolean [not null, default: false]
+  image_uri text
+  data_json jsonb
+  observed_at timestamptz
+
+  indexes {
+    event_type
+    source
+    robot_id
+    task_id
+    command_id
+    location_id
+    trusted
+    observed_at
+  }
+}
+
+Table safety_stops {
+  id bigint [pk]
+  status text [not null, note: 'OPEN/STOP_SENT/STOPPED/CLEAR_PENDING/RESUME_ALLOWED/CLOSED']
+  robot_id text [ref: > robots.id]
+  task_id bigint [ref: > tasks.id]
+  detected_evidence_id bigint [ref: > evidence_events.id]
+  stop_command_id bigint [ref: > commands.id]
+  clear_evidence_id bigint [ref: > evidence_events.id]
+  opened_at timestamptz
+  closed_at timestamptz
+
+  indexes {
+    status
+    robot_id
+    task_id
+    detected_evidence_id
+    opened_at
+  }
+}
+
+Table task_logs {
+  id bigint [pk]
+  task_id bigint [not null, ref: > tasks.id]
+  robot_id text [ref: > robots.id]
+  item_id text [ref: > items.id]
+  task_type text [not null, note: 'task_type copied from tasks']
+  result text [not null, note: 'SUCCESS/FAILURE/CANCELLED/NEEDS_REVIEW']
+  quantity integer
+  from_location_id text [ref: > locations.id]
+  to_location_id text [ref: > locations.id]
+  started_at timestamptz
+  finished_at timestamptz
+  fail_reason text
+  summary text
+  snapshot_json jsonb [note: 'final query/evidence summary snapshot for audit']
+  logged_at timestamptz [not null]
+
+  indexes {
+    task_id
+    robot_id
+    item_id
+    result
+    task_type
+    finished_at
+    logged_at
+  }
+}
+
+Table item_change_logs {
+  id bigint [pk]
+  item_id text [not null, ref: > items.id]
+  location_id text [ref: > locations.id]
+  task_id bigint [ref: > tasks.id]
+  event_type text [not null, note: 'INBOUND/OUTBOUND/MOVE/ADJUST/CORRECTION/RESERVED/RELEASED']
+  quantity_change integer [not null]
+  quantity_before integer
+  quantity_after integer
+  reason text
+  changed_at timestamptz [not null]
+
+  indexes {
+    item_id
+    location_id
+    task_id
+    event_type
+    changed_at
+  }
+}
+
+Ref: robots.active_task_id > tasks.id
+
+TableGroup state {
+  robots
+  locations
+  items
+  inventory
+}
+
+TableGroup work {
+  tasks
+  reservations
+  commands
+}
+
+TableGroup evidence_and_safety {
+  evidence_events
+  safety_stops
+}
+
+TableGroup logs {
+  task_logs
+  item_change_logs
+}

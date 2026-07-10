@@ -1,0 +1,24 @@
+# Local PostgreSQL for PHASE_59 MVP development.
+# Usage: docker compose -f docker-compose.pg.yml up -d
+#        export LMS_POSTGRES_PASSWORD='<required secret>'
+#        export LMS_DATABASE_URL="postgresql://lms:${LMS_POSTGRES_PASSWORD}@localhost:5433/lms_mvp"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_USER: lms
+      POSTGRES_PASSWORD: ${LMS_POSTGRES_PASSWORD:?Set LMS_POSTGRES_PASSWORD in your shell or .env}
+      POSTGRES_DB: lms_mvp
+    volumes:
+      - lms_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lms -d lms_mvp"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  lms_pg_data:

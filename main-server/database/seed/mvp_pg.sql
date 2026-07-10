@@ -1,0 +1,2 @@
+-- DEPRECATED (PHASE_74): init_db() uses bootstrap_pg.sql + commands_pg.sql only.
+-- Test fixtures: backend/tests/fixtures/demo_seed_pg.sql (tests only).

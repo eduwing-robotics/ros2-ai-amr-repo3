@@ -1,0 +1,22 @@
+{
+  "defaults": {
+    "map_id": "map",
+    "api_base": "http://localhost:8088/api/v1",
+    "map_frame": "map",
+    "base_frame": "base_link",
+    "rate_hz": 2.0,
+    "source": "ros_tf"
+  },
+  "robots": [
+    {
+      "robot_id": "robot-01",
+      "base_frame": "robot_01/base_link",
+      "odom_topic": "/robot_01/odom"
+    },
+    {
+      "robot_id": "robot-02",
+      "base_frame": "robot_02/base_link",
+      "odom_topic": "/robot_02/odom"
+    }
+  ]
+}

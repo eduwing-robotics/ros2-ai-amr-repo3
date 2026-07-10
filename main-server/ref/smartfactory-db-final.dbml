@@ -1,0 +1,298 @@
+Project SmartFactory_CurrentState_TaskQueue_RuntimeEvidence_FinalLogs {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Final SmartFactory MVP DB model as of 2026-06-26.
+
+  Principle:
+  - Keep the main diagram close to the current Image #1 shape.
+  - Current-state tables may be updated/deleted after task completion.
+  - task_logs and item_change_logs are append-only and intentionally do not FK back to current-state rows.
+  - commands is a static command definition table keyed by task_type + sequence_no.
+  - Runtime command progress/status is derived from evidence_events while a task is active.
+  - safety_stops is a mutable current-state latch for temporary HOLD/RESUME control.
+  - evidence_events may be deleted after task completion once needed proof is copied into task_logs.
+  - No reservations table in this model: active tasks themselves are the resource claims.
+  '''
+}
+
+/*
+  Stable/current master tables
+*/
+
+Table items {
+  id text [pk]
+  name text [not null]
+}
+
+Table robots {
+  id text [pk]
+  domain_id integer [not null]
+  status text [not null]
+  battery_level float8
+  last_seen_at timestamptz
+}
+
+Table locations {
+  id text [pk]
+  type text [not null]
+  status text [not null]
+  x float8
+  y float8
+  yaw float8
+  marker_id integer
+  map_id text [note: 'soft map ownership; no FK to maps (infra). Present in schema_pg.sql']
+}
+
+Table inventory {
+  item_id text [not null]
+  location_id text [not null]
+  floor integer [not null, default: 1, note: '1 or 2; enforce CHECK floor in (1, 2)']
+  quantity integer [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (item_id, location_id, floor) [pk]
+    location_id
+    (location_id, floor)
+  }
+}
+
+/*
+  Mutable current task queue.
+  Finished tasks are copied/summarized into task_logs, then removable.
+*/
+Table tasks {
+  id bigint [pk, increment]
+  task_type text [not null]
+  status text [not null]
+  priority integer [not null]
+
+  robot_id text
+  item_id text
+  quantity integer [not null]
+  from_location_id text
+  from_floor integer [note: '1 or 2 when the source is a stacked slot']
+  to_location_id text
+  to_floor integer [note: '1 or 2 when the target is a stacked slot']
+
+  error_reason text
+  created_at timestamptz [not null]
+  started_at timestamptz
+  finished_at timestamptz
+
+  indexes {
+    (status, priority, created_at)
+    (robot_id, status)
+    item_id
+    (from_location_id, from_floor, status)
+    (to_location_id, to_floor, status)
+    created_at
+  }
+}
+
+/*
+  Static API command definitions for each task_type.
+  This table does not grow per task execution.
+  Runtime progress is derived from evidence_events for a specific task_id + command_id.
+*/
+Table commands {
+  id bigint [pk, increment]
+
+  task_type text [not null]
+  sequence_no integer [not null]
+
+  command_type text [not null]
+  target_system text [not null]
+  required_evidence_type text [not null]
+
+  request_template_json jsonb
+  timeout_sec integer
+  is_active boolean [not null, default: true]
+
+  indexes {
+    (task_type, sequence_no) [unique]
+    task_type
+    command_type
+    target_system
+    required_evidence_type
+    is_active
+  }
+}
+
+/*
+  Runtime evidence/event buffer.
+  This is the proof source for command progress/status and safety stop creation while a task is active.
+  After task completion, copy the decisive/supporting proof into task_logs.snapshot_json,
+  then these rows can be deleted.
+*/
+Table evidence_events {
+  id bigint [pk, increment]
+
+  task_id bigint
+  command_id bigint
+
+  event_type text [not null]
+  source text [not null]
+
+  confidence float8
+  severity text [not null]
+  trusted boolean [not null]
+
+  image_url text
+  data_json jsonb
+
+  observed_at timestamptz [not null]
+
+  indexes {
+    task_id
+    command_id
+    event_type
+    severity
+    trusted
+    observed_at
+  }
+}
+
+/*
+  Mutable current safety-hold state.
+  It points only to the evidence that caused the hold.
+  Main Server can push a temporary ROS HOLD/zero-velocity gate while preserving the current navigation goal.
+  hold_until is optional: when set, the hold can be auto-closed/resumed after that timestamp if no new critical evidence exists.
+*/
+Table safety_stops {
+  id bigint [pk, increment]
+
+  detected_evidence_id bigint [not null]
+
+  status text [not null, note: 'OPEN/HOLDING/CLOSED']
+  opened_at timestamptz [not null]
+  hold_until timestamptz [note: 'optional timed hold deadline for temporary ROS hold']
+  closed_at timestamptz
+
+  indexes {
+    detected_evidence_id
+    status
+    hold_until
+    opened_at
+  }
+}
+
+/*
+  Append-only inventory-change log.
+  No FK to tasks/inventory/items/locations, because this must survive cleanup.
+  item_id/location_id are audit snapshot values.
+*/
+Table item_change_logs {
+  id bigint [pk, increment]
+
+  task_id bigint
+  item_id text [not null]
+  location_id text
+  floor integer
+
+  event_type text [not null]
+  quantity_change integer [not null]
+  quantity_before integer
+  quantity_after integer
+
+  reason text
+  changed_at timestamptz [not null]
+
+  indexes {
+    task_id
+    item_id
+    location_id
+    floor
+    event_type
+    changed_at
+  }
+}
+
+/*
+  Append-only task result/event log.
+  No FK to tasks, because finished tasks can be removed.
+  The copied fields are intentional audit snapshots, not current-state duplication.
+
+  Recommended snapshot_json shape:
+  {
+    "task": {
+      "robot_id": "tb3_1",
+      "item_id": "BOX_A",
+      "quantity": 1,
+      "from_location_id": "STORAGE_01",
+      "from_floor": 2,
+      "to_location_id": "OUTBOUND_01",
+      "to_floor": 1
+    },
+    "decisive_evidence": {
+      "command_id": 4,
+      "event_type": "ITEM_PLACED",
+      "source": "camera_01",
+      "confidence": 0.94,
+      "severity": "INFO",
+      "trusted": true,
+      "image_url": "...",
+      "observed_at": "...",
+      "data": { "marker_id": 12, "slot": "OUTBOUND_01", "floor": 1 }
+    },
+    "supporting_evidence": [
+      {
+        "command_id": 1,
+        "event_type": "NAV_REACHED",
+        "source": "nav_server",
+        "confidence": null,
+        "severity": "INFO",
+        "trusted": true,
+        "observed_at": "...",
+        "data": { "distance_m": 0.08 }
+      }
+    ]
+  }
+
+  Keep copied evidence compact: no binary images, no full raw payload dumps,
+  only small proof fields needed to explain the final result.
+*/
+Table task_logs {
+  id bigint [pk, increment]
+
+  // Historical identifier only. No FK to tasks.
+  task_id bigint [not null]
+
+  task_type text [not null]
+  result text [not null] // COMPLETED, FAILED, CANCELLED
+  result_evidence_type text // decisive evidence type copied from evidence_events
+
+  started_at timestamptz
+  finished_at timestamptz [not null]
+  error_reason text
+
+  summary text
+  snapshot_json jsonb [note: 'final task snapshot + compact copied evidence rows: command_id, event_type, source, confidence, severity, trusted, image_url, observed_at, small data_json subset']
+  logged_at timestamptz [not null]
+
+  indexes {
+    task_id
+    task_type
+    result
+    result_evidence_type
+    finished_at
+    logged_at
+  }
+}
+
+/*
+  Current-state references only.
+  Log tables intentionally have no physical FK references.
+*/
+
+Ref: inventory.item_id > items.id
+Ref: inventory.location_id > locations.id
+
+Ref: tasks.robot_id > robots.id
+Ref: tasks.item_id > items.id
+Ref: tasks.from_location_id > locations.id
+Ref: tasks.to_location_id > locations.id
+
+Ref: evidence_events.command_id > commands.id
+
+Ref: safety_stops.detected_evidence_id > evidence_events.id
