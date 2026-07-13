@@ -311,6 +311,7 @@ start_source_pair() {
     -p "image_topic:=${image_topic}" \
     -p "image_transport:=compressed" \
     -p "ai_server_url:=${AI_SERVER_URL}" \
+    -p "gateway_hmac_secret:=${VISION_GATEWAY_HMAC_SECRET:-}" \
     -p "frame_process_path:=${VISION_GATEWAY_FRAME_PROCESS_PATH}" \
     -p "request_timeout_sec:=${VISION_GATEWAY_REQUEST_TIMEOUT_SEC}" \
     -p "publish_period_sec:=${VISION_GATEWAY_PERIOD_SEC}" \

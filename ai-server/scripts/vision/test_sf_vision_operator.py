@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import hmac
 import os
 import subprocess
 import sys
@@ -14,6 +16,9 @@ RESTART_SCRIPT = ROOT / "scripts" / "vision" / "restart_vision_runtime.sh"
 SIDECAR_SCRIPT = ROOT / "scripts" / "vision" / "run_webrtc_sidecar_mediamtx.sh"
 PROFILE_DIR = ROOT / "config" / "vision" / "profiles"
 GOPRO_ADAPTER_SCRIPT = ROOT / "scripts" / "vision" / "run_gopro_smart_roi_adapter.py"
+MULTI_SOURCE_BUNDLE_SCRIPT = (
+    ROOT / "scripts" / "vision" / "run_d1_vision_multi_source_gateway_bundle.sh"
+)
 
 
 def run(*args: str) -> subprocess.CompletedProcess[str]:
@@ -68,6 +73,67 @@ def test_gopro_adapter_preserves_previous_events_when_ai_post_fails() -> None:
     assert after_events == before_events
     assert after_selection == "new"
     assert after_updated_at == before_updated_at
+
+
+def test_gopro_adapter_signs_exact_multipart_body_with_gateway_secret(monkeypatch) -> None:
+    spec = importlib.util.spec_from_file_location(
+        "run_gopro_smart_roi_adapter_for_auth_test", GOPRO_ADAPTER_SCRIPT
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    captured = {}
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return b"{}"
+
+    def fake_urlopen(request, *, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(module.urllib.request, "urlopen", fake_urlopen)
+    status, body, error = module._post_multipart(
+        "http://127.0.0.1:8100/api/v1/vision/frame/process",
+        fields={"source": "global_cam_01", "force": "true"},
+        files={"image": ("frame.jpg", b"jpeg-bytes", "image/jpeg")},
+        timeout=1.5,
+        gateway_hmac_secret="gateway-secret",
+    )
+
+    assert (status, body, error) == (200, {}, None)
+    request = captured["request"]
+    timestamp = request.get_header("X-sf-timestamp")
+    nonce = request.get_header("X-sf-nonce")
+    signature = request.get_header("X-sf-gateway-signature")
+    payload = "\n".join(
+        (
+            "POST",
+            "/api/v1/vision/frame/process",
+            timestamp,
+            nonce,
+            hashlib.sha256(request.data).hexdigest(),
+        )
+    ).encode()
+    expected = hmac.new(b"gateway-secret", payload, hashlib.sha256).hexdigest()
+    assert hmac.compare_digest(signature, expected)
+    assert captured["timeout"] == 1.5
+
+
+def test_multi_source_bundle_passes_gateway_secret_to_ros_gateway() -> None:
+    body = MULTI_SOURCE_BUNDLE_SCRIPT.read_text()
+    assert '-p "gateway_hmac_secret:=${VISION_GATEWAY_HMAC_SECRET:-}"' in body
 
 
 def test_gopro_adapter_rejects_malformed_ai_event_lists() -> None:

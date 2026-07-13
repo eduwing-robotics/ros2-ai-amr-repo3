@@ -27,8 +27,10 @@ from typing import Any
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 AI_SERVER_DIR = ROOT_DIR
+PERCEPTION_ROS_DIR = ROOT_DIR / "ros2" / "smartfactory_perception_ros"
 sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(AI_SERVER_DIR))
+sys.path.insert(0, str(PERCEPTION_ROS_DIR))
 
 try:
     import cv2
@@ -51,6 +53,9 @@ from scripts.vision.burned_overlay_compositor import (  # noqa: E402
     render_burned_overlay_bgr,
 )
 from scripts.vision.stream_event_state import successful_events  # noqa: E402
+from smartfactory_perception_ros.vision_frame_gateway_auth import (  # noqa: E402
+    build_gateway_auth_headers,
+)
 
 
 def _opencv_source(value: str) -> int | str:
@@ -432,12 +437,23 @@ def _post_multipart(
     fields: dict[str, str],
     files: dict[str, tuple[str, bytes, str]],
     timeout: float,
+    gateway_hmac_secret: str = "",
 ) -> tuple[int, dict[str, Any] | None, str | None]:
     body, content_type = _multipart_form(fields, files)
+    headers = {"Content-Type": content_type, "Content-Length": str(len(body))}
+    if gateway_hmac_secret:
+        headers.update(
+            build_gateway_auth_headers(
+                secret=gateway_hmac_secret,
+                method="POST",
+                url=url,
+                body=body,
+            )
+        )
     request = urllib.request.Request(
         url,
         data=body,
-        headers={"Content-Type": content_type, "Content-Length": str(len(body))},
+        headers=headers,
         method="POST",
     )
     try:
@@ -625,6 +641,7 @@ def run(args: argparse.Namespace) -> int:
                 fields={"source": args.source, "force": "true", "stale": "false"},
                 files={"image": ("gopro-full.jpg", full_jpeg, "image/jpeg")},
                 timeout=args.timeout,
+                gateway_hmac_secret=args.gateway_hmac_secret,
             )
             processed += 1
             summary = {
@@ -681,6 +698,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--ai-server-url", default=os.environ.get("AI_SERVER_URL", "http://127.0.0.1:8100")
+    )
+    parser.add_argument(
+        "--gateway-hmac-secret",
+        default=os.environ.get("VISION_GATEWAY_HMAC_SECRET", ""),
+        help=argparse.SUPPRESS,
     )
     parser.add_argument("--source", default=os.environ.get("GOPRO_VISION_SOURCE", "global_cam_01"))
     parser.add_argument("--roi-view", default=os.environ.get("GOPRO_ROI_VIEW", "lift_roi"))
