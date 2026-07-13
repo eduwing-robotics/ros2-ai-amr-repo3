@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/scripts/lib/nohardware-process-groups.sh"
 NAV_PY="${ROOT_DIR}/nav-server/.venv/bin/python"
 MAIN_PY="${ROOT_DIR}/main-server/.venv/bin/python"
 AI_PY="${ROOT_DIR}/ai-server/.venv/bin/python"
@@ -13,9 +14,15 @@ for py in "${NAV_PY}" "${MAIN_PY}" "${AI_PY}"; do
     exit 127
   fi
 done
+if ! command -v setsid >/dev/null 2>&1; then
+  echo "[nohardware-tcp] setsid is required for isolated fixture cleanup" >&2
+  exit 127
+fi
 
-echo "[nohardware-tcp] Main Movement helper accepts primary routing only"
-"${MAIN_PY}" -m pytest -q "${ROOT_DIR}/tests/nohardware/test_main_movement_client_contract.py"
+echo "[nohardware-tcp] runner cleanup isolation and Main Movement routing contracts"
+"${MAIN_PY}" -m pytest -q \
+  "${ROOT_DIR}/tests/nohardware/test_nohardware_process_cleanup.py" \
+  "${ROOT_DIR}/tests/nohardware/test_main_movement_client_contract.py"
 
 if [[ ! -f "${ROS_SETUP}" ]]; then
   echo "[nohardware-tcp] missing ROS setup ${ROS_SETUP}" >&2
@@ -80,16 +87,7 @@ PY
 
 cleanup() {
   local status=$?
-  for pid in ${NAV_PID:-} ${AI_PID:-}; do
-    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-      kill "${pid}" 2>/dev/null || true
-    fi
-  done
-  for pid in ${NAV_PID:-} ${AI_PID:-}; do
-    if [[ -n "${pid}" ]]; then
-      wait "${pid}" 2>/dev/null || true
-    fi
-  done
+  nohardware_stop_all_process_groups
   if [[ -n "${LOG_DIR:-}" && -d "${LOG_DIR}" ]]; then
     if [[ ${status} -ne 0 ]]; then
       echo "[nohardware-tcp] logs retained: ${LOG_DIR}" >&2
@@ -128,24 +126,24 @@ if [[ -z "${NOHARDWARE_VISION_GATEWAY_HMAC_SECRET}" ]]; then
 fi
 
 echo "[nohardware-tcp] starting actual Nav runtime on ${NAV_BASE}"
-(
-  cd "${ROOT_DIR}"
-  PYTHONPATH="${ROOT_DIR}/nav-server:${ROOT_DIR}/nav-server/scripts${PYTHONPATH:+:${PYTHONPATH}}" \
+setsid bash -c 'cd "$1"; shift; exec "$@"' nohardware-nav "${ROOT_DIR}" \
+  env PYTHONPATH="${ROOT_DIR}/nav-server:${ROOT_DIR}/nav-server/scripts${PYTHONPATH:+:${PYTHONPATH}}" \
   ROBOT_ID="tb3_burger_01" \
   ROS_DOMAIN_ID="2" \
   ROS_LOCALHOST_ONLY="1" \
   ROBOTS_CONFIG_PATH="${ROOT_DIR}/nav-server/config/robots.nohardware.json" \
   MAIN_SERVER_ROUTES_PATH="${ROOT_DIR}/nav-server/config/main_server_routes.json" \
-  ACTIVE_MAP_YAML="${ROOT_DIR}/nav-server/map/robot1_map.yaml" \
+  ACTIVE_MAP_YAML="${ROOT_DIR}/nav-server/map/robot2_map.yaml" \
   SIMULATION_MODE="1" \
   DRY_RUN_MISSION="1" \
   MAIN_API_BASE="disabled" \
   NAV_MAIN_HMAC_SECRET="${NOHARDWARE_HMAC_SECRET}" \
   MAIN_CALLBACK_TIMEOUT_SEC="0.2" \
   SIMULATED_STEP_DELAY_SEC="0.01" \
-  "${NAV_PY}" -m uvicorn nav_app.app:app --host 127.0.0.1 --port "${NAV_PORT}" --log-level warning
-) >"${LOG_DIR}/nav.log" 2>&1 &
+  "${NAV_PY}" -m uvicorn nav_app.app:app --host 127.0.0.1 --port "${NAV_PORT}" --log-level warning \
+  >"${LOG_DIR}/nav.log" 2>&1 &
 NAV_PID=$!
+nohardware_register_process_group "${NAV_PID}"
 wait_http "${NAV_BASE}/movement-api/v1/health" 20 "${NAV_PY}" >/dev/null
 
 echo "[nohardware-tcp] Main HttpMovementClient -> Nav POST /robot-commands + GET /robot-commands/{id}"
@@ -158,15 +156,15 @@ echo "[nohardware-tcp] Main HttpMovementClient -> Nav POST /robot-commands + GET
 )
 
 echo "[nohardware-tcp] starting AI app.main:app on ${AI_BASE}"
-(
-  cd "${ROOT_DIR}/ai-server"
-  MAIN_HMAC_SECRET="${NOHARDWARE_VISION_HMAC_SECRET}" \
+setsid bash -c 'cd "$1"; shift; exec "$@"' nohardware-ai "${ROOT_DIR}/ai-server" \
+  env MAIN_HMAC_SECRET="${NOHARDWARE_VISION_HMAC_SECRET}" \
   VISION_GATEWAY_HMAC_SECRET="${NOHARDWARE_VISION_GATEWAY_HMAC_SECRET}" \
   NOHARDWARE_AI_PORT="${AI_PORT}" \
   PYTHONPATH="${ROOT_DIR}/ai-server:${ROOT_DIR}${PYTHONPATH:+:${PYTHONPATH}}" \
-  "${AI_PY}" "${ROOT_DIR}/tests/nohardware/serve_ai_person_fixture.py"
-) >"${LOG_DIR}/ai.log" 2>&1 &
+  "${AI_PY}" "${ROOT_DIR}/tests/nohardware/serve_ai_person_fixture.py" \
+  >"${LOG_DIR}/ai.log" 2>&1 &
 AI_PID=$!
+nohardware_register_process_group "${AI_PID}"
 wait_http "${AI_BASE}/api/v1/health" 30 "${AI_PY}" >/dev/null
 
 echo "[nohardware-tcp] signed vision gateway frame ingress accepts configured credential and rejects unsigned ingress"
@@ -212,9 +210,8 @@ while IFS=$'\t' read -r robot_id bridge_robot_id ros_domain_id active_map_yaml; 
   map_base="http://127.0.0.1:${map_port}"
   map_yaml_path="${ROOT_DIR}/nav-server/${active_map_yaml}"
   map_log="${LOG_DIR}/nav-${robot_id}.log"
-  (
-    cd "${ROOT_DIR}"
-    PYTHONPATH="${ROOT_DIR}/nav-server:${ROOT_DIR}/nav-server/scripts${PYTHONPATH:+:${PYTHONPATH}}" \
+  setsid bash -c 'cd "$1"; shift; exec "$@"' nohardware-map "${ROOT_DIR}" \
+    env PYTHONPATH="${ROOT_DIR}/nav-server:${ROOT_DIR}/nav-server/scripts${PYTHONPATH:+:${PYTHONPATH}}" \
     ROBOT_ID="${robot_id}" \
     ROS_DOMAIN_ID="${ros_domain_id}" \
     ROS_LOCALHOST_ONLY="1" \
@@ -227,15 +224,15 @@ while IFS=$'\t' read -r robot_id bridge_robot_id ros_domain_id active_map_yaml; 
     NAV_MAIN_HMAC_SECRET="${NOHARDWARE_HMAC_SECRET}" \
     MAIN_CALLBACK_TIMEOUT_SEC="0.2" \
     SIMULATED_STEP_DELAY_SEC="0.01" \
-    "${NAV_PY}" -m uvicorn nav_app.app:app --host 127.0.0.1 --port "${map_port}" --log-level warning
-  ) >"${map_log}" 2>&1 &
+    "${NAV_PY}" -m uvicorn nav_app.app:app --host 127.0.0.1 --port "${map_port}" --log-level warning \
+    >"${map_log}" 2>&1 &
   map_pid=$!
+  nohardware_register_process_group "${map_pid}"
   wait_http "${map_base}/movement-api/v1/health" 20 "${NAV_PY}" >/dev/null
   "${NAV_PY}" "${ROOT_DIR}/tests/nohardware/check_enabled_robot_maps_tcp.py" \
     --base "${map_base}" --robot-id "${robot_id}" --bridge-robot-id "${bridge_robot_id}" --map-yaml "${map_yaml_path}" \
     --robots-config "${ROOT_DIR}/nav-server/config/robots.nohardware.json"
-  kill "${map_pid}" 2>/dev/null || true
-  wait "${map_pid}" 2>/dev/null || true
+  nohardware_stop_process_group "${map_pid}"
 done < <(
   "${NAV_PY}" - "${ROOT_DIR}/nav-server/config/robots.nohardware.json" <<'PY'
 import json

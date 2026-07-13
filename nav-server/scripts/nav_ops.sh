@@ -19,8 +19,8 @@ Usage:
   scripts/nav_ops.sh quick             # start Nav servers, then show status
 
   scripts/nav_ops.sh bridges           # run domain bridges in this terminal
-  scripts/nav_ops.sh nav2-1            # run robot1 Nav2/RViz with saved initial pose
-  scripts/nav_ops.sh nav2-2            # run robot2 Nav2/RViz with saved initial pose
+  scripts/nav_ops.sh nav2-1            # run robot1 Nav2/RViz with automatic no-motion localization
+  scripts/nav_ops.sh nav2-2            # run robot2 Nav2 with automatic no-motion localization
   scripts/nav_ops.sh detector1         # run robot1 ArUco detector in this terminal
   scripts/nav_ops.sh detector2         # run robot2 ArUco detector in this terminal
   scripts/nav_ops.sh camera1           # run robot1 Pi camera launch in this terminal
@@ -154,14 +154,20 @@ case "$cmd" in
     exec env MARKER_ID="$MARKER_ID" ROBOT_ID=tb3_burger_02 "$SCRIPT_DIR/local_aruco_parking_test.sh"
     ;;
   nav2-1)
-    if [[ "${NAV2_AUTO_INITIAL_POSE:-0}" == "1" ]]; then
-      exec "$SCRIPT_DIR/run_nav2_with_initial_pose.sh" --robot tb3_1 --domain 2 --x "${NAV2_INITIAL_X:-0.066}" --y "${NAV2_INITIAL_Y:-0.402}" --yaw "${NAV2_INITIAL_YAW:--0.02}" --delay "${NAV2_INITIAL_DELAY:-12}" --repeat "${NAV2_INITIAL_REPEAT:-8}"
+    if [[ "${NAV2_MANUAL_INITIAL_POSE:-0}" == "1" ]]; then
+      : "${NAV2_INITIAL_X:?NAV2_INITIAL_X is required for the confirmed field map}"
+      : "${NAV2_INITIAL_Y:?NAV2_INITIAL_Y is required for the confirmed field map}"
+      : "${NAV2_INITIAL_YAW:?NAV2_INITIAL_YAW is required for the confirmed field map}"
+      exec "$SCRIPT_DIR/run_nav2_with_initial_pose.sh" --robot tb3_1 --domain 2 --x "$NAV2_INITIAL_X" --y "$NAV2_INITIAL_Y" --yaw "$NAV2_INITIAL_YAW" --delay "${NAV2_INITIAL_DELAY:-12}" --repeat "${NAV2_INITIAL_REPEAT:-8}"
     fi
     exec "$SCRIPT_DIR/run_nav2_with_initial_pose.sh" --robot tb3_1 --domain 2
     ;;
   nav2-2)
-    if [[ "${NAV2_AUTO_INITIAL_POSE:-0}" == "1" ]]; then
-      exec "$SCRIPT_DIR/run_nav2_with_initial_pose.sh" --robot tb3_2 --domain 5 --x "${NAV2_INITIAL_X:-0.066}" --y "${NAV2_INITIAL_Y:-0.402}" --yaw "${NAV2_INITIAL_YAW:--0.02}" --delay "${NAV2_INITIAL_DELAY:-12}" --repeat "${NAV2_INITIAL_REPEAT:-8}"
+    if [[ "${NAV2_MANUAL_INITIAL_POSE:-0}" == "1" ]]; then
+      : "${NAV2_INITIAL_X:?NAV2_INITIAL_X is required for the confirmed field map}"
+      : "${NAV2_INITIAL_Y:?NAV2_INITIAL_Y is required for the confirmed field map}"
+      : "${NAV2_INITIAL_YAW:?NAV2_INITIAL_YAW is required for the confirmed field map}"
+      exec "$SCRIPT_DIR/run_nav2_with_initial_pose.sh" --robot tb3_2 --domain 5 --x "$NAV2_INITIAL_X" --y "$NAV2_INITIAL_Y" --yaw "$NAV2_INITIAL_YAW" --delay "${NAV2_INITIAL_DELAY:-12}" --repeat "${NAV2_INITIAL_REPEAT:-8}"
     fi
     exec "$SCRIPT_DIR/run_nav2_with_initial_pose.sh" --robot tb3_2 --domain 5
     ;;

@@ -31,9 +31,9 @@ Nav는 configured Main origin과 고정 Movement callback path만 허용하고 r
 
 ## Authoritative field binding
 
-`main-server/backend/config/field-bindings.json`은 location, scan location, map, Nav zone/waypoint, pose, marker ID의 정본이다. Main runtime row와 Nav `zones.json`이 binding과 다르면 command 계획을 거부한다. 현재 commissioned field frame은 `robot1_map`뿐이다. Nav `/map-state`는 YAML·PGM SHA-256, map identity digest, resolution/origin/width/height를 함께 보고한다. Main은 coordinate와 initial-pose dispatch 전에 requested id, Nav asset existence, geometry, YAML/PGM digest와 identity를 Main asset과 모두 exact match로 검증하며 하나라도 다르면 HTTP 409으로 거부한다. UI/legacy map remap은 적용하지 않는다.
+`main-server/backend/config/field-bindings.json`은 location, scan location, map, Nav zone/waypoint, pose, marker ID의 정본이다. Main runtime row와 Nav `zones.json`이 binding과 다르면 command 계획을 거부한다. 현재 confirmed field asset은 `robot2_map`이지만 commissioned field frame은 없다. 기존 `robot1_map` 좌표는 superseded 상태이고 `robot2_map`에서 재검증되지 않았으므로 두 map의 field dispatch를 모두 차단한다. Nav `/map-state`는 YAML·PGM SHA-256, map identity digest, resolution/origin/width/height를 함께 보고한다. Main은 coordinate와 initial-pose dispatch 전에 requested id, Nav asset existence, geometry, YAML/PGM digest와 identity를 Main asset과 모두 exact match로 검증하며 하나라도 다르면 HTTP 409으로 거부한다. UI/legacy map remap은 적용하지 않는다.
 
-`tb3_burger_02`는 production에서 `robot2_map`을 정직하게 보고하며 lift capability는 유지한다. 다만 `field_dispatch.inbound/outbound=false` (`BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS`)이므로 per-map zones, bindings, seed audit 전 field task를 dispatch할 수 없다. `robot2_map` 전용 zones, bindings, seed를 함께 author하고 audit하기 전에는 historical scenario도 `BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS`다.
+`tb3_burger_01`과 `tb3_burger_02`는 production에서 `robot2_map`을 정직하게 보고한다. 로봇1은 domain 2/API 8001, 로봇2는 domain 5/API 8002와 lift ownership을 그대로 유지한다. 둘 다 `field_dispatch.inbound/outbound=false` (`BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS`)이므로 per-map zones, bindings, seed audit 전 field task를 dispatch할 수 없다. 두 로봇이 같은 map ID를 공유하므로 향후 commissioning은 robot-scoped policy를 도입한 뒤 수행하며, map-level `robot2_map` 정책만 true로 바꿔 로봇2 격리를 해제하면 안 된다.
 
 Warehouse scan approach의 authoritative pose는 다음과 같다.
 
@@ -44,7 +44,7 @@ Warehouse scan approach의 authoritative pose는 다음과 같다.
 | `warehouse_c_approach` | `(1.226, -0.025, 3.142)` |
 | `warehouse_d_approach` | `(1.225, -0.377, 3.142)` |
 
-`warehouse_a_approach`와 `warehouse_c_approach`는 `robot1_map` occupancy에서 free이며 `0.18 m` clearance를 만족한다.
+위 좌표와 clearance는 superseded `robot1_map`에만 해당하며 confirmed `robot2_map`의 dispatch 근거로 사용할 수 없다.
 
 ## DB reservation과 orchestration
 

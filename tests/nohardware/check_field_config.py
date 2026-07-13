@@ -102,10 +102,14 @@ def check_field_bindings(zones: dict, locations: dict[str, tuple]) -> None:
     declared, scans, map_dispatch = bindings.get("locations"), bindings.get("scans"), bindings.get("map_dispatch")
     if not isinstance(declared, dict) or not isinstance(scans, dict) or not isinstance(map_dispatch, dict):
         fail("field-bindings.json must contain locations, scans, and map_dispatch objects")
-    expected_robot1_policy = {"inbound": True, "outbound": True, "status": "COMMISSIONED"}
+    expected_robot1_policy = {
+        "inbound": False,
+        "outbound": False,
+        "status": "BLOCKED_SUPERSEDED_MAP_COORDINATES_UNVERIFIED",
+    }
     expected_robot2_policy = {"inbound": False, "outbound": False, "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"}
     if map_dispatch.get("robot1_map") != expected_robot1_policy:
-        fail("robot1_map must remain explicitly commissioned")
+        fail("robot1_map must remain blocked because its coordinates belong to the superseded map")
     if map_dispatch.get("robot2_map") != expected_robot2_policy:
         fail("robot2_map must remain explicitly blocked pending per-map field bindings")
     waypoints = zones["waypoints"]
@@ -177,6 +181,8 @@ def check_robots_routes_maps_bridges() -> tuple[list[dict], dict]:
             fail(f"{robot_id}.active_map_yaml does not exist: {map_rel!r}")
         if robot.get("localization", {}).get("map_metadata_identity") != map_rel:
             fail(f"{robot_id}.localization.map_metadata_identity must equal active_map_yaml")
+        if robot.get("localization", {}).get("map_id") != Path(map_rel).stem:
+            fail(f"{robot_id}.localization.map_id must equal active_map_yaml stem")
         image = yaml_scalar(NAV / map_rel, "image")
         if not image or not (NAV / map_rel).parent.joinpath(image).is_file():
             fail(f"{robot_id} active map image is missing for {map_rel}")

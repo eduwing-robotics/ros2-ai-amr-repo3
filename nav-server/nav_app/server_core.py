@@ -56,7 +56,10 @@ def startup_runtime() -> None:
     runtime.lift_client = LiftClient(runtime.navigator, profile.get("lift") or {})
 
     print(f"Nav Server: 담당 로봇 ID = {ACTIVE_ROBOT_ID}")
-    print(f"Nav Server: ROS_DOMAIN_ID = {domain_id}, namespace = {profile['namespace']}")
+    print(
+        f"Nav Server: ROS_DOMAIN_ID = {domain_id}, "
+        f"robot_domain = {profile['ros_domain_id']}, namespace = {profile['namespace']}"
+    )
     print("Nav Server: Nav2 시스템 연결 대기 중...")
 
     runtime.ros_thread = threading.Thread(target=ros_spin_thread, daemon=True)

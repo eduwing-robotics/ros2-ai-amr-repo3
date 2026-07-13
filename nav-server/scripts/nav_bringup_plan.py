@@ -70,9 +70,15 @@ def build_plan(config_path: Path, host: str, python_bin: str) -> tuple[dict[str,
             continue
         robot_id = str(robot.get("robot_id") or f"robots[{index}]")
         ros_domain_id = _as_int(robot_id, "ros_domain_id", robot.get("ros_domain_id"), errors)
+        nav_local_domain_id = _as_int(
+            robot_id,
+            "nav_local_domain_id",
+            robot.get("nav_local_domain_id", robot.get("ros_domain_id")),
+            errors,
+        )
         api_port = _as_int(robot_id, "api_port", robot.get("api_port"), errors)
         active_map_yaml = _resolve_map_path(robot.get("active_map_yaml"), errors, robot_id)
-        if ros_domain_id is None or api_port is None or active_map_yaml is None:
+        if ros_domain_id is None or nav_local_domain_id is None or api_port is None or active_map_yaml is None:
             continue
         if api_port in ports:
             errors.append(f"api_port duplicate: {api_port} ({ports[api_port]} / {robot_id})")
@@ -86,6 +92,7 @@ def build_plan(config_path: Path, host: str, python_bin: str) -> tuple[dict[str,
             {
                 "robot_id": robot_id,
                 "ros_domain_id": ros_domain_id,
+                "nav_local_domain_id": nav_local_domain_id,
                 "api_port": api_port,
                 "active_map_yaml": active_map_yaml,
             }
@@ -123,7 +130,8 @@ def main() -> int:
     if args.tsv:
         for robot in plan["robots"]:
             print(
-                f"{robot['robot_id']}\t{robot['ros_domain_id']}\t{robot['api_port']}\t{robot['active_map_yaml']}",
+                f"{robot['robot_id']}\t{robot['ros_domain_id']}\t{robot['nav_local_domain_id']}\t"
+                f"{robot['api_port']}\t{robot['active_map_yaml']}",
                 flush=True,
             )
     else:

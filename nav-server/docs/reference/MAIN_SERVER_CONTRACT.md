@@ -12,6 +12,19 @@
 
 ## 1. Topology
 
+책임 경계:
+
+| 구성요소 | 정확한 책임 | 금지 경계 |
+| --- | --- | --- |
+| Main | 작업 순서, DB 상태, 안전 정책, 명령 승인과 복구를 소유 | 센서 evidence만으로 주행을 직접 실행하지 않음 |
+| Nav | localization/Nav2, 주행·도킹·리프트 명령 admission과 실행 상태를 소유 | localization/safety gate 우회 금지 |
+| AI | 이미지 기반 evidence/advisory와 provenance를 제공 | motion 직접 제어 금지 |
+| Robot SBC | 센서·actuator I/O와 하드웨어 watchdog을 소유 | Main 작업 정책 또는 AI 판단을 소유하지 않음 |
+
+실제 하드웨어, simulation, synthetic/HIL 결과는 서로 대체할 수 없다.
+각 실행 결과에는 provenance를 명시하며, 실제 리프트가 검증되지 않은
+경우 상태를 반드시 `PHYSICAL_LIFT_NOT_VERIFIED`로 유지한다.
+
 로봇 1대당 Nav/Movement API 프로세스 1개를 실행한다.
 
 | robot_id | robot_name | Nav API URL | ROS_DOMAIN_ID | bridge_robot_id | robot_fixed_ip |
@@ -469,7 +482,28 @@ GET /movement-api/v1/robots/{robot_name}/pose
 GET /movement-api/v1/robots/{robot_name}/localization
 GET /movement-api/v1/robots/{robot_name}/nav-state
 POST /movement-api/v1/robots/{robot_name}/initial-pose
+POST /movement-api/v1/robots/{robot_name}/localization/global-search
 ```
+
+`global-search`의 HTTP accepted 응답은 검색 시작 승인일 뿐 localization
+완료가 아니다. Main은 `GET .../localization`을 반복 조회하고 서로 다른
+최신 AMCL sample, 최소 안정 시간, covariance, pose/yaw jitter, scan/TF
+freshness가 모두 통과하여 `localized=true`, `state=LOCALIZED`,
+`reason=converged`가 된 뒤에만 실제 mission을 보낸다. 그 외 상태는
+fail-closed다. 기본 전략은 무동작 `observe_only`이며,
+`bounded_linear_wiggle`은 `allow_motion=true`와 profile 안전 제한이 모두
+있을 때만 허용한다.
+
+초기 pose가 없으면 Nav는 전체 map에서 후보를 찾고, 최신 scan 5개 중 3개가
+같은 후보를 지지할 때만 AMCL seed를 적용한다. 방향 정합은 거리 손실이
+profile 허용값 안인 후보끼리만 비교한다.
+
+`global-search`는 HMAC 보호 endpoint다. 기본 `observe_only`는 속도를
+publish하지 않는다. `bounded_linear_wiggle`은 robot profile에서 허용되고
+요청이 `allow_motion=true`일 때만 제한된 전후 이동을 수행한다. 회전 search는
+지원하지 않는다. AMCL covariance, 서로 다른 반복 sample 수, 최소 안정 시간,
+pose/yaw jitter, scan/TF freshness가 모두 통과하기 전에는 실제 이동 명령을
+거부한다.
 
 ### Map / waypoint / inventory / simulation
 
@@ -480,7 +514,7 @@ GET /movement-api/v1/inventory
 GET /movement-api/v1/simulation-state
 ```
 
-현재 운영 기준 map은 `$NAV_SERVER_ROOT/map/robot1_map.yaml`이다. `/movement-api/v1/map-state`의 `active_map_id`, `resolution`, `origin`, `width`, `height`는 Main 관제 map asset과 반드시 같아야 한다.
+현재 운영 기준 map은 `$NAV_SERVER_ROOT/map/robot2_map.yaml`이다. 로봇1은 기존 좌표가 이 맵에서 재검증될 때까지 field dispatch를 차단한다. `/movement-api/v1/map-state`의 `active_map_id`, `resolution`, `origin`, `width`, `height`는 Main 관제 map asset과 반드시 같아야 한다.
 
 `simulation-state`는 Gazebo 없이 API 흐름만 검증할 때 사용한다.
 

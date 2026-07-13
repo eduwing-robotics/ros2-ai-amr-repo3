@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
 ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-0}"
+RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 ROBOTS_CONFIG_PATH="${ROBOTS_CONFIG_PATH:-$ROOT/config/robots.json}"
 VALIDATOR="${VALIDATOR:-$SCRIPT_DIR/validate_robot_domains.py}"
 PLAN_HELPER="${PLAN_HELPER:-$SCRIPT_DIR/nav_bringup_plan.py}"
@@ -43,6 +44,7 @@ Modes:
 Environment:
   ROS_SETUP           ROS setup path. Default: /opt/ros/jazzy/setup.bash
   ROS_LOCALHOST_ONLY  ROS localhost setting. Default: 0
+  RMW_IMPLEMENTATION  Nav PC middleware. Default: rmw_cyclonedds_cpp
   ROBOTS_CONFIG_PATH  robots.json path. Default: config/robots.json
   HOST                Bind host. Default: 0.0.0.0
   PYTHON_BIN          Python executable. Default: .venv/bin/python
@@ -115,9 +117,14 @@ preflight() {
   source "$ROS_SETUP"
   set -u
   export ROS_LOCALHOST_ONLY
+  export RMW_IMPLEMENTATION
 
   if ! command -v ros2 >/dev/null 2>&1; then
     echo "[nav_servers] ros2 command not found after sourcing $ROS_SETUP" >&2
+    exit 1
+  fi
+  if ! ros2 pkg prefix "$RMW_IMPLEMENTATION" >/dev/null 2>&1; then
+    echo "[nav_servers] missing ROS middleware package: $RMW_IMPLEMENTATION" >&2
     exit 1
   fi
 
@@ -130,15 +137,27 @@ preflight() {
 
 start_nav_server() {
   local robot_id="$1"
-  local domain_id="$2"
-  local port="$3"
-  local map_yaml="$4"
+  local hardware_domain_id="$2"
+  local local_domain_id="$3"
+  local port="$4"
+  local map_yaml="$5"
 
-  echo "[nav_servers] starting ${robot_id}: ROS_DOMAIN_ID=${domain_id}, port=${port}, map=${map_yaml}"
+  echo "[nav_servers] starting ${robot_id}: hardware_domain=${hardware_domain_id}, local_domain=${local_domain_id}, port=${port}, map=${map_yaml}"
   (
     cd "$ROOT"
+    export ROS_DOMAIN_ID="$local_domain_id"
+    export NAV_LOCAL_ROS_DOMAIN_ID="$local_domain_id"
+    if [[ "$local_domain_id" != "$hardware_domain_id" ]]; then
+      # shellcheck source=configure_cyclonedds_local_domain.sh
+      source "$SCRIPT_DIR/configure_cyclonedds_local_domain.sh"
+    else
+      # Backward-compatible direct mode for profiles without a local bridge.
+      # shellcheck source=configure_cyclonedds_lan.sh
+      source "$SCRIPT_DIR/configure_cyclonedds_lan.sh"
+    fi
     ROBOT_ID="$robot_id" \
-    ROS_DOMAIN_ID="$domain_id" \
+    ROS_DOMAIN_ID="$local_domain_id" \
+    NAV_LOCAL_ROS_DOMAIN_ID="$local_domain_id" \
     ACTIVE_MAP_YAML="$map_yaml" \
     ROBOTS_CONFIG_PATH="$ROBOTS_CONFIG_PATH" \
     ROS_LOCALHOST_ONLY="$ROS_LOCALHOST_ONLY" \
@@ -201,9 +220,9 @@ if [[ "$mode" == "check" ]]; then
 fi
 
 build_plan --tsv >"$plan_tsv"
-while IFS=$'\t' read -r robot_id domain_id port map_yaml; do
+while IFS=$'\t' read -r robot_id hardware_domain_id local_domain_id port map_yaml; do
   [[ -z "$robot_id" ]] && continue
-  start_nav_server "$robot_id" "$domain_id" "$port" "$map_yaml"
+  start_nav_server "$robot_id" "$hardware_domain_id" "$local_domain_id" "$port" "$map_yaml"
 done <"$plan_tsv"
 
 echo "[nav_servers] up from $ROBOTS_CONFIG_PATH. Ctrl+C to stop."

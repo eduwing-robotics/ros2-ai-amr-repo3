@@ -1,0 +1,62 @@
+name: tb3_1_hardware_nav
+from_domain: 2
+to_domain: 42
+
+topics:
+  scan:
+    type: sensor_msgs/msg/LaserScan
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: best_effort
+      durability: volatile
+  odom:
+    type: nav_msgs/msg/Odometry
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+  tf:
+    type: tf2_msgs/msg/TFMessage
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+  tf_static:
+    type: tf2_msgs/msg/TFMessage
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: transient_local
+  joint_states:
+    type: sensor_msgs/msg/JointState
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+  imu:
+    type: sensor_msgs/msg/Imu
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+  battery_state:
+    type: sensor_msgs/msg/BatteryState
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+  cmd_vel:
+    type: geometry_msgs/msg/TwistStamped
+    reversed: true
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile

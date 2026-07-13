@@ -69,9 +69,9 @@ print(m.get('runtime_map_id',''))
 info "current asset_status=$asset_status runtime_map_id=$runtime_map (target=$TARGET_MAP)"
 
 # --- Movement: 현재 active map ---
-nav_state="$(curl -fsS "http://${NAV_HOST}:8002/movement-api/v1/map-state" 2>/dev/null || true)"
+nav_state="$(curl -fsS "http://${NAV_HOST}:8001/movement-api/v1/map-state" 2>/dev/null || true)"
 if [[ -z "$nav_state" ]]; then
-  warn "cannot reach Movement map-state on :8002 — Nav 적용 후 직접 확인"
+  warn "cannot reach robot1 Movement map-state on :8001 — Nav 적용 후 직접 확인"
 else
   active="$(printf '%s' "$nav_state" | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("active_map_id",""))')"
   yaml_path="$(printf '%s' "$nav_state" | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("map_yaml",""))')"

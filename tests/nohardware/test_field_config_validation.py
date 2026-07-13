@@ -69,6 +69,44 @@ def test_rejects_automatic_fixed_ip_fallback_route(monkeypatch):
         checker.check_robots_routes_maps_bridges()
 
 
+def test_robot1_persistently_uses_confirmed_field_map_and_dispatch_is_blocked():
+    nav = ROOT / "nav-server"
+    main = ROOT / "main-server"
+    production = json.loads((nav / "config/robots.json").read_text(encoding="utf-8"))
+    nohardware = json.loads((nav / "config/robots.nohardware.json").read_text(encoding="utf-8"))
+    routes = json.loads((nav / "config/main_server_routes.json").read_text(encoding="utf-8"))
+    bindings = json.loads((main / "backend/config/field-bindings.json").read_text(encoding="utf-8"))
+
+    blocked = {
+        "inbound": False,
+        "outbound": False,
+        "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS",
+    }
+    for document in (production, nohardware):
+        robot1 = next(robot for robot in document["robots"] if robot["robot_id"] == "tb3_burger_01")
+        robot2 = next(robot for robot in document["robots"] if robot["robot_id"] == "tb3_burger_02")
+        assert robot1["active_map_yaml"] == "map/robot2_map.yaml"
+        assert robot1["localization"]["map_id"] == "robot2_map"
+        assert robot1["localization"]["map_metadata_identity"] == "map/robot2_map.yaml"
+        assert robot1["field_dispatch"] == blocked
+        assert (robot1["ros_domain_id"], robot1["api_port"]) == (2, 8001)
+        assert (robot2["ros_domain_id"], robot2["api_port"]) == (5, 8002)
+        assert robot2["active_map_yaml"] == "map/robot2_map.yaml"
+        assert robot2["field_dispatch"] == blocked
+
+    robot1_route = next(route for route in routes["robots"] if route["robot_id"] == "tb3_burger_01")
+    robot2_route = next(route for route in routes["robots"] if route["robot_id"] == "tb3_burger_02")
+    assert (robot1_route["ros_domain_id"], robot1_route["nav_api_url"].rsplit(":", 1)[-1]) == (2, "8001")
+    assert (robot2_route["ros_domain_id"], robot2_route["nav_api_url"].rsplit(":", 1)[-1]) == (5, "8002")
+    assert bindings["map_dispatch"]["robot2_map"] == blocked
+    assert bindings["map_dispatch"]["robot1_map"]["inbound"] is False
+    assert bindings["map_dispatch"]["robot1_map"]["outbound"] is False
+    assert (nav / "map/robot2_map.yaml").read_text(encoding="utf-8").splitlines()[0] == "image: robot2_map.pgm"
+    assert 'os.getenv("LMS_MOVEMENT_ACTIVE_MAP_ID", "robot2_map")' in (
+        main / "backend/app/core/config.py"
+    ).read_text(encoding="utf-8")
+
+
 def test_root_runner_returns_nonzero_without_field_config_passed_after_validation_failure(tmp_path):
     scripts = tmp_path / "scripts"
     scripts.mkdir()

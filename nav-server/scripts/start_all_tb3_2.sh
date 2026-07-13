@@ -41,9 +41,6 @@ load_local_hardware_env
 SESSION="${SESSION:-tb3_2_stack}"
 DOMAIN="${DOMAIN:-5}"
 MAP="${MAP:-$ROOT/map/robot2_map.yaml}"
-INIT_X="${INIT_X:-0.03}"
-INIT_Y="${INIT_Y:-0.015}"
-INIT_YAW="${INIT_YAW:-0.0}"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
 export DISPLAY="${DISPLAY:-:1}"
 
@@ -192,7 +189,6 @@ cmd_nav2_rviz() {
   local -a nav_command=(
     "$SCRIPT_DIR/run_nav2_with_initial_pose.sh"
     --robot tb3_2 --domain "$DOMAIN" --map "$MAP"
-    --x "$INIT_X" --y "$INIT_Y" --yaw "$INIT_YAW"
     --delay 16 --repeat 10 --startup-retry 90
   )
   if [[ "$WITH_EKF" == "1" ]]; then
@@ -372,9 +368,9 @@ start_stack_tmux() {
     tmux new-session -d -s "$SESSION" -n "detector2" \
       "bash $(printf '%q' "$detector_sh"); echo; printf '%s\\n' '[detector2] 종료'; read"
   fi
-  new_win "nav2-rviz" "$(write_run_script nav2-rviz "$(cmd_nav2_rviz)")"
-  sleep 2
   new_win "nav-servers" "$(write_run_script nav-servers "$(cmd_nav_servers)")"
+  sleep 2
+  new_win "nav2-rviz" "$(write_run_script nav2-rviz "$(cmd_nav2_rviz)")"
   new_win "status" "$(write_run_script status "$(cmd_status)")"
   log "attach: scripts/start_all_tb3_2.sh attach"
 }
@@ -392,9 +388,9 @@ start_windows() {
   else
     open_win "detector2" "$(write_run_script detector2 "$(cmd_detector2)")"
   fi
-  open_win "nav2-rviz" "$(write_run_script nav2-rviz "$(cmd_nav2_rviz)")"
-  sleep 2
   open_win "nav-servers" "$(write_run_script nav-servers "$(cmd_nav_servers)")"
+  sleep 2
+  open_win "nav2-rviz" "$(write_run_script nav2-rviz "$(cmd_nav2_rviz)")"
   open_win "status" "$(write_run_script status "$(cmd_status)")"
 }
 
@@ -439,8 +435,8 @@ start_terminator() {
   else
     add_pane "detector2" "$(cmd_detector2)"
   fi
-  add_pane "nav2-rviz" "$(cmd_nav2_rviz)"
-  add_pane "nav-servers" "sleep 3; $(cmd_nav_servers)"
+  add_pane "nav-servers" "$(cmd_nav_servers)"
+  add_pane "nav2-rviz" "sleep 3; $(cmd_nav2_rviz)"
   add_pane "status" "$(cmd_status)"
 
   local cfg="$tmpd/terminator.config"

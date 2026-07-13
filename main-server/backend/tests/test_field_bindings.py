@@ -63,8 +63,14 @@ class FieldBindingsTest(unittest.TestCase):
         self.assertEqual(ctx.exception.detail["code"], "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS")
         self.assertEqual(ctx.exception.detail["field_dispatch"]["status"], "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS")
 
-    def test_robot1_field_dispatch_is_commissioned(self) -> None:
-        field_bindings.assert_field_dispatch_commissioned("OUTBOUND", "robot1_map")
+    def test_superseded_robot1_map_coordinates_are_blocked(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            field_bindings.assert_field_dispatch_commissioned("OUTBOUND", "robot1_map")
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(
+            ctx.exception.detail["field_dispatch"]["status"],
+            "BLOCKED_SUPERSEDED_MAP_COORDINATES_UNVERIFIED",
+        )
 
 
 if __name__ == "__main__":

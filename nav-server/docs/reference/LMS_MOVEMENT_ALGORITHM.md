@@ -172,7 +172,7 @@ robot1 map 기준 graph/inflation 검증:
 export NAV_SERVER_ROOT="<repo-root>/nav-server"
 cd "$NAV_SERVER_ROOT"
 PYTHONPATH="$NAV_SERVER_ROOT/scripts" scripts/validate_agv_graph.py \
-  --map-yaml map/robot1_map.yaml \
+  --map-yaml map/robot2_map.yaml \
   --graph map/agv_waypoint_graph.yaml \
   --check-path vehicle_2_approach warehouse_c_approach
 ```

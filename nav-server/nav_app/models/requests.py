@@ -61,6 +61,12 @@ class InitialPoseRequest(BaseModel):
     covariance: Optional[Dict[str, float]] = None
 
 
+class GlobalLocalizationRequest(BaseModel):
+    strategy: str = Field(default="observe_only", description="observe_only 또는 bounded_linear_wiggle")
+    allow_motion: bool = Field(default=False, description="bounded motion을 명시적으로 허용할 때만 true")
+    source: Optional[str] = Field(default=None, description="요청 출처 예: main_ui")
+
+
 class ManualRotateRequest(BaseModel):
     robot_name: str
     direction: str = Field(default="left", description="left 또는 right")

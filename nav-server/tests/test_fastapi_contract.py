@@ -11,6 +11,7 @@ ensure_import_paths()
 from nav_app.runtime import runtime  # noqa: E402
 from nav_app.server_core import register_app  # noqa: E402
 from nav_app.security import sign_headers  # noqa: E402
+from nav_app.services import robot_context  # noqa: E402
 
 
 def _mock_startup():
@@ -30,6 +31,12 @@ def _mock_startup():
     runtime.navigator.has_amcl_pose.return_value = False
     runtime.navigator.has_simulated_pose.return_value = False
     runtime.navigator.battery_level = 100.0
+    runtime.navigator.request_global_localization.return_value = {
+        "accepted": True,
+        "strategy": "observe_only",
+        "motion_started": False,
+        "reason": "amcl_global_search_started",
+    }
     runtime.mission_manager = MagicMock()
     runtime.mission_manager.dry_run = True
     runtime.mission_manager.mission_status = "IDLE"
@@ -58,6 +65,7 @@ def _mock_startup():
     runtime.ros_thread = None
     runtime.movement_commands = {}
     runtime.last_arrived_gate_by_robot = {}
+    runtime.localization = None
 
 
 @pytest.fixture
@@ -79,8 +87,10 @@ def test_map_state_is_content_bound(client):
     state = response.json()
     root = Path(__file__).resolve().parents[1]
     assert state["map_yaml_exists"] is True and state["image_exists"] is True
-    assert state["map_yaml_sha256"] == hashlib.sha256((root / "map" / "robot1_map.yaml").read_bytes()).hexdigest()
-    assert state["image_sha256"] == hashlib.sha256((root / "map" / "robot1_map.pgm").read_bytes()).hexdigest()
+    assert state["active_map_id"] == "robot2_map"
+    assert Path(state["map_yaml"]).resolve() == (root / "map" / "robot2_map.yaml").resolve()
+    assert state["map_yaml_sha256"] == hashlib.sha256((root / "map" / "robot2_map.yaml").read_bytes()).hexdigest()
+    assert state["image_sha256"] == hashlib.sha256((root / "map" / "robot2_map.pgm").read_bytes()).hexdigest()
     assert state["map_identity"]
 
 
@@ -128,3 +138,50 @@ def test_explicit_dry_run_bypasses_localization(client):
     body = b'{"command_id":"localization-dry-run","robot_name":"tb3_1","steps":[{"action":"move_to_point","payload":{"x":1,"y":2,"dry_run":true}}]}'
     response = client.post("/movement-api/v1/commands", content=body, headers={"content-type": "application/json", **sign_headers("test-main-nav-secret", "POST", "/movement-api/v1/commands", body)})
     assert response.status_code == 200
+
+
+def test_global_localization_defaults_to_observe_only(client):
+    path = "/movement-api/v1/robots/tb3_1/localization/global-search"
+    body = b'{"strategy":"observe_only","allow_motion":false}'
+    response = client.post(
+        path,
+        content=body,
+        headers={"content-type": "application/json", **sign_headers("test-main-nav-secret", "POST", path, body)},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is True
+    assert payload["search"]["motion_started"] is False
+
+
+def test_automatic_localization_uses_profile_policy_once(client):
+    runtime.localization = None
+    runtime.navigator.request_global_localization.reset_mock()
+    runtime.navigator.localization_observation.return_value = None
+
+    first = robot_context.localization_health()
+    second = robot_context.localization_health()
+
+    assert first["state"] == "GLOBAL_SEARCH"
+    assert second["state"] == "GLOBAL_SEARCH"
+    runtime.navigator.request_global_localization.assert_called_once()
+    request = runtime.navigator.request_global_localization.call_args.args[0]
+    assert request["strategy"] == "observe_only"
+    assert request["allow_motion"] is False
+    assert request["coarse_consecutive_samples"] == 3
+    assert request["fine_consecutive_samples"] == 10
+    assert request["max_global_reinitializations"] == 2
+    assert request["covariance_limits"] == {"x": 0.25, "y": 0.25, "yaw": 0.35}
+
+
+def test_global_localization_motion_requires_explicit_permission(client):
+    path = "/movement-api/v1/robots/tb3_1/localization/global-search"
+    body = b'{"strategy":"bounded_linear_wiggle","allow_motion":false}'
+    response = client.post(
+        path,
+        content=body,
+        headers={"content-type": "application/json", **sign_headers("test-main-nav-secret", "POST", path, body)},
+    )
+
+    assert response.status_code == 400

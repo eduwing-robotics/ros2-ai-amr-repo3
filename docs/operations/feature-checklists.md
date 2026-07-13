@@ -6,6 +6,7 @@
 
 ## 공통
 
+- [ ] 라이브 프로세스를 `ros2-amr-hardware-test` tmux 세션의 이름 있는 window에서 시작하고 `tmux list-windows -t ros2-amr-hardware-test`로 확인한다.
 - [ ] `./scripts/operator-preflight.sh --software`가 성공한다.
 - [ ] 현장 입력 확인 시 `./scripts/operator-preflight.sh --hardware-checklist`가 성공한다.
 - [ ] Main mutation 요청에 역할에 맞는 operator/admin Bearer token을 사용한다.
@@ -16,6 +17,21 @@
 - [ ] 필요한 LiDAR, TF, odom, camera와 network가 live다.
 - [ ] callback base/allowlist와 Main database/service URL이 설정돼 있다.
 - [ ] field binding audit과 warehouse approach map clearance가 통과한다.
+- [ ] 결과마다 `physical`, `simulation`, `synthetic/HIL` provenance를 기록하고 서로의 성공 근거로 대체하지 않는다.
+- [ ] 실제 리프트 검증 evidence가 없으면 `PHYSICAL_LIFT_NOT_VERIFIED`를 그대로 기록한다.
+
+## 주행 준비
+
+- [ ] Nav2 시작 전 bounded readiness window 안에 `/scan`과 `odom -> base_footprint` TF가 모두 준비된다.
+- [ ] 시작 후 `/lifecycle_manager_navigation/is_active`만 foreground에서 감시하고 `manage_nodes` activation/retry를 호출하지 않는다.
+- [ ] localization admission과 Nav2 readiness가 통과한다.
+- [ ] 시작 pose가 불확실하면 고정 seed 대신 signed global-search의 `observe_only`를 먼저 사용한다.
+- [ ] `observe_only`가 bounded timeout 동안 `/request_nomotion_update`를 반복하고 `/cmd_vel`을 publish하지 않아 commanded motion이 0임을 확인한다.
+- [ ] global-search accepted 응답을 localization 성공으로 해석하지 않고 `GET .../localization`을 반복 조회한다.
+- [ ] RViz에서 외곽 벽과 고정 구조물이 겹치고, 전역 후보가 최신 scan 3/5회 확인된 뒤 적용되는지 확인한다.
+- [ ] observe-only 미수렴은 fail-closed로 유지하고, 전방·후방 여유가 모두 profile 최소값을 통과할 때만 `allow_motion=true`인 새 요청으로 `bounded_linear_wiggle`을 명시적으로 허용한다.
+- [ ] wiggle 중 stale scan, 방향별 clearance 손실, E-stop이면 즉시 중지되는지 확인한다.
+- [ ] 서로 다른 최신 AMCL sample, 최소 안정 시간, covariance, pose/yaw jitter, scan/TF freshness가 모두 통과하고 `localized=true`, `state=LOCALIZED`, `reason=converged`가 되기 전에는 mission을 보내지 않는다.
 
 ## INBOUND
 
@@ -39,7 +55,6 @@
 ## CHARGE
 
 - [ ] 로봇이 `navigate,charge` capability를 보고한다.
-- [ ] localization admission과 Nav2 readiness가 통과한다.
 - [ ] charge approach/ArUco 입력이 필요한 경우 live다.
 - [ ] Nav command 상태가 terminal success다.
 
@@ -62,3 +77,6 @@
 | nohardware | `./scripts/operator-preflight.sh --nohardware` | root E2E PASS: field binding, signed Main↔Nav/Main↔AI TCP, PostgreSQL concurrency seam |
 | Gazebo | [Gazebo simulation runbook](../../nav-server/docs/runbook/RUNBOOK_GAZEBO_SIMULATION.md) | `NavigateToPose SUCCEEDED`, final error `0.251999 m` ≤ `0.30 m` |
 | 현장 | `./scripts/operator-preflight.sh --hardware-checklist` 후 공통·기능 checklist | 필요한 hardware/network live와 physical health 조건 충족 |
+
+종료 시 각 tmux window의 프로세스를 `Ctrl+C`로 중지하고 evidence/log 수집
+후에만 `ros2-amr-hardware-test` 세션을 종료한다.

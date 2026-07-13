@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence
 
 ROBOT_REQUIRED_FIELDS: Sequence[str] = (
@@ -53,8 +55,17 @@ def _validate_number(robot_id: str, lift: Mapping[str, Any], field: str, errors:
     except (TypeError, ValueError):
         errors.append(f"{robot_id}: {field} must be numeric")
         return
-    if value < minimum:
+    if not math.isfinite(value) or value < minimum:
         errors.append(f"{robot_id}: {field} must be >= {minimum}")
+
+
+def _integer(value: Any) -> int:
+    if isinstance(value, bool):
+        raise ValueError("boolean is not an integer setting")
+    number = float(value)
+    if not math.isfinite(number) or not number.is_integer():
+        raise ValueError("non-integral setting")
+    return int(number)
 
 
 def validate_lift_config(robot_id: str, lift: Any) -> List[str]:
@@ -110,13 +121,187 @@ def validate_localization_config(robot_id: str, localization: Any) -> List[str]:
     for field in ("map_id", "map_metadata_identity", "base_frame", "scan_topic"):
         if not str(localization.get(field, "")).strip():
             errors.append(f"{robot_id}: localization.{field} is required")
-    for field in ("max_scan_age_sec", "max_tf_age_sec", "max_covariance_x", "max_covariance_y", "max_covariance_yaw", "convergence_timeout_sec", "persisted_seed_max_age_sec", "kidnapped_jump_distance_m"):
+    for field in ("max_scan_age_sec", "max_tf_age_sec", "max_covariance_x", "max_covariance_y", "max_covariance_yaw", "convergence_timeout_sec", "persisted_seed_max_age_sec", "kidnapped_jump_distance_m", "stable_min_duration_sec", "max_pose_jitter_m", "max_yaw_jitter_rad"):
         _validate_number(robot_id, localization, field, errors, minimum=0.0)
     try:
-        if int(localization.get("consecutive_samples", 0)) < 1:
+        if _integer(localization.get("consecutive_samples", 0)) < 1:
             errors.append(f"{robot_id}: localization.consecutive_samples must be >= 1")
     except (TypeError, ValueError):
         errors.append(f"{robot_id}: localization.consecutive_samples must be an integer")
+    search = localization.get("global_search", {})
+    if not isinstance(search, Mapping):
+        errors.append(f"{robot_id}: localization.global_search must be an object")
+        return errors
+    allowed = search.get("allowed_strategies", ["observe_only", "bounded_linear_wiggle"])
+    allowed_is_valid = isinstance(allowed, list) and bool(allowed)
+    if not allowed_is_valid:
+        errors.append(f"{robot_id}: localization.global_search.allowed_strategies must be a non-empty list")
+    else:
+        unsupported = sorted(set(map(str, allowed)) - {"observe_only", "bounded_linear_wiggle"})
+        if unsupported:
+            errors.append(f"{robot_id}: localization.global_search unsupported strategies: {', '.join(unsupported)}")
+        if "observe_only" not in allowed:
+            errors.append(f"{robot_id}: localization.global_search must allow observe_only")
+    default_strategy = search.get("default_strategy", "observe_only")
+    if default_strategy != "observe_only":
+        errors.append(f"{robot_id}: localization.global_search.default_strategy must be observe_only")
+    if allowed_is_valid and default_strategy not in allowed:
+        errors.append(f"{robot_id}: localization.global_search.default_strategy must be allowed")
+    if search.get("motion_requires_explicit_request", True) is not True:
+        errors.append(f"{robot_id}: localization.global_search.motion_requires_explicit_request must be true")
+    adaptive = {
+        "coarse_nomotion_interval_sec": 0.75,
+        "fine_nomotion_interval_sec": 1.0,
+        "nomotion_update_timeout_sec": 120.0,
+        "coarse_stable_min_duration_sec": 1.5,
+        "fine_stable_min_duration_sec": 3.0,
+        "coarse_max_pose_jitter_m": 0.15,
+        "coarse_max_yaw_jitter_rad": 0.35,
+        "fine_max_pose_jitter_m": 0.08,
+        "fine_max_yaw_jitter_rad": 0.15,
+        "fine_fallback_max_pose_jitter_m": 0.12,
+        "fine_fallback_max_yaw_jitter_rad": 0.25,
+        "coarse_consecutive_samples": 3,
+        "fine_consecutive_samples": 10,
+        "fine_fallback_breaches": 3,
+        "max_global_reinitializations": 2,
+        "coarse_covariance_limits": {"x": 0.50, "y": 0.50, "yaw": 1.0},
+        "fine_fallback_covariance_limits": {"x": 0.40, "y": 0.40, "yaw": 0.70},
+        **search,
+    }
+    limits = {
+        "linear_speed_mps": (0.001, 0.05),
+        "max_step_m": (0.001, 0.05),
+        "max_total_m": (0.001, 0.20),
+        "min_front_clearance_m": (0.60, 10.0),
+        "min_rear_clearance_m": (0.60, 10.0),
+        "max_scan_age_sec": (0.05, 1.0),
+        "max_tf_age_sec": (0.05, 1.0),
+    }
+    for field, (minimum, maximum) in limits.items():
+        try:
+            value = float(search.get(field, minimum))
+            if not minimum <= value <= maximum:
+                errors.append(
+                    f"{robot_id}: localization.global_search.{field} must be between {minimum} and {maximum}"
+                )
+        except (TypeError, ValueError):
+            errors.append(f"{robot_id}: localization.global_search.{field} must be numeric")
+    adaptive_limits = {
+        "coarse_nomotion_interval_sec": (0.01, 2.0),
+        "fine_nomotion_interval_sec": (0.01, 2.0),
+        "nomotion_update_timeout_sec": (1.0, 180.0),
+        "coarse_stable_min_duration_sec": (0.0, 180.0),
+        "fine_stable_min_duration_sec": (0.0, 180.0),
+        "coarse_max_pose_jitter_m": (0.001, 1.0),
+        "coarse_max_yaw_jitter_rad": (0.001, 3.2),
+        "fine_max_pose_jitter_m": (0.001, 1.0),
+        "fine_max_yaw_jitter_rad": (0.001, 3.2),
+        "fine_fallback_max_pose_jitter_m": (0.001, 1.0),
+        "fine_fallback_max_yaw_jitter_rad": (0.001, 3.2),
+    }
+    for field, (minimum, maximum) in adaptive_limits.items():
+        try:
+            value = float(adaptive.get(field))
+            if not minimum <= value <= maximum:
+                errors.append(
+                    f"{robot_id}: localization.global_search.{field} must be between {minimum} and {maximum}"
+                )
+        except (TypeError, ValueError):
+            errors.append(f"{robot_id}: localization.global_search.{field} must be numeric")
+    for field, minimum, maximum in (
+        ("coarse_consecutive_samples", 3, 100),
+        ("fine_consecutive_samples", 3, 100),
+        ("fine_fallback_breaches", 1, 10),
+        ("max_global_reinitializations", 1, 2),
+    ):
+        try:
+            value = _integer(adaptive.get(field))
+            if value < minimum or value > maximum:
+                errors.append(
+                    f"{robot_id}: localization.global_search.{field} must be between {minimum} and {maximum}"
+                )
+        except (TypeError, ValueError):
+            errors.append(f"{robot_id}: localization.global_search.{field} must be an integer")
+    coarse_covariance = adaptive.get("coarse_covariance_limits")
+    fallback_covariance = adaptive.get("fine_fallback_covariance_limits")
+    if not isinstance(coarse_covariance, Mapping) or not isinstance(fallback_covariance, Mapping):
+        errors.append(f"{robot_id}: localization.global_search covariance limits must be objects")
+    else:
+        for axis in ("x", "y", "yaw"):
+            try:
+                fine = float(localization[f"max_covariance_{axis}"])
+                fallback = float(fallback_covariance[axis])
+                coarse = float(coarse_covariance[axis])
+                if not 0 < fine <= fallback <= coarse:
+                    errors.append(
+                        f"{robot_id}: localization.global_search covariance {axis} must satisfy fine <= fallback <= coarse"
+                    )
+            except (KeyError, TypeError, ValueError):
+                errors.append(f"{robot_id}: localization.global_search covariance {axis} must be numeric")
+    try:
+        if not (
+            float(adaptive["fine_max_pose_jitter_m"])
+            <= float(adaptive["fine_fallback_max_pose_jitter_m"])
+            <= float(adaptive["coarse_max_pose_jitter_m"])
+        ):
+            errors.append(f"{robot_id}: localization.global_search pose jitter must satisfy fine <= fallback <= coarse")
+        if not (
+            float(adaptive["fine_max_yaw_jitter_rad"])
+            <= float(adaptive["fine_fallback_max_yaw_jitter_rad"])
+            <= float(adaptive["coarse_max_yaw_jitter_rad"])
+        ):
+            errors.append(f"{robot_id}: localization.global_search yaw jitter must satisfy fine <= fallback <= coarse")
+    except (KeyError, TypeError, ValueError):
+        errors.append(f"{robot_id}: localization.global_search jitter thresholds must be numeric")
+    alignment = localization.get("scan_map_alignment", {})
+    if not isinstance(alignment, Mapping):
+        errors.append(f"{robot_id}: localization.scan_map_alignment must be an object")
+    else:
+        allowed_values = {
+            "point_selector": {"all_points", "wall_segments"},
+            "map_feature_field": {"occupied_surface", "wall_centerline"},
+            "loss_backend": {"truncated_mean", "trimmed_huber", "hybrid_trimmed_huber"},
+            "global_point_selector": {"all_points", "wall_segments"},
+            "global_map_feature_field": {"occupied_surface", "wall_centerline"},
+            "global_loss_backend": {"truncated_mean", "trimmed_huber", "hybrid_trimmed_huber"},
+        }
+        defaults = {
+            "point_selector": "all_points",
+            "map_feature_field": "occupied_surface",
+            "loss_backend": "truncated_mean",
+            "global_point_selector": "all_points",
+            "global_map_feature_field": "occupied_surface",
+            "global_loss_backend": "trimmed_huber",
+        }
+        for field, allowed_values_for_field in allowed_values.items():
+            value = str(alignment.get(field, defaults[field]))
+            if value not in allowed_values_for_field:
+                errors.append(f"{robot_id}: localization.scan_map_alignment.{field} is unsupported: {value}")
+        for field, minimum, maximum in (
+            ("loss_trim_fraction", 0.0, 0.49),
+            ("loss_area_weight", 0.0, 1.0),
+            ("outside_map_penalty_m", 0.0, 10.0),
+            ("continuous_check_interval_sec", 0.0, 60.0),
+            ("segment_mismatch_weight", 0.0, 10.0),
+            ("segment_mismatch_quantile", 0.5, 1.0),
+            ("segment_mismatch_tolerance_m", 0.0, 1.0),
+            ("max_segment_mismatch_m", 0.0, 1.0),
+            ("wall_direction_weight_m_per_rad", 0.0, 1.0),
+            ("wall_direction_max_distance_m", 0.001, 1.0),
+            ("wall_direction_distance_slack_m", 0.0, 0.01),
+            ("max_wall_direction_error_rad", 0.001, 1.5708),
+        ):
+            if field not in alignment:
+                continue
+            try:
+                value = float(alignment[field])
+                if not minimum <= value <= maximum:
+                    errors.append(
+                        f"{robot_id}: localization.scan_map_alignment.{field} must be between {minimum} and {maximum}"
+                    )
+            except (TypeError, ValueError):
+                errors.append(f"{robot_id}: localization.scan_map_alignment.{field} must be numeric")
     return errors
 
 def validate_robot_profile(robot: Mapping[str, Any]) -> List[str]:
@@ -131,6 +316,15 @@ def validate_robot_profile(robot: Mapping[str, Any]) -> List[str]:
             int(ros_domain_id)
         except (TypeError, ValueError):
             errors.append(f"{robot_id}: ros_domain_id must be an integer")
+    nav_local_domain_id = robot.get("nav_local_domain_id")
+    if nav_local_domain_id is not None:
+        try:
+            local_domain = int(nav_local_domain_id)
+        except (TypeError, ValueError):
+            errors.append(f"{robot_id}: nav_local_domain_id must be an integer")
+        else:
+            if ros_domain_id is not None and local_domain == int(ros_domain_id):
+                errors.append(f"{robot_id}: nav_local_domain_id must differ from ros_domain_id")
     bridge_robot_id = robot.get("bridge_robot_id")
     if bridge_robot_id in (None, ""):
         errors.append(f"{robot_id}: missing bridge_robot_id")
@@ -174,6 +368,13 @@ def validate_robot_profile(robot: Mapping[str, Any]) -> List[str]:
                     errors.append(f"{robot_id}: field_dispatch.{mission} must be boolean")
             if not str(field_dispatch.get("status", "")).strip():
                 errors.append(f"{robot_id}: field_dispatch.status is required")
+    localization = robot.get("localization")
+    active_map_yaml = robot.get("active_map_yaml")
+    if isinstance(localization, Mapping) and isinstance(active_map_yaml, str):
+        if localization.get("map_metadata_identity") != active_map_yaml:
+            errors.append(f"{robot_id}: localization.map_metadata_identity must equal active_map_yaml")
+        if localization.get("map_id") != Path(active_map_yaml).stem:
+            errors.append(f"{robot_id}: localization.map_id must equal active_map_yaml stem")
     errors.extend(validate_lift_config(robot_id, robot.get("lift")))
     errors.extend(validate_localization_config(robot_id, robot.get("localization")))
     return errors

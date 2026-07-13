@@ -1,5 +1,6 @@
 from nav_app.models.requests import (
     InitialPoseRequest,
+    GlobalLocalizationRequest,
     ManualRotateRequest,
     ManualStartRequest,
     ManualStopRequest,
@@ -18,6 +19,7 @@ from nav_app.models.requests import (
 
 __all__ = [
     "InitialPoseRequest",
+    "GlobalLocalizationRequest",
     "ManualRotateRequest",
     "ManualStartRequest",
     "ManualStopRequest",

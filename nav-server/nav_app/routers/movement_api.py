@@ -10,6 +10,7 @@ from nav_app.config import (
     current_ros_domain_id,
 )
 from nav_app.models import (
+    GlobalLocalizationRequest,
     InitialPoseRequest,
     ManualRotateRequest,
     ManualStartRequest,
@@ -213,6 +214,27 @@ def movement_robot_localization(robot_name: str):
         raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
     robot_context.assert_active_bridge_robot(robot_name, "localization 조회")
     return robot_context.localization_payload(robot_name)
+
+
+@router.post("/movement-api/v1/robots/{robot_name}/localization/global-search", dependencies=[Depends(require_main_signature)])
+def movement_robot_global_localization(robot_name: str, req: GlobalLocalizationRequest):
+    """Start fail-closed map-wide AMCL search; motion is explicit and profile-bounded."""
+    if not runtime.navigator:
+        raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
+    robot_context.assert_active_bridge_robot(robot_name, "global localization 요청")
+    try:
+        result = robot_context.start_global_localization(req.strategy, req.allow_motion)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "accepted": bool(result["search"].get("accepted")),
+        "robot_name": robot_name,
+        "robot_id": ACTIVE_ROBOT_ID,
+        "ros_domain_id": current_ros_domain_id(),
+        "source": req.source,
+        **result,
+        "reported_at": _utc_now(),
+    }
 
 
 @router.post("/movement-api/v1/robots/{robot_name}/initial-pose", dependencies=[Depends(require_main_signature)])

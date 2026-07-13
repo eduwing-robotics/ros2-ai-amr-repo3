@@ -2,9 +2,9 @@
   "version": 1,
   "map_dispatch": {
     "robot1_map": {
-      "inbound": true,
-      "outbound": true,
-      "status": "COMMISSIONED"
+      "inbound": false,
+      "outbound": false,
+      "status": "BLOCKED_SUPERSEDED_MAP_COORDINATES_UNVERIFIED"
     },
     "robot2_map": {
       "inbound": false,

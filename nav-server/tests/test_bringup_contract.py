@@ -89,10 +89,25 @@ def test_print_plan_uses_enabled_robots_from_config_without_hardcoded_ports(tmp_
     plan = json.loads(result.stdout)
     assert [item["robot_id"] for item in plan["robots"]] == ["tb3_burger_10", "tb3_burger_11"]
     assert [item["ros_domain_id"] for item in plan["robots"]] == [10, 11]
+    assert [item["nav_local_domain_id"] for item in plan["robots"]] == [10, 11]
     assert [item["api_port"] for item in plan["robots"]] == [8100, 8110]
     assert all(Path(item["active_map_yaml"]).is_file() for item in plan["robots"])
     assert plan["python_bin"] == sys.executable
     assert plan["host"] == "127.0.0.1"
+
+
+def test_repository_plan_preserves_robot_ownership_on_confirmed_map():
+    result = _run(["--print-plan"])
+
+    assert result.returncode == 0, result.stderr
+    plan = {robot["robot_id"]: robot for robot in json.loads(result.stdout)["robots"]}
+    robot1 = plan["tb3_burger_01"]
+    robot2 = plan["tb3_burger_02"]
+    assert (robot1["ros_domain_id"], robot1["nav_local_domain_id"], robot1["api_port"]) == (2, 42, 8001)
+    assert (robot2["ros_domain_id"], robot2["nav_local_domain_id"], robot2["api_port"]) == (5, 5, 8002)
+    expected_map = (ROOT / "map" / "robot2_map.yaml").resolve()
+    assert Path(robot1["active_map_yaml"]).resolve() == expected_map
+    assert Path(robot2["active_map_yaml"]).resolve() == expected_map
 
 
 def test_print_plan_fails_fast_on_duplicate_ports(tmp_path: Path):
@@ -135,3 +150,27 @@ def test_shell_script_has_no_legacy_hardcoded_topology_or_pythonpath_injection()
     assert "PYTHONPATH" not in script
     assert 'start_nav_server "tb3_burger_01"' not in script
     assert 'start_nav_server "tb3_burger_02"' not in script
+    assert 'RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"' in script
+    assert 'source "$SCRIPT_DIR/configure_cyclonedds_lan.sh"' in script
+    assert 'source "$SCRIPT_DIR/configure_cyclonedds_local_domain.sh"' in script
+
+
+def test_nav2_helper_defaults_to_confirmed_map_and_auto_pose_has_no_stale_defaults():
+    helper = (ROOT / "scripts" / "run_nav2_with_initial_pose.sh").read_text(encoding="utf-8")
+    nav_ops = (ROOT / "scripts" / "nav_ops.sh").read_text(encoding="utf-8")
+
+    assert 'MAP_YAML="${MAP_YAML:-$ROOT/map/robot2_map.yaml}"' in helper
+    assert "map/robot1_map.yaml" not in helper
+    assert "NAV2_INITIAL_X:-0.066" not in nav_ops
+    assert "NAV2_INITIAL_Y:-0.402" not in nav_ops
+    assert "NAV2_INITIAL_YAW:--0.02" not in nav_ops
+    for variable in ("NAV2_INITIAL_X", "NAV2_INITIAL_Y", "NAV2_INITIAL_YAW"):
+        assert f"${{{variable}:?" in nav_ops
+    assert "wait_for_automatic_localization" in helper
+    assert "LOCALIZATION_FAILED" in helper
+    assert helper.index("wait_for_automatic_localization") < helper.index("navigation-ready")
+    assert "manage_nodes" not in helper
+    start_all = (ROOT / "scripts" / "start_all_tb3_2.sh").read_text(encoding="utf-8")
+    assert '--x "$INIT_X"' not in start_all
+    assert '--y "$INIT_Y"' not in start_all
+    assert '--yaw "$INIT_YAW"' not in start_all

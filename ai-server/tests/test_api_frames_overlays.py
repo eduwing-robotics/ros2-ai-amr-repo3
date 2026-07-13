@@ -1,5 +1,7 @@
 """Frame ingest, overlay, synthetic frame, metrics, and Lane B API tests."""
 
+from datetime import datetime, timedelta
+
 from api_test_helpers import (
     aruco_png_bytes,
     client,
@@ -52,6 +54,49 @@ def test_overlay_latest_returns_404_before_any_frame():
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+def test_latest_overlay_fails_closed_when_cached_frame_ages_out(monkeypatch):
+    from app.api import vision as vision_api
+
+    main_module.source_health.reset()
+    main_module.frame_store.reset()
+    main_module.overlay_cache.reset()
+    with main_module._overlay_images_lock:
+        main_module._overlay_images.clear()
+
+    ingest = client.post(
+        "/api/v1/vision/synthetic/frame",
+        json={"source": "tb3_1_picam", "marker_id": 7},
+    )
+    assert ingest.status_code == 200
+    frame = main_module.frame_store.latest("tb3_1_picam")
+    assert frame is not None
+    future = datetime.fromisoformat(frame.timestamp) + timedelta(
+        seconds=get_settings().source_stale_after_s + 1.0
+    )
+    monkeypatch.setattr(vision_api, "_now_dt", lambda: future)
+
+    metadata = client.get(
+        "/api/v1/vision/overlay/latest",
+        params={"source": "tb3_1_picam"},
+    )
+    image = client.get(
+        "/api/v1/vision/overlay/latest/image",
+        params={"source": "tb3_1_picam"},
+    )
+
+    assert metadata.status_code == 200
+    assert metadata.json()["overlay"]["stale"] is True
+    assert metadata.json()["overlay"]["visual_state"] == "stale"
+    assert metadata.json()["sync"]["overlay_visual_state"] == "stale"
+    assert image.status_code == 200
+    decoded = cv2.imdecode(np.frombuffer(image.content, dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert decoded is not None
+    stale_header_pixel = decoded[3, decoded.shape[1] - 10]
+    assert int(stale_header_pixel[2]) > 180
+    assert int(stale_header_pixel[1]) > 100
+    assert int(stale_header_pixel[0]) < 90
 
 
 def test_overlay_metadata_returns_canvas_layer_events_without_image_bytes():

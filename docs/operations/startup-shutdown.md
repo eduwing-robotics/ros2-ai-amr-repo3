@@ -19,12 +19,7 @@
    scripts/run_nav_servers.sh
    ```
 
-5. AI service를 시작한다.
-
-   ```bash
-   cd ai-server
-   ./scripts/ai/run_ai_server.sh --reload
-   ```
+5. 외부 AI host의 운영자가 AI service와 camera source를 시작하고 health URL을 전달한다. Nav/Main host에서는 AI service를 로컬로 시작하지 않는다. Main의 `LMS_VISION_API_BASE_URL`과 `LMS_VISION_STREAM_BASE_URL`은 해당 외부 host를 가리켜야 한다.
 
 6. Main service와 PostgreSQL을 시작한다.
 
@@ -36,7 +31,7 @@
 7. health를 확인하고 read-only hardware checklist를 실행한 뒤 기능별 checklist를 진행한다.
 
    ```bash
-   curl http://127.0.0.1:8100/api/v1/health
+   curl "${LMS_VISION_API_BASE_URL}/api/v1/health"
    curl http://localhost:8088/health
    curl http://<nav-host>:8001/movement-api/v1/health
    ./scripts/operator-preflight.sh --hardware-checklist
@@ -57,7 +52,7 @@ Nav health 조건 하나라도 맞지 않으면 physical command를 보내지 �
 1. 새 task와 manual command dispatch를 중지한다.
 2. active robot이 안전한 정지 상태인지 확인한다. person safety stop 또는 E-stop이 있으면 clear/recovery 절차를 먼저 완료한다.
 3. Main을 종료한다.
-4. AI를 종료한다.
+4. 외부 AI service 종료가 필요한 경우 AI 운영자에게 요청한다. Nav/Main host에서 임의로 AI process를 종료하지 않는다.
 5. Nav launcher terminal에서 `Ctrl+C`로 Nav child process를 종료한다.
 6. Nav2와 robot base bringup을 해당 terminal에서 종료한다.
 

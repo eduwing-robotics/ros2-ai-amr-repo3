@@ -108,7 +108,6 @@ from .vision_frame_endpoints import (
 from .vision_overlay_endpoints import (
     build_debug_overlay_mjpeg_stream_response,
     build_latest_overlay_image_response,
-    build_latest_overlay_response,
     mjpeg_latest_overlay_generator,
 )
 from .vision_read_models import (
@@ -120,7 +119,6 @@ from .vision_read_models import (
     build_vision_ros_topics_payload,
     build_vision_streams_payload,
     build_vision_worker_status_payload,
-    frame_overlay_sync_status,
     overlay_metadata_path,
     overlay_publish_payload_preview_for_source,
     overlay_stream_path,
@@ -526,6 +524,8 @@ def _latest_overlay_metadata_snapshot(
                 status_code=404,
                 detail=f"no overlay available for source/view: {source}/{view_id}",
             )
+        if _latest_frame_is_stale(source, runtime_context=context):
+            overlay = {**overlay, "stale": True, "visual_state": "stale"}
         cached = context.overlay_event_layers.get(source_view_key(source, view_id))
         if cached is None and view_id == DEFAULT_VIEW_ID:
             cached = context.overlay_event_layers.get(source)
@@ -571,9 +571,20 @@ def _latest_overlay_image(
     view_id = normalize_view_id(view)
     with context.overlay_images_lock:
         overlay = context.overlay_images.get(source_view_key(source, view_id))
-        if overlay is not None or view_id != DEFAULT_VIEW_ID:
-            return overlay
-        return context.overlay_images.get(source)
+        if overlay is None and view_id == DEFAULT_VIEW_ID:
+            overlay = context.overlay_images.get(source)
+        cached = context.overlay_event_layers.get(source_view_key(source, view_id))
+        if cached is None and view_id == DEFAULT_VIEW_ID:
+            cached = context.overlay_event_layers.get(source)
+    if overlay is None or overlay.stale or not _latest_frame_is_stale(
+        source, runtime_context=context
+    ):
+        return overlay
+    frame = context.frame_store.latest(source)
+    if frame is None or frame.frame_seq != overlay.frame_seq:
+        return overlay
+    events = cached[1] if cached is not None and cached[0] == frame.frame_seq else []
+    return render_overlay(frame, events=events, stale=True, view=view_id)
 
 
 def _now_dt() -> datetime:
@@ -590,6 +601,16 @@ def _frame_age_s(frame: StoredFrame, *, now: datetime | None = None) -> float:
     if timestamp.tzinfo is None:
         timestamp = timestamp.replace(tzinfo=timezone.utc)
     return max(0.0, (current - timestamp).total_seconds())
+
+
+def _latest_frame_is_stale(
+    source: str,
+    *,
+    runtime_context: RuntimeContext | None = None,
+) -> bool:
+    context = runtime_context or _runtime_context()
+    frame = context.frame_store.latest(source)
+    return frame is not None and _frame_age_s(frame) > get_settings().source_stale_after_s
 
 
 def _overlay_publish_payload_preview_for_source(source: str) -> dict[str, Any]:
@@ -2029,13 +2050,23 @@ def latest_overlay(
 ) -> dict[str, Any]:
     """Return latest visual evidence overlay metadata for one source."""
     view_id = _ensure_known_source_view(source, view)
-    return build_latest_overlay_response(
-        source=source,
+    context = _runtime_context()
+    overlay, _ = _latest_overlay_metadata_snapshot(
+        source,
         view=view_id,
-        runtime_context=_runtime_context(),
-        frame_overlay_sync_status=frame_overlay_sync_status,
-        now_iso=_now_iso,
+        runtime_context=context,
     )
+    return {
+        "generated_at": _now_iso(),
+        "requested_source": source,
+        "requested_view": view_id,
+        "sync": _overlay_sync_status_for_snapshot(
+            source,
+            overlay=overlay,
+            runtime_context=context,
+        ),
+        "overlay": overlay,
+    }
 
 
 def latest_overlay_metadata(

@@ -28,6 +28,7 @@ def navigator_class(monkeypatch):
     _module(monkeypatch, "rclpy")
     _module(monkeypatch, "rclpy.node", Node=object)
     _module(monkeypatch, "rclpy.qos", DurabilityPolicy=SimpleNamespace(TRANSIENT_LOCAL=1), QoSProfile=object, ReliabilityPolicy=SimpleNamespace(RELIABLE=1, BEST_EFFORT=2), qos_profile_sensor_data=object())
+    _module(monkeypatch, "rclpy.duration", Duration=lambda **_kwargs: object())
     _module(monkeypatch, "rclpy.time", Time=object)
     _module(monkeypatch, "rcl_interfaces")
     _module(monkeypatch, "rcl_interfaces.msg", Parameter=object, ParameterType=object, ParameterValue=object)
@@ -108,3 +109,71 @@ def test_stale_localization_fails_closed(navigator_class):
 
     assert health["ok"] is False
     assert health["reason"] == "localization_missing_or_stale"
+
+
+def test_amcl_postdated_tf_within_transform_tolerance_is_accepted(navigator_class, monkeypatch):
+    now = time.time()
+    navigator, _ = _navigator(navigator_class, scan_stamp=now, tf_stamp=now + 1.5)
+    monkeypatch.setenv("TF_FUTURE_TOLERANCE_SEC", "2.0")
+
+    health = navigator.docking_sensor_freshness(require_aruco=True, max_tf_age_sec=2.0)
+
+    assert health["ok"] is True
+    assert health["reason"] == "ok"
+
+
+def test_tf_beyond_configured_postdate_window_fails_closed(navigator_class, monkeypatch):
+    now = time.time()
+    navigator, _ = _navigator(navigator_class, scan_stamp=now, tf_stamp=now + 2.5)
+    monkeypatch.setenv("TF_FUTURE_TOLERANCE_SEC", "2.0")
+
+    health = navigator.docking_sensor_freshness(require_aruco=True, max_tf_age_sec=2.0)
+
+    assert health["ok"] is False
+    assert health["reason"] == "tf_timestamp_future"
+
+
+def test_pose_lookup_accepts_amcl_postdated_transform_within_tf_window(navigator_class, monkeypatch):
+    now = time.time() + 1.5
+    seconds = int(now)
+    nanoseconds = int((now - seconds) * 1e9)
+    transform = SimpleNamespace(
+        header=SimpleNamespace(
+            frame_id="map",
+            stamp=SimpleNamespace(sec=seconds, nanosec=nanoseconds),
+        ),
+        child_frame_id="base_link",
+        transform=SimpleNamespace(
+            translation=SimpleNamespace(x=1.0, y=2.0),
+            rotation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+    )
+    navigator = navigator_class.__new__(navigator_class)
+    navigator.tf_buffer = SimpleNamespace(lookup_transform=lambda *_args, **_kwargs: transform)
+    navigator.latest_tf_monotonic = 0.0
+    navigator.latest_tf_header_stamp_sec = None
+    navigator.latest_tf_continuous = False
+    monkeypatch.setenv("TF_FUTURE_TOLERANCE_SEC", "2.0")
+
+    pose = navigator._pose_from_transform()
+
+    assert pose is not None
+    assert pose["x"] == 1.0
+    assert navigator.latest_tf_continuous is True
+
+
+def test_one_transient_tf_lookup_miss_keeps_recent_success_continuous(navigator_class):
+    navigator = navigator_class.__new__(navigator_class)
+    navigator.tf_buffer = SimpleNamespace(
+        lookup_transform=lambda *_args, **_kwargs: (_ for _ in ()).throw(Exception("transient TF race"))
+    )
+    navigator.latest_tf_monotonic = time.monotonic()
+    navigator.latest_tf_header_stamp_sec = time.time()
+    navigator.latest_tf_continuous = True
+
+    assert navigator._pose_from_transform() is None
+    assert navigator.latest_tf_continuous is True
+
+    navigator.latest_tf_monotonic = time.monotonic() - 3.0
+    assert navigator._pose_from_transform() is None
+    assert navigator.latest_tf_continuous is False

@@ -18,7 +18,7 @@
   - `nav_app/server_core.py`: FastAPI lifespan 기반 ROS startup/shutdown + 방어적 runtime 정리 + `include_routers()`
   - `nav_app/services/`: command, docking, movement, robot context 등 도메인 로직
 - 설정: `config/robots.json`, `config/main_server_routes.json`, `config/inventory_locations.json`, `config/domain_bridge/*.yaml`
-- 지도·경로: `map/map.yaml`, `map/robot1_map.yaml`, `map/zones.json`
+- 지도·경로: confirmed field asset `map/robot2_map.yaml`; `map/zones.json`은 robot2 map 재검증 전 dispatch에 사용하지 않음
 - 활성 runtime 산출물: `logs/`, `tmp/` (`.gitignore`). 보존 스냅샷: `LEGACY/runtime/`
 
 ## 현재 동작

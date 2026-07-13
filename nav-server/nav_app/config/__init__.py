@@ -10,6 +10,7 @@ from nav_app.config.loader import (
     ensure_process_domain_matches_profile,
     load_main_server_routes,
     load_robot_profiles,
+    process_ros_domain_id,
 )
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "active_route_config",
     "current_ros_domain_id",
     "ensure_process_domain_matches_profile",
+    "process_ros_domain_id",
     "load_main_server_routes",
     "load_robot_profiles",
 ]

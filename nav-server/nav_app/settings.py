@@ -116,7 +116,7 @@ FORWARD_SCAN_MAX_AGE_SEC = float(os.getenv("FORWARD_SCAN_MAX_AGE_SEC", "2.0"))
 LEAVE_DOCK_REAR_ARC_DEG = float(os.getenv("LEAVE_DOCK_REAR_ARC_DEG", "70.0"))
 LEAVE_DOCK_REAR_SCAN_MAX_AGE_SEC = float(os.getenv("LEAVE_DOCK_REAR_SCAN_MAX_AGE_SEC", "2.0"))
 GATE_TIMEOUT_SEC = float(os.getenv("GATE_TIMEOUT_SEC", "120.0"))
-ACTIVE_MAP_YAML = Path(os.getenv("ACTIVE_MAP_YAML", ROOT / "map" / "robot1_map.yaml"))
+ACTIVE_MAP_YAML = Path(os.getenv("ACTIVE_MAP_YAML", ROOT / "map" / "robot2_map.yaml"))
 hostname_resolver = ThreadPoolExecutor(max_workers=4, thread_name_prefix="hostname-resolver")
 
 

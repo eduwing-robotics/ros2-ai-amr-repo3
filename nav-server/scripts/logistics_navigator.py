@@ -18,6 +18,7 @@ import os
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 import rclpy
@@ -25,6 +26,7 @@ from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rclpy.duration import Duration
 from rclpy.time import Time
 from tf2_ros import Buffer, ConnectivityException, ExtrapolationException, LookupException, TransformListener
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TwistStamped
@@ -34,6 +36,14 @@ from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from sensor_msgs.msg import BatteryState, CompressedImage, LaserScan
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Empty
+
+from nav_app.services.scan_map_alignment import (
+    align_scan_to_map,
+    alignment_config,
+    confirm_alignment,
+    global_align_scan_to_map,
+    select_temporal_global_hypothesis,
+)
 
 # --- 설정 및 경로 ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -125,6 +135,8 @@ class LogisticsNavigator(Node):
         self.latest_tf_monotonic = 0.0
         self.latest_tf_header_stamp_sec = None
         self.latest_tf_continuous = False
+        self.latest_tf_status_reason = "global_localization_reset"
+        self.latest_tf_status_reason = "not_observed"
         self.last_velocity_loop_latency_sec = None
 
         # AMCL이 publish하는 map frame 기준 현재 위치를 관제 API에 노출합니다.
@@ -134,7 +146,9 @@ class LogisticsNavigator(Node):
         amcl_pose_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.amcl_pose_sub = self.create_subscription(
             PoseWithCovarianceStamped, "/amcl_pose", self._amcl_pose_callback, amcl_pose_qos)
+        self.amcl_pose_history = deque(maxlen=200)
         self.global_localization_client = self.create_client(Empty, "/reinitialize_global_localization")
+        self.request_nomotion_update_client = self.create_client(Empty, "/request_nomotion_update")
 
         # 4. Nav2 기본 네비게이터 초기화
         self.nav = BasicNavigator()
@@ -150,6 +164,26 @@ class LogisticsNavigator(Node):
         self.nav2_ready_lock = threading.Lock()
         self.last_nav_failure = None
         self.controller_param_clients = {}
+        self.global_localization_lock = threading.Lock()
+        self.global_localization_stop_event = threading.Event()
+        self.global_localization_thread = None
+        self.global_localization_status = {
+            "accepted": False,
+            "strategy": "observe_only",
+            "motion_started": False,
+            "reason": "not_started",
+        }
+        self.scan_map_alignment_status = {
+            "accepted": False,
+            "refinement_required": False,
+            "reason": "not_checked",
+            "attempts": 0,
+            "confirmation_count": 0,
+        }
+        self.localization_heartbeat_future = None
+        self.localization_heartbeat_timer = self.create_timer(
+            1.0, self._maintain_converged_localization
+        )
 
     def set_external_spin(self, enabled=True):
         """Skip local spin calls when another thread owns this node's executor."""
@@ -325,6 +359,7 @@ class LogisticsNavigator(Node):
         tf_limit = float(max_tf_age_sec if max_tf_age_sec is not None else os.getenv("DOCK_TF_MAX_AGE_SEC", "2.0"))
         aruco_limit = float(max_aruco_age_sec if max_aruco_age_sec is not None else os.getenv("ARUCO_DETECTION_MAX_AGE_SEC", "5.0"))
         future_limit = float(os.getenv("SENSOR_FUTURE_TOLERANCE_SEC", "0.25"))
+        tf_future_limit = float(os.getenv("TF_FUTURE_TOLERANCE_SEC", "2.0"))
         with self.scan_lock:
             scan_receipt = self.latest_scan_monotonic
             scan_stamp = self.latest_scan_header_stamp_sec
@@ -364,7 +399,7 @@ class LogisticsNavigator(Node):
         if tf_receipt_age > tf_limit or tf_source_age is None or tf_source_age > tf_limit:
             result["reason"] = "tf_stale"
             return result
-        if tf_source_age < -future_limit:
+        if tf_source_age < -tf_future_limit:
             result["reason"] = "tf_timestamp_future"
             return result
         if not self.latest_tf_continuous:
@@ -750,12 +785,27 @@ class LogisticsNavigator(Node):
         }
         with self.last_pose_lock:
             self.last_pose = pose
+            self.amcl_pose_history.append(dict(pose))
 
     def _pose_from_transform(self):
+        transform = None
         try:
-            transform = self.tf_buffer.lookup_transform("map", "base_link", Time())
+            transform = self.tf_buffer.lookup_transform(
+                "map", "base_link", Time(), timeout=Duration(seconds=0.20)
+            )
         except (LookupException, ConnectivityException, ExtrapolationException):
-            self.latest_tf_continuous = False
+            pass
+        if transform is None:
+            # A latest-time lookup can briefly race the two TF branches. Keep
+            # the last successful observation until its normal freshness
+            # budget expires instead of revoking localization on one miss.
+            max_tf_age = float(os.getenv("DOCK_TF_MAX_AGE_SEC", "2.0"))
+            last_success = float(getattr(self, "latest_tf_monotonic", 0.0) or 0.0)
+            if not last_success or time.monotonic() - last_success > max_tf_age:
+                self.latest_tf_continuous = False
+                self.latest_tf_status_reason = "lookup_failed_stale"
+            else:
+                self.latest_tf_status_reason = "lookup_retry_pending"
             return None
 
         self.latest_tf_monotonic = time.monotonic()
@@ -770,11 +820,13 @@ class LogisticsNavigator(Node):
         stamp_sec = float(stamp.sec) + float(stamp.nanosec) / 1_000_000_000.0
         age_sec = time.time() - stamp_sec if stamp_sec > 0 else None
         max_tf_age = float(os.getenv("DOCK_TF_MAX_AGE_SEC", "2.0"))
-        future_limit = float(os.getenv("SENSOR_FUTURE_TOLERANCE_SEC", "0.25"))
+        # AMCL deliberately postdates map->odom by its transform_tolerance.
+        future_limit = float(os.getenv("TF_FUTURE_TOLERANCE_SEC", "2.0"))
         self.latest_tf_header_stamp_sec = stamp_sec if stamp_sec > 0 else None
         self.latest_tf_continuous = bool(
             age_sec is not None and -future_limit <= age_sec <= max_tf_age
         )
+        self.latest_tf_status_reason = "ok" if self.latest_tf_continuous else "timestamp_out_of_window"
         if not self.latest_tf_continuous:
             return None
         return {
@@ -843,24 +895,623 @@ class LogisticsNavigator(Node):
         self._pose_from_transform()
         with self.last_pose_lock, self.scan_lock:
             amcl = dict(self.last_pose) if self.last_pose else None
+            amcl_samples = [dict(sample) for sample in self.amcl_pose_history]
             if amcl:
                 amcl["header_stamp_sec"] = float(amcl["stamp"]["sec"]) + float(amcl["stamp"]["nanosec"]) / 1e9
             now = time.monotonic()
-            return {"amcl": amcl, "scan_age_sec": (now - self.latest_scan_monotonic) if self.latest_scan_monotonic else None,
+            return {"amcl": amcl, "amcl_samples": amcl_samples,
+                    "scan_age_sec": (now - self.latest_scan_monotonic) if self.latest_scan_monotonic else None,
                     "scan_source_age_sec": (time.time() - self.latest_scan_header_stamp_sec) if self.latest_scan_header_stamp_sec else None,
                     "tf_age_sec": (now - self.latest_tf_monotonic) if self.latest_tf_monotonic else None,
                     "tf_source_age_sec": (time.time() - self.latest_tf_header_stamp_sec) if self.latest_tf_header_stamp_sec else None,
-                    "tf_continuous": self.latest_tf_continuous, "receipt_monotonic": now,
+                    "tf_continuous": self.latest_tf_continuous,
+                    "tf_status_reason": getattr(self, "latest_tf_status_reason", None),
+                    "receipt_monotonic": now,
                     "velocity_loop_latency_sec": self.last_velocity_loop_latency_sec}
 
-    def request_global_localization(self):
-        """Ask AMCL for global localization then perform a bounded scan rotation hook."""
-        if not self.global_localization_client.wait_for_service(timeout_sec=0.2):
-            self.last_nav_failure = "global_localization_service_unavailable"
-            return False
-        self.global_localization_client.call_async(Empty.Request())
-        threading.Thread(target=lambda: self.publish_velocity_for_duration(0.0, 0.18, 2.0), daemon=True).start()
-        return True
+    def reset_scan_map_alignment(self):
+        self.scan_map_alignment_status = {
+            "accepted": False,
+            "refinement_required": False,
+            "reason": "not_checked",
+            "attempts": 0,
+            "confirmation_count": 0,
+        }
+
+    def _reset_global_localization_observations(self):
+        """Discard pose evidence from a previous Nav2/localization generation."""
+        clear_tf = getattr(getattr(self, "tf_buffer", None), "clear", None)
+        if callable(clear_tf):
+            clear_tf()
+        self.latest_tf_monotonic = 0.0
+        self.latest_tf_header_stamp_sec = None
+        self.latest_tf_continuous = False
+        lock = getattr(self, "last_pose_lock", None)
+        if lock is not None:
+            with lock:
+                self.last_pose = None
+                history = getattr(self, "amcl_pose_history", None)
+                if history is not None:
+                    history.clear()
+        else:
+            self.last_pose = None
+        self.localization_heartbeat_future = None
+
+    def global_localization_search_active(self):
+        """Return whether one localization worker still owns the search state."""
+        worker = self.global_localization_thread
+        return bool(worker and worker.is_alive())
+
+    def localization_alignment_observation(self, profile):
+        """Compare the live LiDAR walls/corners with the active occupancy map."""
+        config = alignment_config(profile)
+        if not config["enabled"]:
+            return {"accepted": True, "refinement_required": False, "reason": "disabled", "attempts": 0}
+        pose = self._pose_from_transform()
+        with self.scan_lock:
+            scan = self.latest_scan
+            scan_token = self.latest_scan_monotonic
+        if pose is None or scan is None:
+            return {"accepted": False, "refinement_required": False, "reason": "pose_or_scan_missing"}
+        prior_token = self.scan_map_alignment_status.get("last_confirmation_scan_token")
+        check_interval = max(0.0, float(config.get("continuous_check_interval_sec", 1.0)))
+        if (
+            self.scan_map_alignment_status.get("accepted")
+            and prior_token is not None
+            and scan_token - float(prior_token) < check_interval
+        ):
+            return dict(self.scan_map_alignment_status)
+        mount = self._scan_mount(scan, config)
+        map_yaml = Path(str(profile["active_map_yaml"]))
+        if not map_yaml.is_absolute():
+            map_yaml = ROOT / map_yaml
+        result = align_scan_to_map(
+            map_yaml=map_yaml,
+            base_pose={"x": pose["x"], "y": pose["y"], "yaw": pose["yaw"]},
+            scan_mount=mount,
+            ranges=scan.ranges,
+            angle_min=scan.angle_min,
+            angle_increment=scan.angle_increment,
+            range_min=scan.range_min,
+            range_max=scan.range_max,
+            config=config,
+        )
+        result = confirm_alignment(
+            result,
+            self.scan_map_alignment_status,
+            scan_token=scan_token,
+            config=config,
+        )
+        self.scan_map_alignment_status = result
+        return dict(result)
+
+    def _scan_mount(self, scan, config):
+        try:
+            transform = self.tf_buffer.lookup_transform("base_link", scan.header.frame_id or "base_scan", Time())
+            q = transform.transform.rotation
+            mount_yaw = math.atan2(
+                2.0 * (q.w * q.z + q.x * q.y),
+                1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+            )
+            return {
+                "x": float(transform.transform.translation.x),
+                "y": float(transform.transform.translation.y),
+                "yaw": float(mount_yaw),
+            }
+        except (LookupException, ConnectivityException, ExtrapolationException):
+            return dict(config.get("scan_mount_fallback") or {"x": -0.032, "y": 0.0, "yaw": 0.0})
+
+    def apply_scan_map_refinement(self, alignment, search):
+        """Publish one virtual pose correction and request fine no-motion AMCL updates."""
+        config = alignment_config({"localization": {"scan_map_alignment": search.get("scan_map_alignment") or {}}})
+        attempts = int(self.scan_map_alignment_status.get("attempts", 0))
+        if attempts >= int(config["max_refinement_passes"]):
+            self.scan_map_alignment_status = {**alignment, "attempts": attempts, "reason": "refinement_pass_limit"}
+            return None
+        corrected_pose = alignment.get("corrected_pose") or {}
+        if not all(axis in corrected_pose for axis in ("x", "y", "yaw")):
+            return None
+        requested = self.set_initial_pose(
+            corrected_pose,
+            frame_id="map",
+            covariance=search.get("refinement_initial_covariance") or {"x": 0.02, "y": 0.02, "yaw": 0.01},
+        )
+        attempts += 1
+        self.scan_map_alignment_status = {
+            **alignment,
+            "accepted": False,
+            "refinement_required": True,
+            "reason": "refinement_started",
+            "attempts": attempts,
+            "requested_pose": requested,
+        }
+        refinement_search = {
+            **search,
+            "start_stage": "fine",
+            "allow_global_reinitialization": False,
+        }
+        if not self.request_nomotion_localization_refinement(refinement_search).get("accepted"):
+            return None
+        return requested
+
+    def request_global_localization(self, search=None):
+        """Ask AMCL to search globally; physical motion is opt-in and bounded."""
+        search = dict(search or {})
+        strategy = str(search.get("strategy", "observe_only"))
+        allow_motion = bool(search.get("allow_motion", False))
+        if strategy not in ("observe_only", "bounded_linear_wiggle"):
+            return self._set_global_localization_status(False, strategy, False, "unsupported_strategy")
+        if strategy != "observe_only" and not allow_motion:
+            return self._set_global_localization_status(False, strategy, False, "motion_permission_required")
+        with self.global_localization_lock:
+            self.global_localization_stop_event.set()
+            previous = self.global_localization_thread
+            if previous and previous.is_alive():
+                if self.global_localization_status.get("strategy") != "observe_only":
+                    self._publish_stop_velocity()
+                previous.join(timeout=0.5)
+                if previous.is_alive():
+                    return self._set_global_localization_status(
+                        False, strategy, False, "previous_search_still_stopping"
+                    )
+                return self._set_global_localization_status(
+                    False, strategy, False, "concurrent_search_already_active"
+                )
+            map_wide_scan_matching = bool(
+                strategy == "observe_only" and search.get("map_wide_scan_matching", False)
+            )
+            if not map_wide_scan_matching and not self.global_localization_client.wait_for_service(timeout_sec=0.2):
+                self.last_nav_failure = "global_localization_service_unavailable"
+                return self._set_global_localization_status(False, strategy, False, self.last_nav_failure)
+            if strategy == "observe_only":
+                if not self.request_nomotion_update_client.wait_for_service(timeout_sec=0.2):
+                    self.last_nav_failure = "nomotion_update_service_unavailable"
+                    return self._set_global_localization_status(False, strategy, False, self.last_nav_failure)
+            self._reset_global_localization_observations()
+            self.reset_scan_map_alignment()
+            self.global_localization_stop_event.clear()
+            if map_wide_scan_matching:
+                status = self._set_global_localization_status(
+                    True, strategy, False, "map_wide_scan_search_started", stage="map_wide"
+                )
+                self.global_localization_thread = threading.Thread(
+                    target=self._map_wide_scan_localization_search,
+                    args=(search,),
+                    daemon=True,
+                    name="map-wide-scan-localization-search",
+                )
+                self.global_localization_thread.start()
+                return status
+            self.global_localization_client.call_async(Empty.Request())
+            if strategy == "observe_only":
+                status = self._set_global_localization_status(True, strategy, False, "amcl_global_search_started")
+                self.global_localization_thread = threading.Thread(
+                    target=self._observe_only_localization_search,
+                    args=(search,),
+                    daemon=True,
+                    name="observe-only-localization-search",
+                )
+                self.global_localization_thread.start()
+                return status
+            self.global_localization_thread = threading.Thread(
+                target=self._bounded_linear_localization_search,
+                args=(search,),
+                daemon=True,
+                name="bounded-linear-localization-search",
+            )
+            status = self._set_global_localization_status(
+                True, strategy, True, "bounded_motion_started"
+            )
+            self.global_localization_thread.start()
+            return status
+
+    def _map_wide_scan_localization_search(self, search):
+        """Find an absolute pose on the complete map before asking AMCL to refine it."""
+        config = {**alignment_config({}), **dict(search.get("scan_map_alignment") or {})}
+        map_yaml = Path(str(search.get("active_map_yaml") or ""))
+        if not map_yaml.is_absolute():
+            map_yaml = ROOT / map_yaml
+        required = max(2, int(search.get("map_wide_confirmation_scans", 3)))
+        window = max(required, int(search.get("map_wide_confirmation_window_scans", 5)))
+        translation_tolerance = float(search.get("map_wide_confirmation_translation_tolerance_m", 0.08))
+        yaw_tolerance = float(search.get("map_wide_confirmation_yaw_tolerance_rad", math.radians(3.0)))
+        timeout = min(180.0, max(10.0, float(search.get("nomotion_update_timeout_sec", 120.0))))
+        deadline = time.monotonic() + timeout
+        history = []
+        last_token = None
+        while time.monotonic() < deadline and not self.global_localization_stop_event.is_set():
+            with self.scan_lock:
+                scan = self.latest_scan
+                scan_token = self.latest_scan_monotonic
+            if scan is None or not scan_token or scan_token == last_token:
+                self.global_localization_stop_event.wait(0.05)
+                continue
+            last_token = scan_token
+            mount = self._scan_mount(scan, config)
+            result = global_align_scan_to_map(
+                map_yaml=map_yaml,
+                scan_mount=mount,
+                ranges=scan.ranges,
+                angle_min=scan.angle_min,
+                angle_increment=scan.angle_increment,
+                range_min=scan.range_min,
+                range_max=scan.range_max,
+                config=config,
+            )
+            history.append({
+                "scan_token": float(scan_token),
+                "candidates": list(result.get("candidates") or []),
+            })
+            history = history[-window:]
+            temporal = select_temporal_global_hypothesis(
+                history,
+                required_scans=required,
+                window_scans=window,
+                translation_tolerance_m=translation_tolerance,
+                yaw_tolerance_rad=yaw_tolerance,
+                min_score_margin_m=float(config["global_min_score_margin_m"]),
+                max_mean_distance_m=float(config["max_mean_distance_m"]),
+                min_match_ratio=float(config["min_match_ratio"]),
+                max_segment_mismatch_m=float(config["max_segment_mismatch_m"]),
+            )
+            pose = temporal.get("absolute_pose")
+            self._set_global_localization_status(
+                True, "observe_only", False, "map_wide_candidate_pending", stage="map_wide",
+                confirmation_count=temporal.get("support_scans", 0),
+                confirmation_required=required,
+                confirmation_window_count=len(history),
+                absolute_pose=pose,
+                score_margin_m=temporal.get("score_margin_m"),
+                candidate_count=len(result.get("candidates") or []),
+                matcher_reason=result.get("reason"),
+            )
+            if not temporal.get("accepted"):
+                continue
+            absolute_pose = dict(temporal["absolute_pose"])
+            self.set_initial_pose(
+                absolute_pose,
+                frame_id="map",
+                covariance=config.get("initial_covariance") or {"x": 0.02, "y": 0.02, "yaw": 0.01},
+            )
+            self.reset_scan_map_alignment()
+            self._set_global_localization_status(
+                True, "observe_only", False, "map_wide_seed_applied", stage="fine",
+                absolute_pose=absolute_pose,
+            )
+            self._observe_only_localization_search({
+                **search,
+                "start_stage": "fine",
+                "allow_global_reinitialization": False,
+            })
+            return
+        reason = "cancelled" if self.global_localization_stop_event.is_set() else "map_wide_scan_search_timeout"
+        self.last_nav_failure = None if reason == "cancelled" else "LOCALIZATION_FAILED"
+        self._set_global_localization_status(reason == "cancelled", "observe_only", False, reason)
+
+    def request_nomotion_localization_refinement(self, search=None):
+        """Run the existing fine convergence loop without a global reinitialization."""
+        search = dict(search or {})
+        with self.global_localization_lock:
+            self.global_localization_stop_event.set()
+            previous = self.global_localization_thread
+            if previous and previous.is_alive():
+                previous.join(timeout=0.5)
+                if previous.is_alive():
+                    return self._set_global_localization_status(
+                        False, "observe_only", False, "previous_search_still_stopping"
+                    )
+            if not self.request_nomotion_update_client.wait_for_service(timeout_sec=0.2):
+                return self._set_global_localization_status(
+                    False, "observe_only", False, "nomotion_update_service_unavailable"
+                )
+            self.global_localization_stop_event.clear()
+            self.global_localization_thread = threading.Thread(
+                target=self._observe_only_localization_search,
+                args=(search,),
+                daemon=True,
+                name="scan-map-nomotion-refinement",
+            )
+            status = self._set_global_localization_status(
+                True, "observe_only", False, "scan_map_refinement_started", stage="fine"
+            )
+            self.global_localization_thread.start()
+            return status
+
+    def _set_global_localization_status(self, accepted, strategy, motion_started, reason, **extra):
+        status = {
+            "accepted": bool(accepted),
+            "strategy": str(strategy),
+            "motion_started": bool(motion_started),
+            "reason": str(reason),
+            "reported_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
+            **extra,
+        }
+        self.global_localization_status = status
+        return dict(status)
+
+    def global_localization_search_status(self):
+        return dict(self.global_localization_status)
+
+    def _maintain_converged_localization(self):
+        """Keep stationary AMCL evidence fresh after the finite search worker exits."""
+        if self.global_localization_status.get("reason") != "converged":
+            return
+        pending = self.localization_heartbeat_future
+        if pending is not None and not pending.done():
+            return
+        if not self.request_nomotion_update_client.wait_for_service(timeout_sec=0.0):
+            return
+        self.localization_heartbeat_future = self.request_nomotion_update_client.call_async(Empty.Request())
+
+    def cancel_global_localization_search(self):
+        self.global_localization_stop_event.set()
+        strategy = self.global_localization_status.get("strategy", "observe_only")
+        if strategy != "observe_only":
+            self._publish_stop_velocity()
+        return self._set_global_localization_status(
+            True,
+            strategy,
+            False,
+            "cancelled",
+        )
+
+    def _observe_only_localization_search(self, search):
+        """Run bounded COARSE->FINE AMCL convergence without publishing velocity."""
+        legacy_interval = search.get("nomotion_update_interval_sec")
+        coarse_interval = max(0.01, min(2.0, float(search.get(
+            "coarse_nomotion_interval_sec", legacy_interval if legacy_interval is not None else 0.75,
+        ))))
+        fine_interval = max(0.01, min(2.0, float(search.get(
+            "fine_nomotion_interval_sec", legacy_interval if legacy_interval is not None else 1.0,
+        ))))
+        timeout = max(coarse_interval, min(180.0, float(search.get("nomotion_update_timeout_sec", 120.0))))
+        deadline = time.monotonic() + timeout
+        retry_at = time.monotonic() + timeout / 2.0
+        stage = str(search.get("start_stage", "coarse"))
+        if stage not in ("coarse", "fine"):
+            stage = "coarse"
+        samples = []
+        fine_breaches = 0
+        reinitialize_attempts = 1
+        allow_reinitialization = bool(search.get("allow_global_reinitialization", True))
+        max_reinitializations = max(1, min(2, int(search.get("max_global_reinitializations", 2))))
+        while time.monotonic() < deadline and not self.global_localization_stop_event.is_set():
+            interval = coarse_interval if stage == "coarse" else fine_interval
+            before = self.localization_observation().get("amcl") or {}
+            previous_receipt = before.get("receipt_monotonic")
+            future = self.request_nomotion_update_client.call_async(Empty.Request())
+            if self._wait_for_future(future, timeout_sec=min(1.0, interval)) is None:
+                self.last_nav_failure = "nomotion_update_call_timeout"
+                self._set_global_localization_status(False, "observe_only", False, self.last_nav_failure)
+                return
+            remaining = max(0.0, deadline - time.monotonic())
+            sample_timeout = min(remaining, max(0.05, min(1.5, interval)))
+            if not self._wait_for_new_amcl_sample(previous_receipt, timeout_sec=sample_timeout):
+                self._set_global_localization_status(
+                    True, "observe_only", False, "awaiting_fresh_amcl_sample", stage=stage,
+                    reinitialize_attempts=reinitialize_attempts,
+                )
+                self.global_localization_stop_event.wait(min(interval, remaining))
+                continue
+            outcome = self._global_search_stage_update(search, stage, samples)
+            if outcome == "sensor_data_stale":
+                self._set_global_localization_status(
+                    True, "observe_only", False, outcome, stage=stage,
+                    reinitialize_attempts=reinitialize_attempts,
+                )
+                self.global_localization_stop_event.wait(interval)
+                continue
+            elif outcome == "converged":
+                if stage == "coarse":
+                    stage, samples, fine_breaches = "fine", [], 0
+                    self._set_global_localization_status(
+                        True, "observe_only", False, "coarse_converged", stage=stage,
+                        reinitialize_attempts=reinitialize_attempts,
+                    )
+                else:
+                    self.last_nav_failure = None
+                    self._set_global_localization_status(
+                        True, "observe_only", False, "converged", stage="fine",
+                        reinitialize_attempts=reinitialize_attempts,
+                    )
+                    return
+            elif outcome == "fine_breach" and stage == "fine":
+                fine_breaches += 1
+                if fine_breaches >= int(search.get("fine_fallback_breaches", 3)):
+                    stage, samples, fine_breaches = "coarse", [], 0
+                    self._set_global_localization_status(
+                        True, "observe_only", False, "fine_fallback_to_coarse", stage=stage,
+                        reinitialize_attempts=reinitialize_attempts,
+                    )
+            elif stage == "fine" and outcome != "sensor_data_stale":
+                fine_breaches = 0
+            if allow_reinitialization and stage == "coarse" and reinitialize_attempts < max_reinitializations and time.monotonic() >= retry_at:
+                self.global_localization_client.call_async(Empty.Request())
+                reinitialize_attempts += 1
+                samples.clear()
+                self._set_global_localization_status(
+                    True, "observe_only", False, "coarse_reinitialized", stage=stage,
+                    reinitialize_attempts=reinitialize_attempts,
+                )
+            self.global_localization_stop_event.wait(interval)
+        reason = "cancelled" if self.global_localization_stop_event.is_set() else "nomotion_update_timeout"
+        if reason != "cancelled":
+            self.last_nav_failure = "LOCALIZATION_FAILED"
+        self._set_global_localization_status(reason == "cancelled", "observe_only", False, reason)
+
+    def _wait_for_new_amcl_sample(self, previous_receipt, *, timeout_sec):
+        """Wait until a no-motion request is consumed by a later LaserScan update."""
+        deadline = time.monotonic() + max(0.0, float(timeout_sec))
+        while time.monotonic() < deadline and not self.global_localization_stop_event.is_set():
+            amcl = self.localization_observation().get("amcl") or {}
+            try:
+                receipt = float(amcl["receipt_monotonic"])
+                previous = float(previous_receipt) if previous_receipt is not None else None
+            except (KeyError, TypeError, ValueError):
+                receipt, previous = None, None
+            if receipt is not None and math.isfinite(receipt) and (previous is None or receipt > previous):
+                return True
+            self.global_localization_stop_event.wait(0.02)
+        return False
+
+    def _global_search_stage_update(self, search, stage, samples):
+        observation = self.localization_observation()
+        amcl = observation.get("amcl") or {}
+        covariance = amcl.get("covariance") or {}
+        max_scan_age = float(search.get("max_scan_age_sec", 1.0))
+        max_tf_age = float(search.get("max_tf_age_sec", 1.0))
+        try:
+            scan_age = float(observation["scan_age_sec"])
+            tf_age = float(observation["tf_age_sec"])
+        except (KeyError, TypeError, ValueError):
+            samples.clear()
+            return "sensor_data_stale"
+        if not (
+            math.isfinite(scan_age)
+            and 0.0 <= scan_age <= max_scan_age
+            and math.isfinite(tf_age)
+            and 0.0 <= tf_age <= max_tf_age
+            and observation.get("tf_continuous", False)
+        ):
+            samples.clear()
+            return "sensor_data_stale"
+        stage_limits = {
+            "coarse": search.get("coarse_covariance_limits") or {"x": 0.50, "y": 0.50, "yaw": 1.0},
+            "fine": search.get("covariance_limits") or {"x": 0.25, "y": 0.25, "yaw": 0.35},
+        }[stage]
+        fallback_limits = search.get("fine_fallback_covariance_limits") or {"x": 0.40, "y": 0.40, "yaw": 0.70}
+        try:
+            covariance_values = {axis: float(covariance[axis]) for axis in ("x", "y", "yaw")}
+        except (KeyError, TypeError, ValueError):
+            samples.clear()
+            return "awaiting_covariance"
+        if any(not math.isfinite(value) or value < 0.0 for value in covariance_values.values()):
+            samples.clear()
+            return "awaiting_covariance"
+        if stage == "fine" and any(
+            covariance_values[axis] > float(fallback_limits[axis])
+            for axis in ("x", "y", "yaw")
+        ):
+            samples.clear()
+            return "fine_breach"
+        if any(
+            covariance_values[axis] > float(stage_limits[axis])
+            for axis in ("x", "y", "yaw")
+        ):
+            samples.clear()
+            return "awaiting_covariance"
+        try:
+            receipt = float(amcl["receipt_monotonic"])
+            pose = tuple(float(amcl[axis]) for axis in ("x", "y", "yaw"))
+        except (KeyError, TypeError, ValueError):
+            samples.clear()
+            return "awaiting_pose"
+        if receipt < 0.0 or not math.isfinite(receipt) or any(not math.isfinite(value) for value in pose):
+            samples.clear()
+            return "awaiting_pose"
+        if samples and receipt <= float(samples[-1][0]):
+            return "duplicate_sample"
+        samples.append((receipt, *pose))
+        required = int(search.get(f"{stage}_consecutive_samples", 3 if stage == "coarse" else 10))
+        samples[:] = samples[-required:]
+        anchor = samples[0]
+        jitter_m = max(math.hypot(item[1] - anchor[1], item[2] - anchor[2]) for item in samples)
+        jitter_yaw = max(abs(math.atan2(math.sin(item[3] - anchor[3]), math.cos(item[3] - anchor[3]))) for item in samples)
+        max_jitter_m = float(search.get(f"{stage}_max_pose_jitter_m", 0.15 if stage == "coarse" else 0.08))
+        max_jitter_yaw = float(search.get(f"{stage}_max_yaw_jitter_rad", 0.35 if stage == "coarse" else 0.15))
+        if stage == "fine" and (
+            jitter_m > float(search.get("fine_fallback_max_pose_jitter_m", 0.12))
+            or jitter_yaw > float(search.get("fine_fallback_max_yaw_jitter_rad", 0.25))
+        ):
+            samples.clear()
+            return "fine_breach"
+        if jitter_m > max_jitter_m or jitter_yaw > max_jitter_yaw:
+            samples[:] = [samples[-1]]
+            return "pose_not_stable"
+        stable_duration = samples[-1][0] - samples[0][0]
+        min_duration = float(search.get(f"{stage}_stable_min_duration_sec", 1.5 if stage == "coarse" else 3.0))
+        return "converged" if len(samples) >= required and stable_duration >= min_duration else "awaiting_samples"
+
+    def _global_search_pose_converged(self, search, samples=None):
+        """Compatibility helper for callers that only need final-gate convergence."""
+        return self._global_search_stage_update(search, "fine", samples if samples is not None else []) == "converged"
+
+    def _bounded_linear_localization_search(self, search):
+        speed = min(0.05, abs(float(search["linear_speed_mps"])))
+        step_m = min(0.05, abs(float(search["max_step_m"])))
+        total_limit = min(0.20, abs(float(search["max_total_m"])))
+        max_scan_age = min(1.0, abs(float(search["max_scan_age_sec"])))
+        clearances = {
+            1.0: float(search["min_front_clearance_m"]),
+            -1.0: float(search["min_rear_clearance_m"]),
+        }
+        moved = 0.0
+        direction = 1.0
+        interval = 0.1
+        fine_samples = []
+        fine_required = max(2, int(search.get("fine_consecutive_samples", 10)))
+        fine_stable_duration = max(0.0, float(search.get("fine_stable_min_duration_sec", 3.0)))
+        convergence_check_interval = max(
+            interval,
+            min(0.5, fine_stable_duration / max(1, fine_required - 1)),
+        )
+        next_convergence_check = time.monotonic()
+
+        def localization_converged():
+            nonlocal next_convergence_check
+            now = time.monotonic()
+            if now + 1e-9 < next_convergence_check:
+                return False
+            next_convergence_check = now + convergence_check_interval
+            return self._global_search_pose_converged(search, fine_samples)
+
+        try:
+            while moved + 1e-9 < total_limit and not self.global_localization_stop_event.is_set():
+                if self.safety.estop:
+                    return self._set_global_localization_status(False, "bounded_linear_wiggle", False, "estop_active", moved_m=round(moved, 4))
+                if localization_converged():
+                    return self._set_global_localization_status(True, "bounded_linear_wiggle", False, "converged", moved_m=round(moved, 4))
+                clearance = (
+                    self.front_min_range(half_angle_deg=35.0, max_age_sec=max_scan_age)
+                    if direction > 0
+                    else self.rear_min_range(half_angle_deg=35.0, max_age_sec=max_scan_age)
+                )
+                if clearance is None:
+                    return self._set_global_localization_status(False, "bounded_linear_wiggle", False, "scan_missing_or_stale", moved_m=round(moved, 4))
+                if clearance < clearances[direction]:
+                    return self._set_global_localization_status(False, "bounded_linear_wiggle", False, "clearance_too_small", moved_m=round(moved, 4), clearance_m=round(clearance, 3))
+                this_step = min(step_m, total_limit - moved)
+                deadline = time.monotonic() + this_step / speed
+                twist = TwistStamped()
+                twist.header.frame_id = "base_link"
+                twist.twist.linear.x = direction * speed
+                while time.monotonic() < deadline:
+                    if self.safety.estop or self.global_localization_stop_event.is_set():
+                        break
+                    if localization_converged():
+                        return self._set_global_localization_status(
+                            True,
+                            "bounded_linear_wiggle",
+                            False,
+                            "converged",
+                            moved_m=round(moved, 4),
+                        )
+                    current = self.front_min_range(35.0, max_scan_age) if direction > 0 else self.rear_min_range(35.0, max_scan_age)
+                    if current is None or current < clearances[direction]:
+                        return self._set_global_localization_status(False, "bounded_linear_wiggle", False, "clearance_lost", moved_m=round(moved, 4))
+                    twist.header.stamp = self.get_clock().now().to_msg()
+                    self.cmd_vel_pub.publish(twist)
+                    time.sleep(interval)
+                self._publish_stop_velocity()
+                if self.global_localization_stop_event.is_set():
+                    break
+                moved += this_step
+                direction *= -1.0
+                time.sleep(0.5)
+            reason = "cancelled" if self.global_localization_stop_event.is_set() else "motion_budget_exhausted"
+            return self._set_global_localization_status(True, "bounded_linear_wiggle", False, reason, moved_m=round(moved, 4))
+        finally:
+            self._publish_stop_velocity()
 
     def set_initial_pose(self, goal, frame_id="map", covariance=None):
         """Publish an AMCL initial pose and mirror it to BasicNavigator."""

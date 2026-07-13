@@ -9,7 +9,7 @@ from pathlib import Path
 # --- paths and clearance policy ---
 ROOT = Path(__file__).resolve().parents[1]
 MAP_DIR = ROOT / "map"
-DEFAULT_MAP_YAML = MAP_DIR / "robot1_map.yaml"
+DEFAULT_MAP_YAML = MAP_DIR / "robot2_map.yaml"
 YAML_PATH = Path(os.getenv("ACTIVE_MAP_YAML", DEFAULT_MAP_YAML))
 if not YAML_PATH.exists():
     YAML_PATH = DEFAULT_MAP_YAML

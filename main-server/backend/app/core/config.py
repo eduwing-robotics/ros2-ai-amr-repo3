@@ -168,7 +168,7 @@ class Settings:
     # Shared secret for Main->Nav commands and Nav->Main callbacks. Empty means real HTTP mutations fail closed.
     movement_hmac_secret: str = os.getenv("LMS_MOVEMENT_HMAC_SECRET", "").strip()
     movement_hmac_clock_skew_sec: float = float(os.getenv("LMS_MOVEMENT_HMAC_CLOCK_SKEW_SEC", "60"))
-    movement_active_map_id: str = os.getenv("LMS_MOVEMENT_ACTIVE_MAP_ID", "robot1_map")
+    movement_active_map_id: str = os.getenv("LMS_MOVEMENT_ACTIVE_MAP_ID", "robot2_map")
     # Camera 서버 기본 endpoint. stream URL은 DB의 camera_sources.stream_url이 있으면 DB 값을 우선한다.
     camera_host: str = os.getenv("LMS_CAMERA_HOST", _DEFAULT_CAMERA_HOST)
     camera_api_base_url: str = os.getenv("LMS_CAMERA_API_BASE_URL", _DEFAULT_CAMERA_API_BASE_URL).rstrip("/")

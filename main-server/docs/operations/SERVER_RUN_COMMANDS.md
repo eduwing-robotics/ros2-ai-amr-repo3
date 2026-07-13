@@ -25,7 +25,7 @@ LMS_MOVEMENT_HOST=<movement-host>
 LMS_CAMERA_HOST=<camera-host>
 LMS_VISION_API_BASE_URL=http://<vision-host>:8100
 LMS_VISION_STREAM_BASE_URL=http://<vision-host>:8090
-LMS_MOVEMENT_ACTIVE_MAP_ID=robot1_map
+LMS_MOVEMENT_ACTIVE_MAP_ID=robot2_map
 ```
 
 Movement Nav2가 로드한 맵과 LMS를 맞출 때는 [ADR movement-map-id-alignment](../decisions/2026-06-24-movement-map-id-alignment.md)를 따른다. `maps/`에 Movement의 `map.pgm`을 둔 뒤:

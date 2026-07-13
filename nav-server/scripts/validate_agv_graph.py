@@ -14,7 +14,7 @@ from agv_grid_planner import GridMap, astar_4, inflated_blocked_cells, inflation
 
 
 NAV_SERVER_ROOT = Path(os.environ.get("NAV_SERVER_ROOT", Path(__file__).resolve().parents[1])).resolve()
-DEFAULT_MAP_YAML = NAV_SERVER_ROOT / "map" / "robot1_map.yaml"
+DEFAULT_MAP_YAML = NAV_SERVER_ROOT / "map" / "robot2_map.yaml"
 DEFAULT_GRAPH_PATH = NAV_SERVER_ROOT / "map" / "agv_waypoint_graph.yaml"
 
 

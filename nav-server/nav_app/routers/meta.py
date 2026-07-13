@@ -8,6 +8,7 @@ from nav_app.config import (
     active_endpoint_contract,
     active_route_config,
     current_ros_domain_id,
+    process_ros_domain_id,
 )
 from nav_app.runtime import runtime
 from nav_app.settings import (
@@ -58,6 +59,7 @@ def movement_health():
         "endpoint_contract_url": "/movement-api/v1/endpoints",
         "advertised_nav_api_url": active_route_config().get("nav_api_url"),
         "ros_domain_id": current_ros_domain_id(),
+        "process_ros_domain_id": process_ros_domain_id(),
         "dry_run": dry_run,
         "robot_online": robot_online,
         "cmd_vel_topic": "/cmd_vel",

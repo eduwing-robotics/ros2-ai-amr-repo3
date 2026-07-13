@@ -40,7 +40,7 @@ def load_robot_profiles() -> Dict[str, Dict[str, Any]]:
                 "camera_topic": "/mission/tb3_1/camera/compressed",
                 "capabilities": ["navigate", "charge"],
                 "enabled": True,
-                "api_port": 8001, "active_map_yaml": "map/robot1_map.yaml", "localization": {"map_id": "robot1_map", "map_metadata_identity": "map/robot1_map.yaml", "base_frame": "base_footprint", "scan_topic": "/scan", "max_scan_age_sec": 1.0, "max_tf_age_sec": 1.0, "max_covariance_x": 0.25, "max_covariance_y": 0.25, "max_covariance_yaw": 0.35, "consecutive_samples": 3, "convergence_timeout_sec": 30.0, "persisted_seed_max_age_sec": 3600.0, "kidnapped_jump_distance_m": 1.5}, "field_dispatch": {"inbound": True, "outbound": True, "status": "COMMISSIONED"},
+                "api_port": 8001, "active_map_yaml": "map/robot2_map.yaml", "localization": {"map_id": "robot2_map", "map_metadata_identity": "map/robot2_map.yaml", "base_frame": "base_footprint", "scan_topic": "/scan", "max_scan_age_sec": 1.0, "max_tf_age_sec": 1.0, "max_covariance_x": 0.25, "max_covariance_y": 0.25, "max_covariance_yaw": 0.35, "consecutive_samples": 3, "convergence_timeout_sec": 30.0, "persisted_seed_max_age_sec": 3600.0, "kidnapped_jump_distance_m": 1.5}, "field_dispatch": {"inbound": False, "outbound": False, "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"},
             },
             "tb3_burger_02": {
                 "robot_id": "tb3_burger_02",
@@ -185,13 +185,21 @@ def active_robot_profile() -> Dict[str, Any]:
 
 
 def current_ros_domain_id() -> int:
+    """Return the robot hardware domain exposed by the public API contract."""
+    profile = active_robot_profile()
+    return int(profile["ros_domain_id"])
+
+
+def process_ros_domain_id() -> int:
+    """Return the DDS domain used by this Nav process (optionally bridge-isolated)."""
     profile = active_robot_profile()
     return int(os.getenv("ROS_DOMAIN_ID", str(profile["ros_domain_id"])))
 
 
 def ensure_process_domain_matches_profile() -> int:
     profile = active_robot_profile()
-    expected_domain = int(profile["ros_domain_id"])
+    hardware_domain = int(profile["ros_domain_id"])
+    expected_domain = int(os.getenv("NAV_LOCAL_ROS_DOMAIN_ID", str(hardware_domain)))
     configured_domain = os.getenv("ROS_DOMAIN_ID")
     if configured_domain is None:
         os.environ["ROS_DOMAIN_ID"] = str(expected_domain)
@@ -200,8 +208,8 @@ def ensure_process_domain_matches_profile() -> int:
     actual_domain = int(configured_domain)
     if actual_domain != expected_domain:
         raise RuntimeError(
-            f"ROBOT_ID={ACTIVE_ROBOT_ID}는 ROS_DOMAIN_ID={expected_domain} 설정이 필요하지만 "
-            f"현재 ROS_DOMAIN_ID={actual_domain}입니다."
+            f"ROBOT_ID={ACTIVE_ROBOT_ID}는 NAV_LOCAL_ROS_DOMAIN_ID={expected_domain}에 맞춘 "
+            f"ROS_DOMAIN_ID가 필요하지만 현재 ROS_DOMAIN_ID={actual_domain}입니다."
         )
     return actual_domain
 

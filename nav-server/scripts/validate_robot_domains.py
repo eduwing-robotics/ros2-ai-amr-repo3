@@ -133,6 +133,29 @@ def _validate_bridge_files(robots, bridge_dir, errors):
         robot_to_center = bridge_dir / f"{bridge_robot_id}_to_center.yaml"
         expected_files.update({center_to_robot.name, robot_to_center.name})
 
+        nav_local_domain = robot.get("nav_local_domain_id")
+        if nav_local_domain is not None:
+            hardware_nav = bridge_dir / f"{bridge_robot_id}_hardware_nav.yaml"
+            expected_files.add(hardware_nav.name)
+            _expect_bridge_file(
+                hardware_nav,
+                name=f"{bridge_robot_id}_hardware_nav",
+                from_domain=ros_domain_id,
+                to_domain=int(nav_local_domain),
+                topic="/scan",
+                msg_type="sensor_msgs/msg/LaserScan",
+                errors=errors,
+            )
+            _expect_bridge_file(
+                hardware_nav,
+                name=f"{bridge_robot_id}_hardware_nav",
+                from_domain=ros_domain_id,
+                to_domain=int(nav_local_domain),
+                topic="/cmd_vel",
+                msg_type="geometry_msgs/msg/TwistStamped",
+                errors=errors,
+            )
+
         _expect_bridge_file(
             center_to_robot,
             name=f"center_to_{bridge_robot_id}",
@@ -202,6 +225,16 @@ def validate(config_path, bridge_dir=None):
         except (TypeError, ValueError):
             errors.append(f"{label}: center_domain_id는 정수여야 합니다.")
             center_domain_id = None
+
+        nav_local_domain_id = robot.get("nav_local_domain_id")
+        if nav_local_domain_id is not None:
+            try:
+                nav_local_domain_id = int(nav_local_domain_id)
+            except (TypeError, ValueError):
+                errors.append(f"{label}: nav_local_domain_id는 정수여야 합니다.")
+                nav_local_domain_id = None
+            if nav_local_domain_id is not None and nav_local_domain_id == ros_domain_id:
+                errors.append(f"{label}: nav_local_domain_id와 ros_domain_id는 달라야 합니다.")
 
         if ros_domain_id == center_domain_id:
             errors.append(f"{label}: center_domain_id와 ros_domain_id가 같으면 브릿지 경계가 없습니다.")

@@ -33,7 +33,7 @@ def _default_map_id(conn) -> str:
     row = conn.execute("SELECT map_id FROM maps ORDER BY map_id LIMIT 1").fetchone()
     if row and row.get("map_id"):
         return str(row["map_id"])
-    return settings.movement_active_map_id or "robot1_map"
+    return settings.movement_active_map_id or "robot2_map"
 
 
 def _backfill_locations_map_id(conn) -> None:

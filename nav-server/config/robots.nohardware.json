@@ -13,7 +13,7 @@
         "charge"
       ],
       "enabled": true,
-      "active_map_yaml": "map/robot1_map.yaml",
+      "active_map_yaml": "map/robot2_map.yaml",
       "aruco_detection_topic": "/mission/tb3_1/aruco/detections",
       "lift": {
         "enabled": false,
@@ -46,8 +46,8 @@
       },
       "api_port": 8001,
       "localization": {
-        "map_id": "robot1_map",
-        "map_metadata_identity": "map/robot1_map.yaml",
+        "map_id": "robot2_map",
+        "map_metadata_identity": "map/robot2_map.yaml",
         "base_frame": "base_footprint",
         "scan_topic": "/scan",
         "max_scan_age_sec": 1.0,
@@ -55,15 +55,58 @@
         "max_covariance_x": 0.25,
         "max_covariance_y": 0.25,
         "max_covariance_yaw": 0.35,
-        "consecutive_samples": 3,
-        "convergence_timeout_sec": 30.0,
+        "consecutive_samples": 10,
+        "convergence_timeout_sec": 120.0,
         "persisted_seed_max_age_sec": 3600.0,
-        "kidnapped_jump_distance_m": 1.5
+        "kidnapped_jump_distance_m": 1.5,
+        "global_search": {
+          "default_strategy": "observe_only",
+          "allowed_strategies": [
+            "observe_only",
+            "bounded_linear_wiggle"
+          ],
+          "motion_requires_explicit_request": true,
+          "linear_speed_mps": 0.04,
+          "max_step_m": 0.05,
+          "max_total_m": 0.2,
+          "min_front_clearance_m": 0.6,
+          "min_rear_clearance_m": 0.6,
+          "max_scan_age_sec": 1.0,
+          "coarse_nomotion_interval_sec": 0.75,
+          "fine_nomotion_interval_sec": 1.0,
+          "nomotion_update_timeout_sec": 120.0,
+          "max_tf_age_sec": 1.0,
+          "coarse_covariance_limits": {
+            "x": 0.5,
+            "y": 0.5,
+            "yaw": 1.0
+          },
+          "fine_fallback_covariance_limits": {
+            "x": 0.4,
+            "y": 0.4,
+            "yaw": 0.7
+          },
+          "coarse_consecutive_samples": 3,
+          "fine_consecutive_samples": 10,
+          "coarse_stable_min_duration_sec": 1.5,
+          "fine_stable_min_duration_sec": 3.0,
+          "coarse_max_pose_jitter_m": 0.15,
+          "coarse_max_yaw_jitter_rad": 0.35,
+          "fine_max_pose_jitter_m": 0.08,
+          "fine_max_yaw_jitter_rad": 0.15,
+          "fine_fallback_max_pose_jitter_m": 0.12,
+          "fine_fallback_max_yaw_jitter_rad": 0.25,
+          "fine_fallback_breaches": 3,
+          "max_global_reinitializations": 2
+        },
+        "stable_min_duration_sec": 3.0,
+        "max_pose_jitter_m": 0.08,
+        "max_yaw_jitter_rad": 0.15
       },
       "field_dispatch": {
-        "inbound": true,
-        "outbound": true,
-        "status": "COMMISSIONED"
+        "inbound": false,
+        "outbound": false,
+        "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"
       },
       "simulation_fixture": true
     },
@@ -124,10 +167,53 @@
         "max_covariance_x": 0.25,
         "max_covariance_y": 0.25,
         "max_covariance_yaw": 0.35,
-        "consecutive_samples": 3,
-        "convergence_timeout_sec": 30.0,
+        "consecutive_samples": 10,
+        "convergence_timeout_sec": 120.0,
         "persisted_seed_max_age_sec": 3600.0,
-        "kidnapped_jump_distance_m": 1.5
+        "kidnapped_jump_distance_m": 1.5,
+        "global_search": {
+          "default_strategy": "observe_only",
+          "allowed_strategies": [
+            "observe_only",
+            "bounded_linear_wiggle"
+          ],
+          "motion_requires_explicit_request": true,
+          "linear_speed_mps": 0.04,
+          "max_step_m": 0.05,
+          "max_total_m": 0.2,
+          "min_front_clearance_m": 0.6,
+          "min_rear_clearance_m": 0.6,
+          "max_scan_age_sec": 1.0,
+          "coarse_nomotion_interval_sec": 0.75,
+          "fine_nomotion_interval_sec": 1.0,
+          "nomotion_update_timeout_sec": 120.0,
+          "max_tf_age_sec": 1.0,
+          "coarse_covariance_limits": {
+            "x": 0.5,
+            "y": 0.5,
+            "yaw": 1.0
+          },
+          "fine_fallback_covariance_limits": {
+            "x": 0.4,
+            "y": 0.4,
+            "yaw": 0.7
+          },
+          "coarse_consecutive_samples": 3,
+          "fine_consecutive_samples": 10,
+          "coarse_stable_min_duration_sec": 1.5,
+          "fine_stable_min_duration_sec": 3.0,
+          "coarse_max_pose_jitter_m": 0.15,
+          "coarse_max_yaw_jitter_rad": 0.35,
+          "fine_max_pose_jitter_m": 0.08,
+          "fine_max_yaw_jitter_rad": 0.15,
+          "fine_fallback_max_pose_jitter_m": 0.12,
+          "fine_fallback_max_yaw_jitter_rad": 0.25,
+          "fine_fallback_breaches": 3,
+          "max_global_reinitializations": 2
+        },
+        "stable_min_duration_sec": 3.0,
+        "max_pose_jitter_m": 0.08,
+        "max_yaw_jitter_rad": 0.15
       },
       "field_dispatch": {
         "inbound": false,
