@@ -9,7 +9,16 @@ export const inbound = { waypoint_id: "in_1", map_id: "map", name: "입고", x: 
 export const outbound = { ...inbound, waypoint_id: "out_1", name: "출고", waypoint_type: "outbound" };
 export const map = { map_id: "map", name: "테스트 맵", width: 1000, height: 800, resolution: 0.05, origin_x: 0, origin_y: 0, image_url: "" };
 
-type State = { emergency?: boolean; movementOk?: boolean; workOrders?: unknown[]; inventory?: unknown[]; recoveryTasks?: unknown[]; tasks?: unknown[] };
+type State = {
+  emergency?: boolean;
+  movementOk?: boolean;
+  workOrders?: unknown[];
+  inventory?: unknown[];
+  recoveryTasks?: unknown[];
+  tasks?: unknown[];
+  cameraSources?: unknown[];
+  cameraOnline?: boolean;
+};
 
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
@@ -19,7 +28,14 @@ export async function mockMainApi(page: Page, state: State = {}) {
   await page.route("**/api/v1/**", async (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname.replace("/api/v1", "");
-    if (path === "/status") return json(route, { system: {}, robots: [robot], tasks: state.tasks ?? [], events: [], movement_health: { tb3_1: { ok: state.movementOk ?? true, is_emergency: Boolean(state.emergency) } } });
+    if (path === "/status") return json(route, {
+      system: state.cameraOnline ? { camera_health: { ok: true } } : {},
+      robots: [robot],
+      camera_sources: state.cameraSources ?? [],
+      tasks: state.tasks ?? [],
+      events: [],
+      movement_health: { tb3_1: { ok: state.movementOk ?? true, is_emergency: Boolean(state.emergency) } },
+    });
     if (path === "/robots") return json(route, [robot]);
     if (path === "/items") return json(route, [item]);
     if (path === "/storage-slots") return json(route, [slot]);

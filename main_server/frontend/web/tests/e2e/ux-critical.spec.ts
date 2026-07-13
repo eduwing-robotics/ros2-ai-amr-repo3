@@ -202,3 +202,22 @@ test("WEB-15 작업 메뉴는 하단 워크스페이스를 접고 다시 펼친�
   await taskNav.click();
   await expect(content).toBeVisible();
 });
+
+test("WEB-16 WebRTC 대기 영상 요소는 hidden으로 제거되지 않는다", async ({ page }) => {
+  await mockMainApi(page, {
+    cameraOnline: true,
+    cameraSources: [{
+      source_id: "tb3_1_picam",
+      label: "AMR 1 Camera",
+      robot_id: robot.robot_id,
+      status: "online",
+      stream_url: "",
+    }],
+  });
+  await page.goto("/operate/control");
+
+  const video = page.locator(".cam-tile video").first();
+  await expect(video).toBeAttached();
+  await expect(video).not.toHaveAttribute("hidden", "");
+  expect(await video.evaluate((element) => getComputedStyle(element).display)).not.toBe("none");
+});

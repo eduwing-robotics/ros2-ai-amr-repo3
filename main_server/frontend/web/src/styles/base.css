@@ -138,8 +138,9 @@
     .cam-policy-badge--mjpeg { color: var(--warn-fg); background: var(--warn-bg); border: 1px solid var(--warn-border); }
     .cam-policy-badge--webrtc-only { color: var(--ok-fg); background: var(--ok-bg); border: 1px solid var(--ok-border); }
     img.cam-live { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
-    video.cam-live-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
-    video.cam-live-video[hidden] { display: none; }
+    img.cam-live[hidden] { display: none; }
+    video.cam-live-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; opacity: 0; pointer-events: none; }
+    video.cam-live-video.is-active { opacity: 1; }
     img.cam-live.cam-err { display: none; }
     /* src 받기 전엔 숨기되 display:none은 피한다(offsetParent 가드가 hidden으로 오인해 첫 로드를 막음) */
     img.cam-live:not([src]) { opacity: 0; }

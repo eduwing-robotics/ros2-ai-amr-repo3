@@ -136,6 +136,11 @@ Movement가 응답하지 않으면 수동 조작과 맵 이동을 차단하고, 
 좌측 작업 메뉴를 누르면 canonical `?panel=tasks` URL, focus, `aria-expanded`와 전체 작업 표가 함께 열려야 한다.
 요약 바를 누르면 접히고 같은 메뉴로 다시 펼칠 수 있어야 한다.
 
+## WEB-16 WebRTC 영상 표시
+
+MJPEG를 표시하면서 WebRTC 연결을 준비할 때 video 요소를 렌더 트리에서 제거하지 않는다.
+WebRTC 첫 프레임 수신 후에만 video를 노출하고, 연결 손실 시 MJPEG로 복귀할 수 있어야 한다.
+
 
 ## 실장비 인수 체크리스트
 
