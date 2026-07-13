@@ -1150,7 +1150,7 @@ class LogisticsNavigator(Node):
                 translation_tolerance_m=translation_tolerance,
                 yaw_tolerance_rad=yaw_tolerance,
                 min_score_margin_m=float(config["global_min_score_margin_m"]),
-                max_mean_distance_m=float(config["max_mean_distance_m"]),
+                max_mean_distance_m=float(config["global_max_mean_distance_m"]),
                 min_match_ratio=float(config["min_match_ratio"]),
                 max_segment_mismatch_m=float(config["max_segment_mismatch_m"]),
             )

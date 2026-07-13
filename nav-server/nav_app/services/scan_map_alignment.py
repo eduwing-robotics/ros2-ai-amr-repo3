@@ -38,6 +38,7 @@ DEFAULTS = {
     "match_distance_m": 0.05,
     "min_match_ratio": 0.65,
     "max_mean_distance_m": 0.015,
+    "global_max_mean_distance_m": 0.020,
     "min_improvement_m": 0.002,
     "min_relative_improvement": 0.25,
     "accept_translation_residual_m": 0.015,
@@ -481,7 +482,7 @@ def global_align_scan_to_map(
     second_mean = refined[1]["score"]["mean_distance_m"] if len(refined) > 1 else float(cfg["distance_clip_m"])
     margin = max(0.0, second_mean - best["score"]["mean_distance_m"])
     accepted = bool(
-        best["score"]["mean_distance_m"] <= float(cfg["max_mean_distance_m"])
+        best["score"]["mean_distance_m"] <= float(cfg["global_max_mean_distance_m"])
         and best["score"]["match_ratio"] >= float(cfg["min_match_ratio"])
         and best["score"]["segment_mismatch_m"] <= float(cfg["max_segment_mismatch_m"])
         and best["score"]["wall_direction_error_rad"] <= float(cfg["max_wall_direction_error_rad"])
@@ -553,17 +554,21 @@ def select_temporal_global_hypothesis(
             separated.append(cluster)
     if not separated:
         return {"accepted": False, "reason": "temporal_candidates_empty", "clusters": []}
-    best = separated[0]
-    supported = [cluster for cluster in separated if cluster["support_scans"] >= required_scans]
+    eligible = [
+        cluster for cluster in separated
+        if cluster["support_scans"] >= required_scans
+        and cluster["mean_distance_m"] <= max_mean_distance_m
+        and cluster["match_ratio"] >= min_match_ratio
+        and cluster["segment_mismatch_m"] <= max_segment_mismatch_m
+    ]
+    best = eligible[0] if eligible else separated[0]
+    supported = eligible
     margin = (
         supported[1]["mean_distance_m"] - best["mean_distance_m"]
         if len(supported) > 1 else None
     )
     accepted = bool(
-        best["support_scans"] >= required_scans
-        and best["mean_distance_m"] <= max_mean_distance_m
-        and best["match_ratio"] >= min_match_ratio
-        and best["segment_mismatch_m"] <= max_segment_mismatch_m
+        bool(eligible)
         and (margin is None or margin >= min_score_margin_m)
     )
     return {

@@ -287,6 +287,8 @@ def validate_localization_config(robot_id: str, localization: Any) -> List[str]:
             ("segment_mismatch_quantile", 0.5, 1.0),
             ("segment_mismatch_tolerance_m", 0.0, 1.0),
             ("max_segment_mismatch_m", 0.0, 1.0),
+            ("max_mean_distance_m", 0.0, 1.0),
+            ("global_max_mean_distance_m", 0.0, 1.0),
             ("wall_direction_weight_m_per_rad", 0.0, 1.0),
             ("wall_direction_max_distance_m", 0.001, 1.0),
             ("wall_direction_distance_slack_m", 0.0, 0.01),
@@ -302,6 +304,16 @@ def validate_localization_config(robot_id: str, localization: Any) -> List[str]:
                     )
             except (TypeError, ValueError):
                 errors.append(f"{robot_id}: localization.scan_map_alignment.{field} must be numeric")
+        try:
+            fine_max_mean = float(alignment.get("max_mean_distance_m", 0.015))
+            global_max_mean = float(alignment.get("global_max_mean_distance_m", 0.020))
+            if global_max_mean < fine_max_mean:
+                errors.append(
+                    f"{robot_id}: localization.scan_map_alignment.global_max_mean_distance_m "
+                    "must be greater than or equal to max_mean_distance_m"
+                )
+        except (TypeError, ValueError):
+            pass
     return errors
 
 def validate_robot_profile(robot: Mapping[str, Any]) -> List[str]:

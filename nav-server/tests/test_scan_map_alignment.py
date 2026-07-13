@@ -242,6 +242,32 @@ def test_temporal_global_selector_rejects_two_repeated_near_tie_locations():
     assert result["score_margin_m"] == pytest.approx(0.001)
 
 
+def test_temporal_global_selector_ignores_repeated_competitor_that_fails_geometry_gate():
+    history = []
+    for token in (1.0, 2.0, 3.0):
+        best = _global_candidate(1.29, -0.35, -1.57, 0.0185)
+        invalid_competitor = _global_candidate(0.02, -0.38, 1.57, 0.0195)
+        invalid_competitor["score"]["segment_mismatch_m"] = 0.028
+        history.append({"scan_token": token, "candidates": [best, invalid_competitor]})
+
+    result = select_temporal_global_hypothesis(
+        history,
+        required_scans=3,
+        window_scans=5,
+        translation_tolerance_m=0.08,
+        yaw_tolerance_rad=math.radians(3.0),
+        min_score_margin_m=0.003,
+        max_mean_distance_m=0.020,
+        min_match_ratio=0.65,
+        max_segment_mismatch_m=0.015,
+    )
+
+    assert result["accepted"] is True
+    assert result["support_scans"] == 3
+    assert result["score_margin_m"] is None
+    assert result["absolute_pose"]["x"] == pytest.approx(1.29)
+
+
 def test_trimmed_huber_backend_rejects_dynamic_scan_outliers(tmp_path):
     map_yaml = _write_room_map(tmp_path)
     true_pose = {"x": 1.35, "y": 0.42, "yaw": math.radians(-90.0)}

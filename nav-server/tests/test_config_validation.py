@@ -148,6 +148,26 @@ def test_scan_alignment_rejects_unknown_selector_loss_and_map_feature():
     assert any("loss_backend" in error for error in errors)
 
 
+def test_scan_alignment_rejects_global_gate_tighter_than_fine_gate():
+    localization = _localization()
+    localization["scan_map_alignment"] = {
+        "max_mean_distance_m": 0.015,
+        "global_max_mean_distance_m": 0.010,
+    }
+    profile = {
+        "robot_id": "tb3_burger_01", "bridge_robot_id": "tb3_1",
+        "ros_domain_id": 2, "center_domain_id": 1,
+        "namespace": "/tb3_burger_01", "teleop_command_topic": "/mission/tb3_1/teleop_cmd",
+        "camera_topic": "/mission/tb3_1/camera/compressed", "api_port": 8001,
+        "active_map_yaml": "map/robot1_map.yaml", "localization": localization,
+        "field_dispatch": {"inbound": False, "outbound": False, "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"},
+    }
+
+    errors = validate_robot_profile(profile)
+
+    assert any("global_max_mean_distance_m must be greater than or equal" in error for error in errors)
+
+
 def test_global_search_requires_observe_only_default_explicit_motion_gate_and_bounded_tf_age():
     localization = _localization()
     localization["global_search"].update(
