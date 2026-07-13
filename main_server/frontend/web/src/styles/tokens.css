@@ -1,0 +1,116 @@
+/* 디자인 토큰.
+   기존 base.css 의 :root 코어 토큰(--bg/--surface/--text/--teal ...)에 더해
+   2계층 모드 색상·간격·z-레이어 등 의미 토큰을 추가한다. additive — 기존 변수 안 건드림. */
+:root {
+  /* 운영/관리 모드 강조색 (와이어프레임: 운영=blue, 관리=purple) */
+  --operator: #2563eb; --operator-dark: #1c4fb0; --operator-soft: #e8f0fe;
+  --admin: #7a4fd4; --admin-dark: #5b3bd4; --admin-soft: #eae6fd;
+
+  /* 앱 크롬 (와이어프레임 다크 헤더) */
+  --chrome-bg: #1f2933; --chrome-fg: #ffffff; --chrome-dim: #9fb0c9;
+
+  /* 간격 스케일 */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+
+  /* z 레이어 */
+  --z-header: 50; --z-drawer: 40; --z-overlay: 30;
+
+  /* 의미 토큰 — 모드별 오버라이드 대상 (기본=teal) */
+  --accent: var(--teal);
+  --accent-dark: var(--teal-dark);
+  --accent-soft: var(--teal-soft);
+
+  /* 상태색 (라이트) — 다크에서 저채도 값으로 오버라이드 (ISA-101: 색은 예외에만) */
+  --ok-bg: #d1fae5; --ok-fg: #065f46; --ok-border: #34d399;
+  --warn-bg: #fef3c7; --warn-fg: #92400e; --warn-border: #fbbf24;
+  --err-bg: #fee2e2; --err-fg: #991b1b; --err-border: #fecaca;
+  --run-bg: #dbeafe; --run-fg: #1e40af; --run-border: #60a5fa;
+  --idle-bg: #e5e7eb; --idle-fg: #374151;
+  --info-bg: #eff6ff; --info-fg: #1e3a8a; --info-border: #bfdbfe;
+
+  /* 입력·버튼·맵 표면 */
+  --input-bg: #ffffff;
+  --btn-secondary-bg: #e5e7eb; --btn-secondary-fg: #374151; --btn-secondary-hover: #d1d5db;
+  --map-canvas: #f8fafc;      /* map-stage 격자 배경 */
+  --map-letterbox: #ffffff;   /* 맵 이미지 object-fit:contain 레터박스 */
+  --table-head-bg: var(--surface-3);
+  --table-head-fg: var(--text-muted);
+}
+
+.shell[data-mode="operate"] {
+  --accent: var(--operator);
+  --accent-dark: var(--operator-dark);
+  --accent-soft: var(--operator-soft);
+}
+
+.shell[data-mode="admin"] {
+  --accent: var(--admin);
+  --accent-dark: var(--admin-dark);
+  --accent-soft: var(--admin-soft);
+}
+
+/* — 다크 테마 (시스템 선호 + 수동 data-theme) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1419;
+    --surface: #1a2332;
+    --surface-2: #243044;
+    --surface-3: #2b3950;
+    --border: #34435e;
+    --border-light: #283651;
+    --border-strong: #4a5a78;
+    --text: #e8edf4;
+    --text-muted: #aebad0;
+    --text-dim: #9fb0c9;
+    --chrome-bg: #0b1016;
+    --chrome-fg: #f3f6fa;
+    --chrome-dim: #8fa3be;
+    --operator-soft: #1a2a44;
+    --admin-soft: #2a2244;
+    --teal-soft: #1a3330;
+
+    /* 상태색 (다크) — 채도 낮춘 반투명 배경 + 밝은 전경 (Material dark: 순색 금지) */
+    --ok-bg: rgba(16, 185, 129, .16); --ok-fg: #6ee7b7; --ok-border: rgba(52, 211, 153, .45);
+    --warn-bg: rgba(245, 158, 11, .16); --warn-fg: #fcd34d; --warn-border: rgba(251, 191, 36, .45);
+    --err-bg: rgba(239, 68, 68, .16); --err-fg: #fca5a5; --err-border: rgba(248, 113, 113, .45);
+    --run-bg: rgba(59, 130, 246, .16); --run-fg: #93c5fd; --run-border: rgba(96, 165, 250, .45);
+    --idle-bg: rgba(148, 163, 184, .16); --idle-fg: #cbd5e1;
+    --info-bg: rgba(59, 130, 246, .12); --info-fg: #bfdbfe; --info-border: rgba(96, 165, 250, .35);
+
+    --input-bg: #141c2a;
+    --btn-secondary-bg: #2b3950; --btn-secondary-fg: #d4dcea; --btn-secondary-hover: #364763;
+    --map-canvas: #1a2332;
+    --map-letterbox: #243044;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1419;
+  --surface: #1a2332;
+  --surface-2: #243044;
+  --surface-3: #2b3950;
+  --border: #34435e;
+  --border-light: #283651;
+  --border-strong: #4a5a78;
+  --text: #e8edf4;
+  --text-muted: #aebad0;
+  --text-dim: #9fb0c9;
+  --chrome-bg: #0b1016;
+  --chrome-fg: #f3f6fa;
+  --chrome-dim: #8fa3be;
+  --operator-soft: #1a2a44;
+  --admin-soft: #2a2244;
+  --teal-soft: #1a3330;
+
+  --ok-bg: rgba(16, 185, 129, .16); --ok-fg: #6ee7b7; --ok-border: rgba(52, 211, 153, .45);
+  --warn-bg: rgba(245, 158, 11, .16); --warn-fg: #fcd34d; --warn-border: rgba(251, 191, 36, .45);
+  --err-bg: rgba(239, 68, 68, .16); --err-fg: #fca5a5; --err-border: rgba(248, 113, 113, .45);
+  --run-bg: rgba(59, 130, 246, .16); --run-fg: #93c5fd; --run-border: rgba(96, 165, 250, .45);
+  --idle-bg: rgba(148, 163, 184, .16); --idle-fg: #cbd5e1;
+  --info-bg: rgba(59, 130, 246, .12); --info-fg: #bfdbfe; --info-border: rgba(96, 165, 250, .35);
+
+  --input-bg: #141c2a;
+  --btn-secondary-bg: #2b3950; --btn-secondary-fg: #d4dcea; --btn-secondary-hover: #364763;
+  --map-canvas: #1a2332;
+  --map-letterbox: #243044;
+}

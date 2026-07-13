@@ -1,0 +1,6 @@
+# Human-maintained runtime inputs. Bootstrap installs the reviewed exact pins
+# from requirements.lock.txt.
+fastapi
+uvicorn[standard]
+pydantic
+psycopg[binary]>=3.1

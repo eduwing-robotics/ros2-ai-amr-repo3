@@ -1,0 +1,714 @@
+/*  운영자 지속 셸 — 슬림 네비 + 맵 고정 + 우측 레일 + 드로어 */
+
+.body[data-layout="operate"] { grid-template-columns: 1fr; min-height: 0; }
+.body[data-layout="operate"] .content { grid-column: 1; }
+.content-operate { padding: 0; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+
+.operator-shell {
+  display: grid;
+  grid-template-columns: var(--slim-nav-w, 80px) 1fr;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.slim-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 4px;
+  background: var(--chrome-bg);
+  border-right: 1px solid #0f141a;
+  min-width: 0;
+}
+
+.slim-nav button {
+  border: 0;
+  border-radius: var(--radius);
+  padding: 8px 4px;
+  background: transparent;
+  color: var(--chrome-dim);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px; /* 상시 사용 네비 — 원거리 가독 (산업 대시보드 타이포 가이드) */
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.slim-nav button:hover { background: rgba(255,255,255,.12); color: #fff; }
+.slim-nav button.active { background: var(--operator); color: #fff; }
+
+.slim-nav-label { display: block; text-align: center; word-break: keep-all; overflow-wrap: anywhere; hyphens: auto; }
+.slim-nav button {
+  position: relative;
+  min-height: 58px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+
+.slim-nav-icon {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.slim-nav-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid var(--chrome-bg);
+  border-radius: 999px;
+  background: var(--amber);
+  color: #1c1917;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+}
+
+.slim-nav button.active .slim-nav-badge { border-color: var(--operator); }
+
+.drawer-scrim { display: none; }
+
+.operator-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6px var(--operator-rail-w, 360px);
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  column-gap: 0;
+}
+
+.operator-stage .operator-main { grid-column: 1; }
+.operator-stage .layout-resizer--rail { grid-column: 2; }
+.operator-stage .operator-right-rail { grid-column: 3; }
+
+.operator-stage.drawer-open {
+  grid-template-columns: var(--operator-drawer-w, 360px) 6px minmax(0, 1fr) 6px var(--operator-rail-w, 360px);
+}
+
+.operator-stage.drawer-open .operator-drawer { grid-column: 1; min-height: 0; }
+.operator-stage.drawer-open .layout-resizer--drawer { grid-column: 2; }
+.operator-stage.drawer-open .operator-main { grid-column: 3; }
+.operator-stage.drawer-open .layout-resizer--rail { grid-column: 4; }
+.operator-stage.drawer-open .operator-right-rail { grid-column: 5; }
+
+.operator-drawer { max-height: 100%; }
+
+.operator-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  gap: 8px;
+  overflow: auto;
+}
+
+.operator-map-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 360px;
+  min-width: 0;
+  gap: 10px;
+}
+
+/* : 맵 옆 전역 카메라 컬럼 — object-fit:contain 좌우 레터박스(거터)에 카메라를 붙여 죽은 공간 활용. */
+.operator-map-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  min-width: 0;
+}
+.operator-map-stage-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.operator-map-camrail {
+  flex: 0 0 var(--operator-cam-w, 280px);
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.operator-map-camrail-head {
+  flex: none;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.operator-map-camrail .toolbar { flex: none; }
+/* 카메라 영역이 camrail 세로를 꽉 채워 바닥 여백을 없앤다 (stage는 object-fit:contain 레터박스). */
+.operator-map-camrail .cam-grid {
+  grid-template-columns: 1fr;
+  grid-auto-rows: 1fr;
+  flex: 1;
+  min-height: 0;
+}
+.operator-map-camrail > .cam-tile { flex: 1; }
+.operator-map-camrail .cam-tile { min-height: 0; }
+.operator-map-camrail .cam-tile .live-stage {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  aspect-ratio: auto;
+  max-height: none;
+  margin-top: 0;
+}
+/* 좁으면(≤1100px) 옆에 붙이면 둘 다 찌그러지므로 맵 아래로 스택 (드래그 거터 숨김) */
+@media (max-width: 1100px) {
+  .operator-map-wrap { flex-direction: column; }
+  .operator-map-camrail { flex: none; max-height: 260px; }
+  .layout-resizer--cam { display: none; }
+}
+
+/* 운영 코크핏: 맵 패널을 flex로 채워 고정 58vh가 아래 밴드를 침범하지 않게 한다. */
+.operator-map-wrap .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.operator-map-wrap .panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; }
+.operator-map-wrap .map-stage { flex: 1; height: auto; min-height: 200px; max-height: none; }
+
+/* 맵 아래 작업 워크스페이스 — 접힌 요약 바와 전폭 데이터 테이블을 한 영역에서 전환한다. */
+.operator-insight-band {
+  flex: none;
+  height: var(--operator-band-h, 300px);
+  min-height: 140px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.operator-insight-band.collapsed {
+  height: 48px;
+  min-height: 48px;
+}
+/* 트레이 바: VS Code 하단 패널처럼 작업/수동조작 탭을 한 48px 바에 담는다 */
+.task-tray-bar {
+  flex: 0 0 48px;
+  min-height: 48px;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--surface-2);
+}
+.operator-insight-band.collapsed .task-tray-bar { border-bottom: 0; }
+.task-tray-tab {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  border: 0;
+  border-right: 1px solid var(--border-light);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+}
+.task-tray-tab:hover { background: var(--surface-3); }
+.task-tray-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--operator);
+}
+.task-tray-tab:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--operator);
+  outline-offset: -2px;
+}
+.task-tray-tab.warn { box-shadow: inset 4px 0 0 var(--amber); }
+.task-tray-tab.active.warn {
+  box-shadow: inset 4px 0 0 var(--amber), inset 0 -2px 0 var(--operator);
+}
+/* 작업 탭은 카운트가 길어질 수 있어 줄어들 수 있게 */
+.task-workspace-summary { flex: 0 1 auto; min-width: 0; }
+.tray-tab-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); }
+.task-tray-bar .task-workspace-action { margin-left: auto; align-self: center; padding: 0 14px; }
+.task-workspace-title { font-size: 14px; font-weight: 800; white-space: nowrap; }
+.task-workspace-counts {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.task-workspace-counts b { color: var(--text); }
+.task-recovery-count { color: var(--amber-dark, #92400e); font-weight: 700; }
+.task-workspace-action {
+  color: var(--operator);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.task-workspace-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  padding-top: 8px;
+}
+.task-workspace-content[hidden] { display: none; }
+.task-workspace-content > .panel { flex: 1; min-width: 0; min-height: 0; margin: 0; overflow: auto; }
+.task-workspace-content.control-workspace { padding: 8px 10px 10px; }
+.layout-resizer--band { flex: none; }
+@media (max-width: 900px) {
+  .operator-insight-band.open { height: auto; min-height: 320px; }
+  .task-workspace-counts { gap: 8px; }
+}
+
+/* 작업 툴바 2-zone: 왼쪽=뷰(세그먼티드), 오른쪽=배치 실행(행동 존) */
+.task-queue-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface);
+}
+.segmented button {
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.segmented button:last-child { border-right: 0; }
+.segmented button.active { background: var(--operator); color: #fff; }
+.seg-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.12);
+  color: inherit;
+}
+.segmented button.active .seg-count,
+.insight-tabs button.active .seg-count { background: rgba(255, 255, 255, 0.28); }
+.task-queue-action-zone { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.task-action-reason { flex-basis: 100%; text-align: right; color: var(--text-muted); font-size: 12px; }
+.operator-movement-warning { margin: 0 0 8px; }
+.compact-alert { margin: 0 0 8px; padding: 7px 9px; font-size: 12px; }
+
+/* 순서 편집 커밋 바 — 순서 변경 시에만 노출(edit-commit) */
+.queue-edit-commit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  border: 1px solid #f59e0b;
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  background: rgba(245, 158, 11, 0.12);
+  font-size: 13px;
+}
+.queue-edit-commit-actions { display: inline-flex; gap: 8px; }
+
+/* 행 액션 위계: ghost=조용한 네비(펼침) */
+.rowbtn.ghost { background: transparent; color: var(--text-muted); padding: 4px 7px; }
+.rowbtn.ghost:hover { background: rgba(0, 0, 0, 0.07); }
+
+/* 수동 조작 탭 내부 2컬럼(Teleop | 맵 이동) */
+.operator-control-bar-inner {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.operator-control-bar-inner > .panel { margin: 0; min-width: 0; }
+
+.map-goto-minimal h2 { font-size: 14px; }
+.map-goto-minimal .toolbar { margin-bottom: 0; }
+
+@media (max-width: 900px) {
+  .operator-control-bar-inner { grid-template-columns: 1fr; }
+}
+
+/* 14-B: 거터 없는 단독 스크롤 — event-feed (우측 레일 패널) */
+.event-feed { display: flex; flex-direction: column; gap: 6px; min-height: 120px; max-height: 40vh; overflow: auto; resize: vertical; }
+.operator-right-rail > .panel { display: flex; flex-direction: column; min-height: 0; }
+.operator-right-rail .event-feed,
+.operator-right-rail .rail-list {
+  flex: 1 1 0;
+  min-height: 120px;
+  max-height: none;
+  overflow: auto;
+}
+/* 알람 심각도 3단계 (ISA-101): 위험=적색 좌보더, 주의=호박 좌보더, 정보=저채도 무보더 */
+.event-feed-row { display: grid; grid-template-columns: 64px 1fr; gap: 4px 8px; font-size: 12px; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--surface-2); border-left: 3px solid transparent; }
+.event-feed-row.err { background: var(--err-bg); color: var(--err-fg); border-left-color: var(--red); }
+.event-feed-row.warn { background: var(--warn-bg); color: var(--warn-fg); border-left-color: var(--amber); }
+.event-feed-row.off { opacity: .8; } /* 정보성 이벤트는 조용히 (eventDotClass="off") */
+.event-feed-row .event-type { grid-column: 2; font-weight: 600; }
+.event-feed-row .event-msg { grid-column: 1 / -1; color: var(--text-muted); }
+.event-feed-row.err .event-msg, .event-feed-row.warn .event-msg { color: inherit; opacity: .85; }
+.event-time { color: var(--text-dim); }
+
+.robot-status-card.emergency { border-left-color: var(--red); background: var(--err-bg); }
+.robot-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.robot-task-ctx { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+.robot-battery.battery-warn { color: var(--warn-fg); }
+.robot-battery.battery-low { color: var(--red); font-weight: 700; }
+
+/* : 로봇=박스 융합 레일 */
+.robot-monitor-rail.panel { padding: 12px; margin: 0; gap: 10px; flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0; }
+.robot-monitor-rail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.robot-monitor-rail-head h2 { margin: 0; font-size: 15px; }
+.robot-monitor-connectivity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+/* 내부 스크롤 금지 — 카드는 내용만큼 자라고, 스크롤은 바깥 .operator-right-rail 담당.
+   .operator-right-rail .rail-list(flex:1 1 0; overflow:auto)보다 specificity 높게 덮는다. */
+.operator-right-rail .robot-monitor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: visible;
+}
+.robot-monitor-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  min-width: 0;
+}
+.robot-monitor-card.emergency { border-left-color: var(--red); background: var(--err-bg); }
+.robot-monitor-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.robot-monitor-head-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.robot-monitor-head-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.robot-monitor-battery.battery-warn { color: var(--warn-fg); }
+.robot-monitor-battery.battery-low { color: var(--red); font-weight: 700; }
+.robot-monitor-camera { min-width: 0; display: flex; flex-direction: column; }
+.robot-monitor-camera .cam-tile { gap: 4px; }
+.robot-monitor-camera .live-stage {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: none;
+  margin-top: 0;
+}
+/* 카메라 오프라인/부재/접힘 — 4:3 고정 박스 대신 슬림 1줄 (레일 세로 회수) */
+.robot-monitor-camera-offline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.robot-monitor-camera-offline .rowbtn { margin-right: 0; }
+.robot-monitor-camera-toggle { align-self: flex-end; margin-top: 4px; }
+.robot-monitor-details { font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.cam-tile-foot { display: flex; justify-content: flex-end; font-size: 11px; }
+.robot-monitor-events .event-feed { max-height: 32vh; min-height: 80px; }
+
+.emergency-banner { font-weight: 600; }
+
+.map-stage.goto-mode { cursor: crosshair; }
+
+.operator-right-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 12px 12px 0;
+  overflow: hidden;
+  border-left: 1px solid var(--border-light);
+  background: var(--bg);
+  container-type: inline-size;
+  container-name: operator-rail;
+}
+
+/* : 우측 레일 반응형 분할 — 기본 상/하(카메라 위·알람 아래), 넓으면 좌/우. */
+.operator-rail-split {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.rail-region { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.rail-region--monitor {
+  flex: 1 1 auto;
+  gap: 12px;
+  overflow: auto;
+}
+.rail-region--alarm {
+  flex: 0 0 auto;
+  max-height: 38%;
+  min-height: 130px;
+  overflow: hidden;
+}
+.rail-region--alarm > .panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin: 0; }
+.rail-region--alarm > .panel.collapsed { flex: 0 0 auto; }
+.rail-region--alarm .panel-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* 넓을 때(≥600px) 좌/우 2컬럼: 좌=로봇 모니터(가변), 우=알람(고정 폭) */
+@container operator-rail (min-width: 600px) {
+  .operator-rail-split { flex-direction: row; align-items: stretch; }
+  .rail-region--monitor { flex: 1 1 auto; }
+  .rail-region--alarm {
+    flex: 0 0 300px;
+    max-height: none;
+    min-height: 0;
+  }
+}
+
+.operator-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.operator-status-banner .btn.slim { min-height: 30px; padding: 4px 10px; }
+
+/* 기록 통합 화면 */
+.records-page { display: flex; flex-direction: column; gap: 12px; }
+.records-compact .ops-heading { display: none; }
+.records-panel { flex: 1; min-height: 0; }
+.records-filters { flex-wrap: wrap; }
+.date-filter { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.date-filter input { width: auto; }
+
+.tab-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tab-bar button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.tab-bar button.active {
+  background: var(--admin);
+  border-color: var(--admin-dark);
+  color: #fff;
+}
+
+.records-compact .tab-bar button.active {
+  background: var(--operator);
+  border-color: var(--operator-dark);
+  color: #fff;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+/* 시스템·장치 관리 */
+.system-admin-grid { align-items: stretch; }
+.system-db-panel { display: grid; grid-template-columns: 180px 1fr; gap: 12px; min-height: 320px; }
+.system-db-tables { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow: auto; }
+.system-db-rows { min-width: 0; }
+
+.devices-admin .devices-panels { margin-bottom: 12px; }
+.devices-logs .table-wrap { max-height: 36vh; }
+
+.aruco-readout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.aruco-teleop-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.aruco-teleop-row .controller.manual.compact {
+  display: grid;
+  grid-template-columns: repeat(3, 44px);
+  gap: 4px;
+}
+
+.aruco-teleop-row .controller.manual.compact .movebtn {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font-size: 16px;
+}
+
+.compact-fields .field { grid-template-columns: 88px 1fr; }
+
+@media (max-width: 1200px) {
+  .operator-stage,
+  .operator-stage.drawer-open {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .operator-stage .layout-resizer--drawer,
+  .operator-stage .layout-resizer--rail { display: none; }
+
+  .operator-stage .operator-main,
+  .operator-stage.drawer-open .operator-main,
+  .operator-stage .operator-right-rail,
+  .operator-stage.drawer-open .operator-right-rail {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  .operator-main { min-height: min(720px, 100%); }
+  .operator-right-rail { border-left: 0; padding: 0 12px 12px; }
+
+  .operator-stage.drawer-open .operator-drawer {
+    position: absolute;
+    inset: 0 auto 0 0;
+    z-index: var(--z-drawer);
+    width: min(420px, calc(100% - 40px));
+    max-height: none;
+  }
+
+  .drawer-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: var(--z-overlay);
+    display: block;
+    border: 0;
+    background: rgba(15, 20, 26, .58);
+  }
+}
+
+.nested-table .task-queue-nested {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.task-queue-order-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.task-queue-drag-handle {
+  cursor: grab;
+  border: 0;
+  background: transparent;
+  padding: 2px 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.task-queue-drag-handle:active { cursor: grabbing; }
+
+.task-queue-dry-badge { margin-left: auto; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.hint-text { font-size: 12px; color: var(--text-dim); margin: 4px 0 0; }
+.goto-kb-row { flex-wrap: wrap; gap: 8px; align-items: center; }
+.field-inline { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.field-inline .filter.narrow { width: 72px; min-width: 0; }

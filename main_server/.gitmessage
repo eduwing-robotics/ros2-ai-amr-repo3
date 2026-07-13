@@ -1,0 +1,9 @@
+# <type>: <한국어 요약 50자 이내, 마침표 없음>
+#
+# 본문(선택): 무엇이 아니라 왜 바꿨는지. 줄당 72자 이내.
+#
+# type: feat | fix | docs | refactor | chore | test | style
+# 예) feat: 입출고 요청 화면 추가
+#
+# 한 커밋은 하나의 논리적 변경만. backend/frontend/docs를 뭉치지 않는다.
+# 자세한 규칙: docs/runbook/GIT_WORKFLOW.md

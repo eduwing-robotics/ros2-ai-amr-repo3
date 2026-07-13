@@ -1,0 +1,48 @@
+import type { Page, Route } from "@playwright/test";
+
+// Single reusable Main API test boundary for browser acceptance tests.
+
+export const robot = { robot_id: "tb3_1", display_name: "AMR 1", status: "IDLE", battery: 80 };
+export const item = { item_code: "bolt", item_name: "볼트", active: true };
+export const slot = { slot_id: "S01", label: "슬롯 1", waypoint_id: "dock_1", capacity: 10, sort_order: 1, approach_group: "A", enabled: true };
+export const inbound = { waypoint_id: "in_1", map_id: "map", name: "입고", x: 1, y: 1, yaw: 0, waypoint_type: "inbound", scan_waypoint_id: "scan_1" };
+export const outbound = { ...inbound, waypoint_id: "out_1", name: "출고", waypoint_type: "outbound" };
+export const map = { map_id: "map", name: "테스트 맵", width: 1000, height: 800, resolution: 0.05, origin_x: 0, origin_y: 0, image_url: "" };
+
+type State = { emergency?: boolean; movementOk?: boolean; workOrders?: unknown[]; inventory?: unknown[]; recoveryTasks?: unknown[]; tasks?: unknown[] };
+
+function json(route: Route, body: unknown, status = 200) {
+  return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+}
+
+export async function mockMainApi(page: Page, state: State = {}) {
+  await page.route("**/api/v1/**", async (route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname.replace("/api/v1", "");
+    if (path === "/status") return json(route, { system: {}, robots: [robot], tasks: state.tasks ?? [], events: [], movement_health: { tb3_1: { ok: state.movementOk ?? true, is_emergency: Boolean(state.emergency) } } });
+    if (path === "/robots") return json(route, [robot]);
+    if (path === "/items") return json(route, [item]);
+    if (path === "/storage-slots") return json(route, [slot]);
+    if (path.startsWith("/inventory")) return json(route, state.inventory ?? []);
+    if (path.startsWith("/waypoints")) return json(route, [inbound, outbound]);
+    if (path.startsWith("/work-orders/preview")) return json(route, { operation: "inbound", item_code: item.item_code, quantity: 1, slots: [{ slot_id: "S01", floor: 1, slot_label: "슬롯 1" }], zone: inbound });
+    if (path === "/work-orders" && req.method() === "POST") return json(route, { order_id: 101, operation: "inbound", item_code: item.item_code, quantity: 1, status: "QUEUED", tasks: [] });
+    if (path.startsWith("/work-orders")) return json(route, state.workOrders ?? []);
+    if (path === "/robot/estop" || path === "/robot/clear_estop") return json(route, { ok: true, succeeded: ["tb3_1"], failed: [] });
+    if (path.includes("/priority") || path.includes("/cancel")) return json(route, { ok: true });
+    if (path.startsWith("/maps")) return json(route, [map]);
+    if (path.startsWith("/robot-poses")) return json(route, []);
+    if (path === "/tasks/recovery/awaiting-operator") return json(route, state.recoveryTasks ?? []);
+    if (/^\/tasks\/\d+\/recovery\/preview$/.test(path)) return json(route, {
+      task_id: 1,
+      strategy: "safe_move",
+      cargo_state: "LOADED",
+      executable: true,
+      steps: [{ kind: "move_to_point", label: "safe:HOME_01", params: { x: 0.5, y: 0.4 } }],
+      limitations: ["자동 하역 및 기존 작업 재개는 수행하지 않습니다."],
+    });
+    if (path.startsWith("/events") || path.startsWith("/api-logs")) return json(route, []);
+    if (path.startsWith("/cameras") || path.startsWith("/camera-sources")) return json(route, []);
+    return json(route, []);
+  });
+}
