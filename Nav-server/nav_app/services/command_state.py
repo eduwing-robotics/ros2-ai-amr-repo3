@@ -134,6 +134,8 @@ def record_arrived_gate(command: Dict[str, Any]):
         "gate_timeout_sec": gate_timeout_sec,
         "post_align_done": bool(command.get("post_align_done")),
         "nav_position_only": bool(command.get("nav_position_only_approach")),
+        "metric_approach_travel_m": command.get("metric_approach_travel_m"),
+        "metric_approach_start_pose": command.get("metric_approach_start_pose"),
     }
     runtime.last_arrived_gate_by_robot[command.get("robot_name")] = gate
     command["robot_at"] = "approach"

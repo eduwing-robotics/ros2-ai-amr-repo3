@@ -795,7 +795,7 @@ class LogisticsNavigator(Node):
 
         goal = goal or {}
         tolerance_m = float(goal.get("xy_tolerance_m", os.getenv("NAV_GOAL_XY_TOLERANCE_M", "0.02")))
-        soft_tolerance_m = goal.get("soft_xy_tolerance_m")
+        soft_tolerance_m = None if goal.get("require_exact_approach") else goal.get("soft_xy_tolerance_m")
         if soft_tolerance_m is not None:
             soft_tolerance_m = float(soft_tolerance_m)
         else:
@@ -1246,6 +1246,47 @@ class LogisticsNavigator(Node):
                 "feedback": True,
                 "feedback_source": feedback_source,
             }
+        finally:
+            self._publish_stop_velocity()
+            self.status = "IDLE" if previous_status == "IDLE" else previous_status
+            self.manual_stop_event.clear()
+
+    def publish_velocity_to_map_xy(self, linear_x, target_x, target_y, rate_hz=10.0, max_duration_sec=15.0, tolerance_m=0.015):
+        """Drive straight until the map-frame base pose reaches a saved XY target."""
+        if self.safety.estop:
+            return {"ok": False, "reason": "estop", "remaining_m": None}
+        linear_x = float(linear_x)
+        target_x, target_y = float(target_x), float(target_y)
+        if abs(linear_x) <= 0.001:
+            return {"ok": False, "reason": "zero_speed", "remaining_m": None}
+        interval = 1.0 / max(1.0, float(rate_hz))
+        deadline = time.monotonic() + max(0.1, float(max_duration_sec))
+        tolerance_m = max(0.005, float(tolerance_m))
+        previous_status = self.status
+        self.status = "MANUAL"
+        self.manual_stop_event.clear()
+        twist = TwistStamped()
+        twist.header.frame_id = "base_link"
+        twist.twist.linear.x = linear_x
+        remaining, reason, ok = None, "timeout", False
+        try:
+            while time.monotonic() < deadline:
+                if self.safety.estop:
+                    reason = "estop"
+                    break
+                if self.manual_stop_event.is_set():
+                    reason = "manual_stop"
+                    break
+                pose = self.get_current_pose()
+                if pose is not None:
+                    remaining = math.hypot(float(pose["x"]) - target_x, float(pose["y"]) - target_y)
+                    if remaining <= tolerance_m:
+                        reason, ok = "map_target_reached", True
+                        break
+                twist.header.stamp = self.get_clock().now().to_msg()
+                self.cmd_vel_pub.publish(twist)
+                time.sleep(interval)
+            return {"ok": ok, "reason": reason, "remaining_m": remaining, "target": {"x": target_x, "y": target_y}}
         finally:
             self._publish_stop_velocity()
             self.status = "IDLE" if previous_status == "IDLE" else previous_status

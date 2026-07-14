@@ -1,4 +1,5 @@
 """Movement step and command execution."""
+import math
 import time
 from typing import Any, Dict, List, Optional
 
@@ -241,10 +242,22 @@ def execute_movement_command(req: MovementCommandRequest):
             command["stage"] = _stage_for_step_action(step.action)
             command["updated_at"] = _utc_now()
             step_dry_run = bool(step.payload.get("dry_run"))
+            if step.action == "aruco_align" and step.payload.get("metric_distance_only") and command.get("metric_approach_start_pose") is None:
+                pose = runtime.navigator.get_current_pose() if runtime.navigator else None
+                if pose is not None:
+                    command["metric_approach_start_pose"] = {"x": float(pose["x"]), "y": float(pose["y"])}
             if is_simulation_mode():
                 result = execute_simulated_step(step)
             else:
                 result = execute_dry_step(step) if (step_dry_run or runtime.mission_manager.dry_run) and step.action not in ("dock_transfer", "aruco_align", "estop") else execute_real_step(step)
+            if result is True and step.action == "aruco_align" and step.payload.get("metric_distance_only"):
+                start_pose = command.get("metric_approach_start_pose")
+                current_pose = runtime.navigator.get_current_pose() if runtime.navigator else None
+                if start_pose and current_pose:
+                    command["metric_approach_travel_m"] = math.hypot(
+                        float(current_pose["x"]) - float(start_pose["x"]),
+                        float(current_pose["y"]) - float(start_pose["y"]),
+                    )
             if result is not True:
                 detail = result
                 if runtime.navigator and getattr(runtime.navigator, "last_nav_failure", None):

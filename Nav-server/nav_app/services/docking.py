@@ -822,7 +822,7 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
         last_detection = detection
         last_seen_at = time.monotonic()
         error_norm = float(detection.get("center_error_norm", 0.0))
-        if marker_close_enough(detection, payload) and abs(error_norm) <= center_tolerance:
+        if marker_close_enough(detection, payload) and (bool(payload.get("straight_insert", False)) or abs(error_norm) <= center_tolerance):
             settle_count += 1
             if _centered_enough(error_norm, center_tolerance, settle_count, settle_need):
                 runtime.navigator.publish_stop_velocity()
@@ -836,7 +836,8 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
         width = _marker_width_px(detection)
         target_width = float(payload.get("target_marker_width_px", ARUCO_DOCK_TARGET_WIDTH_PX))
         angular_z = 0.0
-        if abs_error > center_tolerance:
+        straight_insert = bool(payload.get("straight_insert", False))
+        if not straight_insert and abs_error > center_tolerance:
             gain = angular_gain * (0.45 if wall_mode else 1.0)
             cap = max_angular * (0.6 if wall_mode and width < target_width * 0.85 else 1.0)
             angular_z = _apply_angular_deadband(
@@ -849,7 +850,7 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
             payload.get("forward_center_tolerance_norm", center_tolerance)
         )
         # 중앙이 맞기 전에는 전진하지 않음 (계속 디텍팅 → 회전 → 중앙 → 전진)
-        if abs(error_norm) > forward_tol:
+        if not straight_insert and abs(error_norm) > forward_tol:
             command_linear = 0.0
         elif not close_enough:
             command_linear = linear_speed
@@ -1558,9 +1559,21 @@ def execute_dock_reverse(payload: Dict[str, Any]):
     if duration <= 0.0:
         raise ValueError("reverse_duration_sec or reverse_distance_m must be greater than 0")
     print(f"[dock_transfer] dock reverse speed={speed:.3f}m/s distance={distance:.3f}m duration={duration:.2f}s")
-    result = runtime.navigator.publish_velocity_for_duration(linear_x=-speed, angular_z=0.0, duration_sec=duration)
+    target = payload.get("return_target_pose")
+    if target and target.get("x") is not None and target.get("y") is not None:
+        result = runtime.navigator.publish_velocity_to_map_xy(
+            linear_x=-speed, target_x=float(target["x"]), target_y=float(target["y"]),
+            max_duration_sec=duration * 2.0 + 0.5,
+            tolerance_m=float(payload.get("reverse_target_tolerance_m", 0.015)),
+        )
+    else:
+        result = runtime.navigator.publish_velocity_for_distance(
+            linear_x=-speed, distance_m=distance, max_duration_sec=duration * 2.0 + 0.5,
+            tolerance_m=float(payload.get("reverse_tolerance_m", 0.005)),
+        )
     runtime.navigator.publish_stop_velocity()
-    return result
+    print(f"[dock_transfer] reverse result={result}")
+    return bool(result.get("ok"))
 
 
 def execute_slot_reverse_out_step(step: MovementStep):
@@ -1603,7 +1616,22 @@ def resolve_leave_dock_distance_m(payload: Dict[str, Any]) -> float:
     stored = runtime.get_standby_park_reverse_distance_m()
     if stored is not None and stored > 0.0:
         return stored
-    return LEAVE_DOCK_REVERSE_DISTANCE_M
+    detections = runtime.navigator.get_latest_aruco_detection(max_age_sec=2.0) if runtime.navigator else []
+    pose = runtime.navigator.get_current_pose() if runtime.navigator else None
+    if pose and detections:
+        from nav_app.services.robot_commands import approach_waypoint_id_for_marker, load_waypoint_goals
+
+        visible = max(detections, key=lambda item: float(item.get("marker_width_px", 0.0)))
+        marker_id = int(visible["marker_id"])
+        waypoint_id = approach_waypoint_id_for_marker(marker_id)
+        waypoint = load_waypoint_goals().get(waypoint_id or "") or {}
+        if waypoint.get("x") is not None and waypoint.get("y") is not None:
+            payload["return_target_pose"] = {"x": float(waypoint["x"]), "y": float(waypoint["y"])}
+            distance = math.hypot(float(pose["x"]) - float(waypoint["x"]), float(pose["y"]) - float(waypoint["y"]))
+            if distance > 0.01:
+                print(f"[leave_dock] startup pose return marker={marker_id} waypoint={waypoint_id} distance={distance:.3f}m")
+                return distance
+    raise ValueError("leave_dock distance unavailable: no stored approach travel and current marker/pose cannot resolve approach")
 
 
 def leave_dock_motion_params(payload: Dict[str, Any]):
@@ -1656,7 +1684,7 @@ def execute_leave_dock_step(step: MovementStep):
         return True
 
     speed, duration = leave_dock_motion_params(payload)
-    requested_distance = speed * duration
+    requested_distance = resolve_leave_dock_distance_m(payload)
     stored = runtime.get_standby_park_reverse_distance_m()
     if stored is not None and payload.get("distance_m") is None and payload.get("reverse_distance_m") is None:
         print(f"[leave_dock] using hold-park insert distance {stored:.3f}m for reverse")
@@ -1687,15 +1715,29 @@ def execute_leave_dock_step(step: MovementStep):
                     f"뒤 공간 부족으로 후진 중단",
                 )
             if allowed < requested_distance:
+                requested_distance = allowed
                 duration = allowed / speed
                 print(f"[leave_dock] 후방 여유 {rear:.2f}m → 후진거리 {allowed:.2f}m 로 제한")
 
-    print(f"[leave_dock] reversing out speed={speed:.3f}m/s duration={duration:.2f}s "
+    print(f"[leave_dock] reversing out speed={speed:.3f}m/s distance={requested_distance:.3f}m "
           f"(parked={parked}, force={force})")
-    result = runtime.navigator.publish_velocity_for_duration(linear_x=-speed, angular_z=0.0, duration_sec=duration)
+    target = payload.get("return_target_pose")
+    if target and target.get("x") is not None and target.get("y") is not None:
+        distance_drive = runtime.navigator.publish_velocity_to_map_xy(
+            linear_x=-speed, target_x=float(target["x"]), target_y=float(target["y"]),
+            max_duration_sec=duration * 2.0 + 0.5,
+            tolerance_m=float(payload.get("reverse_target_tolerance_m", 0.015)),
+        )
+    else:
+        distance_drive = runtime.navigator.publish_velocity_for_distance(
+            linear_x=-speed, distance_m=requested_distance, max_duration_sec=duration * 2.0 + 0.5,
+            tolerance_m=float(payload.get("reverse_tolerance_m", 0.005)),
+        )
     runtime.navigator.publish_stop_velocity()
-    runtime.set_standby_parked(False)
-    return result
+    print(f"[leave_dock] reverse result={distance_drive}")
+    if distance_drive.get("ok"):
+        runtime.set_standby_parked(False)
+    return bool(distance_drive.get("ok"))
 
 
 def raise_if_estop(stage: str):
@@ -1809,6 +1851,14 @@ def execute_aruco_align_step(step: MovementStep):
 def execute_dock_transfer_step(step: MovementStep):
     payload = step.payload
     normalize_aruco_payload(payload)
+    if payload.get("metric_return_to_approach"):
+        target = payload.get("return_target_pose")
+        if not target or target.get("x") is None or target.get("y") is None:
+            raise ValueError("metric return requires payload.return_target_pose")
+        if not execute_dock_reverse(payload):
+            raise StageError("reverse", "map approach return failed")
+        runtime.set_standby_parked(False)
+        return True
     for field in ("aruco_marker_id", "action", "level"):
         if field not in payload:
             raise ValueError(f"dock_transfer step requires payload.{field}")

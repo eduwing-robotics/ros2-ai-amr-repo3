@@ -13,6 +13,7 @@
 
 ## Handoff — Main/LMS 전달
 
+- **`handoff/LMS_NAV_CONTRACT_2026-07-14.md`** — **현재 실차 이동·도킹 LMS 계약 (최신)**
 - **`handoff/MAIN_LMS_HANDOFF_2026-07-09.md`** — **Main/LMS에 줄 문서 (통합본·유일)**
 - `handoff/TB3_1_PARITY_PLAN_2026-07-09.md` — 로봇1을 로봇2와 동일하게 맞추는 방법 (브링업 포함)
 - `handoff/DUAL_ROBOT_TRAFFIC_REVIEW_2026-07-09.md` — **2대 동시 운용·충돌 방지 방식 검토**
