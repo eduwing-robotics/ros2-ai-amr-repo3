@@ -11,6 +11,7 @@ ROBOT_SSH="${ROBOT_SSH:-musk@192.168.30.102}"
 DOMAIN="${DOMAIN:-5}"
 WS_SETUP="${ROBOT_WS_SETUP:?ROBOT_WS_SETUP must point to the SBC TurtleBot3 overlay setup.bash}"
 BRINGUP_WAIT_SEC="${BRINGUP_WAIT_SEC:-3}"
+CAMERA_BACKEND="${CAMERA_BACKEND:-camera_ros}"
 
 configure_robot_ssh 8
 
@@ -19,5 +20,6 @@ echo "[restart_camera] stop camera on $ROBOT_SSH"
 
 echo "[restart_camera] start camera (foreground — Ctrl+C to stop)"
 "${SSH_CMD[@]}" "$ROBOT_SSH" \
-  env "ROS_DOMAIN_ID=$DOMAIN" "BRINGUP_WAIT_SEC=$BRINGUP_WAIT_SEC" "WS_SETUP=$WS_SETUP" CAMERA_START_RETRIES=3 bash -s \
+  env "ROS_DOMAIN_ID=$DOMAIN" "BRINGUP_WAIT_SEC=$BRINGUP_WAIT_SEC" \
+  "CAMERA_BACKEND=$CAMERA_BACKEND" "WS_SETUP=$WS_SETUP" CAMERA_START_RETRIES=3 bash -s \
   <"$ROBOT_SBC_DIR/start_camera.sh"

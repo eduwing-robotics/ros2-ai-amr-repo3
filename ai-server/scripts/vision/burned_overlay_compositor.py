@@ -292,6 +292,7 @@ def render_burned_overlay_bgr(
     source: str,
     view: str,
     frame_seq: int,
+    frame_timestamp: str | None = None,
     events: Iterable[dict[str, Any]],
     stale: bool = False,
 ) -> np.ndarray:
@@ -301,7 +302,7 @@ def render_burned_overlay_bgr(
     stored = StoredFrame(
         source=source,
         frame_seq=frame_seq,
-        timestamp=now_iso(),
+        timestamp=frame_timestamp or now_iso(),
         image_width=int(width),
         image_height=int(height),
         encoded=b"",

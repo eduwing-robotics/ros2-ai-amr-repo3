@@ -260,6 +260,8 @@ def test_lane_b_robot_free_e2e_surfaces_stay_consistent_across_stream_debug_ros_
     overlay_image = client.get("/api/v1/vision/overlay/latest/image", params={"source": source})
     assert frame_image.status_code == 200
     assert frame_image.headers["content-type"] == "image/png"
+    assert frame_image.headers["x-sf-frame-seq"] == "1"
+    assert frame_image.headers["x-sf-frame-timestamp"]
     assert frame_image.content.startswith(b"\x89PNG")
     assert overlay.status_code == 200
     assert overlay.json()["overlay"]["frame_seq"] == 1
@@ -926,6 +928,8 @@ def test_latest_frame_metadata_and_image_follow_synthetic_ingest():
     )
     assert image_response.status_code == 200
     assert image_response.headers["content-type"] == "image/jpeg"
+    assert image_response.headers["x-sf-frame-seq"] == "1"
+    assert image_response.headers["x-sf-frame-timestamp"] == frame["frame_timestamp"]
     assert image_response.content.startswith(b"\xff\xd8")
 
 

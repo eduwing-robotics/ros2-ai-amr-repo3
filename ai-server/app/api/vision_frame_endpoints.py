@@ -141,4 +141,11 @@ def build_latest_frame_image_response(
             status_code=404,
             detail=f"no latest frame image available for source: {source}",
         )
-    return Response(content=frame.encoded, media_type=frame.content_type)
+    return Response(
+        content=frame.encoded,
+        media_type=frame.content_type,
+        headers={
+            "X-SF-Frame-Seq": str(frame.frame_seq),
+            "X-SF-Frame-Timestamp": frame.timestamp,
+        },
+    )

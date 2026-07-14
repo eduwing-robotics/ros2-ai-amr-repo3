@@ -10,12 +10,14 @@ browser-facing WebRTC source into MediaMTX.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 import time
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,14 @@ from scripts.vision.burned_overlay_compositor import (  # noqa: E402
 from scripts.vision.stream_event_state import successful_events  # noqa: E402
 
 
+@dataclass(frozen=True)
+class FrameSample:
+    image: np.ndarray
+    identity: str
+    frame_seq: int | None
+    frame_timestamp: str | None
+
+
 def path_id(source: str, view: str) -> str:
     return f"{source}_{view}".replace("/", "_").replace("-", "_")
 
@@ -48,14 +58,33 @@ def read_json(url: str, *, timeout: float) -> tuple[int | None, dict[str, Any] |
         return None, None, f"{exc.__class__.__name__}: {exc}"
 
 
-def read_image(url: str, *, timeout: float) -> np.ndarray | None:
+def read_image(url: str, *, timeout: float) -> FrameSample | None:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 - operator-configured local/LAN URL
             payload = response.read()
+            raw_frame_seq = response.headers.get("X-SF-Frame-Seq")
+            frame_timestamp = response.headers.get("X-SF-Frame-Timestamp")
     except Exception:
         return None
     image_array = np.frombuffer(payload, dtype=np.uint8)
-    return cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+    if image is None:
+        return None
+    try:
+        frame_seq = int(raw_frame_seq) if raw_frame_seq is not None else None
+    except ValueError:
+        frame_seq = None
+    identity = (
+        f"seq:{frame_seq}"
+        if frame_seq is not None
+        else f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    )
+    return FrameSample(
+        image=image,
+        identity=identity,
+        frame_seq=frame_seq,
+        frame_timestamp=frame_timestamp,
+    )
 
 
 def build_url(base: str, path: str, query: dict[str, str | int]) -> str:
@@ -117,6 +146,15 @@ def overlay_bound_events(
     return [event for event in events if event_frame_seq(event) == overlay_frame_seq]
 
 
+def overlay_payload_frame_seq(body: Any) -> int | None:
+    if not isinstance(body, dict):
+        return None
+    overlay = body.get("overlay")
+    if not isinstance(overlay, dict):
+        return None
+    return _int_field(overlay.get("frame_seq"))
+
+
 def events_for_render(
     events: list[dict[str, Any]],
     *,
@@ -157,7 +195,9 @@ def run(args: argparse.Namespace) -> int:
     events: list[dict[str, Any]] = []
     last_event_poll_s = 0.0
     last_event_update_s = 0.0
-    last_frame_shape: tuple[int, int] | None = None
+    last_overlay_frame_seq: int | None = None
+    last_frame_identity: str | None = None
+    last_rendered_overlay: np.ndarray | None = None
     frame_seq = 0
     interval_s = 1.0 / max(1.0, args.target_fps)
     ai_interval_s = 1.0 / max(0.1, args.ai_fps)
@@ -182,13 +222,19 @@ def run(args: argparse.Namespace) -> int:
                     source=args.source,
                     view=args.view,
                 )
-                if updated_events is not None:
+                overlay_frame_seq = overlay_payload_frame_seq(payload)
+                if (
+                    updated_events is not None
+                    and overlay_frame_seq is not None
+                    and overlay_frame_seq != last_overlay_frame_seq
+                ):
                     events = updated_events
                     last_event_update_s = now
+                    last_overlay_frame_seq = overlay_frame_seq
                 last_event_poll_s = now
 
-            frame = read_image(frame_url, timeout=args.timeout)
-            if frame is None:
+            sample = read_image(frame_url, timeout=args.timeout)
+            if sample is None:
                 metrics.stale_frames += 1
                 metrics.last_error = "latest_frame_unavailable"
                 metrics_writer.write(metrics)
@@ -196,25 +242,30 @@ def run(args: argparse.Namespace) -> int:
                 continue
 
             frame_seq += 1
+            frame = sample.image
             shape = (int(frame.shape[1]), int(frame.shape[0]))
-            if last_frame_shape == shape:
-                metrics.repeated_frames += 0
-            last_frame_shape = shape
             try:
-                draw_events, stale = events_for_render(
-                    events,
-                    last_event_update_s=last_event_update_s,
-                    now_s=time.monotonic(),
-                    stale_overlay_after_ms=args.stale_overlay_after_ms,
-                )
-                overlay = render_burned_overlay_bgr(
-                    frame,
-                    source=args.source,
-                    view=args.view,
-                    frame_seq=frame_seq,
-                    events=draw_events,
-                    stale=stale,
-                )
+                if sample.identity != last_frame_identity or last_rendered_overlay is None:
+                    draw_events, stale = events_for_render(
+                        events,
+                        last_event_update_s=last_event_update_s,
+                        now_s=time.monotonic(),
+                        stale_overlay_after_ms=args.stale_overlay_after_ms,
+                    )
+                    overlay = render_burned_overlay_bgr(
+                        frame,
+                        source=args.source,
+                        view=args.view,
+                        frame_seq=sample.frame_seq or frame_seq,
+                        frame_timestamp=sample.frame_timestamp,
+                        events=draw_events,
+                        stale=stale,
+                    )
+                    last_frame_identity = sample.identity
+                    last_rendered_overlay = overlay
+                else:
+                    overlay = last_rendered_overlay
+                    metrics.repeated_frames += 1
                 if publisher is not None and (
                     publisher.width != shape[0] or publisher.height != shape[1]
                 ):

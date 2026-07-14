@@ -11,6 +11,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 CAMERA_SCRIPT = ROOT / "scripts" / "robot_sbc" / "start_camera.sh"
+PICAMERA_PUBLISHER = ROOT / "scripts" / "robot_sbc" / "picamera2_compressed_publisher.py"
+START_ALL_TB3_2 = ROOT / "scripts" / "start_all_tb3_2.sh"
+RESTART_CAMERA_TB3_2 = ROOT / "scripts" / "restart_robot_camera_tb3_2.sh"
 LIFT_SCRIPT = ROOT / "scripts" / "robot_sbc" / "start_lift_bridge.sh"
 
 
@@ -66,13 +69,37 @@ def test_camera_sources_a_valid_explicit_overlay(tmp_path: Path) -> None:
             "WS_SETUP": str(setup),
             "OVERLAY_MARKER": str(marker),
             "BRINGUP_WAIT_SEC": "0",
-            "CAMERA_BACKEND": "legacy",
+            "CAMERA_BACKEND": "camera_ros",
             "CAMERA_START_RETRIES": "0",
         },
     )
 
     assert result.returncode == 1
     assert marker.read_text(encoding="utf-8") == "sourced"
+
+
+def test_camera_ros_is_default_and_picamera2_is_an_explicit_fallback() -> None:
+    source = CAMERA_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'CAMERA_BACKEND="${CAMERA_BACKEND:-camera_ros}"' in source
+    assert 'if [[ "$CAMERA_BACKEND" == "picamera2" ]]' in source
+
+
+def test_tb3_2_launchers_forward_the_selected_camera_backend() -> None:
+    start_all = START_ALL_TB3_2.read_text(encoding="utf-8")
+    restart = RESTART_CAMERA_TB3_2.read_text(encoding="utf-8")
+
+    for source in (start_all, restart):
+        assert 'CAMERA_BACKEND="${CAMERA_BACKEND:-camera_ros}"' in source
+        assert '"CAMERA_BACKEND=$CAMERA_BACKEND"' in source
+
+
+def test_picamera2_rgb888_frames_are_encoded_without_red_blue_reswap() -> None:
+    source = PICAMERA_PUBLISHER.read_text(encoding="utf-8")
+
+    assert "'format': 'RGB888'" in source
+    assert "COLOR_RGB2BGR" not in source
+    assert "'.jpg', frame," in source
 
 
 def test_lift_sources_a_valid_explicit_overlay_before_running_bridge(tmp_path: Path) -> None:

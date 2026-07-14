@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 로봇 SBC Pi 카메라. picamera2(marco libcamera) 기본 — ros libcamera IPA 크래시 우회.
+# 로봇 SBC Pi 카메라. camera_ros 기본, Picamera2는 명시적 예비 경로.
 # Nav PC에서 ssh bash -s 로 파이프되므로 sibling 스크립트 exec 금지(경로 깨짐).
 set -eo pipefail
 
 DOMAIN="${ROS_DOMAIN_ID:-5}"
 WS_SETUP="${WS_SETUP:?WS_SETUP must point to the TurtleBot3 overlay setup.bash}"
-CAMERA_BACKEND="${CAMERA_BACKEND:-picamera2}"
+CAMERA_BACKEND="${CAMERA_BACKEND:-camera_ros}"
 BRINGUP_WAIT_SEC="${BRINGUP_WAIT_SEC:-10}"
 CAMERA_START_RETRIES="${CAMERA_START_RETRIES:-2}"
 CAMERA_LAUNCH="${CAMERA_LAUNCH:-turtlebot3_bringup camera.launch.py}"
@@ -74,7 +74,7 @@ if [[ "$CAMERA_BACKEND" == "picamera2" ]]; then
     -p width:=320 -p height:=240 -p topic:=/camera/image_raw/compressed
 fi
 
-# --- legacy: ros-jazzy camera_ros ---
+# --- default: ros-jazzy camera_ros ---
 attempt=1
 while (( attempt <= CAMERA_START_RETRIES )); do
   echo "[robot_sbc] camera_ros attempt ${attempt}/${CAMERA_START_RETRIES} DOMAIN=$DOMAIN"
@@ -95,5 +95,5 @@ while (( attempt <= CAMERA_START_RETRIES )); do
   sleep 5
 done
 
-echo "[robot_sbc] ERROR: camera_ros failed — use CAMERA_BACKEND=picamera2 (default)" >&2
+echo "[robot_sbc] ERROR: camera_ros failed — use CAMERA_BACKEND=picamera2 as an explicit fallback" >&2
 exit 1

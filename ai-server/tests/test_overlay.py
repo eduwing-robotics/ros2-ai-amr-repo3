@@ -102,22 +102,51 @@ def test_stale_overlay_has_unmistakable_visual_warning_band():
     assert np.linalg.norm(stale_header_pixel.astype(float) - fresh_header_pixel.astype(float)) > 100
 
 
-def test_overlay_banner_labels_live_stream_as_realtime(monkeypatch):
+def test_overlay_banner_uses_frame_observation_time(monkeypatch):
     store = LatestFrameStore()
     image = np.zeros((120, 320, 3), dtype=np.uint8)
-    frame = store.put_decoded(source="tb3_1_picam", image_bgr=image)
+    frame = store.put_decoded(
+        source="tb3_1_picam",
+        image_bgr=image,
+        timestamp="2026-07-02T12:34:56+09:00",
+    )
     captured_labels = []
 
     def capture_label(image, text, x, y, color):
         captured_labels.append(text)
 
     monkeypatch.setattr(overlay_module, "_draw_label", capture_label)
-    monkeypatch.setattr(overlay_module, "_local_clock_label", lambda: "12:34:56")
 
     render_overlay(frame, events=[])
 
-    assert captured_labels[-1] == "tb3_1_picam time=12:34:56 events=0"
+    assert captured_labels[-1] == "tb3_1_picam last=12:34:56 valid=0"
     assert "frame=" not in captured_labels[-1]
+
+
+def test_overlay_banner_counts_only_visual_events(monkeypatch):
+    store = LatestFrameStore()
+    image = np.zeros((120, 320, 3), dtype=np.uint8)
+    frame = store.put_decoded(
+        source="tb3_2_picam",
+        image_bgr=image,
+        timestamp="2026-07-02T12:35:01+09:00",
+    )
+    captured_labels = []
+
+    def capture_label(image, text, x, y, color, **_kwargs):
+        captured_labels.append(text)
+
+    monkeypatch.setattr(overlay_module, "_draw_label", capture_label)
+
+    render_overlay(
+        frame,
+        events=[
+            {"class_name": "person", "bbox_xyxy": [1, 1, 10, 10]},
+            {"class_name": "unknown", "bbox_xyxy": [12, 12, 20, 20]},
+        ],
+    )
+
+    assert captured_labels[-1] == "tb3_2_picam last=12:35:01 valid=1"
 
 
 def test_overlay_renderer_draws_map_roi_polygon_with_distinct_color():
@@ -181,7 +210,6 @@ def test_overlay_renderer_uses_explicit_polygon_label_anchor(monkeypatch):
         captured_labels.append((text, x, y, color))
 
     monkeypatch.setattr(overlay_module, "_draw_label", capture_label)
-    monkeypatch.setattr(overlay_module, "_local_clock_label", lambda: "12:34:56")
     event = {
         "timestamp": "2026-07-02T09:00:00+09:00",
         "class_name": "zone_roi",

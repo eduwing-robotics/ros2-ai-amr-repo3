@@ -51,10 +51,16 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat()
 
 
-def _local_clock_label() -> str:
-    """Return the operator-facing local wall-clock time for live overlays."""
+def _frame_clock_label(frame_timestamp: str) -> str:
+    """Return the local observation time captured with the source frame."""
 
-    return datetime.now(timezone.utc).astimezone().strftime("%H:%M:%S")
+    try:
+        parsed = datetime.fromisoformat(frame_timestamp.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return "--:--:--"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone().strftime("%H:%M:%S")
 
 
 def _draw_label(
@@ -308,16 +314,13 @@ def render_overlay_bgr(
             cv2.LINE_AA,
         )
 
-    clock_label = _local_clock_label()
+    clock_label = _frame_clock_label(frame.timestamp)
+    valid_event_count = len(visual_events)
     if image.shape[1] < 240:
         short_source = frame.source.replace("_picam", "").replace("global_cam_", "gcam")
-        banner = f"{short_source} {clock_label} e={len(events)}"
-        if stale:
-            banner = f"STALE {clock_label} e={len(events)}"
+        banner = f"{short_source} last={clock_label} valid={valid_event_count}"
     else:
-        banner = f"{frame.source} time={clock_label} events={len(events)}"
-        if stale:
-            banner = f"STALE {banner}"
+        banner = f"{frame.source} last={clock_label} valid={valid_event_count}"
     _draw_label(image, banner, 4, image.shape[0] - 6, (40, 40, 40))
 
     return image

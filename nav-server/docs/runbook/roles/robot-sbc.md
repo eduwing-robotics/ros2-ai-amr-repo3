@@ -37,7 +37,17 @@ ROS_DOMAIN_ID=2 WS_SETUP="$TB3_WS_SETUP" scripts/robot_sbc/start_camera.sh
 
 Use the robot's configured domain for the second robot. The camera must publish
 `/camera/image_raw/compressed`; the Vision operator verifies it from the
-Navigation PC.
+Navigation PC. The operating default is `camera_ros`. Use Picamera2 only as an
+explicit fallback when `camera_ros` cannot start:
+
+```bash
+ROS_DOMAIN_ID=2 CAMERA_BACKEND=picamera2 \
+WS_SETUP="$TB3_WS_SETUP" scripts/robot_sbc/start_camera.sh
+```
+
+The TB3_2 one-shot and camera-restart scripts follow the same policy. Their
+default is `CAMERA_BACKEND=camera_ros`; set `CAMERA_BACKEND=picamera2` on the
+Navigation PC only for a deliberate fallback run.
 
 ## Lift bridge
 

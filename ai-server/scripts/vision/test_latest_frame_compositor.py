@@ -77,15 +77,24 @@ def event(frame_seq: int, *, bbox=(1, 2, 3, 4), class_name="person") -> dict:
     }
 
 
+def frame_sample(module, frame_seq: int, *, timestamp: str | None = None):
+    return module.FrameSample(
+        image=np.zeros((12, 16, 3), dtype=np.uint8),
+        identity=f"seq:{frame_seq}",
+        frame_seq=frame_seq,
+        frame_timestamp=timestamp or f"2026-07-02T09:00:{frame_seq:02d}+09:00",
+    )
+
+
 def test_latest_frame_compositor_rejects_malformed_events_without_crashing(monkeypatch, tmp_path):
     module = load_module("run_latest_frame_compositor_malformed_test")
     rendered = []
 
     monkeypatch.setattr(module, "RawVideoRtspPublisher", FakePublisher)
     monkeypatch.setattr(module, "read_json", lambda *a, **k: (200, {"events": [1]}, None))
-    monkeypatch.setattr(module, "read_image", lambda *a, **k: np.zeros((12, 16, 3), dtype=np.uint8))
+    monkeypatch.setattr(module, "read_image", lambda *a, **k: frame_sample(module, 1))
 
-    def fake_render(frame, *, source, view, frame_seq, events, stale):
+    def fake_render(frame, *, source, view, frame_seq, frame_timestamp, events, stale):
         rendered.append({"events": list(events), "stale": stale})
         return frame
 
@@ -112,9 +121,9 @@ def test_latest_frame_compositor_rejects_malformed_bboxes_without_fresh_update(
         "read_json",
         lambda *a, **k: (200, overlay_payload(1, [malformed_event]), None),
     )
-    monkeypatch.setattr(module, "read_image", lambda *a, **k: np.zeros((12, 16, 3), dtype=np.uint8))
+    monkeypatch.setattr(module, "read_image", lambda *a, **k: frame_sample(module, 1))
 
-    def fake_render(frame, *, source, view, frame_seq, events, stale):
+    def fake_render(frame, *, source, view, frame_seq, frame_timestamp, events, stale):
         rendered.append({"events": list(events), "stale": stale})
         return frame
 
@@ -164,14 +173,13 @@ def test_latest_frame_compositor_empty_current_overlay_clears_previous_events(
             (200, overlay_payload(11, []), None),
         ]
     )
-    ticks = iter([0.0, 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07])
+    samples = iter([frame_sample(module, 10), frame_sample(module, 11)])
 
     monkeypatch.setattr(module, "RawVideoRtspPublisher", FakePublisher)
     monkeypatch.setattr(module, "read_json", lambda *a, **k: next(responses))
-    monkeypatch.setattr(module, "read_image", lambda *a, **k: np.zeros((12, 16, 3), dtype=np.uint8))
-    monkeypatch.setattr(module.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(module, "read_image", lambda *a, **k: next(samples))
 
-    def fake_render(frame, *, source, view, frame_seq, events, stale):
+    def fake_render(frame, *, source, view, frame_seq, frame_timestamp, events, stale):
         rendered.append({"events": list(events), "stale": stale})
         return frame
 
@@ -180,6 +188,49 @@ def test_latest_frame_compositor_empty_current_overlay_clears_previous_events(
     assert module.run(args(tmp_path, max_frames=2, stale_overlay_after_ms=1500.0)) == 0
     assert rendered[0] == {"events": [event(10)], "stale": False}
     assert rendered[1] == {"events": [], "stale": False}
+
+
+def test_latest_frame_compositor_reuses_rendered_pixels_for_repeated_upstream_frame(
+    monkeypatch, tmp_path
+):
+    module = load_module("run_latest_frame_compositor_repeated_frame_test")
+    rendered = []
+    publisher = FakePublisher(width=16, height=12)
+    repeated = frame_sample(
+        module,
+        10,
+        timestamp="2026-07-02T09:00:10+09:00",
+    )
+
+    monkeypatch.setattr(module, "RawVideoRtspPublisher", lambda **_: publisher)
+    monkeypatch.setattr(
+        module,
+        "read_json",
+        lambda *a, **k: (200, overlay_payload(10, [event(10)]), None),
+    )
+    monkeypatch.setattr(module, "read_image", lambda *a, **k: repeated)
+
+    def fake_render(frame, *, source, view, frame_seq, frame_timestamp, events, stale):
+        rendered.append(
+            {
+                "frame_seq": frame_seq,
+                "frame_timestamp": frame_timestamp,
+                "events": list(events),
+            }
+        )
+        return frame.copy()
+
+    monkeypatch.setattr(module, "render_burned_overlay_bgr", fake_render)
+
+    assert module.run(args(tmp_path, max_frames=2)) == 0
+    assert rendered == [
+        {
+            "frame_seq": 10,
+            "frame_timestamp": "2026-07-02T09:00:10+09:00",
+            "events": [event(10)],
+        }
+    ]
+    assert publisher.writes == 2
 
 
 def test_events_for_render_clears_boxes_after_stale_threshold():

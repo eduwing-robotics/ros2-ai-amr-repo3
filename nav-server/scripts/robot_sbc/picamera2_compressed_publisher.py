@@ -59,7 +59,7 @@ class Picamera2CompressedPublisher(Node):
             self.get_logger().warning(f'capture failed: {exc}')
             return
         ok, encoded = cv2.imencode(
-            '.jpg', cv2.cvtColor(frame, cv2.COLOR_RGB2BGR),
+            '.jpg', frame,
             [int(cv2.IMWRITE_JPEG_QUALITY), self._quality],
         )
         if not ok:
