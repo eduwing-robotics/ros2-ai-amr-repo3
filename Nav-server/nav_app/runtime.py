@@ -20,10 +20,10 @@ class NavRuntime:
         self.command_state_lock = threading.Lock()
         self.movement_execution_lock = threading.Lock()
         # leave_dock 판단용 대기-도킹 상태.
-        #   None  = 미상 (기동 직후 등) — 대기 상태일 수 있으므로 후방 안전체크 후 후진
-        #   True  = 정면 대기 도킹 상태 (nose-in) — leave_dock 시 후진
-        #   False = 대기 도킹이 아님 (이미 주행/후진 완료) — leave_dock 시 후진 생략
-        self.standby_parked: Optional[bool] = None
+        #   True  = 대기장 hold (nose-in) — leave_dock / move 전 후진
+        #   False = 이미 빠져나옴 — 후진 생략
+        #   None  = 미상 — 후진 시도(안전). 기동 기본은 True(대기장에서 켠다고 가정)
+        self.standby_parked: Optional[bool] = True
         # aruco_align final=hold 후 실제 전진 삽입 거리 — leave_dock이 동일 거리만 후진
         self.standby_park_reverse_distance_m: Optional[float] = None
 

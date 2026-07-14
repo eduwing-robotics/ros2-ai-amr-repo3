@@ -1,0 +1,109 @@
+{
+  "schema_version": "2026-07-09",
+  "robot_id": "tb3_1",
+  "nav_map": "map/robot2_map.yaml",
+  "zones_source": "slam_nav_ws/map/zones.json",
+  "description": "LMS location → Nav waypoint_id for tb3_1. HOME/CHARGE → vehicle_1_approach (1호차 대기).",
+  "by_lms_location_id": {
+    "scan_INBOUND_01": "inbound_slot_1_approach",
+    "scan_INBOUND_02": "inbound_slot_2_approach",
+    "INBOUND_01": "inbound_slot_1_approach",
+    "INBOUND_02": "inbound_slot_2_approach",
+    "scan_OUTBOUND_01": "outbound_slot_1_approach",
+    "scan_OUTBOUND_02": "outbound_slot_2_approach",
+    "OUTBOUND_01": "outbound_slot_1_approach",
+    "OUTBOUND_02": "outbound_slot_2_approach",
+    "scan_STORAGE_A": "warehouse_a_approach",
+    "scan_STORAGE_B": "warehouse_b_approach",
+    "scan_STORAGE_C": "warehouse_c_approach",
+    "scan_STORAGE_D": "warehouse_d_approach",
+    "STORAGE_A": "warehouse_a_approach",
+    "STORAGE_B": "warehouse_b_approach",
+    "STORAGE_C": "warehouse_c_approach",
+    "STORAGE_D": "warehouse_d_approach",
+    "scan_HOME": "vehicle_1_approach",
+    "scan_WAIT2": "vehicle_2_approach",
+    "scan_WAIT1": "vehicle_1_approach",
+    "HOME": "vehicle_1_approach",
+    "CHARGE_01": "vehicle_1_approach"
+  },
+  "by_aruco_marker_id": {
+    "7": "warehouse_a_approach",
+    "8": "warehouse_b_approach",
+    "10": "warehouse_c_approach",
+    "9": "warehouse_d_approach",
+    "0": "inbound_slot_1_approach",
+    "1": "inbound_slot_2_approach",
+    "5": "outbound_slot_1_approach",
+    "6": "outbound_slot_2_approach",
+    "3": "vehicle_1_approach",
+    "4": "vehicle_2_approach"
+  },
+  "nav_waypoints": {
+    "warehouse_a_approach": {
+      "x": 0.019,
+      "y": -0.618,
+      "yaw": 0.0,
+      "aruco_marker_id": 7
+    },
+    "warehouse_b_approach": {
+      "x": 0.033,
+      "y": -0.376,
+      "yaw": 0.0,
+      "aruco_marker_id": 8
+    },
+    "warehouse_c_approach": {
+      "x": 1.239,
+      "y": -0.631,
+      "yaw": 3.142,
+      "aruco_marker_id": 10
+    },
+    "warehouse_d_approach": {
+      "x": 1.225,
+      "y": -0.377,
+      "yaw": 3.142,
+      "aruco_marker_id": 9
+    },
+    "inbound_slot_1_pre_approach": {
+      "x": -0.085,
+      "y": -0.22,
+      "yaw": 1.571
+    },
+    "inbound_slot_1_approach": {
+      "x": -0.085,
+      "y": 0.006,
+      "yaw": 1.571,
+      "aruco_marker_id": 0
+    },
+    "inbound_slot_2_approach": {
+      "x": 0.234,
+      "y": 0.006,
+      "yaw": 1.571,
+      "aruco_marker_id": 1
+    },
+    "outbound_slot_1_approach": {
+      "x": 1.131,
+      "y": 0.006,
+      "yaw": 1.571,
+      "aruco_marker_id": 5
+    },
+    "outbound_slot_2_approach": {
+      "x": 1.45,
+      "y": 0.006,
+      "yaw": 1.571,
+      "aruco_marker_id": 6
+    },
+    "vehicle_1_approach": {
+      "x": 0.527,
+      "y": 0.006,
+      "yaw": 1.571,
+      "aruco_marker_id": 3
+    },
+    "vehicle_2_approach": {
+      "x": 0.816,
+      "y": 0.006,
+      "yaw": 1.571,
+      "aruco_marker_id": 4
+    }
+  }
+}

@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROBOT_SBC_DIR="$SCRIPT_DIR/robot_sbc"
 ROBOT_SSH="${ROBOT_SSH:-musk@192.168.30.102}"
-ROBOT_PW="${ROBOT_PW:-1234}"
+ROBOT_PW="${ROBOT_PW:?Set ROBOT_PW in the environment}"
 DOMAIN="${DOMAIN:-5}"
 WS_SETUP="${ROBOT_WS_SETUP:-/home/musk/turtlebot3_ws/install/setup.bash}"
 BRINGUP_WAIT_SEC="${BRINGUP_WAIT_SEC:-3}"

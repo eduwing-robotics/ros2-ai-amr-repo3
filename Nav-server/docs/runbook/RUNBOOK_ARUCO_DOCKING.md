@@ -304,16 +304,16 @@ ros2 topic echo /mission/tb3_1/aruco/detections
 | --- | --- | --- | --- |
 | approach | Nav2 (AMCL + planner) | 맵, 라이다, pose | approach xy 근처 |
 | 정렬 | ArUco visual servoing (closed-loop) | 마커 center/width | yaw·전진 보정 |
-| insert / 후진 | Time-based open-loop | calibrated distance, speed | 벽 접촉·이탈 |
+| insert / 후진 | Odometry closed-loop | 목표 거리, odom, 속도 | 설정 거리만큼 삽입·이탈 |
 
-**English one-liner:** Hybrid docking — Nav2 global navigation + ArUco visual alignment + calibrated open-loop fork insert/reverse.
+**English one-liner:** Hybrid docking — Nav2 global navigation + ArUco metric visual alignment + odometry closed-loop fork insert/reverse.
 
 ```
 LMS / script
   → move_to_point (Nav2)
   → aruco_align (visual, full or center_only)
   → dock_transfer
-       pre-insert centering → insert (+slip) → dwell → reverse (insert only)
+       pre-insert centering → stop/settle → odom insert → dwell → odom reverse
 ```
 
 ## 6. LMS 원자 명령 흐름
@@ -358,10 +358,11 @@ curl -X POST http://127.0.0.1:8001/robot-commands \
 2. ArUco 마커 획득
 3. 정렬 (`align_mode`: 벽 밀착 슬롯은 approach에서 `full` 완료 시 `skip`)
 4. **pre-insert centering** — 마커 중앙 맞출 때까지 회전·소폭 creep (최대 4사이클)
-5. **fork insert** — `zones.json`의 `fork_insert_distance_m` + `FORK_INSERT_SLIP_COMPENSATION_M`(기본 +2cm)
-6. **post-insert dwell** — 리프트 미연동 시 기본 4초 대기
-7. 리프트 (연동 시)
-8. **후진** — insert **실측 거리만** (`_actual_insert_distance_m`). approach `full align` 전진분은 후진에 포함하지 않음
+5. **pre-insert settle** — 완전 정지 명령 후 `pre_insert_settle_sec`만큼 대기
+6. **fork insert** — `zones.json`의 `fork_insert_distance_m`를 odometry 폐루프로 주행
+7. **post-insert dwell** — 리프트 미연동 시 기본 4초 대기
+8. 리프트 (연동 시)
+9. **후진** — insert **실측 거리만** (`_actual_insert_distance_m`). approach `full align` 전진분은 후진에 포함하지 않음
 
 파레트 작업에서는 ArUco를 끝까지 보려고 하지 않는다. 가까워지면 마커가 카메라 시야 밖으로 나갈 수 있기 때문이다. Movement는 마커가 다음 조건을 만족할 때 insert를 허용한다.
 
@@ -369,9 +370,9 @@ curl -X POST http://127.0.0.1:8001/robot-commands \
 - marker width가 `ARUCO_DOCK_TARGET_WIDTH_PX * ARUCO_DOCK_LOST_ACCEPT_WIDTH_RATIO` 이상이거나 추정 거리가 목표 근처임
 - 위 조건을 만족하지 않은 상태에서 마커가 사라지면 `align` 실패로 정지
 
-삽입은 `fork_insert_speed_mps`(기본 0.035m/s)로 오픈루프 직진한다. `FORK_INSERT_MAX_DURATION_SEC`(기본 20s)가 설정 거리를 자르지 않도록 필요 시 자동 연장된다.
+삽입은 `fork_insert_speed_mps`로 저속 주행하며 odometry 이동량을 계속 확인해 목표 거리에서 정지한다. 타임아웃은 안전 상한이고 거리 제어 수단이 아니다.
 
-**슬롯별 insert 거리**는 `map/zones.json` 각 `*_approach`의 `fork_insert_distance_m`을 우선한다. tb3_2 실측 예: 입고2 0.385m, B슬롯 0.375m, 출고1 0.345m (런타임 +2cm 슬립 보정 별도).
+**2026-07-13 tb3_2 입고 슬롯 확정 설정:** 입고1(marker 0)과 입고2(marker 1)는 모두 ArUco 추정거리 `0.40m`에서 정지한 뒤 `2.0s` 정착하고, `0.01m/s`로 `0.155m`를 odometry 폐루프로 삽입한다. 슬립 보정은 `0.0m`, 근접 픽셀 기반 insert 정지는 사용하지 않는다. 현장 검증에서는 벽과 약 `5~6cm`가 남았다. 상세 기록은 [`real-robot-validation/TB3_2_ARUCO_DOCKING_CALIBRATION_2026-07-13.md`](real-robot-validation/TB3_2_ARUCO_DOCKING_CALIBRATION_2026-07-13.md)를 참고한다.
 
 **벽 밀착 슬롯** (`inbound_slot_*`, `outbound_slot_*`, `warehouse_a/b_approach`): `move_to_point` 후 자동 `aruco_align(align_mode=full)` 체인. **대기장** (`vehicle_*`): `center_only`만 사용.
 

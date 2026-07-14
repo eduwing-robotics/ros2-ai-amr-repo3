@@ -15,7 +15,7 @@ POLL_MAX="${POLL_MAX:-360}"
 TS="$(date +%s)"
 DOMAIN="${DOMAIN:-5}"
 ROBOT_SSH="${ROBOT_SSH:-musk@192.168.30.102}"
-ROBOT_PW="${ROBOT_PW:-1234}"
+ROBOT_PW="${ROBOT_PW:?Set ROBOT_PW in the environment}"
 LOG="$ROOT/logs/e2e_park_and_run_${TS}.log"
 
 exec > >(tee -a "$LOG") 2>&1

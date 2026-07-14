@@ -10,8 +10,10 @@
     "Nav2 approach points were moved farther back from slots/parking boxes to reduce costmap inflation issues.",
     "Dock handoff poses and ArUco marker positions remain close to the target; final parking should be handled by ArUco servoing.",
     "lift_levels_mm on approach waypoints: optional per-level pre_insert/load/unload/carry overrides (see warehouse_b_approach).",
-    "lift_levels_mm L1: pre_insert=0(home 삽입) → insert → load=0mm(home 유지) → carry=50mm(이동).",
-    "lift_levels_mm L2: pre_insert=50mm(2층 적재/진입) unload=43mm(내려놓고 후진, 2026-07-08 확정). 리프트: 이중 HOME + SPEED 700 권장."
+    "lift_levels_mm L1: pre_insert=0(삽입) → insert → load=6mm(들어올림) → carry=6mm(후진/이동). 2026-07-09 확정.",
+    "lift_levels_mm L2: pre_insert=50mm(2층 진입) → insert → unload=43mm(파레트 놓고 후진). 리프트: 이중 HOME + SPEED 700 권장.",
+    "insert: 픽셀 insert_stop_width_px 도달 후 추가 전진. 기본 INSERT_EXTRA_AFTER_VISION_M=0.11(입고/출고). 창고 A/B/C/D는 aruco_align.insert_extra_m=0.06(6cm).",
+    "reverse_extra_m: dock_transfer 후진 = insert실측 + reverse_extra. 입고1/2는 0.12(슬롯 안쪽 침범 회전 방지)."
   ],
   "waypoints": {
     "inbound_entry": {
@@ -50,6 +52,16 @@
       "theta": 0.0,
       "role": "A 슬롯 접근",
       "fork_insert_distance_m": 0.385,
+      "metric_two_stage": {
+        "enabled": true,
+        "stage1_target_distance_m": 0.40,
+        "interstage_stop_sec": 3.0,
+        "stage2_target_distance_m": 0.18,
+        "center_tolerance_norm": 0.03,
+        "coarse_center_tolerance_norm": 0.14,
+        "use_odom_insert": false,
+        "use_pixel_stop": false
+      },
       "lift_levels_mm": {
         "2": {
           "pre_insert_mm": 50,
@@ -65,6 +77,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 180,
+        "insert_extra_m": 0.06,
         "close_from_marker_width_only": true
       }
     },
@@ -81,11 +94,21 @@
       "role": "B 슬롯 접근",
       "fork_insert_distance_m": 0.375,
       "soft_xy_tolerance_m": 0.10,
+      "metric_two_stage": {
+        "enabled": true,
+        "stage1_target_distance_m": 0.40,
+        "interstage_stop_sec": 3.0,
+        "stage2_target_distance_m": 0.18,
+        "center_tolerance_norm": 0.03,
+        "coarse_center_tolerance_norm": 0.14,
+        "use_odom_insert": false,
+        "use_pixel_stop": false
+      },
       "lift_levels_mm": {
         "1": {
           "pre_insert_mm": 0,
-          "load_height_mm": 0,
-          "carry_height_mm": 50
+          "load_height_mm": 6,
+          "carry_height_mm": 6
         },
         "2": {
           "pre_insert_mm": 50,
@@ -101,6 +124,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 180,
+        "insert_extra_m": 0.06,
         "close_from_marker_width_only": true
       }
     },
@@ -116,6 +140,16 @@
       "theta": 3.142,
       "role": "C 슬롯 접근",
       "fork_insert_distance_m": 0.395,
+      "metric_two_stage": {
+        "enabled": true,
+        "stage1_target_distance_m": 0.40,
+        "interstage_stop_sec": 3.0,
+        "stage2_target_distance_m": 0.20,
+        "center_tolerance_norm": 0.03,
+        "coarse_center_tolerance_norm": 0.14,
+        "use_odom_insert": false,
+        "use_pixel_stop": false
+      },
       "lift_levels_mm": {
         "2": {
           "pre_insert_mm": 50,
@@ -131,6 +165,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 160,
+        "insert_extra_m": 0.06,
         "close_from_marker_width_only": true
       }
     },
@@ -146,6 +181,16 @@
       "theta": 3.142,
       "role": "D 슬롯 접근",
       "fork_insert_distance_m": 0.385,
+      "metric_two_stage": {
+        "enabled": true,
+        "stage1_target_distance_m": 0.40,
+        "interstage_stop_sec": 3.0,
+        "stage2_target_distance_m": 0.20,
+        "center_tolerance_norm": 0.03,
+        "coarse_center_tolerance_norm": 0.14,
+        "use_odom_insert": false,
+        "use_pixel_stop": false
+      },
       "lift_levels_mm": {
         "2": {
           "pre_insert_mm": 50,
@@ -161,6 +206,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 148,
+        "insert_extra_m": 0.06,
         "close_from_marker_width_only": true
       }
     },
@@ -181,24 +227,39 @@
       "y": 0.006,
       "theta": 1.571,
       "role": "입고 슬롯1 접근",
-      "fork_insert_distance_m": 0.4,
+      "fork_insert_distance_m": 0.155,
+      "reverse_extra_m": 0.12,
       "soft_xy_tolerance_m": 0.22,
+      "metric_two_stage": {
+        "enabled": true,
+        "stage1_target_distance_m": 0.40,
+        "interstage_stop_sec": 3.0,
+        "stage2_target_distance_m": 0.20,
+        "center_tolerance_norm": 0.03,
+        "coarse_center_tolerance_norm": 0.14,
+        "use_odom_insert": false,
+        "use_pixel_stop": false
+      },
       "lift_levels_mm": {
         "1": {
           "pre_insert_mm": 0,
-          "load_height_mm": 0,
-          "carry_height_mm": 50
+          "load_height_mm": 6,
+          "carry_height_mm": 6
         }
       },
       "aruco_align": {
+        "fork_insert_speed_mps": 0.01,
+        "fork_insert_slip_compensation_m": 0.0,
+        "pre_insert_settle_sec": 2.0,
         "center_tolerance_norm": 0.05,
         "center_good_enough_norm": 0.06,
         "align_settle_frames": 4,
         "target_marker_width_px": 130,
         "fork_insert_max_marker_width_px": 190,
-        "insert_vision_stop": true,
+        "insert_vision_stop": false,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 135,
+        "insert_extra_m": 0.11,
         "close_from_marker_width_only": true
       }
     },
@@ -213,24 +274,39 @@
       "y": 0.006,
       "theta": 1.571,
       "role": "입고 슬롯2 접근",
-      "fork_insert_distance_m": 0.4,
+      "fork_insert_distance_m": 0.155,
+      "reverse_extra_m": 0.12,
       "soft_xy_tolerance_m": 0.12,
+      "metric_two_stage": {
+        "enabled": true,
+        "stage1_target_distance_m": 0.40,
+        "interstage_stop_sec": 3.0,
+        "stage2_target_distance_m": 0.20,
+        "center_tolerance_norm": 0.03,
+        "coarse_center_tolerance_norm": 0.14,
+        "use_odom_insert": false,
+        "use_pixel_stop": false
+      },
       "lift_levels_mm": {
         "1": {
           "pre_insert_mm": 0,
-          "load_height_mm": 0,
-          "carry_height_mm": 50
+          "load_height_mm": 6,
+          "carry_height_mm": 6
         }
       },
       "aruco_align": {
+        "fork_insert_speed_mps": 0.01,
+        "fork_insert_slip_compensation_m": 0.0,
+        "pre_insert_settle_sec": 2.0,
         "center_tolerance_norm": 0.05,
         "center_good_enough_norm": 0.06,
         "align_settle_frames": 4,
         "target_marker_width_px": 115,
         "fork_insert_max_marker_width_px": 160,
-        "insert_vision_stop": true,
+        "insert_vision_stop": false,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 135,
+        "insert_extra_m": 0.11,
         "close_from_marker_width_only": true
       }
     },
@@ -246,11 +322,21 @@
       "theta": 1.571,
       "role": "출고 슬롯1 접근",
       "fork_insert_distance_m": 0.39,
+      "metric_two_stage": {
+        "enabled": true,
+        "stage1_target_distance_m": 0.40,
+        "interstage_stop_sec": 3.0,
+        "stage2_target_distance_m": 0.20,
+        "center_tolerance_norm": 0.03,
+        "coarse_center_tolerance_norm": 0.14,
+        "use_odom_insert": false,
+        "use_pixel_stop": false
+      },
       "lift_levels_mm": {
         "1": {
           "pre_insert_mm": 0,
-          "load_height_mm": 0,
-          "carry_height_mm": 50
+          "load_height_mm": 6,
+          "carry_height_mm": 6
         }
       },
       "aruco_align": {
@@ -277,11 +363,21 @@
       "theta": 1.571,
       "role": "출고 슬롯2 접근",
       "fork_insert_distance_m": 0.39,
+      "metric_two_stage": {
+        "enabled": true,
+        "stage1_target_distance_m": 0.40,
+        "interstage_stop_sec": 3.0,
+        "stage2_target_distance_m": 0.20,
+        "center_tolerance_norm": 0.03,
+        "coarse_center_tolerance_norm": 0.14,
+        "use_odom_insert": false,
+        "use_pixel_stop": false
+      },
       "lift_levels_mm": {
         "1": {
           "pre_insert_mm": 0,
-          "load_height_mm": 0,
-          "carry_height_mm": 50
+          "load_height_mm": 6,
+          "carry_height_mm": 6
         }
       },
       "aruco_align": {
@@ -308,6 +404,16 @@
       "theta": 1.571,
       "role": "1호차 대기 접근",
       "fork_insert_distance_m": 0.30,
+      "metric_two_stage": {
+        "enabled": true,
+        "stage1_target_distance_m": 0.40,
+        "interstage_stop_sec": 3.0,
+        "stage2_target_distance_m": 0.20,
+        "center_tolerance_norm": 0.03,
+        "coarse_center_tolerance_norm": 0.14,
+        "use_odom_insert": false,
+        "use_pixel_stop": false
+      },
       "aruco_align": {
         "center_tolerance_norm": 0.03,
         "center_good_enough_norm": 0.05,
@@ -332,6 +438,16 @@
       "theta": 1.571,
       "role": "2호차 대기 접근",
       "fork_insert_distance_m": 0.32,
+      "metric_two_stage": {
+        "enabled": true,
+        "stage1_target_distance_m": 0.40,
+        "interstage_stop_sec": 3.0,
+        "stage2_target_distance_m": 0.20,
+        "center_tolerance_norm": 0.03,
+        "coarse_center_tolerance_norm": 0.14,
+        "use_odom_insert": false,
+        "use_pixel_stop": false
+      },
       "aruco_align": {
         "center_tolerance_norm": 0.03,
         "center_good_enough_norm": 0.05,

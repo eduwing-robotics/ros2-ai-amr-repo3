@@ -67,6 +67,17 @@ def aruco_align_defaults_for_marker(marker_id: int) -> Dict[str, Any]:
     return defaults if isinstance(defaults, dict) else {}
 
 
+def metric_two_stage_for_waypoint(waypoint_id: Optional[str]) -> Dict[str, Any]:
+    """검증된 입고 슬롯의 40cm 정지 -> 대기 -> 20cm 정지 프로필."""
+    if not waypoint_id:
+        return {}
+    waypoint = load_waypoint_goals().get(str(waypoint_id)) or {}
+    profile = waypoint.get("metric_two_stage")
+    if not isinstance(profile, dict) or not profile.get("enabled"):
+        return {}
+    return profile
+
+
 def apply_slot_aruco_defaults(payload: Dict[str, Any], marker_id: int) -> None:
     """dock_transfer도 approach와 같은 슬롯별 ArUco close 기준을 사용한다."""
     for key, value in aruco_align_defaults_for_marker(marker_id).items():
@@ -327,8 +338,13 @@ def goal_from_move_to_point_params(params: Dict[str, Any]):
 
 
 def prepend_leave_dock_if_parked(steps: List[MovementStep]) -> List[MovementStep]:
-    """hold 주차(standby_parked) 상태에서 move_to_point 시 먼저 후진 이탈."""
-    if not runtime.get_standby_parked():
+    """대기장 hold(또는 기동 직후 미상)면 move_to_point 앞에 leave_dock(후진)을 붙인다.
+
+    standby_parked:
+      False → 이미 이탈 → 후진 생략
+      True / None → 대기장(또는 재기동 직후) → 후진 후 Nav2
+    """
+    if runtime.get_standby_parked() is False:
         return steps
     return [
         MovementStep(action="leave_dock", payload={"reason": "auto_before_nav"}),
@@ -380,10 +396,29 @@ def move_to_point_steps(req: RobotCommandRequest, goal: Dict[str, Any], traffic_
         aruco_overrides = waypoint_cfg.get("aruco_align")
         if isinstance(aruco_overrides, dict):
             align_payload.update({k: v for k, v in aruco_overrides.items() if v is not None})
-    align_step = MovementStep(
-        action="aruco_align",
-        payload=align_payload,
-    )
+    two_stage = metric_two_stage_for_waypoint(str(waypoint_id) if waypoint_id else None)
+    if two_stage:
+        common = {
+            **align_payload,
+            "align_mode": "full",
+            "final": "hold",
+            "fork_insert_on_hold": False,
+            "fork_insert_enabled": False,
+            "metric_distance_only": True,
+            "dock_linear_speed": 0.018,
+            "dock_min_linear_speed": 0.006,
+            "dock_angular_gain": 0.45,
+            "dock_max_angular_speed": 0.16,
+            "center_tolerance_norm": float(two_stage.get("center_tolerance_norm", 0.03)),
+            "coarse_center_tolerance_norm": float(two_stage.get("coarse_center_tolerance_norm", 0.14)),
+            "docking_timeout_sec": 65.0,
+        }
+        stage1 = MovementStep(action="aruco_align", payload={**common, "terminal_state": "DONE", "target_distance_m": float(two_stage.get("stage1_target_distance_m", 0.40))})
+        stop = MovementStep(action="wait", duration=float(two_stage.get("interstage_stop_sec", 3.0)), payload={"reason": "future_lift_stage"})
+        stage2 = MovementStep(action="aruco_align", payload={**common, "terminal_state": "ARRIVED", "target_distance_m": float(two_stage.get("stage2_target_distance_m", 0.20)), "skip_approach_yaw_rotate": True})
+        return prepend_leave_dock_if_parked([nav_step, stage1, stop, stage2])
+
+    align_step = MovementStep(action="aruco_align", payload=align_payload)
     return prepend_leave_dock_if_parked([nav_step, align_step])
 
 

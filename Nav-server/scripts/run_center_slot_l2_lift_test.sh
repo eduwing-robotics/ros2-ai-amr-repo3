@@ -19,7 +19,7 @@ PRE_INSERT_MM="${PRE_INSERT_MM:-50}"
 UNLOAD_MM="${UNLOAD_MM:-12}"
 TRAVEL_MM="${TRAVEL_MM:-50}"
 ROBOT_SSH="${ROBOT_SSH:-musk@192.168.30.102}"
-ROBOT_PW="${ROBOT_PW:-1234}"
+ROBOT_PW="${ROBOT_PW:?Set ROBOT_PW in the environment}"
 TS=$(date +%s)
 
 case "${SLOT,,}" in

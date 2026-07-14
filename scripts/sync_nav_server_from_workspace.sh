@@ -16,11 +16,17 @@ rsync -a --delete \
   --exclude '__pycache__/' \
   --exclude '*.py[cod]' \
   --exclude '.pytest_cache/' \
+  --exclude '*.bak*' \
+  --exclude '*.orig' \
+  --exclude '*.rej' \
   "$SRC/nav_app/" "$DST/nav_app/"
 
 rsync -a --delete \
   --exclude '__pycache__/' \
   --exclude '*.py[cod]' \
+  --exclude '*.bak*' \
+  --exclude '*.orig' \
+  --exclude '*.rej' \
   --exclude 'robot_sbc/setup_marco_libcamera.sh' \
   "$SRC/scripts/" "$DST/scripts/"
 
@@ -31,8 +37,9 @@ rsync -a --delete \
   "$SRC/launch/" "$DST/launch/"
 
 rsync -a --delete \
-  --exclude '*.bak' \
-  --exclude '*.bak.*' \
+  --exclude '*.bak*' \
+  --exclude '*.orig' \
+  --exclude '*.rej' \
   --exclude '*.jpg' \
   --exclude '*.png' \
   --exclude '*.svg' \

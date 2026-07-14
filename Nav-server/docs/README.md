@@ -3,8 +3,19 @@
 상태: Active
 분류: Docs
 작성: 2026-06-27 12:11 KST
-최종 갱신: 2026-07-03 17:55 KST
+최종 갱신: 2026-07-10 09:40 KST
 목적: `slam_nav_ws` 기준 문서와 작업 문서의 위치를 안내한다.
+
+## Codex / 에이전트 이어하기 (최신)
+
+- **`../worklog/sessions/CONTINUE_CODEX_2026-07-10.md`** — **어제(07-09) 중단점 → 오늘 재개 정본** (기동·시나리오·P0~P4)
+- `../worklog/SESSION_20260708_EKF.md` — EKF 스냅샷·구역 테스트 이력
+
+## Handoff — Main/LMS 전달
+
+- **`handoff/MAIN_LMS_HANDOFF_2026-07-09.md`** — **Main/LMS에 줄 문서 (통합본·유일)**
+- `handoff/TB3_1_PARITY_PLAN_2026-07-09.md` — 로봇1을 로봇2와 동일하게 맞추는 방법 (브링업 포함)
+- `handoff/DUAL_ROBOT_TRAFFIC_REVIEW_2026-07-09.md` — **2대 동시 운용·충돌 방지 방식 검토**
 
 ## 기준 문서
 
@@ -35,6 +46,10 @@
   - `SCENARIO_TASK206_INBOUND2_TB3_2.md`: LMS task 206 입고2 재현
 
 ## 에이전트 시작 순서
+
+실차·시나리오 이어서 할 때 (우선):
+
+0. `../worklog/sessions/CONTINUE_CODEX_2026-07-10.md`
 
 기능·운영 작업 시:
 

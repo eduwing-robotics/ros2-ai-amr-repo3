@@ -16,7 +16,7 @@ echo "[wait_robot] DOMAIN=$DOMAIN timeout=${TIMEOUT_SEC}s — /odom + /scan 대�
 while [[ $(date +%s) -lt $deadline ]]; do
   odom_ok=0 scan_ok=0
   if timeout 4 ros2 topic echo /odom --once >/dev/null 2>&1; then odom_ok=1; fi
-  if timeout 4 ros2 topic echo /scan --once >/dev/null 2>&1; then scan_ok=1; fi
+  if timeout 4 ros2 topic echo /scan --once --qos-reliability best_effort >/dev/null 2>&1; then scan_ok=1; fi
   if [[ $odom_ok -eq 1 && $scan_ok -eq 1 ]]; then
     echo "[wait_robot] OK — /odom + /scan 수신"
     exit 0

@@ -16,10 +16,10 @@
         "lift"
       ],
       "enabled": true,
-      "active_map_yaml": "map/robot1_map.yaml",
+      "active_map_yaml": "map/robot2_map.yaml",
       "aruco_detection_topic": "/mission/tb3_1/aruco/detections",
       "lift": {
-        "enabled": false,
+        "enabled": true,
         "topics": {
           "cmd_move": "/lift/cmd_move",
           "cmd_home": "/lift/cmd_home",
@@ -28,9 +28,10 @@
           "direction": "/lift/direction",
           "limit_lower": "/lift/limit_lower"
         },
-        "load_height_mm": 43.0,
-        "carry_height_mm": 50.0,
+        "load_height_mm": 6.0,
+        "carry_height_mm": 6.0,
         "unload_height_mm": 6.0,
+        "command_scale": 1.282,
         "home_on_unload": false,
         "position_tolerance_mm": 2.0,
         "ready_timeout_sec": 3.0,
@@ -38,12 +39,12 @@
         "home_timeout_sec": 25.0,
         "levels": {
           "1": {
-            "load_height_mm": 43.0,
+            "load_height_mm": 6.0,
             "unload_height_mm": 6.0
           },
           "2": {
             "load_height_mm": 50.0,
-            "unload_height_mm": 6.0
+            "unload_height_mm": 43.0
           }
         }
       }
@@ -76,8 +77,8 @@
           "direction": "/lift/direction",
           "limit_lower": "/lift/limit_lower"
         },
-        "load_height_mm": 43.0,
-        "carry_height_mm": 50.0,
+        "load_height_mm": 6.0,
+        "carry_height_mm": 6.0,
         "unload_height_mm": 6.0,
         "command_scale": 1.282,
         "home_on_unload": false,
@@ -87,12 +88,12 @@
         "home_timeout_sec": 25.0,
         "levels": {
           "1": {
-            "load_height_mm": 43.0,
+            "load_height_mm": 6.0,
             "unload_height_mm": 6.0
           },
           "2": {
             "load_height_mm": 50.0,
-            "unload_height_mm": 6.0
+            "unload_height_mm": 43.0
           }
         }
       }

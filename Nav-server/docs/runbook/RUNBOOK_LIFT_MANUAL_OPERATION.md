@@ -1,7 +1,7 @@
 # 리프트 수동 조작 Runbook (tb3_2)
 
-상태: Active  
-작성: 2026-07-06 KST  
+상태: Active
+작성: 2026-07-06 KST
 목적: 하드웨어팀 인수인계 문서 기준으로 **리프트만** 수동 검증하는 절차. Movement/LMS 연동 전 단계.
 
 **원본(하드웨어팀):** `~/Downloads/lift_project/` (라파이에는 `~/lift_project/`)
@@ -183,7 +183,7 @@ scripts/test_lift_tb3_2.sh status
 | SBC | `~/lift_project/ros2_ws/` |
 | slam_nav_ws | `lift_client.py`, `test_lift_tb3_2.sh`, `robot_sbc/start_lift_bridge.sh` |
 
-상세 계획: [`docs/plan/LIFT_BRIDGE_ONE_SHOT_LAUNCHER_PLAN.md`](../plan/LIFT_BRIDGE_ONE_SHOT_LAUNCHER_PLAN.md)  
+상세 계획: [`docs/plan/LIFT_BRIDGE_ONE_SHOT_LAUNCHER_PLAN.md`](../plan/LIFT_BRIDGE_ONE_SHOT_LAUNCHER_PLAN.md)
 작업 로그: [`worklog/sessions/LIFT_INTEGRATION_2026-07-06.md`](../../worklog/sessions/LIFT_INTEGRATION_2026-07-06.md)
 
 ---

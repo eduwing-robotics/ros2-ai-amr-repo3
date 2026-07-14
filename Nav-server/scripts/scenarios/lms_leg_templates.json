@@ -1,0 +1,124 @@
+{
+  "schema_version": "2026-07-09",
+  "description": "LMS task leg templates — POST each object to /robot-commands in order. Replace {task_id}, {command_id} prefixes.",
+  "robot_id": "tb3_2",
+  "nav_base": "http://smartfactory-nav.local:8002",
+  "callback_url": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
+  "waypoint_source": "map/zones.json",
+  "templates": {
+    "leave_dock_from_hold": {
+      "kind": "leave_dock",
+      "params": {},
+      "terminal_state": "DONE",
+      "notes": "hold 주차(vehicle_1/2)에서 새 task 시작 시 첫 leg"
+    },
+    "move_inbound2_approach": {
+      "kind": "move_to_point",
+      "params": { "waypoint_id": "inbound_slot_2_approach" },
+      "terminal_state": "ARRIVED"
+    },
+    "dock_inbound2_load_l1": {
+      "kind": "dock_transfer",
+      "params": { "aruco_marker_id": 1, "action": "load", "level": 1 },
+      "terminal_state": "DONE",
+      "requires_prior": "ARRIVED at inbound_slot_2_approach"
+    },
+    "move_warehouse_b_approach": {
+      "kind": "move_to_point",
+      "params": { "waypoint_id": "warehouse_b_approach" },
+      "terminal_state": "ARRIVED"
+    },
+    "dock_warehouse_b_unload_l2": {
+      "kind": "dock_transfer",
+      "params": { "aruco_marker_id": 8, "action": "unload", "level": 2 },
+      "terminal_state": "DONE"
+    },
+    "move_wait2_approach": {
+      "kind": "move_to_point",
+      "params": { "waypoint_id": "vehicle_2_approach" },
+      "terminal_state": "ARRIVED"
+    },
+    "hold_park_wait2": {
+      "kind": "aruco_align",
+      "params": {
+        "aruco_marker_id": 4,
+        "final": "hold",
+        "align_mode": "center_only",
+        "docking_timeout_sec": 90,
+        "marker_search_on_miss": true,
+        "marker_search_timeout_sec": 90
+      },
+      "terminal_state": "DONE"
+    },
+    "hold_park_wait1": {
+      "kind": "aruco_align",
+      "params": {
+        "aruco_marker_id": 3,
+        "final": "hold",
+        "align_mode": "center_only",
+        "docking_timeout_sec": 90,
+        "marker_search_on_miss": true
+      },
+      "terminal_state": "DONE"
+    },
+    "reverse_out_slot": {
+      "kind": "reverse_out",
+      "params": { "aruco_marker_id": "{marker_id}" },
+      "terminal_state": "DONE",
+      "notes": "insert 잔류 복구. dock_transfer 직후에는 불필요"
+    }
+  },
+  "scenarios": {
+    "inbound2_load_b_unload_l2_park_wait2": {
+      "description": "입고2 L1 픽업 → B L2 적재 → wait2 hold 주차",
+      "legs": [
+        "leave_dock_from_hold",
+        "move_inbound2_approach",
+        "dock_inbound2_load_l1",
+        "move_warehouse_b_approach",
+        "dock_warehouse_b_unload_l2",
+        "move_wait2_approach",
+        "hold_park_wait2"
+      ]
+    },
+    "task206_inbound2_only": {
+      "description": "LMS task 206 — 입고2만 (zones waypoint 권장)",
+      "legs": [
+        "leave_dock_from_hold",
+        "move_inbound2_approach",
+        "dock_inbound2_load_l1"
+      ]
+    },
+    "ekf_validated_c_hold_wait1": {
+      "description": "2026-07-09 검증: C dock → wait1 hold (테스트/QA 참고)",
+      "legs": [
+        {
+          "kind": "move_to_point",
+          "params": { "waypoint_id": "warehouse_c_approach", "soft_xy_tolerance_m": 0.12 }
+        },
+        {
+          "kind": "dock_transfer",
+          "params": { "aruco_marker_id": 10, "action": "unload", "level": 2, "skip_lift": true }
+        },
+        {
+          "kind": "move_to_point",
+          "params": { "waypoint_id": "vehicle_1_approach", "soft_xy_tolerance_m": 0.15 }
+        },
+        "hold_park_wait1"
+      ],
+      "notes": "skip_lift는 QA 전용 — LMS 운영에 사용 금지"
+    }
+  },
+  "marker_reference": {
+    "inbound_slot_1": 0,
+    "inbound_slot_2": 1,
+    "outbound_slot_1": 5,
+    "outbound_slot_2": 6,
+    "warehouse_a": 7,
+    "warehouse_b": 8,
+    "warehouse_d": 9,
+    "warehouse_c": 10,
+    "vehicle_1_wait": 3,
+    "vehicle_2_wait": 4
+  }
+}

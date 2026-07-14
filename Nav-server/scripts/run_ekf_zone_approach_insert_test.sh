@@ -17,6 +17,7 @@ export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-5}"
 LOG="${LOG:-/tmp/ekf_zone_insert_${TS}.log}"
 ZONES="${ZONES:-inbound2,inbound1,outbound1,outbound2,a,b,c,d,wait1,wait2}"
 FAIL=0
+SKIP_LIFT="${SKIP_LIFT:-0}"
 
 # waypoint_id|marker|kind|level|soft_xy_tol
 # kind: dock= dock_transfer, hold= aruco_align hold
@@ -29,8 +30,8 @@ ALL_ZONES=(
   "warehouse_b_approach|8|dock|1|0.12"
   "warehouse_c_approach|10|dock|2|0.12"
   "warehouse_d_approach|9|dock|2|0.12"
-  "vehicle_1_approach|3|hold|1|0.12"
-  "vehicle_2_approach|4|hold|1|0.12"
+  "vehicle_1_approach|3|hold|1|0.15"
+  "vehicle_2_approach|4|hold|1|0.15"
 )
 
 poll() {
@@ -81,9 +82,11 @@ nav_with_retry() {
 }
 
 slot_reverse_if_needed() {
-  local marker="$1"
-  post "ekf-${TS}-rev-${marker}" "reverse_out" "{\"aruco_marker_id\":${marker}}" || return 1
-  poll "ekf-${TS}-rev-${marker}" "DONE" 120 || true
+  maybe_reverse_out_if_inserted
+}
+
+maybe_reverse_out_if_inserted() {
+  CID_PREFIX="ekf-${TS}" bash "$ROOT/scripts/maybe_reverse_out_if_inserted.sh" | tee -a "$LOG"
 }
 
 zone_enabled() {
@@ -95,6 +98,8 @@ run_zone() {
   local key="$1" wp="$2" marker="$3" kind="$4" level="$5" tol="$6"
   echo "" | tee -a "$LOG"
   echo "===== ZONE $key ($wp) marker=#$marker EKF insert test =====" | tee -a "$LOG"
+
+  maybe_reverse_out_if_inserted
 
   if ! nav_with_retry "$wp" "$tol" "ekf-${TS}-${key}"; then
     echo "[FAIL] $key nav" | tee -a "$LOG"
@@ -108,13 +113,20 @@ run_zone() {
     post "$cid" "aruco_align" "{\"aruco_marker_id\":${marker},\"align_mode\":\"center_only\",\"final\":\"hold\",\"docking_timeout_sec\":90,\"marker_search_on_miss\":true,\"marker_search_timeout_sec\":90}"
     if poll "$cid" "DONE" 360; then
       echo "[OK] $key hold+insert" | tee -a "$LOG"
-      post "ekf-${TS}-${key}-leave" "leave_dock" '{}' && poll "ekf-${TS}-${key}-leave" "DONE" 120 || true
+      post "ekf-${TS}-${key}-revout" "reverse_out" "{\"aruco_marker_id\":${marker}}" \
+        && poll "ekf-${TS}-${key}-revout" "DONE" 120 || true
       return 0
     fi
   else
     local action="load"
     [[ "$level" == "2" ]] && action="unload"
-    post "$cid" "dock_transfer" "{\"aruco_marker_id\":${marker},\"action\":\"${action}\",\"level\":${level},\"lift_timeout_sec\":60,\"docking_timeout_sec\":90,\"marker_search_on_miss\":true,\"marker_search_timeout_sec\":90}"
+    local dock_params="{\"aruco_marker_id\":${marker},\"action\":\"${action}\",\"level\":${level},\"docking_timeout_sec\":90,\"marker_search_on_miss\":true,\"marker_search_timeout_sec\":90}"
+    if [[ "$SKIP_LIFT" == "1" ]]; then
+      dock_params="{\"aruco_marker_id\":${marker},\"action\":\"${action}\",\"level\":${level},\"skip_lift\":true,\"post_insert_dwell_sec\":1.0,\"docking_timeout_sec\":90,\"marker_search_on_miss\":true,\"marker_search_timeout_sec\":90}"
+    else
+      dock_params="{\"aruco_marker_id\":${marker},\"action\":\"${action}\",\"level\":${level},\"lift_timeout_sec\":60,\"docking_timeout_sec\":90,\"marker_search_on_miss\":true,\"marker_search_timeout_sec\":90}"
+    fi
+    post "$cid" "dock_transfer" "$dock_params"
     if poll "$cid" "DONE" 420; then
       echo "[OK] $key dock_transfer" | tee -a "$LOG"
       return 0
@@ -128,7 +140,7 @@ run_zone() {
 
 {
 echo "===== EKF zone approach+insert test $(date -Is) ====="
-echo "LOG=$LOG ZONES=$ZONES"
+echo "LOG=$LOG ZONES=$ZONES SKIP_LIFT=$SKIP_LIFT"
 curl -sf "$BASE/movement-api/v1/robots/tb3_2/nav-state" | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
@@ -138,20 +150,12 @@ print(f'START pose=({p.get(\"x\",0):.3f},{p.get(\"y\",0):.3f}) accepting={d.get(
 pgrep -f aruco_detector_node >/dev/null && echo "detector=OK" || echo "detector=MISSING"
 pgrep -f ekf_filter_node >/dev/null && echo "ekf=OK" || echo "ekf=MISSING"
 
-# insert 잔류 시 선행 후진
-need=$(curl -sf "$BASE/movement-api/v1/robots/tb3_2/nav-state" | python3 -c "
-import sys,json
-p=json.load(sys.stdin).get('pose')or{}
-x,y=float(p.get('x',0)),float(p.get('y',0))
-if 0.05<x<0.55 and y>0.12: print('1')
-elif 0.0<x<0.55 and -0.55<y<-0.15: print('8')
-else: print('0')
-")
-[[ "$need" == "1" ]] && slot_reverse_if_needed 1
-[[ "$need" == "8" ]] && slot_reverse_if_needed 8
-
-bash "$ROOT/scripts/test_lift_tb3_2.sh" home || true
-sleep 6
+if [[ "$SKIP_LIFT" != "1" ]]; then
+  bash "$ROOT/scripts/test_lift_tb3_2.sh" home || true
+  sleep 6
+else
+  echo "[skip_lift] lift HOME preflight skipped" | tee -a "$LOG"
+fi
 
 for row in "${ALL_ZONES[@]}"; do
   IFS='|' read -r wp marker kind level tol <<<"$row"

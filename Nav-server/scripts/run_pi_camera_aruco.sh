@@ -20,6 +20,7 @@ ARUCO_DICTIONARY="${ARUCO_DICTIONARY:-DICT_4X4_50}"
 ARUCO_MARKER_SIZE_M="${ARUCO_MARKER_SIZE_M:-0.05}"
 ARUCO_FOCAL_LENGTH_PX="${ARUCO_FOCAL_LENGTH_PX:-0.0}"
 ARUCO_MIN_MARKER_WIDTH_PX="${ARUCO_MIN_MARKER_WIDTH_PX:-8.0}"
+ARUCO_CALIBRATION_FILE="${ARUCO_CALIBRATION_FILE:-}"
 
 require_file() {
   local path="$1"
@@ -55,6 +56,10 @@ CONFIGURED_ROS_DOMAIN_ID="$(robot_field ros_domain_id)"
 ROS_DOMAIN_ID="${ROS_DOMAIN_ID_OVERRIDE:-$CONFIGURED_ROS_DOMAIN_ID}"
 CAMERA_TOPIC="${CAMERA_TOPIC:-$(robot_field camera_topic)}"
 ARUCO_DETECTION_TOPIC="${ARUCO_DETECTION_TOPIC:-$(robot_field aruco_detection_topic)}"
+if [[ -z "$ARUCO_CALIBRATION_FILE" ]]; then
+  robot_calibration="$ROOT/config/camera/${ROBOT_ID}.json"
+  [[ ! -f "$robot_calibration" ]] || ARUCO_CALIBRATION_FILE="$robot_calibration"
+fi
 RAW_CAMERA_TOPIC="${RAW_CAMERA_TOPIC:-/camera/image_raw}"
 RAW_COMPRESSED_TOPIC="${RAW_COMPRESSED_TOPIC:-/camera/image_raw/compressed}"
 DETECTOR_IMAGE_TOPIC="${DETECTOR_IMAGE_TOPIC:-$RAW_COMPRESSED_TOPIC}"
@@ -95,6 +100,10 @@ printf '[pi_camera_aruco] camera input topic: %s\n' "$DETECTOR_IMAGE_TOPIC"
 printf '[pi_camera_aruco] mission camera topic: %s\n' "$CAMERA_TOPIC"
 printf '[pi_camera_aruco] detection topic: %s\n' "$ARUCO_DETECTION_TOPIC"
 printf '[pi_camera_aruco] camera relay enabled: %s\n' "$START_CAMERA_RELAY"
+if [[ -n "$ARUCO_CALIBRATION_FILE" ]]; then
+  require_file "$ARUCO_CALIBRATION_FILE" "camera calibration"
+  printf '[pi_camera_aruco] calibration: %s\n' "$ARUCO_CALIBRATION_FILE"
+fi
 
 # ros2 launch does not accept global --ros-args remaps for this launch file.
 # Keep the camera on its default compressed topic and let the detector publish
@@ -116,13 +125,15 @@ if [[ "$START_CAMERA_RELAY" != "0" ]]; then
   pids+=("$!")
 fi
 
-"$DETECTOR_PY" "$SCRIPT_DIR/aruco_detector_node.py" --ros-args \
-  -p "image_topic:=${DETECTOR_IMAGE_TOPIC}" \
-  -p "detection_topic:=${ARUCO_DETECTION_TOPIC}" \
-  -p "dictionary:=${ARUCO_DICTIONARY}" \
-  -p "marker_size_m:=${ARUCO_MARKER_SIZE_M}" \
-  -p "focal_length_px:=${ARUCO_FOCAL_LENGTH_PX}" \
-  -p "min_marker_width_px:=${ARUCO_MIN_MARKER_WIDTH_PX}" &
+detector_args=(--ros-args
+  -p "image_topic:=${DETECTOR_IMAGE_TOPIC}"
+  -p "detection_topic:=${ARUCO_DETECTION_TOPIC}"
+  -p "dictionary:=${ARUCO_DICTIONARY}"
+  -p "marker_size_m:=${ARUCO_MARKER_SIZE_M}"
+  -p "focal_length_px:=${ARUCO_FOCAL_LENGTH_PX}"
+  -p "min_marker_width_px:=${ARUCO_MIN_MARKER_WIDTH_PX}")
+[[ -z "$ARUCO_CALIBRATION_FILE" ]] || detector_args+=(-p "calibration_file:=${ARUCO_CALIBRATION_FILE}")
+"$DETECTOR_PY" "$SCRIPT_DIR/aruco_detector_node.py" "${detector_args[@]}" &
 pids+=("$!")
 
 wait -n "${pids[@]}"

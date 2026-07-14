@@ -1,8 +1,7 @@
 # LMS(Main) 전달 사항 — 2026-07-05
 
-상태: Handoff  
-대상: Main/LMS 개발·운영  
-작성: 2026-07-05 KST  
+> **통합 정본:** [`MAIN_LMS_HANDOFF_2026-07-09.md`](MAIN_LMS_HANDOFF_2026-07-09.md) **← 이것만 전달**
+
 
 Movement(Nav) 쪽에서 **오늘 실물 검증한 내용**을 LMS에 반영할 때 읽을 문서와 **바뀐 점·시나리오 leg 템플릿**을 한곳에 모았다.
 
@@ -158,8 +157,8 @@ http://127.0.0.1:8088/api/v1/movement/command-events
 
 **다른 검증된 패턴 (참고):**
 
-- inbound1 → C → 대기2  
-- outbound2 → A → 대기2  
+- inbound1 → C → 대기2
+- outbound2 → A → 대기2
 
 (스크립트: `scripts/run_inbound1_c_wait2_scenario.sh`, `run_outbound2_a_wait2_scenario.sh`)
 
@@ -167,8 +166,8 @@ http://127.0.0.1:8088/api/v1/movement/command-events
 
 ## 4. LMS에 안 넘겨도 되는 것
 
-- Nav2 yaml 튜닝, ArUco detector 기동, RViz localize  
-- `fork_insert` m/s 슬립 보정 env (Movement 서버 재시작 시 적용)  
+- Nav2 yaml 튜닝, ArUco detector 기동, RViz localize
+- `fork_insert` m/s 슬립 보정 env (Movement 서버 재시작 시 적용)
 - Implementation 영상·Confluence (운영 계약과 별도)
 
 ---

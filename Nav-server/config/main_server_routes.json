@@ -1,7 +1,10 @@
 {
   "nav_pc_host": "192.168.30.4",
+  "robot1_fixed_ip": "192.168.30.101",
   "robot2_fixed_ip": "192.168.30.102",
   "robot_fixed_ips": {
+    "tb3_burger_01": "192.168.30.101",
+    "tb3_1": "192.168.30.101",
     "tb3_burger_02": "192.168.30.102",
     "tb3_2": "192.168.30.102"
   },
@@ -13,7 +16,7 @@
       "ros_domain_id": 2,
       "bridge_robot_id": "tb3_1",
       "center_domain_id": 1,
-      "robot_fixed_ip": null,
+      "robot_fixed_ip": "192.168.30.101",
       "mission_types": [
         "inbound",
         "outbound"

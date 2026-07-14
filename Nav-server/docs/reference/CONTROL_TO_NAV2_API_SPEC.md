@@ -6,8 +6,8 @@
 최종 갱신: 2026-07-02 11:20 KST
 목적: 관제 메인 서버와 Movement/Nav2 실행 서버 간 시나리오·route API 계약을 상세히 정의한다.
 
-작성일: 2026-06-16 00:00 KST  
-대상: `slam_nav_ws` Movement API / Nav2 실행 서버  
+작성일: 2026-06-16 00:00 KST
+대상: `slam_nav_ws` Movement API / Nav2 실행 서버
 목적: 관제 메인 서버가 입고/출고 작업 시나리오를 원자 명령으로 보내면 Movement 서버가 waypoint 조회, traffic lock, Nav2 goal 실행, ArUco/lift handoff를 담당한다.
 
 ---
@@ -178,8 +178,8 @@ curl http://smartfactory-nav.local:8001/movement-api/v1/health
 | `localized` | `/amcl_pose` 수신 여부. navigation launch 후 초기 위치가 잡히면 `true` |
 | `localization_required` | 실제 이동 모드에서 localization 확인 필요 여부 |
 
-관제 서버는 최소 조건으로 `ok=true`, `robot_online=true`, `cmd_vel_subscribers > 0`, `command_accepting=true`, `dry_run=false`를 확인한다. `ok=true`는 API 프로세스 생존만 의미하므로 실제 로봇 표시에는 `robot_online` 또는 `/movement-api/v1/robots[].online`을 사용한다.  
-`localized=true`는 위치 추정이 된다는 뜻이고, 실제 구동 준비와는 별개다. `cmd_vel_subscribers=0`이면 좌표 명령을 보내도 로봇 base가 속도 명령을 받지 못한다.  
+관제 서버는 최소 조건으로 `ok=true`, `robot_online=true`, `cmd_vel_subscribers > 0`, `command_accepting=true`, `dry_run=false`를 확인한다. `ok=true`는 API 프로세스 생존만 의미하므로 실제 로봇 표시에는 `robot_online` 또는 `/movement-api/v1/robots[].online`을 사용한다.
+`localized=true`는 위치 추정이 된다는 뜻이고, 실제 구동 준비와는 별개다. `cmd_vel_subscribers=0`이면 좌표 명령을 보내도 로봇 base가 속도 명령을 받지 못한다.
 실제 이동 전에는 운영자가 RViz/초기 위치/TF/Nav2 활성 상태를 확인해야 한다.
 
 ---

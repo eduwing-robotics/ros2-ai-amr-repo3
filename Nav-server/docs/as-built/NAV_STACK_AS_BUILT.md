@@ -50,7 +50,7 @@ endpoint 스냅샷: `worklog/snapshots/NAV_SERVER_ENDPOINTS_SNAPSHOT.md`
 | Config | `validate_robot_domains.py`, `validate_zones.py` | ✅ |
 | Smoke | `smoke_nav_servers.sh`, `smoke_movement_api.sh`, `smoke_main_contract.sh` | ❌ (`rclpy` 필요) |
 
-환경별 상세: `docs/runbook/DEVELOPMENT_VERIFICATION.md`  
+환경별 상세: `docs/runbook/DEVELOPMENT_VERIFICATION.md`
 리팩토링 마무리: `worklog/sessions/REFACTORING_CLOSURE.md`
 
 ## 외부 표면

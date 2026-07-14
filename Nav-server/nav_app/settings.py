@@ -51,6 +51,8 @@ INSERT_VISION_STOP_ENABLED = os.getenv("INSERT_VISION_STOP_ENABLED", "1").strip(
 )
 INSERT_CREEP_SPEED_MPS = float(os.getenv("INSERT_CREEP_SPEED_MPS", "0.028"))
 INSERT_STOP_WIDTH_PX = float(os.getenv("INSERT_STOP_WIDTH_PX", "140"))
+# 픽셀 vision stop 도달 후 추가로 더 들어갈 거리 (파레트 깊이). 기본 11cm.
+INSERT_EXTRA_AFTER_VISION_M = float(os.getenv("INSERT_EXTRA_AFTER_VISION_M", "0.11"))
 INSERT_VISION_SNAPSHOT_ENABLED = os.getenv("INSERT_VISION_SNAPSHOT_ENABLED", "1").strip().lower() not in (
     "0",
     "false",

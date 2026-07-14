@@ -230,10 +230,17 @@ LEGACY/
 # Map tuning backups and local camera captures
 **/map/*.bak
 **/map/*.bak.*
+**/map/*.bak*
+**/*.bak*
+**/*.orig
+**/*.rej
 **/map/*.jpg
 **/map/*.png
 **/map/*.svg
 **/map/camera_snapshot_*
+
+# Local robot provisioning helper (machine-specific package setup)
+Nav-server/scripts/robot_sbc/setup_marco_libcamera.sh
 
 # ROS build artifacts (if colcon workspaces are added later)
 build/

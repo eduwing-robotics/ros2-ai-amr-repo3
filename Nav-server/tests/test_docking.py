@@ -2,9 +2,11 @@
 import unittest
 
 from nav_app.services.docking import (
+    marker_close_enough,
     _require_center_before_insert,
     compute_fork_insert_motion,
     hold_fork_insert_enabled,
+    insert_odom_closed_loop_enabled,
     insert_vision_stop_enabled,
     leave_dock_motion_params,
     resolve_align_mode,
@@ -12,6 +14,7 @@ from nav_app.services.docking import (
     resolve_leave_dock_distance_m,
     resolve_dock_reverse_distance_m,
     resolve_post_insert_dwell_sec,
+    resolve_pre_insert_settle_sec,
 )
 from nav_app.runtime import runtime
 from nav_app.services.robot_commands import (
@@ -43,6 +46,13 @@ class DockingMotionTests(unittest.TestCase):
     def test_post_insert_dwell_explicit_override(self):
         self.assertAlmostEqual(resolve_post_insert_dwell_sec({"post_insert_dwell_sec": 2.5}), 2.5, places=3)
         self.assertAlmostEqual(resolve_post_insert_dwell_sec({"post_insert_dwell_sec": 0}), 0.0, places=3)
+
+    def test_pre_insert_settle_defaults_to_zero(self):
+        self.assertAlmostEqual(resolve_pre_insert_settle_sec({}), 0.0, places=3)
+
+    def test_pre_insert_settle_uses_non_negative_override(self):
+        self.assertAlmostEqual(resolve_pre_insert_settle_sec({"pre_insert_settle_sec": 1.0}), 1.0, places=3)
+        self.assertAlmostEqual(resolve_pre_insert_settle_sec({"pre_insert_settle_sec": -1}), 0.0, places=3)
 
     def test_require_center_before_insert_defaults_on(self):
         self.assertTrue(_require_center_before_insert({}))
@@ -87,21 +97,24 @@ class DockingMotionTests(unittest.TestCase):
         payload = {"aruco_marker_id": 4}
         apply_slot_aruco_defaults(payload, 4)
         self.assertTrue(payload.get("insert_vision_stop"))
-        self.assertEqual(payload.get("insert_stop_width_px"), 140)
+        self.assertEqual(payload.get("insert_stop_width_px"), 132)
         self.assertEqual(payload.get("insert_reference_start_width_px"), 65)
 
     def test_insert_vision_stop_enabled_from_payload(self):
         self.assertTrue(insert_vision_stop_enabled({"insert_vision_stop": True}))
         self.assertFalse(insert_vision_stop_enabled({"insert_vision_stop": False}))
 
-    def test_apply_slot_aruco_injects_insert_stop_for_inbound2(self):
+    def test_insert_odom_closed_loop_defaults_on(self):
+        self.assertTrue(insert_odom_closed_loop_enabled({}))
+        self.assertTrue(insert_odom_closed_loop_enabled({"fork_insert_odom_closed_loop": "true"}))
+        self.assertFalse(insert_odom_closed_loop_enabled({"insert_odom_closed_loop": False}))
+
+    def test_apply_slot_aruco_disables_pixel_stop_for_metric_inbound2(self):
         payload = {"aruco_marker_id": 1}
         apply_slot_aruco_defaults(payload, 1)
-        self.assertTrue(payload.get("insert_vision_stop"))
-        self.assertEqual(payload.get("insert_stop_width_px"), 140)
-        self.assertEqual(payload.get("insert_reference_start_width_px"), 65)
+        self.assertFalse(payload.get("insert_vision_stop"))
         defaults = aruco_align_defaults_for_marker(1)
-        self.assertEqual(defaults.get("insert_stop_width_px"), 140)
+        self.assertFalse(defaults.get("insert_vision_stop"))
 
     def test_align_mode_aliases(self):
         self.assertEqual(resolve_align_mode({"align_mode": "center"}), "center_only")
@@ -186,14 +199,15 @@ class ApproachChainingTests(unittest.TestCase):
         )
         goal = {"waypoint": "warehouse_c_approach", "x": 1.239, "y": -0.631, "yaw": 3.142}
         steps = move_to_point_steps(req, goal, [])
-        self.assertEqual(len(steps), 2)
-        self.assertEqual(steps[0].action, "nav2_pose")
-        self.assertEqual(steps[1].action, "aruco_align")
+        self.assertEqual([step.action for step in steps], ["nav2_pose", "aruco_align", "wait", "aruco_align"])
         self.assertEqual(steps[1].payload["aruco_marker_id"], 10)
-        self.assertEqual(steps[1].payload["align_mode"], "center_only")
-        self.assertFalse(steps[1].payload.get("skip_approach_yaw_rotate"))
-        self.assertEqual(steps[1].payload["marker_search_timeout_sec"], 45)
-        self.assertEqual(steps[1].payload["docking_timeout_sec"], 60)
+        self.assertEqual(steps[1].payload["align_mode"], "full")
+        self.assertEqual(steps[1].payload["target_distance_m"], 0.40)
+        self.assertEqual(steps[2].duration, 3.0)
+        self.assertEqual(steps[3].payload["target_distance_m"], 0.20)
+        self.assertTrue(steps[3].payload.get("skip_approach_yaw_rotate"))
+        self.assertTrue(steps[1].payload.get("metric_distance_only"))
+        self.assertFalse(steps[1].payload.get("fork_insert_enabled"))
 
     def test_inbound_approach_has_longer_aruco_seek(self):
         req = RobotCommandRequest(
@@ -208,7 +222,9 @@ class ApproachChainingTests(unittest.TestCase):
         self.assertTrue(steps[1].payload.get("marker_search_on_miss"))
         self.assertFalse(steps[1].payload.get("skip_approach_yaw_rotate"))
         self.assertEqual(steps[1].payload.get("marker_seek_mode"), "monotonic")
-        self.assertEqual(steps[1].payload["final"], "return_approach")
+        self.assertEqual(steps[1].payload["final"], "hold")
+        self.assertEqual(steps[1].payload["target_distance_m"], 0.40)
+        self.assertEqual(steps[3].payload["target_distance_m"], 0.20)
 
     def test_move_to_point_chains_full_center_align_for_inbound(self):
         req = RobotCommandRequest(
@@ -219,7 +235,7 @@ class ApproachChainingTests(unittest.TestCase):
         )
         goal = {"waypoint": "inbound_slot_1_approach", "x": -0.085, "y": 0.003, "yaw": 1.68}
         steps = move_to_point_steps(req, goal, [])
-        self.assertEqual(steps[1].payload["align_mode"], "full_center")
+        self.assertEqual(steps[1].payload["align_mode"], "full")
         self.assertEqual(steps[1].payload["aruco_marker_id"], 0)
 
     def test_vehicle_approach_chains_center_align(self):
@@ -231,11 +247,11 @@ class ApproachChainingTests(unittest.TestCase):
         )
         goal = {"waypoint": "vehicle_2_approach", "x": 0.801, "y": 0.012, "yaw": 1.571}
         steps = move_to_point_steps(req, goal, [])
-        self.assertEqual(len(steps), 2)
-        self.assertEqual(steps[0].action, "nav2_pose")
-        self.assertEqual(steps[1].action, "aruco_align")
+        self.assertEqual([step.action for step in steps], ["nav2_pose", "aruco_align", "wait", "aruco_align"])
         self.assertEqual(steps[1].payload["aruco_marker_id"], 4)
-        self.assertEqual(steps[1].payload["align_mode"], "center_only")
+        self.assertEqual(steps[1].payload["align_mode"], "full")
+        self.assertEqual(steps[1].payload["target_distance_m"], 0.40)
+        self.assertEqual(steps[3].payload["target_distance_m"], 0.20)
 
     def test_vehicle_approach_is_not_wall_adjacent(self):
         self.assertFalse(is_wall_adjacent_approach("vehicle_2_approach"))
@@ -276,6 +292,29 @@ class ApproachChainingTests(unittest.TestCase):
         steps = move_to_point_steps(req, goal, [])
         self.assertEqual(len(steps), 1)
         self.assertEqual(steps[0].action, "nav2_pose")
+
+
+class CalibratedDockingDistanceTests(unittest.TestCase):
+    def test_calibrated_distance_prevents_early_width_stop(self):
+        self.assertFalse(marker_close_enough({"estimated_distance_m": 0.35, "marker_width_px": 999.0}, {"target_distance_m": 0.20}))
+
+    def test_calibrated_distance_stops_at_target(self):
+        self.assertTrue(marker_close_enough({"estimated_distance_m": 0.19, "marker_width_px": 1.0}, {"target_distance_m": 0.20}))
+
+    def test_pixel_width_remains_fallback_without_distance(self):
+        self.assertTrue(marker_close_enough({"marker_width_px": 70.0}, {"target_marker_width_px": 65.0}))
+
+    def test_metric_only_rejects_pixel_width_without_distance(self):
+        self.assertFalse(marker_close_enough(
+            {"marker_width_px": 999.0},
+            {"target_distance_m": 0.40, "metric_distance_only": True},
+        ))
+
+    def test_metric_only_still_stops_at_calibrated_distance(self):
+        self.assertTrue(marker_close_enough(
+            {"estimated_distance_m": 0.39, "marker_width_px": 1.0},
+            {"target_distance_m": 0.40, "metric_distance_only": True},
+        ))
 
 
 if __name__ == "__main__":

@@ -59,13 +59,16 @@ from nav_app.settings import (
     INSERT_VISION_SNAPSHOT_ENABLED,
     INSERT_VISION_SNAPSHOT_DIR,
     INSERT_STOP_WIDTH_PX,
+    INSERT_EXTRA_AFTER_VISION_M,
     SIMULATED_DOCK_STAGE_DELAY_SEC,
     is_simulation_mode,
 )
 from nav_app.services.robot_commands import (
     apply_slot_aruco_defaults,
     apply_slot_lift_defaults,
+    approach_waypoint_id_for_marker,
     fork_insert_distance_for_marker,
+    load_waypoint_goals,
 )
 from nav_app.services.robot_context import aruco_detection_topic as _aruco_detection_topic
 from nav_app.services.status_helpers import clamp as _clamp
@@ -90,10 +93,13 @@ def marker_close_enough(detection: Dict[str, Any], payload: Dict[str, Any]):
     estimated_distance = detection.get("estimated_distance_m")
     if estimated_distance is not None:
         try:
-            if float(estimated_distance) <= target_distance_m:
-                return True
+            distance_m = float(estimated_distance)
+            if math.isfinite(distance_m) and distance_m >= 0.0:
+                return distance_m <= target_distance_m
         except (TypeError, ValueError):
             pass
+    if payload.get("metric_distance_only", False):
+        return False
     try:
         return width_px >= target_width_px
     except (TypeError, ValueError):
@@ -114,6 +120,8 @@ def marker_near_insert_start(detection: Dict[str, Any], payload: Dict[str, Any])
             return float(estimated_distance) <= target_distance_m / max(0.01, ARUCO_DOCK_LOST_ACCEPT_WIDTH_RATIO)
         except (TypeError, ValueError):
             pass
+    if payload.get("metric_distance_only", False):
+        return False
     target_width_px = float(payload.get("target_marker_width_px", ARUCO_DOCK_TARGET_WIDTH_PX))
     min_width_px = target_width_px * max(0.0, ARUCO_DOCK_LOST_ACCEPT_WIDTH_RATIO)
     try:
@@ -896,6 +904,16 @@ def insert_vision_stop_enabled(payload: Dict[str, Any]) -> bool:
     return INSERT_VISION_STOP_ENABLED
 
 
+def insert_odom_closed_loop_enabled(payload: Dict[str, Any]) -> bool:
+    """Use odom/TF distance feedback instead of speed*time for blind insert."""
+    value = payload.get("insert_odom_closed_loop", payload.get("fork_insert_odom_closed_loop"))
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in ("0", "false", "no", "off")
+
+
 def resolve_insert_stop_width_px(payload: Dict[str, Any]) -> float:
     """payload/zones insert_stop_width_px → 전역 INSERT_STOP_WIDTH_PX(135). target_marker_width_px와 분리."""
     for key in ("insert_stop_width_px", "insert_stop_marker_width_px"):
@@ -923,11 +941,25 @@ def resolve_fork_insert_distance_m(payload: Dict[str, Any]) -> float:
 
 
 def apply_slot_fork_defaults(payload: Dict[str, Any], marker_id: int):
-    """dock_transfer payload에 슬롯별 삽입 거리를 zones.json에서 주입한다."""
+    """dock_transfer payload에 슬롯별 삽입/후진 여유를 zones.json에서 주입한다."""
     if "fork_insert_distance_m" not in payload and "insert_distance_m" not in payload:
         calibrated = fork_insert_distance_for_marker(marker_id)
         if calibrated is not None:
             payload["fork_insert_distance_m"] = calibrated
+    # 슬롯별 후진 여유 — 입고 안쪽에서 회전하지 않도록 approach 밖으로 더 뺌
+    if payload.get("reverse_extra_m") is None:
+        waypoint_id = approach_waypoint_id_for_marker(marker_id)
+        waypoint = load_waypoint_goals().get(waypoint_id or "") or {}
+        extra = waypoint.get("reverse_extra_m")
+        if extra is None:
+            align = waypoint.get("aruco_align")
+            if isinstance(align, dict):
+                extra = align.get("reverse_extra_m")
+        if extra is not None:
+            try:
+                payload["reverse_extra_m"] = max(0.0, float(extra))
+            except (TypeError, ValueError):
+                pass
 
 
 def compute_fork_insert_motion(payload: Dict[str, Any]):
@@ -992,6 +1024,11 @@ def resolve_post_insert_dwell_sec(payload: Dict[str, Any]) -> float:
     if lift_action_enabled(payload):
         return 0.0
     return max(0.0, float(DOCK_POST_INSERT_DWELL_SEC))
+
+
+def resolve_pre_insert_settle_sec(payload: Dict[str, Any]) -> float:
+    """ArUco 정렬 정지 후 바퀴·캐스터가 안정될 때까지 기다리는 시간."""
+    return max(0.0, float(payload.get("pre_insert_settle_sec", 0.0)))
 
 
 def _marker_width_px(detection: Optional[Dict[str, Any]]) -> float:
@@ -1170,6 +1207,14 @@ def execute_post_insert_dwell(payload: Dict[str, Any]):
     time.sleep(dwell)
 
 
+def resolve_insert_extra_after_vision_m(payload: Dict[str, Any]) -> float:
+    """픽셀 vision stop 이후 추가로 더 들어갈 거리(m). zones/payload 우선, 기본 0.11."""
+    for key in ("insert_extra_after_vision_m", "insert_extra_m", "fork_insert_extra_after_vision_m"):
+        if payload.get(key) is not None:
+            return max(0.0, float(payload[key]))
+    return max(0.0, float(INSERT_EXTRA_AFTER_VISION_M))
+
+
 def execute_fork_insert(payload: Dict[str, Any]):
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
@@ -1197,6 +1242,14 @@ def execute_fork_insert(payload: Dict[str, Any]):
     target_width = float(payload.get("target_marker_width_px", ARUCO_DOCK_TARGET_WIDTH_PX))
     max_width = float(payload.get("fork_insert_max_marker_width_px", max(target_width * 1.65, target_width + 30.0)))
     insert_margin = float(payload.get("fork_insert_forward_margin_m", payload.get("insert_forward_margin_m", 0.0)))
+    # insert는 파레트/벽으로 의도적 접근 — margin>=0 이면 전방 라이다가 추가 11cm를 거부할 수 있음.
+    # 명시값이 없으면 검사 생략(음수). payload로 양수 margin을 주면 그 기준 유지.
+    if (
+        "fork_insert_forward_margin_m" not in payload
+        and "insert_forward_margin_m" not in payload
+    ):
+        insert_margin = -1.0
+    extra_after_vision_m = resolve_insert_extra_after_vision_m(payload) if vision_stop else 0.0
     start_width = 0.0
     if vision_stop:
         start_detection = runtime.navigator.get_latest_aruco_detection(
@@ -1206,7 +1259,8 @@ def execute_fork_insert(payload: Dict[str, Any]):
         print(
             f"[dock_transfer] fork insert vision: speed={speed:.3f}m/s "
             f"cap={requested_distance:.3f}m start_width={start_width:.0f}px "
-            f"stop_at={stop_width:.0f}px safety_max={max_width:.0f}px duration_cap={duration:.2f}s"
+            f"stop_at={stop_width:.0f}px extra_after={extra_after_vision_m:.3f}m "
+            f"safety_max={max_width:.0f}px duration_cap={duration:.2f}s"
         )
         _save_insert_vision_snapshot(
             payload,
@@ -1223,10 +1277,49 @@ def execute_fork_insert(payload: Dict[str, Any]):
             f"[dock_transfer] fork insert speed={speed:.3f}m/s "
             f"requested={requested_distance:.3f}m actual={actual_distance:.3f}m duration={duration:.2f}s"
         )
+        if insert_odom_closed_loop_enabled(payload):
+            max_duration = max(
+                duration + 1.0,
+                float(payload.get("fork_insert_odom_max_duration_sec", duration * 2.0 + 0.5)),
+            )
+
+            tolerance = float(payload.get("fork_insert_odom_tolerance_m", 0.003))
+            print(
+                f"[dock_transfer] fork insert odom closed-loop: "
+                f"target={actual_distance:.3f}m tolerance={tolerance:.3f}m"
+            )
+            distance_drive = runtime.navigator.publish_velocity_for_distance(
+                linear_x=speed,
+                distance_m=actual_distance,
+                rate_hz=float(payload.get("fork_insert_odom_rate_hz", 15.0)),
+                forward_margin_m=insert_margin,
+                max_duration_sec=max_duration,
+                tolerance_m=tolerance,
+                stop_condition=None,
+            )
+            measured = float(distance_drive.get("distance_m", 0.0) or 0.0)
+            payload["_actual_insert_distance_m"] = measured
+            payload["_insert_odom_feedback"] = bool(distance_drive.get("feedback"))
+            payload["_insert_odom_feedback_source"] = distance_drive.get("feedback_source")
+            payload["_insert_odom_reason"] = distance_drive.get("reason")
+            runtime.navigator.publish_stop_velocity()
+            if not distance_drive.get("ok"):
+                print(
+                    f"[dock_transfer] fork insert odom closed-loop failed/interrupted: "
+                    f"reason={distance_drive.get('reason')} measured={measured:.3f}m "
+                    f"target={actual_distance:.3f}m"
+                )
+                return False
+            print(
+                f"[dock_transfer] fork insert odom closed-loop complete: "
+                f"measured={measured:.3f}m target={actual_distance:.3f}m"
+            )
+            return True
     result = True
     moved_duration = 0.0
     segment_sec = max(0.08, min(0.25, float(payload.get("fork_insert_segment_sec", 0.12))))
     stop_width_px = float(stop_width) if stop_width is not None else None
+    vision_hit = False
     while moved_duration < duration:
         if runtime.navigator.safety.estop:
             result = False
@@ -1269,6 +1362,7 @@ def execute_fork_insert(payload: Dict[str, Any]):
                         moved_m=speed * moved_duration,
                         reason="vision_target",
                     )
+                    vision_hit = True
                     break
             elif detection and not vision_stop and width >= max_width:
                 print(
@@ -1287,12 +1381,77 @@ def execute_fork_insert(payload: Dict[str, Any]):
             result = False
             break
         moved_duration += step
+
+    # 픽셀 목표 도달 후 파레트 깊이만큼 추가 전진 (기본 11cm).
+    # 이 구간은 시간 추정이 아니라 pose/odom 변화량으로 닫힌 루프 제어한다.
+    measured_extra_m = 0.0
+    if result and vision_hit and extra_after_vision_m > 1e-4 and not runtime.navigator.safety.estop:
+        extra_duration_cap = extra_after_vision_m / max(0.01, speed) * 2.0 + 0.5
+
+        def _insert_extra_stop_condition():
+            detection = runtime.navigator.get_latest_aruco_detection(
+                int(marker_id), max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
+            )
+            width = _marker_width_px(detection)
+            if detection and width >= max_width:
+                print(
+                    f"[dock_transfer] fork insert extra safety stop: "
+                    f"width={width:.0f}px >= max={max_width:.0f}px"
+                )
+                return "marker_width_safety"
+            return None
+
+        print(
+            f"[dock_transfer] fork insert extra after vision: "
+            f"target=+{extra_after_vision_m:.3f}m odom_closed_loop "
+            f"cap={extra_duration_cap:.2f}s @ {speed:.3f}m/s"
+        )
+        distance_drive = runtime.navigator.publish_velocity_for_distance(
+            linear_x=speed,
+            distance_m=extra_after_vision_m,
+            rate_hz=12.0,
+            forward_margin_m=insert_margin,
+            max_duration_sec=extra_duration_cap,
+            tolerance_m=float(payload.get("insert_extra_tolerance_m", 0.005)),
+            stop_condition=_insert_extra_stop_condition,
+        )
+        ok_extra = bool(distance_drive.get("ok"))
+        measured_extra_m = float(distance_drive.get("distance_m", 0.0) or 0.0)
+        payload["_insert_extra_after_vision_m"] = extra_after_vision_m
+        payload["_insert_extra_after_vision_odom_m"] = measured_extra_m
+        payload["_insert_extra_after_vision_feedback"] = bool(distance_drive.get("feedback"))
+        payload["_insert_extra_after_vision_reason"] = distance_drive.get("reason")
+        moved_duration += measured_extra_m / max(0.01, speed)
+        if ok_extra:
+            _save_insert_vision_snapshot(
+                payload,
+                int(marker_id),
+                runtime.navigator.get_latest_aruco_detection(
+                    int(marker_id), max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
+                ),
+                "after_extra",
+                start_width=start_width,
+                stop_width=stop_width_px,
+                moved_m=(speed * moved_duration),
+                reason=f"extra_target={extra_after_vision_m:.3f}m odom={measured_extra_m:.3f}m",
+            )
+        else:
+            print(
+                f"[dock_transfer] fork insert extra after vision failed/interrupted: "
+                f"reason={distance_drive.get('reason')} odom={measured_extra_m:.3f}m "
+                f"target={extra_after_vision_m:.3f}m"
+            )
+            result = False
+
     payload["_actual_insert_distance_m"] = speed * moved_duration
     runtime.navigator.publish_stop_velocity()
     return result
 
 
 def execute_lift_action(action: str, level: int, payload: Dict[str, Any]):
+    if payload.get("skip_lift"):
+        print(f"[dock_transfer] lift {action} level={level} skipped (skip_lift=true)")
+        return True
     lift_client = getattr(runtime, "lift_client", None)
     if lift_client and getattr(lift_client, "enabled", False):
         result = lift_client.execute_transfer(action, level, payload)
@@ -1312,6 +1471,9 @@ def execute_lift_action(action: str, level: int, payload: Dict[str, Any]):
 
 def execute_pre_insert_lift(action: str, level: int, payload: Dict[str, Any]):
     """insert 전 선반 높이 맞춤 (level 2 등). lift 미연동이면 skip."""
+    if payload.get("skip_lift"):
+        print(f"[dock_transfer] pre-insert lift skipped (skip_lift=true)")
+        return
     lift_client = getattr(runtime, "lift_client", None)
     if not lift_client or not getattr(lift_client, "enabled", False):
         return
@@ -1338,7 +1500,10 @@ def execute_pre_insert_lift(action: str, level: int, payload: Dict[str, Any]):
 
 
 def execute_carry_after_load(action: str, level: int, payload: Dict[str, Any]):
-    """load 후 이동 전 carry 높이까지 올림 (level 1 → 50mm 등)."""
+    """load 후 이동 전 carry 높이까지 올림 (level 1 → 6mm 등)."""
+    if payload.get("skip_lift"):
+        print("[dock_transfer] carry lift skipped (skip_lift=true)")
+        return
     if str(action).lower() != "load":
         return
     lift_client = getattr(runtime, "lift_client", None)
@@ -1545,6 +1710,8 @@ def execute_aruco_align_step(step: MovementStep):
         raise ValueError("aruco_align step requires payload.aruco_marker_id")
     marker_id = int(payload["aruco_marker_id"])
     final = str(payload.get("final", "hold"))
+    if final == "park":
+        final = "hold"
     if final not in ("hold", "return_approach"):
         raise ValueError("aruco_align final must be hold or return_approach")
     tolerance = payload.get("tolerance")
@@ -1615,6 +1782,14 @@ def execute_aruco_align_step(step: MovementStep):
         apply_slot_aruco_defaults(payload, marker_id)
         if hold_fork_insert_enabled(payload):
             try:
+                settle_sec = resolve_pre_insert_settle_sec(payload)
+                if settle_sec > 0.0:
+                    runtime.navigator.publish_stop_velocity()
+                    print(
+                        f"[aruco_align] pre-insert settle: {settle_sec:.2f}s "
+                        f"(marker={marker_id})"
+                    )
+                    time.sleep(settle_sec)
                 if not execute_fork_insert(payload):
                     raise RuntimeError("fork insert failed")
             except Exception as exc:

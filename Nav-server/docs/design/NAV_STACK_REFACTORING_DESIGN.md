@@ -6,7 +6,7 @@
 최종 갱신: 2026-06-27 14:43 KST
 목적: `slam_nav_ws`를 정책 기준에 맞는 문서 구조와 유지보수 가능한 서버 구조로 옮기기 위한 목표를 정의했다.
 
-**구현 완료 후 정본:** `docs/as-built/NAV_STACK_AS_BUILT.md`  
+**구현 완료 후 정본:** `docs/as-built/NAV_STACK_AS_BUILT.md`
 **마무리 기록:** `worklog/sessions/REFACTORING_CLOSURE.md`
 
 ## 목표 (달성)

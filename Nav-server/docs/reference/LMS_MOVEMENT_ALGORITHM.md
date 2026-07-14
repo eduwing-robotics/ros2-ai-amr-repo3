@@ -1,6 +1,6 @@
 # LMS Movement Algorithm
 
-Last updated: 2026-07-02
+Last updated: 2026-07-09
 
 이 문서는 LMS에서 확인할 현재 이동 알고리즘 기준이다. 운영 정본은 LMS가 작업 시퀀스를 소유하고 Movement 서버에 원자 명령을 순서대로 보내는 방식이다.
 
@@ -38,6 +38,8 @@ move_to_point: 창고 슬롯 pickup approach
 ```
 
 대기 주차 상태에서 새 작업을 시작할 때는 먼저 `leave_dock`으로 주차 위치에서 빠져나온 뒤 다음 `move_to_point`를 보낸다.
+
+슬롯 insert 잔류(도킹 슬롯·복구)에서는 `leave_dock` 대신 **`reverse_out`** + `aruco_marker_id`를 쓴다. `reverse_out`은 `standby_parked`와 무관하며 `dock_transfer`와 동일 거리로 후진한다. (`docs/handoff/LMS_INTEGRATION_GUIDE_2026-07-09.md` 참고)
 
 > `leave_dock`은 2026-07-04부터 **무조건 후진하지 않는다.** Movement 서버가 로봇의 대기-도킹 상태를 추적해, 대기 도킹이 아님이 확실하면 후진을 생략(no-op)하고, 후진 전 후방 라이다 여유를 확인해 막혀 있으면 안전 중단한다. LMS가 상태와 무관하게 강제로 후진시키려면 `params.force=true`를 준다. 상세는 `docs/reference/MAIN_SERVER_CONTRACT.md` 3.4 참고.
 

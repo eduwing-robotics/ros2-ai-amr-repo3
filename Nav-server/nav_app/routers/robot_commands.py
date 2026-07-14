@@ -1,11 +1,11 @@
 """Robot-commands compatibility HTTP routes."""
 from fastapi import APIRouter, BackgroundTasks
 
-from nav_app.models import RobotCommandRequest
+from nav_app.models import ResumeCommandRequest, RobotCommandRequest
 from nav_app.runtime import runtime
 from nav_app.settings import ACTIVE_ROBOT_ID, is_simulation_mode
 from nav_app.services import robot_commands
-from nav_app.routers.movement_api import movement_accept_command, movement_get_command
+from nav_app.routers.movement_api import movement_accept_command, movement_get_command, movement_resume_command
 
 router = APIRouter()
 
@@ -30,3 +30,8 @@ def accept_robot_command(req: RobotCommandRequest, background_tasks: BackgroundT
 @router.get("/robot-commands/{command_id}")
 def get_robot_command(command_id: str):
     return movement_get_command(command_id)
+
+
+@router.post("/robot-commands/{command_id}/resume")
+def resume_robot_command(command_id: str, req: ResumeCommandRequest, background_tasks: BackgroundTasks):
+    return movement_resume_command(command_id, req, background_tasks)

@@ -1,11 +1,11 @@
 # ROS Robot Interface Specification
 
-상태: Active  
-분류: Reference  
-작성: 2026-07-01 KST · 최종 갱신: 2026-07-05 KST  
+상태: Active
+분류: Reference
+작성: 2026-07-01 KST · 최종 갱신: 2026-07-05 KST
 
-**무엇을 적었나:** Movement 서버(Nav PC) ↔ TurtleBot3(로봇 SBC) ↔ Vision(ArUco) 사이 **ROS 2 topic/action**만 정리한다.  
-**무엇은 안 적었나:** Main/LMS HTTP API, DB, AI evidence API.  
+**무엇을 적었나:** Movement 서버(Nav PC) ↔ TurtleBot3(로봇 SBC) ↔ Vision(ArUco) 사이 **ROS 2 topic/action**만 정리한다.
+**무엇은 안 적었나:** Main/LMS HTTP API, DB, AI evidence API.
 **핵심 규칙:** 로봇1·로봇2 구분은 topic 이름 prefix가 아니라 **ROS domain 번호**로 한다.
 
 ---
@@ -23,7 +23,7 @@
 | 로봇1 | `tb3_burger_01` | `tb3_1` | **2** | 1 | 없음 |
 | 로봇2 | `tb3_burger_02` | `tb3_2` | **5** | 1 | 있음 (`tb3_2` API는 `tb3_2`) |
 
-> `{n}` = 1 또는 2 → topic 예: `/mission/tb3_2/aruco/detections`  
+> `{n}` = 1 또는 2 → topic 예: `/mission/tb3_2/aruco/detections`
 > 속도 명령은 `Twist`가 아니라 **`TwistStamped`** (`/cmd_vel`).
 
 ---

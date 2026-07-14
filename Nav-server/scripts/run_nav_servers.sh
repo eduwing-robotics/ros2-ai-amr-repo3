@@ -20,8 +20,16 @@ VALIDATOR="${VALIDATOR:-$SCRIPT_DIR/validate_robot_domains.py}"
 HOST="${HOST:-0.0.0.0}"
 TB3_1_PORT="${TB3_1_PORT:-8001}"
 TB3_2_PORT="${TB3_2_PORT:-8002}"
-PYTHON_BIN="${PYTHON_BIN:-python3}"
-VENV_SITE_PACKAGES="${VENV_SITE_PACKAGES:-$ROOT/venv/lib/python3.12/site-packages}"
+# both | tb3_1 | tb3_2 | tb3_burger_01 | tb3_burger_02
+ONLY_ROBOT="${ONLY_ROBOT:-both}"
+PROJECT_VENV="${PROJECT_VENV:-$ROOT/venv}"
+if [[ -z "${PYTHON_BIN:-}" ]]; then
+  if [[ -x "$PROJECT_VENV/bin/python" ]]; then
+    PYTHON_BIN="$PROJECT_VENV/bin/python"
+  else
+    PYTHON_BIN="python3"
+  fi
+fi
 DRY_RUN_MISSION="${DRY_RUN_MISSION:-0}"
 DRY_RUN_STEP_DELAY_SEC="${DRY_RUN_STEP_DELAY_SEC:-0.2}"
 # 2026-07-04 실측: 정렬 완료(마커 65px) 지점 기준. 출고2는 36.5cm 적정, 출고1은 34.5cm까지 후퇴 필요 → 안전값 34.5cm
@@ -50,15 +58,31 @@ Environment:
   HOST                Bind host. Default: 0.0.0.0
   TB3_1_PORT          API port for tb3_burger_01. Default: 8001
   TB3_2_PORT          API port for tb3_burger_02. Default: 8002
-  PYTHON_BIN          Python executable. Default: python3
-  VENV_SITE_PACKAGES  FastAPI/uvicorn package path. Default: ./venv/lib/python3.12/site-packages
+  ONLY_ROBOT          both | tb3_1 | tb3_2 (or tb3_burger_01/02). Default: both
+  PROJECT_VENV        Nav API virtualenv. Default: ./venv
+  PYTHON_BIN          Python executable. Default: ./venv/bin/python when present,
+                      otherwise python3
   DRY_RUN_MISSION     1 to accept missions without moving robots. Default: 0
   DRY_RUN_STEP_DELAY_SEC  Delay used by dry-run missions. Default: 0.2
 
 Examples:
   scripts/run_nav_servers.sh
+  ONLY_ROBOT=tb3_1 scripts/run_nav_servers.sh
   TB3_1_PORT=8011 TB3_2_PORT=8012 scripts/run_nav_servers.sh
 EOF
+}
+
+want_robot() {
+  local id="$1"
+  case "$ONLY_ROBOT" in
+    both|"") return 0 ;;
+    tb3_1|tb3_burger_01) [[ "$id" == "tb3_burger_01" ]] ;;
+    tb3_2|tb3_burger_02) [[ "$id" == "tb3_burger_02" ]] ;;
+    *)
+      echo "[nav_servers] unknown ONLY_ROBOT=$ONLY_ROBOT (use both|tb3_1|tb3_2)" >&2
+      exit 2
+      ;;
+  esac
 }
 
 cleanup() {
@@ -139,10 +163,6 @@ source "$ROS_SETUP"
 set -u
 export ROS_LOCALHOST_ONLY
 
-if [[ -d "$VENV_SITE_PACKAGES" ]]; then
-  export PYTHONPATH="$VENV_SITE_PACKAGES:${PYTHONPATH:-}"
-fi
-
 if ! command -v ros2 >/dev/null 2>&1; then
   echo "[nav_servers] ros2 command not found after sourcing $ROS_SETUP" >&2
   exit 1
@@ -150,12 +170,27 @@ fi
 
 if ! "$PYTHON_BIN" -c 'import uvicorn' >/dev/null 2>&1; then
   echo "[nav_servers] Python package not found: uvicorn" >&2
-  echo "[nav_servers] install or activate the project venv before running this script." >&2
+  echo "[nav_servers] expected project environment: $PROJECT_VENV" >&2
+  echo "[nav_servers] install dependencies there or set PYTHON_BIN explicitly." >&2
   exit 1
 fi
 
-start_nav_server "tb3_burger_01" 2 "$TB3_1_PORT" "$ROOT/map/robot1_map.yaml"
-start_nav_server "tb3_burger_02" 5 "$TB3_2_PORT" "$ROOT/map/robot2_map.yaml"
+echo "[nav_servers] API python: $PYTHON_BIN"
 
-echo "[nav_servers] up. tb3_burger_01=:${TB3_1_PORT}, tb3_burger_02=:${TB3_2_PORT}. Ctrl+C to stop."
+started=()
+if want_robot "tb3_burger_01"; then
+  start_nav_server "tb3_burger_01" 2 "$TB3_1_PORT" "$ROOT/map/robot2_map.yaml"
+  started+=("tb3_burger_01=:${TB3_1_PORT}")
+fi
+if want_robot "tb3_burger_02"; then
+  start_nav_server "tb3_burger_02" 5 "$TB3_2_PORT" "$ROOT/map/robot2_map.yaml"
+  started+=("tb3_burger_02=:${TB3_2_PORT}")
+fi
+
+if ((${#started[@]} == 0)); then
+  echo "[nav_servers] nothing to start (ONLY_ROBOT=$ONLY_ROBOT)" >&2
+  exit 1
+fi
+
+echo "[nav_servers] up (${ONLY_ROBOT}): ${started[*]}. Ctrl+C to stop."
 wait

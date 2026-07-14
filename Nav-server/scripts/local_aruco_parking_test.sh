@@ -20,6 +20,10 @@ MARKER_ID="${MARKER_ID:-0}"
 START_DETECTOR="${START_DETECTOR:-1}"
 START_CAMERA_LAUNCH="${START_CAMERA_LAUNCH:-0}"
 ALIGN_FINAL="${ALIGN_FINAL:-hold}"
+FORK_INSERT_ON_HOLD="${FORK_INSERT_ON_HOLD:-0}"
+ALIGN_MODE="${ALIGN_MODE:-center_only}"
+TARGET_DISTANCE_M="${TARGET_DISTANCE_M:-0.40}"
+METRIC_DISTANCE_ONLY="${METRIC_DISTANCE_ONLY:-0}"
 BASE_URL="${BASE_URL:-}"
 COMMAND_ID="${COMMAND_ID:-local-aruco-align-$(date +%Y%m%d-%H%M%S)}"
 ARUCO_WAIT_SEC="${ARUCO_WAIT_SEC:-20}"
@@ -154,14 +158,43 @@ deadline=$((SECONDS + ARUCO_WAIT_SEC))
 latest=""
 while (( SECONDS < deadline )); do
   latest="$(curl -fsS "$BASE_URL/movement-api/v1/aruco/latest?marker_id=$MARKER_ID" || true)"
-  detection_count="$(json_len "${latest:-{}}" detections 2>/dev/null || echo 0)"
+  detection_count="$(json_len "${latest:-}" detections 2>/dev/null || echo 0)"
+
+  # The health response is produced from the same navigator cache and may
+  # already contain a fresh detection while the dedicated endpoint briefly
+  # returns empty during detector/camera reconnects.
+  if (( detection_count == 0 )); then
+    health_probe="$(curl -fsS "$BASE_URL/movement-api/v1/health" || true)"
+    latest="$($PYTHON_BIN - "${health_probe:-}" "$MARKER_ID" <<'PYLATEST'
+import json, sys
+try:
+    health = json.loads(sys.argv[1])
+except (json.JSONDecodeError, TypeError):
+    health = {}
+marker_id = int(sys.argv[2])
+detections = [
+    item for item in health.get("latest_aruco_detections", [])
+    if isinstance(item, dict) and int(item.get("marker_id", -1)) == marker_id
+]
+print(json.dumps({
+    "robot_name": health.get("robot_name"),
+    "topic": health.get("aruco_detection_topic"),
+    "marker_id": marker_id,
+    "detections": detections,
+    "source": "health_fallback",
+}, ensure_ascii=False))
+PYLATEST
+)"
+    detection_count="$(json_len "${latest:-}" detections 2>/dev/null || echo 0)"
+  fi
+
   if (( detection_count > 0 )); then
     echo "$latest" | "$PYTHON_BIN" -m json.tool
     break
   fi
   sleep 1
 done
-if (( $(json_len "${latest:-{}}" detections 2>/dev/null || echo 0) == 0 )); then
+if (( $(json_len "${latest:-}" detections 2>/dev/null || echo 0) == 0 )); then
   echo "[local_aruco_test] FAIL: marker $MARKER_ID was not detected. Show the marker to the Pi Camera and retry." >&2
   exit 5
 fi
@@ -176,7 +209,12 @@ print(json.dumps({
         "action": "aruco_align",
         "payload": {
             "aruco_marker_id": int("$MARKER_ID"),
+            "align_mode": "$ALIGN_MODE",
             "final": "$ALIGN_FINAL",
+            "fork_insert_on_hold": "$FORK_INSERT_ON_HOLD".lower() in ("1", "true", "yes", "on"),
+            "fork_insert_enabled": "$FORK_INSERT_ON_HOLD".lower() in ("1", "true", "yes", "on"),
+            "target_distance_m": float("$TARGET_DISTANCE_M"),
+            "metric_distance_only": "$METRIC_DISTANCE_ONLY".lower() in ("1", "true", "yes", "on"),
             "terminal_state": "DONE",
             "dry_run": "$DRY_RUN".lower() == "true",
             "target_marker_width_px": float("$TARGET_MARKER_WIDTH_PX"),

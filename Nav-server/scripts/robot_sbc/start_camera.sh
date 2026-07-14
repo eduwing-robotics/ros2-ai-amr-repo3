@@ -11,6 +11,16 @@ CAMERA_START_RETRIES="${CAMERA_START_RETRIES:-2}"
 CAMERA_LAUNCH="${CAMERA_LAUNCH:-turtlebot3_bringup camera.launch.py}"
 CAMERA_LAUNCH_ARGS="${CAMERA_LAUNCH_ARGS:-format:=YUYV width:=320 height:=240 orientation:=180}"
 
+# Match Nav PC DDS discovery across the robot Wi-Fi subnet.
+if [[ -f "$HOME/ros2_env.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$HOME/ros2_env.sh"
+fi
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
+unset ROS_LOCALHOST_ONLY
+export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
+export ROS_STATIC_PEERS="${ROS_STATIC_PEERS:-192.168.30.101;192.168.30.102;192.168.30.9;192.168.30.5;192.168.30.12;192.168.30.3}"
+
 resolve_publisher() {
   local candidate
   for candidate in \
@@ -56,18 +66,14 @@ stop_camera_local || true
 
 if [[ "$CAMERA_BACKEND" == "picamera2" ]]; then
   PUBLISHER="$(resolve_publisher || true)"
-  if [[ -z "$PUBLISHER" ]]; then
-    echo "[robot_sbc] ERROR: picamera2_compressed_publisher.py not on SBC" >&2
-    echo "[robot_sbc] HINT: Nav PC에서 scripts/robot_sbc/deploy_camera_to_sbc.sh 실행" >&2
-    exit 1
+  if [[ -n "$PUBLISHER" ]] && python3 -c "import picamera2" 2>/dev/null; then
+    echo "[robot_sbc] starting picamera2 publisher DOMAIN=$DOMAIN ($PUBLISHER)"
+    exec python3 "$PUBLISHER" --ros-args \
+      -p width:=320 -p height:=240 -p topic:=/camera/image_raw/compressed
   fi
-  if ! python3 -c "import picamera2" 2>/dev/null; then
-    echo "[robot_sbc] ERROR: python3-picamera2 missing — setup_marco_libcamera.sh on SBC" >&2
-    exit 1
-  fi
-  echo "[robot_sbc] starting picamera2 publisher DOMAIN=$DOMAIN ($PUBLISHER)"
-  exec python3 "$PUBLISHER" --ros-args \
-    -p width:=320 -p height:=240 -p topic:=/camera/image_raw/compressed
+  echo "[robot_sbc] WARNING: picamera2 unavailable (publisher=${PUBLISHER:-missing}, import failed or missing)"
+  echo "[robot_sbc] falling back to camera_ros (CAMERA_BACKEND=ros)"
+  CAMERA_BACKEND=ros
 fi
 
 # --- legacy: ros-jazzy camera_ros ---
@@ -79,7 +85,7 @@ while (( attempt <= CAMERA_START_RETRIES )); do
   cam_pid=$!
   sleep 10
   if timeout 15 ros2 topic echo /camera/image_raw/compressed --once \
-      --qos-reliability reliable >/dev/null 2>&1; then
+      --qos-reliability best_effort >/dev/null 2>&1; then
     echo "[robot_sbc] camera OK — compressed frame received"
     wait "$cam_pid"
     exit 0

@@ -9,17 +9,29 @@ LDS_MODEL="${LDS_MODEL:-LDS-03}"
 USB_PORT="${USB_PORT:-/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00}"
 WS_SETUP="${WS_SETUP:-/home/musk/turtlebot3_ws/install/setup.bash}"
 TB3_EKF_MODE="${TB3_EKF_MODE:-0}"
+TB3_BRINGUP_LOG="${TB3_BRINGUP_LOG:-/dev/null}"
 
 source /opt/ros/jazzy/setup.bash
 # shellcheck source=/dev/null
 source "$WS_SETUP"
+# Nav PC uses LOCALHOST + ROS_STATIC_PEERS — SBC must match or odom/scan never arrive.
+if [[ -f "$HOME/ros2_env.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$HOME/ros2_env.sh"
+fi
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
+unset ROS_LOCALHOST_ONLY
+export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
+export ROS_STATIC_PEERS="${ROS_STATIC_PEERS:-192.168.30.101;192.168.30.102;192.168.30.9;192.168.30.5;192.168.30.12;192.168.30.3}"
 
 export TURTLEBOT3_MODEL=burger
 export LDS_MODEL="$LDS_MODEL"
 export ROS_DOMAIN_ID="$DOMAIN"
 
 echo "[robot_sbc] bringup start DOMAIN=$DOMAIN LDS=$LDS_MODEL EKF_MODE=$TB3_EKF_MODE"
+echo "[robot_sbc] DDS peers=$ROS_STATIC_PEERS range=$ROS_AUTOMATIC_DISCOVERY_RANGE"
 echo "[robot_sbc] usb=$USB_PORT"
+echo "[robot_sbc] runtime log=$TB3_BRINGUP_LOG"
 
 LAUNCH_ARGS=("usb_port:=$USB_PORT")
 
@@ -43,4 +55,7 @@ YAML
   echo "[robot_sbc] EKF bringup overlay applied (publish_tf=false use_imu=false)"
 fi
 
-exec ros2 launch turtlebot3_bringup robot.launch.py "${LAUNCH_ARGS[@]}"
+# Some LDS drivers emit high-rate diagnostics. Forwarding those lines over the
+# control SSH session can saturate the robot Wi-Fi and delay DDS traffic.
+exec ros2 launch turtlebot3_bringup robot.launch.py "${LAUNCH_ARGS[@]}" \
+  >>"$TB3_BRINGUP_LOG" 2>&1

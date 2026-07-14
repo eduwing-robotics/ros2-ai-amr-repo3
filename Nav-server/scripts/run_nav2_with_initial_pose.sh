@@ -31,6 +31,12 @@ ROS_DOMAIN_ID_VALUE=""
 INITIAL_X=""
 INITIAL_Y=""
 INITIAL_YAW=""
+POSE_FILE=""
+# 기본 OFF: start_all이 넘긴 approach 고정좌표(--x/--y/--yaw)만 사용.
+# 저장 pose 자동복원은 위치가 어긋나면 경로가 이상해지므로 쓰지 않음.
+# 필요 시 USE_SAVED_POSE=1 또는 --pose-file 로만 켠다.
+USE_SAVED_POSE="${USE_SAVED_POSE:-0}"
+POSE_DIR="${POSE_DIR:-$ROOT/logs/last_poses}"
 
 usage() {
   cat <<'EOF'
@@ -45,18 +51,41 @@ Options:
   --x VALUE           Initial pose X in map frame
   --y VALUE           Initial pose Y in map frame
   --yaw VALUE         Initial pose yaw in radians
+  --pose-file PATH    JSON with x/y/yaw (from scripts/save_robot_pose.sh)
   --delay SEC         Seconds to wait after launch before publishing initial pose. Default: 8
   --repeat SEC        Seconds to repeat initial pose publication. Default: 6
   --startup-retry SEC Seconds to retry Nav2 lifecycle startup after launch. Default: 180
   --with-ekf          Enable robot_localization EKF (wheel odom + IMU)
   --no-ekf            Disable EKF (default unless WITH_EKF=1)
 
-Examples:
-  scripts/run_nav2_with_initial_pose.sh --robot tb3_2 --x 0.0 --y 0.0 --yaw 0.0
-  scripts/run_nav2_with_initial_pose.sh --robot tb3_2 --domain 5 --x 1.2 --y 0.5 --yaw 1.57
+Pose (default):
+  --x/--y/--yaw from start_all (approach 고정좌표). Saved-pose auto restore is OFF.
+  Optional: USE_SAVED_POSE=1 or --pose-file PATH
 
-If --x/--y/--yaw are omitted, the script only launches navigation2.launch.py.
+Examples:
+  scripts/run_nav2_with_initial_pose.sh --robot tb3_2 --x 0.816 --y 0.006 --yaw 1.571
+  USE_SAVED_POSE=1 scripts/run_nav2_with_initial_pose.sh --robot tb3_2 --domain 5
+
+If --x/--y/--yaw are omitted, the script only launches navigation2.
 EOF
+}
+
+default_pose_file_for_robot() {
+  echo "$POSE_DIR/last_pose_${1}.json"
+}
+
+load_pose_file() {
+  local path="$1"
+  [[ -f "$path" ]] || return 1
+  python3 - "$path" <<'PY'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as f:
+    d = json.load(f)
+for k in ("x", "y", "yaw"):
+    if k not in d:
+        raise SystemExit(1)
+print(f"{d['x']} {d['y']} {d['yaw']}")
+PY
 }
 
 default_domain_for_robot() {
@@ -171,6 +200,26 @@ while (($# > 0)); do
       INITIAL_YAW="${2:-}"
       shift 2
       ;;
+    --yaw=*)
+      INITIAL_YAW="${1#*=}"
+      shift
+      ;;
+    --x=*)
+      INITIAL_X="${1#*=}"
+      shift
+      ;;
+    --y=*)
+      INITIAL_Y="${1#*=}"
+      shift
+      ;;
+    --pose-file)
+      POSE_FILE="${2:-}"
+      shift 2
+      ;;
+    --pose-file=*)
+      POSE_FILE="${1#*=}"
+      shift
+      ;;
     --delay)
       INITIAL_POSE_DELAY_SEC="${2:-}"
       shift 2
@@ -210,6 +259,19 @@ fi
 if [[ -z "$ROS_DOMAIN_ID_VALUE" ]]; then
   echo "[nav2_helper] ROS domain is required for robot: $ROBOT_NAME" >&2
   exit 2
+fi
+
+# Saved-pose restore only when explicitly enabled (default OFF).
+if [[ -n "$POSE_FILE" || "$USE_SAVED_POSE" == "1" ]]; then
+  if [[ -z "$POSE_FILE" ]]; then
+    POSE_FILE="$(default_pose_file_for_robot "$ROBOT_NAME")"
+  fi
+  if loaded="$(load_pose_file "$POSE_FILE" 2>/dev/null)"; then
+    read -r INITIAL_X INITIAL_Y INITIAL_YAW <<<"$loaded"
+    echo "[nav2_helper] using saved pose from $POSE_FILE -> x=$INITIAL_X y=$INITIAL_Y yaw=$INITIAL_YAW"
+  else
+    echo "[nav2_helper] no saved pose at ${POSE_FILE:-none} — using --x/--y/--yaw if set"
+  fi
 fi
 
 if [[ ! -f "$ROS_SETUP" ]]; then
@@ -276,7 +338,21 @@ if [[ "$WITH_EKF" == "1" ]]; then
 fi
 
 echo "[nav2_helper] launching Nav2: robot=${ROBOT_NAME} domain=${ROS_DOMAIN_ID} ekf=${WITH_EKF} map=${MAP_YAML} params=${NAV2_PARAMS_FILE}"
-ros2 launch turtlebot3_navigation2 navigation2.launch.py map:="$MAP_YAML" params_file:="$NAV2_PARAMS_FILE" &
+case "$ROBOT_NAME" in
+  tb3_1)
+    RVIZ_TITLE="ROBOT1 | RViz | tb3_1 | :8001 | domain2"
+    ;;
+  tb3_2)
+    RVIZ_TITLE="ROBOT2 | RViz | tb3_2 | :8002 | domain5"
+    ;;
+  *)
+    RVIZ_TITLE="RViz | ${ROBOT_NAME} | domain${ROS_DOMAIN_ID}"
+    ;;
+esac
+ros2 launch "$ROOT/launch/navigation2_labeled.launch.py" \
+  map:="$MAP_YAML" \
+  params_file:="$NAV2_PARAMS_FILE" \
+  rviz_title:="$RVIZ_TITLE" &
 launch_pid="$!"
 
 sleep "$INITIAL_POSE_DELAY_SEC"

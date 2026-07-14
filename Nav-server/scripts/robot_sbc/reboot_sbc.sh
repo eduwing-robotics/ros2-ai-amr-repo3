@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROBOT_SSH="${ROBOT_SSH:-musk@192.168.30.102}"
-ROBOT_PW="${ROBOT_PW:-1234}"
+ROBOT_PW="${ROBOT_PW:?Set ROBOT_PW in the environment}"
 WAIT_SEC="${WAIT_SEC:-90}"
 
 if command -v sshpass >/dev/null 2>&1 && [[ -n "$ROBOT_PW" ]]; then

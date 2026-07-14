@@ -1,5 +1,6 @@
 """Movement API HTTP routes."""
-from typing import Optional
+import time
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
@@ -19,6 +20,7 @@ from nav_app.models import (
     MovementCommandRequest,
     MovementRouteRequest,
     MovementStep,
+    ResumeCommandRequest,
 )
 from nav_app.runtime import runtime
 from nav_app.settings import (
@@ -42,6 +44,16 @@ from nav_app.services.route_helpers import (
 )
 
 router = APIRouter()
+
+
+def _movement_step_to_dict(step: MovementStep) -> Dict[str, Any]:
+    if hasattr(step, "model_dump"):
+        return step.model_dump()
+    return step.dict()
+
+
+def _movement_steps_to_dicts(steps):
+    return [_movement_step_to_dict(step) for step in steps]
 
 
 @router.get("/movement-api/v1/aruco/latest")
@@ -160,6 +172,7 @@ def movement_accept_command(req: MovementCommandRequest, background_tasks: Backg
         "traffic_state": "LOCKED" if traffic_segments else None,
         "callback_url": req.callback_url,
         "step_actions": [step.action for step in req.steps],
+        "steps": _movement_steps_to_dicts(req.steps),
         "gate_timeout_sec": next((step.payload.get("gate_timeout_sec") for step in req.steps if step.payload.get("gate_timeout_sec") is not None), GATE_TIMEOUT_SEC),
         "simulation_mode": is_simulation_mode(),
         "created_at": _utc_now(),
@@ -177,6 +190,82 @@ def movement_get_command(command_id: str):
     if not command:
         raise HTTPException(status_code=404, detail=f"알 수 없는 command_id입니다: {command_id}")
     return command
+
+
+@router.post("/movement-api/v1/commands/{command_id}/resume")
+def movement_resume_command(command_id: str, req: ResumeCommandRequest, background_tasks: BackgroundTasks):
+    source = runtime.movement_commands.get(command_id)
+    if not source:
+        raise HTTPException(status_code=404, detail=f"알 수 없는 command_id입니다: {command_id}")
+    if source.get("state") not in ("FAILED", "ABORTED"):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "only FAILED or ABORTED commands can be resumed",
+                "state": source.get("state"),
+            },
+        )
+    if not req.force and not source.get("resumable"):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "command is not marked resumable",
+                "reason": source.get("reason"),
+                "stage": source.get("stage"),
+            },
+        )
+
+    stored_steps = source.get("steps")
+    if not isinstance(stored_steps, list) or not stored_steps:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "source command has no stored steps; cannot resume this older command",
+                "command_id": command_id,
+            },
+        )
+
+    diagnostics = source.get("failure_diagnostics") if isinstance(source.get("failure_diagnostics"), dict) else {}
+    failed_index = source.get("current_step_index")
+    if not isinstance(failed_index, int):
+        failed_index = diagnostics.get("failed_step_index")
+    if not isinstance(failed_index, int):
+        failed_index = 0
+    from_step_index = req.from_step_index if req.from_step_index is not None else failed_index
+    if from_step_index < 0 or from_step_index >= len(stored_steps):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "from_step_index is outside stored steps",
+                "from_step_index": from_step_index,
+                "step_count": len(stored_steps),
+            },
+        )
+
+    resume_steps = [MovementStep(**step) for step in stored_steps[from_step_index:]]
+    resume_command_id = req.command_id or f"{command_id}-resume-{int(time.time())}"
+    movement_req = MovementCommandRequest(
+        command_id=resume_command_id,
+        task_id=source.get("task_id"),
+        robot_name=source.get("robot_name"),
+        steps=resume_steps,
+        callback_url=req.callback_url if req.callback_url is not None else source.get("callback_url"),
+    )
+    response = movement_accept_command(movement_req, background_tasks)
+    resume_command = runtime.movement_commands.get(resume_command_id)
+    if resume_command is not None:
+        resume_command["input_mode"] = "resume"
+        resume_command["source_command_id"] = command_id
+        resume_command["resume_from_step_index"] = from_step_index
+        resume_command["resume_source_reason"] = source.get("reason")
+        resume_command["resume_source_stage"] = source.get("stage")
+        resume_command["resume_source_diagnostics"] = diagnostics or None
+    return {
+        **response,
+        "source_command_id": command_id,
+        "resume_from_step_index": from_step_index,
+        "resumed_step_actions": [step.action for step in resume_steps],
+    }
 
 
 @router.get("/movement-api/v1/robots/{robot_name}/pose")

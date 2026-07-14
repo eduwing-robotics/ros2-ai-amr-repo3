@@ -10,19 +10,40 @@
 - 경로 생성: `scripts/route_builder.py`
 - 시뮬레이션/무하드웨어 테스트: `SIMULATION_MODE=1`
 
-## 실행
+## 로봇2 통합 실행 (현재 운영 기준)
+
+Nav PC에서는 `/home/lucas/slam_nav_ws`만 사용합니다. 사용자가 venv를 직접
+활성화할 필요는 없습니다. 통합 런처가 Nav API에만 `venv/bin/python`을 자동으로
+사용하고, Nav2/RViz/ArUco는 ROS Jazzy 시스템 환경으로 실행합니다.
 
 ```bash
 cd /home/lucas/slam_nav_ws
-scripts/start_nav_servers.sh start
+source /opt/ros/jazzy/setup.bash
+
+ROBOT_PW='<robot-password>' scripts/start_all_tb3_2.sh start
 ```
 
-상태 확인:
+재시작, 상태 확인, 종료:
 
 ```bash
-scripts/start_nav_servers.sh status
-scripts/nav_server_status.sh
+ROBOT_PW='<robot-password>' scripts/start_all_tb3_2.sh restart
+scripts/start_all_tb3_2.sh status
+ROBOT_PW='<robot-password>' scripts/start_all_tb3_2.sh stop
 ```
+
+`start`는 로봇 SBC의 TurtleBot3 bringup, lift bridge, 카메라와 Nav PC의
+ArUco detector, Nav2/RViz, Movement API(:8002)를 함께 실행합니다.
+
+Movement API만 별도로 실행할 때만 다음 명령을 사용합니다. 이 명령도 프로젝트
+venv를 자동 선택합니다.
+
+```bash
+cd /home/lucas/slam_nav_ws
+ONLY_ROBOT=tb3_2 scripts/start_nav_servers.sh start
+```
+
+이미 `(venv)`가 표시된 터미널에서도 실행은 가능하지만 필요하지 않습니다.
+운영 시에는 새 일반 터미널에서 위 통합 명령을 쓰는 것을 기준으로 합니다.
 
 이동 없는 검증 (ROS-free, 모든 OS):
 
@@ -38,6 +59,24 @@ scripts/smoke_nav_servers.sh
 scripts/smoke_movement_api.sh
 scripts/smoke_main_contract.sh
 ```
+
+## 실로봇 ArUco 2단계 도킹
+
+실로봇 반복 시험에서 카메라 pose 기반 거리가 픽셀 폭이나 속도×시간 추정보다 일관되게 재현되어, 접근 웨이포인트별 `metric_two_stage` 프로필을 사용합니다. 명령은 Nav2 접근 후 다음 순서로 실행됩니다.
+
+1. ArUco 중심을 보정하며 40 cm까지 접근
+2. 바퀴와 차체가 완전히 멈추도록 3초 대기
+3. 같은 마커를 폐루프로 추적해 최종 거리까지 접근 후 `hold`
+
+| 적용 위치 | 1단계 | 정지 | 최종 거리 |
+| --- | ---: | ---: | ---: |
+| 인바운드 1·2 | 40 cm | 3초 | 20 cm |
+| 로봇 대기 1·2 | 40 cm | 3초 | 20 cm |
+| 아웃바운드 1·2 | 40 cm | 3초 | 20 cm |
+| 창고 슬롯 A·B | 40 cm | 3초 | 18 cm |
+| 창고 슬롯 C·D | 40 cm | 3초 | 20 cm |
+
+최종 단계는 `metric_distance_only=true`이며 오돔 기반 추가 전진과 픽셀 폭 정지를 사용하지 않습니다. 정지 위치는 `map/zones.json`, 명령 생성은 `nav_app/services/robot_commands.py`, 정렬 제어는 `nav_app/services/docking.py`가 담당합니다. 카메라 내부 파라미터와 5 cm ArUco 실측 크기로 거리를 계산하며 마커가 사라지면 전진을 중단합니다.
 
 ## 최신 API 기준
 

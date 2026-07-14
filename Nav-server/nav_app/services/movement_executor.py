@@ -28,6 +28,49 @@ from nav_app.services.robot_context import (
 )
 from nav_app.services.status_helpers import stage_for_step_action as _stage_for_step_action
 
+
+def _aruco_failure_diagnostics(command: Dict[str, Any], req: MovementCommandRequest) -> Optional[Dict[str, Any]]:
+    """Capture enough state to decide whether marker_not_found is detector, pose, or FOV."""
+    if not runtime.navigator:
+        return None
+    current_index = command.get("current_step_index")
+    step = None
+    if isinstance(current_index, int) and 0 <= current_index < len(req.steps):
+        step = req.steps[current_index]
+    if not step or step.action not in ("aruco_align", "dock_transfer"):
+        return None
+    payload = step.payload or {}
+    target_marker = payload.get("aruco_marker_id") or payload.get("marker_id")
+    detections = runtime.navigator.get_latest_aruco_detection(max_age_sec=2.0) or []
+    seen_markers = []
+    for detection in detections:
+        if not isinstance(detection, dict):
+            continue
+        marker_id = detection.get("marker_id")
+        if marker_id is None:
+            continue
+        seen_markers.append(
+            {
+                "marker_id": marker_id,
+                "center_error_norm": detection.get("center_error_norm"),
+                "marker_width_px": detection.get("marker_width_px"),
+                "received_at": detection.get("received_at"),
+            }
+        )
+    return {
+        "type": "aruco_marker_not_found",
+        "target_marker_id": int(target_marker) if target_marker is not None else None,
+        "seen_markers": seen_markers,
+        "detector_active": bool(seen_markers),
+        "pose": runtime.navigator.get_current_pose(),
+        "failed_step_index": current_index,
+        "failed_step_action": step.action,
+        "resume_hint": (
+            "target marker is not in current camera FOV; verify robot pose/FOV, "
+            "then retry aruco_align/dock_transfer from this approach instead of restarting full scenario"
+        ),
+    }
+
 def execute_dry_step(step: MovementStep):
     delay = step.duration if step.duration is not None and step.duration > 0 else runtime.mission_manager.dry_run_step_delay_sec
     time.sleep(min(delay, 1.0))
@@ -268,6 +311,12 @@ def execute_movement_command(req: MovementCommandRequest):
         command["stage"] = stage
         command["reason"] = reason
         command["message"] = reason
+        if stage == "aruco" and reason == "marker_not_found":
+            diagnostics = _aruco_failure_diagnostics(command, req)
+            if diagnostics:
+                command["failure_diagnostics"] = diagnostics
+                command["resumable"] = True
+                command["robot_at"] = "approach"
         command["updated_at"] = _utc_now()
         if runtime.navigator:
             runtime.navigator.publish_stop_velocity()

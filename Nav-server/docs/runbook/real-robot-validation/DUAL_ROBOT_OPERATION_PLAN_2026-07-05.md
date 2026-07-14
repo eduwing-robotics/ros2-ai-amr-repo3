@@ -1,8 +1,8 @@
 # 두 대 로봇 운용 계획 (tb3_1 + tb3_2)
 
-상태: Draft → 검토용  
-분류: Runbook / Planning  
-작성: 2026-07-05 KST  
+상태: Draft → 검토용
+분류: Runbook / Planning
+작성: 2026-07-05 KST
 목적: 오늘까지 **로봇2(tb3_2) 1대**로 검증한 도킹·E2E를, **로봇1+로봇2 동시 운용**으로 확장할 때의 구조·절차·단계를 정리한다.
 
 **전제:** 같은 SmartFactory 맵·`zones.json` 공장 레이아웃. 로봇별 **맵 yaml·ROS domain·API 포트**는 분리.
@@ -46,7 +46,7 @@
 
 **충돌 방지 (이미 구현):**
 
-- **`traffic_segments`** (`zones.json`): `inbound_lane`, `warehouse_aisle`, `outbound_lane`  
+- **`traffic_segments`** (`zones.json`): `inbound_lane`, `warehouse_aisle`, `outbound_lane`
   → `move_to_point` 시 segment lock. 다른 로봇이 쓰 중이면 **409 `traffic segment locked`**
 - **`zone_lock_manager`**: semantic zone 단위 lock (API `/locks`)
 - **로봇당 active command 1개**: 같은 API에 동시 명령 409
@@ -126,7 +126,7 @@ curl -s http://127.0.0.1:8002/movement-api/v1/health | python3 -m json.tool
 ### Phase B — 서로 다른 구역, **동시** 이동 (traffic lock 최소)
 
 - [ ] tb3_1: `vehicle_1` hold 주차만
-- [ ] tb3_2: `vehicle_2` hold 주차만  
+- [ ] tb3_2: `vehicle_2` hold 주차만
   → 복도 중앙 겹침 없이 **양쪽 대기장 동시** 가능한지 확인
 - [ ] tb3_1 입고1 도킹 ∥ tb3_2 출고2 도킹 (구역이 멀면 segment 겹침 적음)
 

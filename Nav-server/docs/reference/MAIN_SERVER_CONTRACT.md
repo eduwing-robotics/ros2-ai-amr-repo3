@@ -3,7 +3,7 @@
 상태: Active
 분류: Reference
 작성: 2026-06-25 00:00 KST
-최종 갱신: 2026-07-02 11:20 KST
+최종 갱신: 2026-07-09 12:15 KST
 목적: 메인 GUI/DB 서버와 `slam_nav_ws` Movement 서버 사이의 현재 계약을 정의한다.
 
 이 문서는 메인 GUI/DB 서버와 `slam_nav_ws` Movement 서버 사이의 현재 계약을 정의한다.
@@ -16,7 +16,7 @@ LMS 이동 알고리즘 정본은 `docs/reference/LMS_MOVEMENT_ALGORITHM.md`를 
 
 | robot_id | robot_name | Nav API URL | ROS_DOMAIN_ID | bridge_robot_id | robot_fixed_ip |
 | --- | --- | --- | --- | --- | --- |
-| `tb3_burger_01` | `tb3_1` | `http://smartfactory-nav.local:8001` | `2` | `tb3_1` | `null` |
+| `tb3_burger_01` | `tb3_1` | `http://smartfactory-nav.local:8001` | `2` | `tb3_1` | `192.168.30.101` |
 | `tb3_burger_02` | `tb3_2` | `http://smartfactory-nav.local:8002` | `5` | `tb3_2` | `192.168.30.102` |
 
 규칙:
@@ -25,7 +25,7 @@ LMS 이동 알고리즘 정본은 `docs/reference/LMS_MOVEMENT_ALGORITHM.md`를 
 - Nav HTTP 계약은 hostname-first다.
 - 운영 중에는 `smartfactory-nav.local`을 기준 URL로 사용한다.
 - DHCP IP는 fallback 용도로만 쓴다.
-- `robot_fixed_ip`는 로봇 장비 자체 IP다. 현재 로봇2(`tb3_2`)는 `192.168.30.102`로 고정한다.
+- `robot_fixed_ip`는 로봇 장비 자체 IP다. 로봇1=`192.168.30.101`, 로봇2=`192.168.30.102`.
 
 ## 2. Endpoint Discovery
 
@@ -44,7 +44,7 @@ GET /movement-api/v1/endpoints
   "active_robot_name": "tb3_1",
   "active_ros_domain_id": 2,
   "robot_fixed_ip": null,
-  "robot_fixed_ips": {"tb3_burger_02": "192.168.30.102", "tb3_2": "192.168.30.102"},
+  "robot_fixed_ips": {"tb3_burger_01": "192.168.30.101", "tb3_1": "192.168.30.101", "tb3_burger_02": "192.168.30.102", "tb3_2": "192.168.30.102"},
   "nav_pc_host": "smartfactory-nav.local",
   "nav_api_url": "http://smartfactory-nav.local:8001",
   "nav_api_fallback_url": "http://<operator-configured-nav-lan-ip>:8001",
@@ -72,7 +72,7 @@ Request fields:
 | `command_id` | 관제 서버가 생성하는 고유 명령 ID |
 | `task_id` | 관제 DB 작업 ID. 없으면 `null` 가능 |
 | `robot_id` | bridge robot id: `tb3_1` 또는 `tb3_2` |
-| `kind` | `move_to_point`, `dock_transfer`, `aruco_align`, `leave_dock`, `manual_drive`, `estop` |
+| `kind` | `move_to_point`, `dock_transfer`, `aruco_align`, `leave_dock`, `reverse_out`, `manual_drive`, `estop` |
 | `params` | 명령별 파라미터 객체 |
 | `callback_url` | 선택. 상태 이벤트를 받을 관제 서버 endpoint |
 | `dry_run` | `true`면 실제 로봇 대신 dry-run 경로로 처리 |
@@ -84,7 +84,8 @@ Request fields:
 | `move_to_point` | 접근 waypoint 또는 좌표까지 이동 | `ARRIVED` |
 | `dock_transfer` | ArUco 탐지 -> 삽입 시작 위치 정렬 -> 포크 삽입 -> 리프트 -> 후진 | `DONE` |
 | `aruco_align` | ArUco 탐지 -> 정밀 정렬. 리프트 없음 | `DONE` |
-| `leave_dock` | 정면 주차/대기 상태에서 후진 탈출 | `DONE` |
+| `leave_dock` | 정면 주차/대기 상태에서 후진 탈출 (`standby_parked` 게이트) | `DONE` |
+| `reverse_out` | 슬롯 insert 후 탈출 (`standby_parked` 무관, dock과 동일 거리) | `DONE` |
 | `manual_drive` | 짧은 수동 이동. `forward`, `backward`, `left`, `right`, `stop` 지원 | `DONE` |
 | `estop` | 비상정지 또는 해제 | `DONE` |
 
@@ -305,7 +306,7 @@ GET /movement-api/v1/aruco/latest?marker_id=0
 
 `leave_dock`는 `aruco_align(final=hold)`처럼 벽/마커를 보고 정밀 대기한 로봇이 다음 작업을 받기 전에 먼저 후진해서 빠져나오는 원자 명령이다. 직전 `ARRIVED` 게이트를 요구하지 않는다.
 
-**상태 게이트 + 후방 안전체크 (2026-07-04부터):** 무조건 후진하지 않는다. Movement 서버가 로봇의 대기-도킹 상태(`standby_parked`)를 추적해서 다음처럼 동작한다.
+**상태 게이트 + 후방 안전체크 (2026-07-04부터, 2026-07-09 기동 기본 보강):** 무조건 후진하지 않는다. Movement 서버가 로봇의 대기-도킹 상태(`standby_parked`)를 추적해서 다음처럼 동작한다. **프로세스 기동 시 기본값은 `True`(대기장 hold 가정)** 이다. `move_to_point`는 `standby_parked is False`일 때만 자동 후진을 생략하고, `True`/`None`이면 앞에 `leave_dock`을 붙인다.
 
 - `standby_parked` 상태 값
   - `aruco_align(final=hold)` 완료 → `True` (정면 대기 도킹)
@@ -342,7 +343,35 @@ GET /movement-api/v1/aruco/latest?marker_id=0
 
 > 하위호환: `params`를 비워도 동작한다. 기존 LMS 시퀀스(대기 주차에서 `leave_dock` 먼저)는 그대로 유효하며, 대기 상태가 아닐 때만 자동으로 no-op 처리된다. LMS가 무조건 후진을 원하면 `force: true`를 준다.
 
-별칭으로 `undock`, `reverse_out`도 같은 동작으로 받는다. 완료 상태는 `DONE`이다.
+`undock`은 `leave_dock` 별칭이다.
+
+### 3.4.1 reverse_out
+
+`reverse_out`은 **슬롯 insert 후** 빠져나올 때 쓴다. `leave_dock`과 달리 `standby_parked` 상태를 보지 않으며, `dock_transfer` 완료 시 내부 후진과 **동일한 거리**로 후진한다.
+
+- 슬롯에 insert된 채 다음 Nav가 필요할 때 (복구·preflight)
+- `dock_transfer` **직후**에는 추가 `reverse_out` 불필요 (이미 내부 reverse 포함)
+
+```json
+{
+  "command_id": "cmd-reverse-out-wait1-001",
+  "task_id": 44,
+  "robot_id": "tb3_2",
+  "kind": "reverse_out",
+  "dry_run": false,
+  "params": {"aruco_marker_id": 3}
+}
+```
+
+지원 params:
+
+| 필드 | 값 |
+| --- | --- |
+| `aruco_marker_id` | 권장. 슬롯별 `fork_insert_distance_m` / 실측 insert 거리 resolve |
+| `reverse_distance_m` / `distance_m` | 선택. 명시 시 해당 거리로 후진 |
+| `speed_mps` | 선택. 후진 속도 |
+
+완료 상태는 `DONE`이다. 상세 운영 가이드: `docs/handoff/LMS_INTEGRATION_GUIDE_2026-07-09.md`.
 
 ### 3.5 manual_drive
 

@@ -21,6 +21,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import String
+from camera_calibration import load_calibration
 
 
 ARUCO_DICTIONARIES = {
@@ -78,6 +79,7 @@ class ArucoDetectorNode(Node):
         self.declare_parameter("dictionary", os.getenv("ARUCO_DICTIONARY", "DICT_4X4_50"))
         self.declare_parameter("marker_size_m", float(os.getenv("ARUCO_MARKER_SIZE_M", "0.05")))
         self.declare_parameter("focal_length_px", float(os.getenv("ARUCO_FOCAL_LENGTH_PX", "0")))
+        self.declare_parameter("calibration_file", os.getenv("ARUCO_CALIBRATION_FILE", ""))
         self.declare_parameter("camera_matrix", os.getenv("ARUCO_CAMERA_MATRIX", ""))
         self.declare_parameter("dist_coeffs", os.getenv("ARUCO_DIST_COEFFS", ""))
         self.declare_parameter("publish_empty", os.getenv("ARUCO_PUBLISH_EMPTY", "1") not in ("0", "false", "False"))
@@ -102,6 +104,13 @@ class ArucoDetectorNode(Node):
 
         self.camera_matrix = self._camera_matrix_from_param(self.get_parameter("camera_matrix").value)
         self.dist_coeffs = self._dist_coeffs_from_param(self.get_parameter("dist_coeffs").value)
+        calibration_file = str(self.get_parameter("calibration_file").value).strip()
+        if calibration_file:
+            try:
+                self.camera_matrix, self.dist_coeffs, metadata = load_calibration(calibration_file)
+                self.get_logger().info(f"loaded camera calibration {calibration_file} for {metadata.get('image_width')}x{metadata.get('image_height')} (RMS={metadata.get('rms_reprojection_error_px', 'unknown')}px)")
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(f"invalid camera calibration file {calibration_file}: {exc}") from exc
 
         self.publisher = self.create_publisher(String, self.detection_topic, 10)
         self.subscription = self.create_subscription(CompressedImage, self.image_topic, self._image_callback, 10)

@@ -15,17 +15,48 @@ if [[ ! -f "$LIFT_WS" ]]; then
 fi
 # shellcheck source=/dev/null
 source "$LIFT_WS"
+# Match Nav PC DDS discovery (LOCALHOST + static peers)
+if [[ -f "$HOME/ros2_env.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$HOME/ros2_env.sh"
+fi
+export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
+unset ROS_LOCALHOST_ONLY
+export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
+export ROS_STATIC_PEERS="${ROS_STATIC_PEERS:-192.168.30.101;192.168.30.102;192.168.30.9;192.168.30.5;192.168.30.12;192.168.30.3}"
 
 export ROS_DOMAIN_ID="$DOMAIN"
 export TURTLEBOT3_MODEL=burger
 
-echo "[robot_sbc] lift_bridge start DOMAIN=$DOMAIN"
-echo "[robot_sbc] lift_ws=$LIFT_WS"
+resolve_arduino_port() {
+  local p
+  # Prefer explicit override
+  if [[ -n "$LIFT_SERIAL_PORT" ]]; then
+    printf '%s' "$LIFT_SERIAL_PORT"
+    return 0
+  fi
+  # Any Arduino Uno / CDC ACM by-id (robot-specific serial changes)
+  shopt -s nullglob
+  for p in /dev/serial/by-id/usb-Arduino* /dev/serial/by-id/usb-*Arduino*; do
+    if [[ -e "$p" ]]; then
+      printf '%s' "$p"
+      return 0
+    fi
+  done
+  return 1
+}
 
-ros_args=()
-if [[ -n "$LIFT_SERIAL_PORT" ]]; then
-  echo "[robot_sbc] arduino port=$LIFT_SERIAL_PORT"
-  ros_args+=(--ros-args -p "port:=${LIFT_SERIAL_PORT}")
+PORT="$(resolve_arduino_port || true)"
+if [[ -z "$PORT" ]]; then
+  echo "[robot_sbc] ERROR: Arduino (lift) USB not found on this SBC" >&2
+  echo "[robot_sbc] /dev/serial/by-id 목록:" >&2
+  ls -la /dev/serial/by-id/ 2>&1 | sed 's/^/[robot_sbc]   /' >&2 || true
+  echo "[robot_sbc] 리프트 Uno를 꽂거나, 없으면 WITH_LIFT=0 으로 기동하세요." >&2
+  exit 1
 fi
 
-exec ros2 run "$LIFT_BRIDGE_PKG" lift_bridge "${ros_args[@]}"
+echo "[robot_sbc] lift_bridge start DOMAIN=$DOMAIN"
+echo "[robot_sbc] lift_ws=$LIFT_WS"
+echo "[robot_sbc] arduino port=$PORT"
+
+exec ros2 run "$LIFT_BRIDGE_PKG" lift_bridge --ros-args -p "port:=${PORT}"

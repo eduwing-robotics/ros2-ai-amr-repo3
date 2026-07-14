@@ -108,7 +108,7 @@ scripts/start_all_tb3_2.sh restart   # 전체 종료 후 재기동
 scripts/start_all_tb3_2.sh stop      # Nav PC + 로봇 SBC + terminator 종료
 scripts/start_all_tb3_2.sh status    # 상태 점검
 
-# ssh 비번 자동 (sshpass 필요): ROBOT_PW=1234 가 기본값
+# ssh 비번 자동 (sshpass 필요): ROBOT_PW='<robot-password>' 가 기본값
 # SBC 수동 기동 시: WITH_ROBOT=0 scripts/start_all_tb3_2.sh
 ```
 

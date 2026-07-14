@@ -62,6 +62,7 @@ def command_callback_payload(command: Dict[str, Any], event: str, message: Optio
         "reason": command.get("reason"),
         "robot_at": command.get("robot_at"),
         "resumable": command.get("resumable"),
+        "failure_diagnostics": command.get("failure_diagnostics"),
         "message": message if message is not None else command.get("message"),
         "current_step_index": command.get("current_step_index"),
         "current_step_action": command.get("current_step_action"),

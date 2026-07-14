@@ -82,6 +82,8 @@ scripts/nav_ops.sh robot-commands
 
 ## 0.2 잃으면 안 되는 ArUco 정밀주차 성공값
 
+> tb3_2 입고1·2의 최신(2026-07-13) metric-distance + odometry 폐루프 값은 [`real-robot-validation/TB3_2_ARUCO_DOCKING_CALIBRATION_2026-07-13.md`](real-robot-validation/TB3_2_ARUCO_DOCKING_CALIBRATION_2026-07-13.md)를 우선한다. 아래 표는 2026-06-26 로봇1 픽셀 기반 검증 이력이다.
+
 2026-06-26 로봇1에서 실제 이동으로 검증한 값이다. 다음 테스트가 실패하면 이 표와 다르게 실행했는지부터 본다.
 
 | 항목 | 성공값 |
@@ -500,7 +502,7 @@ curl http://192.168.10.54:8001/robot-commands/cmd-move-pickup-approach-001
 ```text
 aruco: 대상 marker id가 실제로 보이는지 확인
 align: 화면 중심 오차와 marker 크기/거리 기준으로 삽입 시작 위치까지 정밀 접근
-insert: ArUco 추적을 끝내고 FORK_INSERT_DISTANCE_M만큼 저속 직진
+insert: ArUco metric 목표에서 정지·정착한 뒤 FORK_INSERT_DISTANCE_M만큼 odometry 폐루프 저속 직진
 lift: 로봇별 lift 설정이 enabled이면 /lift/* ROS topic으로 이동, 아니면 호환용 LIFT_UP_COMMAND/LIFT_DOWN_COMMAND 실행
 reverse: DOCK_REVERSE_DURATION_SEC만큼 후진해서 파레트/슬롯에서 빠져나옴
 ```
@@ -511,7 +513,7 @@ reverse: DOCK_REVERSE_DURATION_SEC만큼 후진해서 파레트/슬롯에서 빠
 - marker width가 `ARUCO_DOCK_TARGET_WIDTH_PX * ARUCO_DOCK_LOST_ACCEPT_WIDTH_RATIO` 이상이거나 추정 거리가 목표 근처임
 - 위 조건 전에 marker가 사라지면 정렬 실패로 보고 정지함
 
-현장에서는 먼저 `FORK_INSERT_DISTANCE_M`을 짧게 잡고, 포크가 파레트 구멍 중앙으로 들어가는지 확인하면서 늘린다. 처음에는 `FORK_INSERT_SPEED_MPS=0.035`처럼 낮은 속도로 시작한다.
+현장에서는 먼저 `FORK_INSERT_DISTANCE_M`을 짧게 잡고, 포크가 파레트 구멍 중앙으로 들어가는지 확인하면서 늘린다. tb3_2 입고1·2의 검증값은 `0.155m`, 속도 `0.01m/s`, 삽입 전 정착 `2.0s`다.
 
 ```bash
 curl -X POST http://192.168.10.54:8001/robot-commands \

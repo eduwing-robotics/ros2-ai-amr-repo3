@@ -3,7 +3,7 @@
 상태: Active
 분류: Runbook
 작성: 2026-06-27 00:00 KST
-최종 갱신: 2026-07-05 19:35 KST
+최종 갱신: 2026-07-13 KST
 목적: 에이전트와 사용자가 실로봇 Movement API를 작고 안전한 동작으로 검증하는 역할과 순서를 정의한다.
 
 ## 현재 현장 상태 (tb3_2, 2026-07-05)
@@ -16,9 +16,13 @@
 | dock_transfer (insert+dwell+후진) | ✅ 슬롯별 E2E 스크립트 3종 성공 |
 | 전체 LMS 입고 사이클 | 🔄 lift 연동·LMS waypoint 통일·**2대 동시 운용** 남음 |
 
-상세 기록: [`TB3_2_VALIDATION_STATUS_2026-07-03.md`](TB3_2_VALIDATION_STATUS_2026-07-03.md)  
-오늘 세션 쉬운 정리: [`worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md`](../../worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md) (알고리즘 요약 포함)  
+상세 기록: [`TB3_2_VALIDATION_STATUS_2026-07-03.md`](TB3_2_VALIDATION_STATUS_2026-07-03.md)
+오늘 세션 쉬운 정리: [`worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md`](../../worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md) (알고리즘 요약 포함)
 **두 대 운용 계획:** [`DUAL_ROBOT_OPERATION_PLAN_2026-07-05.md`](DUAL_ROBOT_OPERATION_PLAN_2026-07-05.md)
+
+## 최신 ArUco 도킹 기준 (2026-07-13)
+
+입고1·입고2는 calibrated ArUco 거리 `0.40m` 정렬 후 `2.0s` 정착하고, odometry 폐루프로 `0.155m`를 삽입하도록 통일했다. 실물 검증에서 벽 여유는 약 `5~6cm`였다. 카메라 캘리브레이션 결과, 반복 측정 로그, 다음 검증 순서는 [`TB3_2_ARUCO_DOCKING_CALIBRATION_2026-07-13.md`](TB3_2_ARUCO_DOCKING_CALIBRATION_2026-07-13.md)에 기록한다.
 
 ## 역할 분담
 
@@ -56,6 +60,7 @@ export ROBOT_NAME=tb3_1
 ## 관련 문서
 
 - `TB3_2_VALIDATION_STATUS_2026-07-03.md`: tb3_2 실물 검증 진행·튜닝·LMS 연동 현황
+- `TB3_2_ARUCO_DOCKING_CALIBRATION_2026-07-13.md`: 카메라 캘리브레이션, 입고1·2 폐루프 도킹 확정값, 다음 재개 지점
 - `DUAL_ROBOT_OPERATION_PLAN_2026-07-05.md`: tb3_1+tb3_2 동시 운용 계획·단계
 - `worklog/sessions/TB3_2_DOCKING_E2E_2026-07-05.md`: 7/5 도킹 E2E 세션 (쉬운 설명)
 - `SCENARIO_TASK206_INBOUND2_TB3_2.md`: LMS task 206 입고2 시나리오 재현

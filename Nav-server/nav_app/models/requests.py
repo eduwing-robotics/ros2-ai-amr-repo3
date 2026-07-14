@@ -30,6 +30,13 @@ class RobotCommandRequest(BaseModel):
     callback_url: Optional[str] = Field(default=None, description="명령 상태 이벤트를 받을 관제 callback URL")
 
 
+class ResumeCommandRequest(BaseModel):
+    command_id: Optional[str] = Field(default=None, description="새 resume command_id. 생략하면 자동 생성")
+    from_step_index: Optional[int] = Field(default=None, ge=0, description="재개할 step index. 생략하면 실패 step부터")
+    force: bool = Field(default=False, description="resumable=false 상태도 강제로 재개")
+    callback_url: Optional[str] = Field(default=None, description="resume command callback URL. 생략하면 원 command callback_url 사용")
+
+
 class MovementRouteRequest(BaseModel):
     command_id: str
     task_id: Optional[int] = None
