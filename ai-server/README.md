@@ -26,7 +26,14 @@ Health check:
 curl http://127.0.0.1:8100/api/v1/health
 ```
 
-## Low-load lab runtime
+## Main AI Server startup: low-load WebRTC
+
+`./scripts/vision/sf_lab.sh low-load` is the primary operator command for the
+AI Server lab runtime. It starts the AI API, ROS camera gateways, overlay
+pipeline, hostname publication, and WebRTC media runtime as one supervised
+foreground process. The lower-level `sf_vision.sh` and `run_ai_server.sh`
+commands are for profile diagnostics or API-only development, not the normal
+lab startup.
 
 Low-load mode keeps stream/operator ergonomics while limiting inference load.
 Run `./scripts/ai/setup_ai_server_env.sh` first. It creates `.venv/`, installs
@@ -43,6 +50,12 @@ at a small local override file.
 ```bash
 cd ai-server
 ./scripts/vision/sf_lab.sh low-load
+```
+
+Keep that foreground process running. In another terminal:
+
+```bash
+cd ai-server
 ./scripts/vision/sf_lab.sh status
 ./scripts/vision/sf_lab.sh urls low-load
 ./scripts/vision/sf_lab.sh api health

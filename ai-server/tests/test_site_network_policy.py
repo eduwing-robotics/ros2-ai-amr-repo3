@@ -73,11 +73,11 @@ def test_mdns_auto_address_uses_the_site_subnet(tmp_path: Path) -> None:
     assert "192.168.10." not in result.stdout
 
 
-def test_standard_profiles_do_not_publish_temporary_production_mdns_aliases() -> None:
-    offenders = [
+def test_only_low_load_lab_profile_publishes_runtime_mdns_alias() -> None:
+    publishers = [
         path.name
         for path in PROFILES.glob("*.env")
         if "SF_VISION_MDNS_ENABLED=true" in path.read_text(encoding="utf-8")
     ]
 
-    assert offenders == []
+    assert publishers == ["lab-gopro-tb3-low-load.env"]

@@ -31,19 +31,36 @@ profile.
 
 ## Native process
 
+### Primary lab operation
+
+Use the supervised low-load WebRTC bundle for normal AI Server lab operation:
+
+```bash
+./scripts/ai/setup_ai_server_env.sh
+./scripts/vision/sf_lab.sh low-load
+```
+
+This is the main operational entrypoint. It dynamically publishes
+`smartfactory-vision.local` to the current `192.168.30.*` address and starts
+WebRTC as the primary browser stream plane.
+
+### API-only development
+
 ```bash
 ./scripts/ai/setup_ai_server_env.sh
 AI_SERVER_HOST=0.0.0.0 AI_SERVER_PORT=8100 ./scripts/ai/run_ai_server.sh
 ```
 
-## Model runtime
+The API-only command does not start the ROS camera gateways, mDNS hostname
+publisher, MediaMTX, or camera WebRTC publishers.
+
+## Model/runtime preflight
 
 The same setup command prepares the model runtime and default weights:
 
 ```bash
 ./scripts/ai/setup_ai_server_env.sh
 ./scripts/vision/sf_lab.sh check low-load
-./scripts/vision/sf_lab.sh low-load
 ```
 
 The setup creates `.venv/` and `models/`; both are local runtime artifacts and

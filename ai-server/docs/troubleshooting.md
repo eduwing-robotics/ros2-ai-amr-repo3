@@ -24,7 +24,19 @@ create `.venv/` and download the default pretrained weights under `models/`.
 
 ## mDNS/hostname not reachable
 
-Use direct IP/port URLs from `./scripts/vision/sf_lab.sh urls low-load`, then fix local DNS/mDNS separately.
+Low-load normally publishes `smartfactory-vision.local` to the current
+`192.168.30.*` Vision PC address for the lifetime of the supervised runtime.
+Check the managed publisher and its selected address:
+
+```bash
+./scripts/vision/sf_lab.sh status
+cat .run/vision/logs/mdns-alias.log
+getent ahostsv4 smartfactory-vision.local
+```
+
+If `mdns-alias` is not alive, restart the main runtime with
+`./scripts/vision/sf_lab.sh low-load`. Direct-IP URLs are a temporary diagnostic
+fallback, not the hostname-first operating contract.
 
 ## WebRTC and MJPEG overlays differ
 
