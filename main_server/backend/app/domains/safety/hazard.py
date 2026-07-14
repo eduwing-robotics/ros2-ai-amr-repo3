@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.config import settings
-from app.db.mvp import evidence_repo, safety_stop_repo
+from app.db.postgres import evidence_repo, safety_stop_repo
 from app.domains.execution import evidence as evidence_runtime
 from app.domains.execution import state as orch_state
 from app.domains.movement.client import MovementClientError, movement_client
@@ -26,13 +26,27 @@ ROBOT_SOURCE_MAP: dict[str, str] = {
     "tb3_2": "tb3_2_picam",
 }
 
-FORBIDDEN_PAYLOAD_KEYS = frozenset({
-    "bbox", "bbox_xyxy", "mask", "mask_rle", "polygon", "raw_detections", "detections",
-})
+FORBIDDEN_PAYLOAD_KEYS = frozenset(
+    {
+        "bbox",
+        "bbox_xyxy",
+        "mask",
+        "mask_rle",
+        "polygon",
+        "raw_detections",
+        "detections",
+    }
+)
 
-FORBIDDEN_MOTION_STRINGS = frozenset({
-    "HOLD", "E_STOP", "STOP_COMMAND", "MOTION_CANCELLED", "BLOCKED",
-})
+FORBIDDEN_MOTION_STRINGS = frozenset(
+    {
+        "HOLD",
+        "E_STOP",
+        "STOP_COMMAND",
+        "MOTION_CANCELLED",
+        "BLOCKED",
+    }
+)
 
 
 @dataclass
@@ -43,7 +57,7 @@ class MonitorRuntime:
     enabled: bool = True
     enable_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_command_id: str | None = None
-    last_leg_kind: str | None = None
+    last_step_kind: str | None = None
 
 
 _runtime: dict[str, MonitorRuntime] = {}
@@ -142,7 +156,7 @@ def enable_monitor(robot_id: str, task_id: int, *, command_id: str | None = None
         enabled=True,
         enable_time=now,
         last_command_id=command_id,
-        last_leg_kind="move_to_point",
+        last_step_kind="move_to_point",
     )
 
 
@@ -167,7 +181,7 @@ def on_move_to_point_dispatched(conn, task_id: int, robot_id: str, command_id: s
     enable_monitor(robot_id, task_id, command_id=command_id)
 
 
-def on_move_to_point_leg_done(robot_id: str) -> None:
+def on_move_to_point_step_done(robot_id: str) -> None:
     disable_monitor(robot_id)
 
 
@@ -176,7 +190,7 @@ def on_robot_task_terminal(robot_id: str) -> None:
 
 
 def mark_task_awaiting_operator(conn, task_id: int, *, reason: str, robot_id: str | None = None) -> None:
-    orch = evidence_repo(conn).get_orchestration(task_id)
+    orch = evidence_repo.get_orchestration(conn, task_id)
     if not orch:
         return
     orch = dict(orch)
@@ -219,6 +233,7 @@ def _dedup_key(event: dict[str, Any]) -> str:
     data = event.get("data_json") or {}
     if isinstance(data, str):
         import json
+
         data = json.loads(data)
     source_event_id = data.get("source_event_id")
     if source_event_id:
@@ -275,9 +290,11 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
     data_json = event.get("data_json") or {}
     if isinstance(data_json, str):
         import json
+
         data_json = json.loads(data_json)
 
-    advisory_id = evidence_repo(conn).append(
+    advisory_id = evidence_repo.append(
+        conn,
         task_id=runtime.task_id,
         event_type="HUMAN_DETECTED",
         source=str(event.get("source") or runtime.source),
@@ -306,7 +323,8 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
             estop_error = str(exc)
             _pending_estops[runtime.robot_id] = runtime.task_id
 
-    decision_id = evidence_repo(conn).append(
+    decision_id = evidence_repo.append(
+        conn,
         task_id=runtime.task_id,
         event_type="SAFETY_ESTOP_DECISION",
         source="main_safety_policy",
@@ -323,7 +341,7 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
             "observed_at": event.get("observed_at"),
         },
     )
-    safety_stop_repo(conn).open_from_evidence(decision_id)
+    safety_stop_repo.open_from_evidence(conn, decision_id)
     mark_task_awaiting_operator(conn, runtime.task_id, reason="person_hazard", robot_id=runtime.robot_id)
     _set_cooldown(runtime.robot_id, runtime.source, runtime.task_id, dedup)
     return estop_ok
@@ -338,7 +356,8 @@ def retry_pending_estops(conn) -> int:
         except MovementClientError as exc:
             _record_degraded(robot_id, f"E-stop retry failed: {exc}")
             continue
-        evidence_repo(conn).append(
+        evidence_repo.append(
+            conn,
             task_id=task_id,
             event_type="SAFETY_ESTOP_CONFIRMED",
             source="main_safety_policy",

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, Request
 
 from app.api.helpers import callback_base_url
 from app.db.connection import transaction
-from app.db.mvp import task_repo
+from app.db.postgres import task_repo
 from app.domains.execution import recovery as recovery_service
 from app.domains.execution import tasks as task_service
 from app.models.schemas import MissionStatusResponse, RobotTask, RobotTaskAssign, RobotTaskCreate
@@ -15,10 +15,12 @@ router = APIRouter(tags=["tasks"])
 
 
 @router.get("/tasks", response_model=list[RobotTask])
-def list_tasks(status: str | None = Query(default=None), limit: int = Query(default=50, ge=1, le=200)) -> list[RobotTask]:
+def list_tasks(
+    status: str | None = Query(default=None), limit: int = Query(default=50, ge=1, le=200)
+) -> list[RobotTask]:
     """작업 목록(최근순). status로 필터 가능."""
     with transaction() as conn:
-        return [RobotTask(**t) for t in task_repo(conn).list(limit=limit, status=status)]
+        return [RobotTask(**t) for t in task_repo.list_tasks(conn, limit=limit, status=status)]
 
 
 @router.post("/tasks", response_model=RobotTask)
@@ -36,18 +38,19 @@ def assign_task(task_id: int, payload: RobotTaskAssign) -> RobotTask:
 
 
 @router.post("/tasks/{task_id}/start-mission")
-def start_task_mission(task_id: int, request: Request) -> dict:
+def start_task_execution(task_id: int, request: Request) -> dict:
     """ASSIGNED 작업의 snapshot을 Movement mission으로 시작한다."""
     resolved_callback = callback_base_url(request)
     with transaction() as conn:
-        result = task_service.start_task_mission(conn, task_id, callback_base_url=resolved_callback)
+        result = task_service.start_task_execution(conn, task_id, callback_base_url=resolved_callback)
     return {
         "task": RobotTask(**result["task"]),
         "mission": MissionStatusResponse(
             robot_id=result["robot_id"],
             command_id=result.get("command_id"),
             response={
-                "leg_count": result.get("leg_count"),
+                "leg_count": result.get("step_count"),
+                "step_count": result.get("step_count"),
                 "command_id": result.get("command_id"),
             },
         ),
@@ -122,6 +125,7 @@ def recovery_decision(task_id: int, body: dict) -> dict:
 def recovery_execute(task_id: int, request: Request, body: dict) -> dict:
     with transaction() as conn:
         from app.api.helpers import callback_base_url
+
         return recovery_service.execute_recovery(
             conn,
             task_id,

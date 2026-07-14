@@ -6,19 +6,19 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.db.mvp import (
+from app.db.postgres import (
     DEFAULT_FLOOR,
-    MvpEventRepository,
-    MvpItemRepository,
-    MvpLocationRepository,
-    MvpTaskRepository,
+    event_repo,
+    item_repo,
+    location_repo,
+    task_repo,
 )
 from app.domains.execution import evidence as evidence_runtime
 from app.domains.execution import state as orch_state
 from app.domains.execution import tasks as task_service
 from app.domains.movement.client import MovementClientError, movement_client
 from app.domains.work_orders.adapters import work_order_response_to_v1
-from app.domains.work_orders.assembler import RobotTaskSummaryAssembler
+from app.domains.work_orders.assembler import assemble_robot_task_summary
 from app.domains.work_orders.planner import (
     MAX_WORK_ORDER_QUANTITY as MAX_WORK_ORDER_QUANTITY,
 )
@@ -38,7 +38,7 @@ def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | No
     quantity = validated_quantity(int(payload["quantity"]))
     auto_start = bool(payload.get("auto_start", False))
 
-    if not MvpItemRepository(conn).exists(item_code):
+    if not item_repo.exists(conn, item_code):
         raise HTTPException(status_code=404, detail="item not found")
 
     plan = plan_work_order(conn, payload)
@@ -49,13 +49,20 @@ def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | No
     for entry in planned_entries:
         slot = entry["slot"]
         floor = int(entry["plan_summary"].get("floor") or DEFAULT_FLOOR)
-        task_id = _create_mvp_task(
-            conn, operation, item_code, slot, floor, entry["plan_summary"], payload,
+        task_id = _create_work_order_task(
+            conn,
+            operation,
+            item_code,
+            slot,
+            floor,
+            entry["plan_summary"],
+            payload,
         )
         task_ids.append(task_id)
         batch_id = batch_id or task_id
 
-    MvpEventRepository(conn).append(
+    event_repo.append(
+        conn,
         event_type="WORK_ORDER_CREATED",
         message=f"work order batch {batch_id} created ({operation} {item_code} x{quantity})",
         payload={"order_id": batch_id, "task_ids": task_ids, **payload},
@@ -72,12 +79,17 @@ def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | No
     start_failed: list[dict[str, Any]] = []
     if auto_start:
         for task_id in task_ids:
-            task = MvpTaskRepository(conn).get(task_id)
+            task = task_repo.get(conn, task_id)
             if task and task.get("status") == task_service.ASSIGNED_STATUS:
                 try:
-                    mission_results.append(task_service.start_task_mission(
-                        conn, task_id, callback_base_url=callback_base_url, source="work_order",
-                    ))
+                    mission_results.append(
+                        task_service.start_task_execution(
+                            conn,
+                            task_id,
+                            callback_base_url=callback_base_url,
+                            source="work_order",
+                        )
+                    )
                 except HTTPException as exc:
                     start_failed.append({"task_id": task_id, "detail": exc.detail})
 
@@ -92,7 +104,7 @@ def get_work_order(conn, order_id: int) -> dict[str, Any]:
 
 
 def cancel_work_order(conn, order_id: int) -> dict[str, Any]:
-    task = MvpTaskRepository(conn).get(order_id)
+    task = task_repo.get(conn, order_id)
     if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
         raise HTTPException(status_code=404, detail="work order not found")
     status = str(task.get("status") or "").upper()
@@ -119,7 +131,7 @@ def _cargo_state(steps: list[dict[str, Any]]) -> str:
 
 def stop_work_order(conn, order_id: int) -> dict[str, Any]:
     """Request immediate Movement cancellation while preserving cargo-aware recovery context."""
-    task = evidence_runtime.attach_orchestration(MvpTaskRepository(conn).get(order_id), conn)
+    task = evidence_runtime.attach_orchestration(task_repo.get(conn, order_id), conn)
     if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
         raise HTTPException(status_code=404, detail="work order not found")
     if str(task.get("status") or "").upper() != "RUNNING":
@@ -150,7 +162,8 @@ def stop_work_order(conn, order_id: int) -> dict[str, Any]:
         "business_completed": execution.business_completed,
     }
     evidence_runtime.save_orchestration(conn, order_id, orch)
-    MvpEventRepository(conn).append(
+    event_repo.append(
+        conn,
         event_type="WORK_ORDER_STOP_REQUESTED",
         task_id=order_id,
         robot_id=str(robot_id),
@@ -173,15 +186,16 @@ def set_work_order_priority(conn, order_id: int, priority: int) -> dict[str, Any
 
     이미 배정·진행·종료된 오더는 순서 조정 의미가 없으므로 거부한다.
     """
-    task = MvpTaskRepository(conn).get(order_id)
+    task = task_repo.get(conn, order_id)
     if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
         raise HTTPException(status_code=404, detail="work order not found")
     status = str(task.get("status") or "").upper()
     if status not in {"CREATED", "QUEUED"}:
         raise HTTPException(status_code=409, detail=f"work_order_priority_locked(status={status})")
     priority = max(0, min(int(priority), 1000))
-    MvpTaskRepository(conn).set_priority(order_id, priority)
-    MvpEventRepository(conn).append(
+    task_repo.set_priority(conn, order_id, priority)
+    event_repo.append(
+        conn,
         event_type="WORK_ORDER_PRIORITY_SET",
         message=f"work order {order_id} priority set to {priority}",
         payload={"order_id": order_id, "priority": priority},
@@ -190,8 +204,7 @@ def set_work_order_priority(conn, order_id: int, priority: int) -> dict[str, Any
 
 
 def list_work_orders(conn, limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
-    tasks = MvpTaskRepository(conn)
-    rows = tasks.list(limit=limit * 5)
+    rows = task_repo.list_tasks(conn, limit=limit * 5)
     inbound_out = [r for r in rows if r.get("task_type") in {"INBOUND", "OUTBOUND"}]
     orders: list[dict[str, Any]] = []
     seen: set[int] = set()
@@ -230,7 +243,9 @@ def _plan_summary_for_task(conn, task_id: int) -> dict[str, Any] | None:
     return summary if isinstance(summary, dict) else None
 
 
-def _zones_from_task(conn, task: dict[str, Any], operation: str, plan_summary: dict[str, Any] | None) -> tuple[str, str]:
+def _zones_from_task(
+    conn, task: dict[str, Any], operation: str, plan_summary: dict[str, Any] | None
+) -> tuple[str, str]:
     if plan_summary:
         src = plan_summary.get("source_zone") or ""
         tgt = plan_summary.get("target_zone") or ""
@@ -244,7 +259,7 @@ def _zones_from_task(conn, task: dict[str, Any], operation: str, plan_summary: d
 
 
 def _active_command_id(conn, task_id: int) -> str | None:
-    task = evidence_runtime.attach_orchestration(MvpTaskRepository(conn).get(task_id), conn)
+    task = evidence_runtime.attach_orchestration(task_repo.get(conn, task_id), conn)
     if not task:
         return None
     orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
@@ -262,7 +277,7 @@ def _active_command_id(conn, task_id: int) -> str | None:
 
 
 def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    task = MvpTaskRepository(conn).get(order_id)
+    task = task_repo.get(conn, order_id)
     if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
         raise HTTPException(status_code=404, detail="work order not found")
     operation = task["task_type"].lower()
@@ -276,7 +291,7 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
     plan_summary = _plan_summary_for_task(conn, order_id)
     source_zone, target_zone = _zones_from_task(conn, task, operation, plan_summary)
     task_floor = int((task.get("to_floor") if operation == "inbound" else task.get("from_floor")) or DEFAULT_FLOOR)
-    robot_task = RobotTaskSummaryAssembler.assemble(
+    robot_task = assemble_robot_task_summary(
         robot_task=task,
         order_id=order_id,
         execution=execution,
@@ -314,7 +329,7 @@ def _map_order_status(task_status: str) -> str:
     return s
 
 
-def _create_mvp_task(
+def _create_work_order_task(
     conn,
     operation: str,
     item_code: str,
@@ -323,10 +338,9 @@ def _create_mvp_task(
     plan_summary: dict[str, Any],
     payload: dict[str, Any] | None = None,
 ) -> int:
-    locs = MvpLocationRepository(conn)
     payload = payload or {}
-    inbound = locs.get_inbound(payload.get("inbound_waypoint_id"))
-    outbound = locs.get_outbound(payload.get("outbound_waypoint_id"))
+    inbound = location_repo.get_inbound(conn, payload.get("inbound_waypoint_id"))
+    outbound = location_repo.get_outbound(conn, payload.get("outbound_waypoint_id"))
     task_qty = validated_quantity(int(payload.get("quantity") or 1))
     task_type = operation.upper()
     if task_type == "INBOUND":
@@ -345,10 +359,19 @@ def _create_mvp_task(
         # priority: 높을수록 먼저 배정(list_assignable이 priority DESC 정렬). 미지정 시 0(보통).
         "priority": int(payload.get("priority") or 0),
     }
-    task_id = MvpTaskRepository(conn).create(data)
-    MvpEventRepository(conn).append(
+    task_id = task_repo.create(conn, data)
+    event_repo.append(
+        conn,
         event_type="WORK_ORDER_TASK_CREATED",
         message=f"task {task_id} created ({operation})",
-        payload={"order_id": task_id, "task_id": task_id, "operation": operation, "item_code": item_code, "slot_id": slot["slot_id"], "floor": floor, "plan_summary": plan_summary},
+        payload={
+            "order_id": task_id,
+            "task_id": task_id,
+            "operation": operation,
+            "item_code": item_code,
+            "slot_id": slot["slot_id"],
+            "floor": floor,
+            "plan_summary": plan_summary,
+        },
     )
     return task_id

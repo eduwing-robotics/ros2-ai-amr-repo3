@@ -12,7 +12,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.db.connection import transaction
-from app.db.mvp import event_repo, movement_repo, robot_repo
+from app.db.postgres import event_repo, movement_repo, robot_repo
 from app.domains.movement.client import MovementClientError, movement_client
 from app.models.schemas import TeleopRequest, TeleopResponse
 
@@ -40,8 +40,7 @@ def execute_teleop(payload: TeleopRequest) -> TeleopResponse:
     command_type, request_body = build_movement_request(payload.robot_id, command, payload.hold)
 
     with transaction() as conn:
-        robots = robot_repo(conn)
-        if not robots.exists(payload.robot_id):
+        if not robot_repo.exists(conn, payload.robot_id):
             raise HTTPException(status_code=404, detail="robot not found")
 
         response_payload, status_value = call_movement(payload.robot_id, command_type, request_body)
@@ -157,7 +156,8 @@ def record_teleop_result(
     status_value: str,
 ) -> None:
     """수동조작 결과를 명령 이력, 로봇 current 상태, 이벤트 타임라인에 함께 남긴다."""
-    movement_repo(conn).create(
+    movement_repo.create(
+        conn,
         command_id=command_id,
         robot_id=robot_id,
         command_type=command_type,
@@ -169,8 +169,9 @@ def record_teleop_result(
 
     # hold start가 접수된 동안만 current 상태를 MOVING으로 표시한다. 단발 명령과 stop은 IDLE로 둔다.
     robot_status = "MOVING" if status_value == "ACCEPTED" and command_type == "manual_start" else "IDLE"
-    robot_repo(conn).update_last_command(robot_id, command_id, robot_status)
-    event_repo(conn).append(
+    robot_repo.update_last_command(conn, robot_id, command_id, robot_status)
+    event_repo.append(
+        conn,
         event_type=f"TELEOP_{command_type.upper()}_{status_value}",
         robot_id=robot_id,
         command_id=command_id,

@@ -4,17 +4,16 @@ from __future__ import annotations
 
 from fastapi import HTTPException
 
-from app.db.mvp import (
+from app.db.postgres import (
     DEFAULT_FLOOR,
-    MvpEventRepository,
-    MvpInventoryRepository,
-    MvpTaskRepository,
+    event_repo,
+    inventory_repo,
+    task_repo,
 )
 
 
 def apply_on_task_complete(conn, task_id: int) -> bool:
-    tasks = MvpTaskRepository(conn)
-    task = tasks.get(task_id)
+    task = task_repo.get(conn, task_id)
     if not task:
         return False
     task_type = str(task.get("task_type") or "").upper()
@@ -23,14 +22,13 @@ def apply_on_task_complete(conn, task_id: int) -> bool:
     if str(task.get("db_status") or task.get("status") or "").upper() in {"COMPLETED", "DONE"}:
         return False
 
-    inv = MvpInventoryRepository(conn)
     item_id = task.get("item_id")
     quantity = int(task.get("quantity") or 1)
     if not item_id:
         return False
 
     completion_event = f"{task_type}_COMPLETE"
-    if inv.has_task_event(task_id, completion_event):
+    if inventory_repo.has_task_event(conn, task_id, completion_event):
         return False
 
     if task_type == "INBOUND":
@@ -38,12 +36,13 @@ def apply_on_task_complete(conn, task_id: int) -> bool:
         floor = int(task.get("to_floor") or DEFAULT_FLOOR)
         if not location_id:
             return False
-        before = inv.get_quantity(location_id, item_id, floor)
+        before = inventory_repo.get_quantity(conn, location_id, item_id, floor)
         try:
-            after = inv.adjust(location_id, item_id, quantity, floor)
+            after = inventory_repo.adjust(conn, location_id, item_id, quantity, floor)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        inv.append_change_log(
+        inventory_repo.append_change_log(
+            conn,
             task_id=task_id,
             item_id=item_id,
             location_id=location_id,
@@ -60,12 +59,13 @@ def apply_on_task_complete(conn, task_id: int) -> bool:
         floor = int(task.get("from_floor") or DEFAULT_FLOOR)
         if not location_id:
             return False
-        before = inv.get_quantity(location_id, item_id, floor)
+        before = inventory_repo.get_quantity(conn, location_id, item_id, floor)
         try:
-            after = inv.adjust(location_id, item_id, -quantity, floor)
+            after = inventory_repo.adjust(conn, location_id, item_id, -quantity, floor)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        inv.append_change_log(
+        inventory_repo.append_change_log(
+            conn,
             task_id=task_id,
             item_id=item_id,
             location_id=location_id,
@@ -78,7 +78,8 @@ def apply_on_task_complete(conn, task_id: int) -> bool:
         )
         event = "inventory outbound"
 
-    tasks.append_task_log(
+    task_repo.append_task_log(
+        conn,
         task_id=task_id,
         task_type=task_type,
         result="COMPLETED",
@@ -86,7 +87,8 @@ def apply_on_task_complete(conn, task_id: int) -> bool:
         snapshot={"task": task, "quantity_after": after},
     )
 
-    MvpEventRepository(conn).append(
+    event_repo.append(
+        conn,
         event_type="INVENTORY_ADJUSTED",
         task_id=task_id,
         message=f"{event} {item_id} x{quantity} @ {location_id} -> {after}",

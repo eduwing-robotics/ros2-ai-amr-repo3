@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from app.domains.execution.state import RobotTaskExecutionState
 from app.domains.work_orders.adapters import robot_task_summary_to_v1, work_order_response_to_v1
-from app.domains.work_orders.assembler import RobotTaskSummaryAssembler
+from app.domains.work_orders.assembler import assemble_robot_task_summary
 from app.models.tasks import RobotTaskKind, RobotTaskStatus
 from app.models.work_orders import WorkOrder, WorkOrderOperation
 
@@ -14,7 +14,7 @@ def _summary():
             "return_status": "PARK_FAILED",
         }
     )
-    return RobotTaskSummaryAssembler.assemble(
+    return assemble_robot_task_summary(
         robot_task={
             "task_id": 41,
             "task_type": "INBOUND",

@@ -20,7 +20,7 @@ from fastapi import HTTPException
 
 from app.api.routers.system import status
 from app.db.connection import init_db, transaction
-from app.db.mvp import MvpCameraRepository
+from app.db.postgres import camera_repo
 from app.domains.vision.router import (
     _require_known_source,
     vision_overlay_stream,
@@ -39,7 +39,12 @@ class GlobalCameraRegistryTest(unittest.TestCase):
 
     def _source_ids(self) -> set[str]:
         with transaction() as conn:
-            return {c["source_id"] for c in MvpCameraRepository(conn).list()}
+            return {
+                c["source_id"]
+                for c in camera_repo.list(
+                    conn,
+                )
+            }
 
     def test_repository_includes_global_cam_01(self) -> None:
         ids = self._source_ids()

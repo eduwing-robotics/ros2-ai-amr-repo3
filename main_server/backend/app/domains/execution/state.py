@@ -135,7 +135,9 @@ def set_phase(orch: dict[str, Any], phase: str) -> None:
 
 
 def is_hold_phase(phase: str | None) -> bool:
-    return normalize_phase(phase) in {PHASE_AWAITING_OPERATOR, PHASE_RECOVERY_RUNNING} or str(phase or "") in HOLD_PHASES
+    return (
+        normalize_phase(phase) in {PHASE_AWAITING_OPERATOR, PHASE_RECOVERY_RUNNING} or str(phase or "") in HOLD_PHASES
+    )
 
 
 def new_orchestration(steps: list[dict[str, Any]], *, callback_base_url: str | None = None) -> dict[str, Any]:

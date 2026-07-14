@@ -134,7 +134,7 @@ flowchart TD
 
 용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **robot task**와 이동/도킹 한 번 단위의 **robot task step**으로 분해된다(§6).
 
-Work Order 조회는 `RobotTaskSummaryAssembler`가 task·실행 상태·계획·위치 정보를 읽기 전용 `RobotTaskSummary`로 조립한다. 내부에서는 `requested_quantity`, `allocated_quantity`, `robot_task_id`, `active_command_id`를 사용하고, `/api/v1` compatibility adapter만 기존 `quantity`, `task_id`, `command_id`로 변환한다. 계획 진단 정보는 runtime 상태와 섞지 않고 `RobotTaskPlanSummary`가 소유한다.
+Work Order 조회는 `assemble_robot_task_summary`가 task·실행 상태·계획·위치 정보를 읽기 전용 `RobotTaskSummary`로 조립한다. 상태가 없는 조립 로직은 클래스로 감싸지 않는다. 내부에서는 `requested_quantity`, `allocated_quantity`, `robot_task_id`, `active_command_id`를 사용하고, `/api/v1` compatibility adapter만 기존 `quantity`, `task_id`, `command_id`로 변환한다. 계획 진단 정보는 runtime 상태와 섞지 않고 `RobotTaskPlanSummary`가 소유한다.
 
 ## 6. 작업 실행 흐름
 
@@ -203,7 +203,7 @@ flowchart TB
 | `api/routers` | system·comm처럼 여러 domain을 조합하는 얇은 API |
 | `domains/<domain>/router.py` | path, validation, transaction boundary |
 | `domains/<domain>` | 업무 정책·외부 client·domain 상태 소유 |
-| `db` | PG connection / repository |
+| `db/postgres` | 물리 테이블별 PostgreSQL 함수와 connection boundary |
 | `models` | request/response schema |
 | `core` | settings·외부 호출 로그·health cache 같은 기술 요소 |
 
@@ -232,7 +232,8 @@ flowchart TD
   TR[execution_recovery] --> Orch
 ```
 
-- router는 얇게 유지하고 업무 흐름은 **orchestrator가 허브**로 조율한다. 의존 방향은 `work_orders → orchestrator → repository/movement` 한 방향이며 역참조하지 않는다.
+- router는 얇게 유지하고 업무 흐름은 **orchestrator가 허브**로 조율한다. 의존 방향은 `work_orders → execution → movement/warehouse/records → db/postgres`이며 역참조하지 않는다.
+- orchestrator는 Step 전진과 중단·복구 순서만 조율한다. 재고 확정, Evidence 기록, Robot 해제 같은 정책은 각 소유 도메인의 함수에 위임한다.
 - 외부 연동 실패는 감추지 않고 501이나 명시적 에러 코드로 드러낸다.
 
 ## 8. 용어 (핵심)
@@ -241,8 +242,8 @@ flowchart TD
 
 | 업무어 | 코드·문서 | 설명 |
 | --- | --- | --- |
-| 관제 서버 | Main / LMS | FastAPI + PostgreSQL. 브라우저·외부 서버의 허브 |
-| 이동 서버 | Movement | 로봇별 Nav2·도킹·리프트 |
+| 관제 서버 | Main_Control | FastAPI + PostgreSQL. 브라우저·외부 서버의 허브 |
+| 이동 서버 | Movement Server | 로봇별 Nav2·도킹·리프트 |
 | 인식 서버 | Vision | 영상·아루코·위험 advisory |
 | 입출고 요청 | work order | 품목+수량 상위 요청 |
 | 로봇 작업 | `RobotTask` | work order에서 분해되어 한 로봇에 배정되는 실행 단위 |
@@ -264,7 +265,7 @@ flowchart TD
 backend/app/
 ├─ api/          route 집계와 교차-domain API
 ├─ core/         설정·공통 기술 요소
-├─ db/           PostgreSQL connection·repository
+├─ db/postgres/  물리 테이블별 PostgreSQL 함수 모듈
 ├─ domains/      admin·execution·maps·movement·records·safety·vision·warehouse·work_orders
 ├─ models/       request/response schema
 └─ main.py
@@ -297,6 +298,28 @@ maps/            ROS map asset
 
 따라서 현재 릴리스 범위는 신뢰된 개발·현장 네트워크의 포트폴리오 검증이다. 외부망 또는 다사용자 운영으로
 확장할 때는 인증·권한, TLS, secret 관리, 로그/metric/alert, 측정 가능한 SLO를 별도 릴리스 기준으로 확정한다.
+
+### 10.1 도메인 책임과 코드 단위
+
+| 도메인 | 소유 책임 | 소유하지 않는 책임 |
+| --- | --- | --- |
+| `work_orders` | 입출고 요청 검증, 슬롯 계획, 1:1 Task projection | Step 전진, Movement HTTP 세부 |
+| `execution` | Task 상태 전이, Step 실행 조율, 중단·복구 순서 | 경로 계산, 재고 SQL, Vision 판정 |
+| `movement` | Robot Command 생성·전송, callback 정규화 | Task 완료 정책, 슬롯 선택 |
+| `safety` | ESTOP latch, 위험 advisory, 운영자 개입 전환 | 업무 완료 판정, 자동 재개 |
+| `vision` | 카메라·인식 요청과 Observation Evidence 입력 | Task 상태 전이 |
+| `warehouse` | 재고 조회·확정과 Inventory Change | Step dispatch |
+| `records` | Runtime Record 조회·표현 | 실행 정책 결정 |
+| `maps` | waypoint·map asset·location route | 로봇 실행 상태 |
+| `db/postgres` | DB 물리 이름, SQL, DB↔내부 값 변환 | 업무 순서와 외부 호출 |
+
+코드 단위는 다음 기준을 적용한다.
+
+- 도메인은 package로 표현한다. 기능을 다시 `*Domain` 클래스 하나로 감싸지 않는다.
+- 상태가 없는 계산·조립·정책은 주체가 드러나는 module function으로 작성한다.
+- 클래스는 Pydantic/enum 같은 계약·상태 모델, 외부 client, 실제 상태를 가진 객체에만 사용한다.
+- DB 참조는 `db/postgres/<physical_responsibility>.py` 파일명과 SQL에서 드러내고, 함수명은 수행 책임을 표현한다.
+- 문서는 구체 클래스 목록이 아니라 도메인 책임, 공개 계약, 상태 축을 정본으로 삼는다.
 
 ## 관련
 

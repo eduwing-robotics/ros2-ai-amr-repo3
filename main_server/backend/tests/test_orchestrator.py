@@ -1,4 +1,4 @@
-"""Orchestrator leg unfolding — characterization tests."""
+"""Orchestrator step planning — characterization tests."""
 
 from __future__ import annotations
 
@@ -16,22 +16,22 @@ from app.domains.execution import evidence as evidence_runtime
 from app.domains.execution import orchestrator, state
 
 
-class OrchestratorUnfoldLegsTest(unittest.TestCase):
+class OrchestratorStepPlanningTest(unittest.TestCase):
     def test_unknown_action_type_defaults_to_move_to_point(self) -> None:
         conn = MagicMock()
         scenario = {
             "map_id": "map1",
             "steps": [{"seq": 1, "waypoint_id": "wp1", "action_type": "custom_action"}],
         }
-        with patch.object(evidence_runtime, "waypoint_repo") as wp_repo:
-            wp_repo.return_value.list.return_value = [
+        with patch.object(evidence_runtime, "location_repo") as location_repo:
+            location_repo.list_map_markers.return_value = [
                 {"waypoint_id": "wp1", "x": 1.0, "y": 2.0, "yaw": 0.0, "name": "A"},
             ]
             steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
         self.assertEqual(len(steps), 1)
         self.assertEqual(steps[0]["kind"], "move_to_point")
 
-    def test_dock_transfer_step_becomes_dock_leg(self) -> None:
+    def test_dock_transfer_step_keeps_dock_transfer_kind(self) -> None:
         conn = MagicMock()
         scenario = {
             "map_id": "map1",
@@ -43,7 +43,7 @@ class OrchestratorUnfoldLegsTest(unittest.TestCase):
                 }
             ],
         }
-        with patch.object(evidence_runtime, "waypoint_repo"):
+        with patch.object(evidence_runtime, "location_repo"):
             steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
         self.assertEqual(steps[0]["kind"], "dock_transfer")
 
@@ -74,10 +74,10 @@ class ExecutionStateTest(unittest.TestCase):
         self.assertEqual(raw["return_status"], "RETURNING_HOME")
 
 
-class SeedCursorTest(unittest.TestCase):
-    """leave_dock·aruco_align 같은 시드 외 leg를 건너뛴 seq 환산 검증."""
+class SeedStepIndexTest(unittest.TestCase):
+    """leave_dock·aruco_align 같은 시드 외 Step을 건너뛴 seq 환산 검증."""
 
-    LEGS = [
+    STEPS = [
         {"kind": "leave_dock"},
         {"kind": "move_to_point"},
         {"kind": "dock_transfer"},
@@ -88,12 +88,12 @@ class SeedCursorTest(unittest.TestCase):
     ]
 
     def test_leading_leave_dock_does_not_shift_seed_seq(self) -> None:
-        # cursor=1(첫 move) → 시드 cursor 0 (seq 1), cursor=5(홈 move) → 시드 cursor 4 (seq 5)
-        self.assertEqual(orchestrator._seed_cursor(self.LEGS, 0), 0)
-        self.assertEqual(orchestrator._seed_cursor(self.LEGS, 1), 0)
-        self.assertEqual(orchestrator._seed_cursor(self.LEGS, 2), 1)
-        self.assertEqual(orchestrator._seed_cursor(self.LEGS, 5), 4)
-        self.assertEqual(orchestrator._seed_cursor(self.LEGS, 6), 5)
+        # step_index=1(첫 move) → 시드 index 0, step_index=5(홈 move) → 시드 index 4
+        self.assertEqual(orchestrator._seed_step_index(self.STEPS, 0), 0)
+        self.assertEqual(orchestrator._seed_step_index(self.STEPS, 1), 0)
+        self.assertEqual(orchestrator._seed_step_index(self.STEPS, 2), 1)
+        self.assertEqual(orchestrator._seed_step_index(self.STEPS, 5), 4)
+        self.assertEqual(orchestrator._seed_step_index(self.STEPS, 6), 5)
 
 
 class CallbackConsistencyTest(unittest.TestCase):

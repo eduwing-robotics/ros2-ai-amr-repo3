@@ -41,14 +41,16 @@ class AdvanceTaskEstopTest(unittest.TestCase):
                 },
             },
         }
-        with patch.object(orchestrator, "task_repo") as task_repo, \
-             patch.object(orchestrator, "evidence_runtime") as evidence_runtime, \
-             patch.object(orchestrator, "inventory_ops") as inventory_ops, \
-             patch.object(orchestrator, "lift_load_evidence"), \
-             patch.object(orchestrator, "dispatch_current_step"), \
-             patch.object(orchestrator, "event_repo"), \
-             patch.object(orchestrator, "person_hazard"):
-            task_repo.return_value.get.return_value = task
+        with (
+            patch.object(orchestrator, "task_repo") as task_repo,
+            patch.object(orchestrator, "evidence_runtime") as evidence_runtime,
+            patch.object(orchestrator, "inventory_ops") as inventory_ops,
+            patch.object(orchestrator, "lift_load_evidence"),
+            patch.object(orchestrator, "dispatch_current_step"),
+            patch.object(orchestrator, "event_repo"),
+            patch.object(orchestrator, "person_hazard"),
+        ):
+            task_repo.get.return_value = task
             evidence_runtime.attach_orchestration.side_effect = lambda row, _conn: row
             evidence_runtime.resolve_command_def_id.return_value = 2
             orchestrator.advance_task(conn, 12, {"event": "DONE", "command_id": "cmd-unload"})
@@ -73,11 +75,13 @@ class AdvanceTaskEstopTest(unittest.TestCase):
                 },
             },
         }
-        with patch.object(orchestrator, "task_repo") as task_repo, \
-             patch.object(orchestrator, "evidence_runtime") as evidence_runtime, \
-             patch.object(orchestrator, "event_repo") as event_repo, \
-             patch.object(orchestrator, "person_hazard") as person_hazard:
-            task_repo.return_value.get.return_value = task
+        with (
+            patch.object(orchestrator, "task_repo") as task_repo,
+            patch.object(orchestrator, "evidence_runtime") as evidence_runtime,
+            patch.object(orchestrator, "event_repo") as event_repo,
+            patch.object(orchestrator, "person_hazard") as person_hazard,
+        ):
+            task_repo.get.return_value = task
             evidence_runtime.attach_orchestration.side_effect = lambda row, _conn: row
             evidence_runtime.resolve_command_def_id.return_value = "cmddef"
             event = {"event": "ABORTED", "reason": "operator_estop", "command_id": "cmd-1"}
@@ -88,10 +92,10 @@ class AdvanceTaskEstopTest(unittest.TestCase):
         saved_orch = evidence_runtime.save_orchestration.call_args[0][2]
         self.assertEqual(saved_orch["phase"], "AWAITING_OPERATOR")
         self.assertEqual(saved_orch["recovery"]["reason"], "movement_estop")
-        task_repo.return_value.set_status.assert_not_called()
+        task_repo.set_status.assert_not_called()
         person_hazard.on_robot_task_terminal.assert_not_called()
-        event_repo.return_value.append.assert_called()
-        event_types = [c.kwargs.get("event_type") or c[1].get("event_type") for c in event_repo.return_value.append.call_args_list]
+        event_repo.append.assert_called()
+        event_types = [c.kwargs.get("event_type") or c[1].get("event_type") for c in event_repo.append.call_args_list]
         self.assertIn("TASK_AWAITING_OPERATOR", event_types)
 
     def test_aborted_non_estop_still_fails_task(self) -> None:
@@ -108,18 +112,20 @@ class AdvanceTaskEstopTest(unittest.TestCase):
                 },
             },
         }
-        with patch.object(orchestrator, "task_repo") as task_repo, \
-             patch.object(orchestrator, "robot_repo") as robot_repo, \
-             patch.object(orchestrator, "evidence_runtime") as evidence_runtime, \
-             patch.object(orchestrator, "event_repo"), \
-             patch.object(orchestrator, "person_hazard") as person_hazard:
-            task_repo.return_value.get.return_value = task
+        with (
+            patch.object(orchestrator, "task_repo") as task_repo,
+            patch.object(orchestrator, "robot_repo") as robot_repo,
+            patch.object(orchestrator, "evidence_runtime") as evidence_runtime,
+            patch.object(orchestrator, "event_repo"),
+            patch.object(orchestrator, "person_hazard") as person_hazard,
+        ):
+            task_repo.get.return_value = task
             evidence_runtime.attach_orchestration.side_effect = lambda row, _conn: row
             evidence_runtime.resolve_command_def_id.return_value = "cmddef"
             orchestrator.advance_task(conn, 7, {"event": "ABORTED", "reason": "path_blocked", "command_id": "cmd-1"})
 
-        task_repo.return_value.set_status.assert_called_once_with(7, "FAILED", clear_robot=True)
-        robot_repo.return_value.set_task.assert_called_once_with("robot1", "IDLE", None)
+        task_repo.set_status.assert_called_once_with(conn, 7, "FAILED", clear_robot=True)
+        robot_repo.set_task.assert_called_once_with(conn, "robot1", "IDLE", None)
         person_hazard.on_robot_task_terminal.assert_called_once_with("robot1")
         saved_orch = evidence_runtime.save_orchestration.call_args[0][2]
         self.assertEqual(saved_orch["phase"], "ABORTED")
@@ -138,9 +144,11 @@ class AdvanceTaskEstopTest(unittest.TestCase):
                 },
             },
         }
-        with patch.object(orchestrator, "task_repo") as task_repo, \
-             patch.object(orchestrator, "evidence_runtime") as evidence_runtime:
-            task_repo.return_value.get.return_value = task
+        with (
+            patch.object(orchestrator, "task_repo") as task_repo,
+            patch.object(orchestrator, "evidence_runtime") as evidence_runtime,
+        ):
+            task_repo.get.return_value = task
             evidence_runtime.attach_orchestration.side_effect = lambda row, _conn: row
             result = orchestrator.advance_task(conn, 3, {"event": "DONE"})
         self.assertIsNone(result)
@@ -155,8 +163,10 @@ class PollRunningTasksGateTest(unittest.TestCase):
             "assigned_robot_id": "robot1",
             "preset_snapshot": {"_orchestration": {"phase": "AWAITING_OPERATOR", "step_index": 0, "steps": []}},
         }
-        with patch.object(orchestrator, "evidence_runtime") as evidence_runtime, \
-             patch.object(orchestrator, "advance_on_command_event") as advance:
+        with (
+            patch.object(orchestrator, "evidence_runtime") as evidence_runtime,
+            patch.object(orchestrator, "advance_on_command_event") as advance,
+        ):
             evidence_runtime.list_orchestrated_running.return_value = [held]
             advanced = orchestrator.poll_running_tasks(conn)
         self.assertEqual(advanced, 0)
@@ -167,7 +177,7 @@ class CancelRunningTaskTest(unittest.TestCase):
     def test_cancel_running_task_blocked(self) -> None:
         conn = MagicMock()
         with patch.object(orchestrator, "task_repo") as task_repo:
-            task_repo.return_value.get.return_value = {
+            task_repo.get.return_value = {
                 "task_id": 1,
                 "status": "RUNNING",
                 "assigned_robot_id": "robot1",

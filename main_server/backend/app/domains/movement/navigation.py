@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
-from app.db.mvp import event_repo, robot_repo
+from app.db.postgres import event_repo, robot_repo
 from app.domains.maps.assets import list_map_asset_records
 from app.domains.movement.client import MovementClientError, movement_client
 from app.domains.movement.health import base_url_for, get_movement_health
@@ -169,6 +169,7 @@ def resolve_command_map(ui_map_id: str | None) -> tuple[str, RuntimeMapContext, 
     }
     return runtime_map_id, ctx, info
 
+
 def movement_reason(health: dict, pose_payload: dict | None = None) -> tuple[str, str | None]:
     """Movement health/pose를 운영자가 이해할 수 있는 reason/action으로 정규화한다."""
     pose_payload = pose_payload or {}
@@ -243,7 +244,7 @@ def movement_map_state() -> dict:
 
 
 def runtime_map_context_route() -> dict:
-    """ — Movement runtime map context 단일 조회."""
+    """— Movement runtime map context 단일 조회."""
     return get_runtime_map_context().to_map_state()
 
 
@@ -270,7 +271,11 @@ def localization_snapshot(robot_id: str) -> dict:
         try:
             pose_payload = movement_client.robot_pose(robot_id)
         except MovementClientError as pose_exc:
-            pose_payload = {"error": str(pose_exc), "localized": health.get("localized", False), "pose": health.get("pose")}
+            pose_payload = {
+                "error": str(pose_exc),
+                "localized": health.get("localized", False),
+                "pose": health.get("pose"),
+            }
         localization.update(pose_payload)
     pose = localization.get("pose") or health.get("pose")
     reason, action = movement_reason(health, localization)
@@ -295,10 +300,11 @@ def localization_snapshot(robot_id: str) -> dict:
 
 def report_pose_for_robot(conn, robot_id: str, payload: RobotPoseUpdate, source: str | None = None) -> None:
     """Pose report — DBML에 pose 컬럼 없음: robots.last_seen_at 갱신만."""
-    if not robot_repo(conn).exists(robot_id):
+    if not robot_repo.exists(conn, robot_id):
         raise HTTPException(status_code=404, detail="robot not found")
-    robot_repo(conn).touch(robot_id)
-    event_repo(conn).append(
+    robot_repo.touch(conn, robot_id)
+    event_repo.append(
+        conn,
         event_type="POSE_REPORT",
         robot_id=robot_id,
         message=f"pose report {robot_id}",

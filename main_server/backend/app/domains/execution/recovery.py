@@ -8,7 +8,7 @@ from typing import Any, Literal
 from fastapi import HTTPException
 
 from app.core.config import settings
-from app.db.mvp import evidence_repo, location_repo, task_repo
+from app.db.postgres import evidence_repo, location_repo, task_repo
 from app.domains.execution import evidence as evidence_runtime
 from app.domains.execution import state as orch_state
 from app.domains.movement import commands as command_service
@@ -35,14 +35,14 @@ def _orch_phase(task: dict[str, Any] | None) -> str:
 
 
 def _assert_awaiting_operator_phase(conn, task_id: int) -> None:
-    task = evidence_runtime.attach_orchestration(task_repo(conn).get(task_id), conn)
+    task = evidence_runtime.attach_orchestration(task_repo.get(conn, task_id), conn)
     phase = _orch_phase(task)
     if phase != orch_state.PHASE_AWAITING_OPERATOR:
         raise HTTPException(status_code=409, detail="recovery_requires_awaiting_operator_phase")
 
 
 def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
-    task = evidence_runtime.attach_orchestration(task_repo(conn).get(task_id), conn)
+    task = evidence_runtime.attach_orchestration(task_repo.get(conn, task_id), conn)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
@@ -64,7 +64,6 @@ def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
         or str(orch.get("phase") or "") in ACTIVE_RECOVERY_PHASES,
         "assigned_robot_id": task.get("assigned_robot_id"),
         "last_command_id": active_recovery_cmd or (current_step or {}).get("command_id"),
-        "last_leg_kind": (current_step or {}).get("kind"),
         "last_step_kind": (current_step or {}).get("kind"),
         "recovery": recovery,
     }
@@ -85,7 +84,7 @@ def list_awaiting_operator_tasks(conn, limit: int = 20) -> list[dict[str, Any]]:
 
 def _safe_zone_location(conn) -> dict[str, Any]:
     configured_id = settings.recovery_safe_location_id
-    location = location_repo(conn).get(configured_id) if configured_id else None
+    location = location_repo.get(conn, configured_id) if configured_id else None
     if not location or not location.get("enabled", True):
         raise HTTPException(status_code=409, detail="recovery safe location not configured")
     if location.get("type") != "home" or location.get("x") is None or location.get("y") is None:
@@ -151,7 +150,8 @@ def save_recovery_decision(
     if cargo_state == "UNKNOWN":
         raise HTTPException(status_code=409, detail="cargo_state UNKNOWN blocks recovery execution")
     plan = preview_recovery_plan(conn, task_id, cargo_state=cargo_state, strategy=strategy)
-    evidence_repo(conn).append(
+    evidence_repo.append(
+        conn,
         task_id=task_id,
         event_type="RECOVERY_DECISION",
         source="operator",
@@ -165,7 +165,7 @@ def save_recovery_decision(
             "decided_at": datetime.now(timezone.utc).isoformat(),
         },
     )
-    orch = evidence_repo(conn).get_orchestration(task_id) or {}
+    orch = evidence_repo.get_orchestration(conn, task_id) or {}
     orch = dict(orch)
     recovery = dict(orch.get("recovery") or {})
     recovery.update({"cargo_state": cargo_state, "strategy": strategy, "checks": checks})
@@ -192,7 +192,7 @@ def execute_recovery(
         if any(s.get("kind") == "dock_transfer" and not s.get("enabled") for s in plan.get("steps") or []):
             raise HTTPException(status_code=409, detail="recovery_unavailable_dock_transfer_missing")
         raise HTTPException(status_code=409, detail="recovery plan not executable")
-    task = task_repo(conn).get(task_id)
+    task = task_repo.get(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     robot_id = task.get("assigned_robot_id") or task.get("robot_id")
@@ -215,14 +215,15 @@ def execute_recovery(
     result = command_service.dispatch_robot_command(conn, payload, request=None)
     if not result.accepted:
         raise HTTPException(status_code=502, detail="recovery command rejected")
-    evidence_repo(conn).append(
+    evidence_repo.append(
+        conn,
         task_id=task_id,
         event_type="RECOVERY_COMMAND_DISPATCHED",
         source="main_recovery",
         trusted=True,
         data_json={"command_id": result.command_id, "kind": "move_to_point", "strategy": strategy},
     )
-    orch = evidence_repo(conn).get_orchestration(task_id) or {}
+    orch = evidence_repo.get_orchestration(conn, task_id) or {}
     orch = dict(orch)
     recovery = dict(orch.get("recovery") or {})
     recovery["active_command_id"] = result.command_id
@@ -241,7 +242,7 @@ def handle_recovery_command_event(
     source: str = "callback",
 ) -> dict[str, Any] | None:
     """Recovery move_to_point terminal callback — return task to AWAITING_OPERATOR for next operator decision."""
-    task = evidence_runtime.attach_orchestration(task_repo(conn).get(task_id), conn)
+    task = evidence_runtime.attach_orchestration(task_repo.get(conn, task_id), conn)
     if not task or task.get("status") != "RUNNING":
         return None
     orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
@@ -263,7 +264,8 @@ def handle_recovery_command_event(
     orch_state.set_phase(orch, orch_state.PHASE_AWAITING_OPERATOR)
     orch["recovery"] = recovery
     evidence_runtime.save_orchestration(conn, task_id, orch)
-    evidence_repo(conn).append(
+    evidence_repo.append(
+        conn,
         task_id=task_id,
         event_type="RECOVERY_MOVE_TERMINAL",
         source=source,
@@ -337,7 +339,7 @@ def _abort_recovery_task(
     checks: dict[str, bool],
 ) -> dict[str, Any]:
     _assert_recovery_checks(checks)
-    task = task_repo(conn).get(task_id)
+    task = task_repo.get(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     if task.get("status") != "RUNNING":
@@ -345,17 +347,18 @@ def _abort_recovery_task(
     robot_id = task.get("assigned_robot_id")
     if robot_id:
         _stop_robot_movement(str(robot_id))
-    task_repo(conn).set_status(task_id, "CANCELLED", clear_robot=True)
+    task_repo.set_status(conn, task_id, "CANCELLED", clear_robot=True)
     if robot_id:
-        from app.db.mvp import robot_repo
+        from app.db.postgres import robot_repo
 
-        robot_repo(conn).set_task(str(robot_id), "IDLE", None)
+        robot_repo.set_task(conn, str(robot_id), "IDLE", None)
         person_hazard.on_robot_task_terminal(str(robot_id))
-    orch = evidence_repo(conn).get_orchestration(task_id) or {}
+    orch = evidence_repo.get_orchestration(conn, task_id) or {}
     orch = dict(orch)
     orch["phase"] = "ABORTED"
     evidence_runtime.save_orchestration(conn, task_id, orch)
-    evidence_repo(conn).append(
+    evidence_repo.append(
+        conn,
         task_id=task_id,
         event_type="RECOVERY_MANUAL_ABORT",
         source="operator",

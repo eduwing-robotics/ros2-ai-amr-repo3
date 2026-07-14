@@ -17,7 +17,7 @@ if _PG_URL:
 from fastapi import HTTPException
 
 from app.db.connection import init_db, transaction, write_transaction
-from app.db.mvp import DEFAULT_FLOOR, MvpInventoryRepository, MvpTaskRepository
+from app.db.postgres import DEFAULT_FLOOR, inventory_repo, task_repo
 from app.domains.warehouse import inventory as inventory_ops
 from app.domains.work_orders import service as work_orders
 from tests.support.postgres import apply_demo_fixture
@@ -26,7 +26,7 @@ MAX_QTY = work_orders.MAX_WORK_ORDER_QUANTITY
 
 
 @unittest.skipUnless(_PG_URL, "LMS_DATABASE_URL or DATABASE_URL required")
-class MvpPgInOutTest(unittest.TestCase):
+class PostgresInOutTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         try:
@@ -53,7 +53,8 @@ class MvpPgInOutTest(unittest.TestCase):
         """자동 입고 — 슬롯과 층을 함께 자동 선택한다."""
         with transaction() as conn:
             preview = work_orders.preview_work_order(
-                conn, {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
+                conn,
+                {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             self.assertEqual(len(preview["slots"]), 1)
             self.assertEqual(preview["slots"][0]["slot_id"], "STORAGE_S1")
@@ -61,7 +62,8 @@ class MvpPgInOutTest(unittest.TestCase):
             self.assertEqual(preview["slots"][0]["selection_reason"], "empty_slot")
             self.assertIsNone(preview["slots"][0]["available_qty_at_plan"])
             order = work_orders.create_work_order(
-                conn, {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
+                conn,
+                {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             self.assertEqual(len(order["tasks"]), 1)
             self.assertEqual(order["tasks"][0]["slot_id"], "STORAGE_S1")
@@ -71,41 +73,45 @@ class MvpPgInOutTest(unittest.TestCase):
         """2층 입고 — 1층 점유와 독립적으로 같은 슬롯의 2층을 사용할 수 있다."""
         with write_transaction() as conn:
             preview = work_orders.preview_work_order(
-                conn, {"operation": "inbound", "item_code": "BOX-A", "quantity": 1, "floor": 2},
+                conn,
+                {"operation": "inbound", "item_code": "BOX-A", "quantity": 1, "floor": 2},
             )
             self.assertEqual(preview["slots"][0]["slot_id"], "STORAGE_S1")
             self.assertEqual(preview["slots"][0]["floor"], 2)
             order = work_orders.create_work_order(
-                conn, {"operation": "inbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 2},
+                conn,
+                {"operation": "inbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 2},
             )
             task = order["tasks"][0]
             self.assertEqual(task["slot_id"], "STORAGE_S1")
             self.assertEqual(task["floor"], 2)
             task_id = task["task_id"]
-            row = MvpTaskRepository(conn).get(task_id)
+            row = task_repo.get(conn, task_id)
             self.assertEqual(row["to_floor"], 2)
-            MvpTaskRepository(conn).assign(task_id, "tb3_1")
-            MvpTaskRepository(conn).set_status(task_id, "RUNNING")
+            task_repo.assign(conn, task_id, "tb3_1")
+            task_repo.set_status(conn, task_id, "RUNNING")
             inventory_ops.apply_on_task_complete(conn, task_id)
-            self.assertEqual(MvpInventoryRepository(conn).get_quantity("STORAGE_S1", "BOX-A", 2), 1)
+            self.assertEqual(inventory_repo.get_quantity(conn, "STORAGE_S1", "BOX-A", 2), 1)
 
     def test_outbound_second_floor_requires_second_floor_inventory(self) -> None:
         """2층 출고 — 1층 재고가 있어도 2층 재고가 없으면 부족으로 본다."""
         with write_transaction() as conn:
             with self.assertRaises(HTTPException) as ctx:
                 work_orders.create_work_order(
-                    conn, {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 2},
+                    conn,
+                    {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 2},
                 )
             self.assertEqual(ctx.exception.status_code, 409)
             self.assertEqual(ctx.exception.detail, "insufficient_inventory")
 
-            MvpInventoryRepository(conn).adjust("STORAGE_S1", "BOX-A", 2, 2)
+            inventory_repo.adjust(conn, "STORAGE_S1", "BOX-A", 2, 2)
             order = work_orders.create_work_order(
-                conn, {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 2},
+                conn,
+                {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 2},
             )
             task = order["tasks"][0]
             self.assertEqual(task["floor"], 2)
-            row = MvpTaskRepository(conn).get(task["task_id"])
+            row = task_repo.get(conn, task["task_id"])
             self.assertEqual(row["from_floor"], 2)
 
     def test_inbound_specified_occupied_same_item_slot_rejected(self) -> None:
@@ -123,7 +129,7 @@ class MvpPgInOutTest(unittest.TestCase):
         """수량 N — task 1건, 완료 시 빈 슬롯 재고 0 → +N."""
         with write_transaction() as conn:
             qty = 3
-            before = MvpInventoryRepository(conn).get_quantity("STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
+            before = inventory_repo.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
             self.assertEqual(before, 0)
             order = work_orders.create_work_order(
                 conn,
@@ -132,13 +138,13 @@ class MvpPgInOutTest(unittest.TestCase):
             self.assertEqual(len(order["tasks"]), 1)
             self.assertEqual(order["tasks"][0]["quantity"], qty)
             task_id = order["tasks"][0]["task_id"]
-            row = MvpTaskRepository(conn).get(task_id)
+            row = task_repo.get(conn, task_id)
             self.assertEqual(int(row["quantity"]), qty)
-            MvpTaskRepository(conn).assign(task_id, "tb3_1")
-            MvpTaskRepository(conn).set_status(task_id, "RUNNING")
+            task_repo.assign(conn, task_id, "tb3_1")
+            task_repo.set_status(conn, task_id, "RUNNING")
             inventory_ops.apply_on_task_complete(conn, task_id)
-            MvpTaskRepository(conn).set_status(task_id, "COMPLETED")
-            after = MvpInventoryRepository(conn).get_quantity("STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
+            task_repo.set_status(conn, task_id, "COMPLETED")
+            after = inventory_repo.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
         self.assertEqual(after, qty)
 
     def test_inventory_completion_is_idempotent(self) -> None:
@@ -149,11 +155,11 @@ class MvpPgInOutTest(unittest.TestCase):
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 2, "slot_id": "STORAGE_S3"},
             )
             task_id = order["tasks"][0]["task_id"]
-            MvpTaskRepository(conn).assign(task_id, "tb3_1")
-            MvpTaskRepository(conn).set_status(task_id, "RUNNING")
+            task_repo.assign(conn, task_id, "tb3_1")
+            task_repo.set_status(conn, task_id, "RUNNING")
             self.assertTrue(inventory_ops.apply_on_task_complete(conn, task_id))
             self.assertFalse(inventory_ops.apply_on_task_complete(conn, task_id))
-            quantity = MvpInventoryRepository(conn).get_quantity("STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
+            quantity = inventory_repo.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
         self.assertEqual(quantity, 2)
 
     def test_inbound_specified_mixed_item_slot_rejected(self) -> None:
@@ -170,12 +176,14 @@ class MvpPgInOutTest(unittest.TestCase):
         """진행 중 입고 claim이 있는 슬롯은 다음 입고 계획에서 제외된다."""
         with write_transaction() as conn:
             first = work_orders.create_work_order(
-                conn, {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
+                conn,
+                {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             self.assertEqual(first["tasks"][0]["slot_id"], "STORAGE_S1")
             self.assertEqual(first["tasks"][0]["floor"], 2)
             second = work_orders.create_work_order(
-                conn, {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
+                conn,
+                {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             self.assertEqual(second["tasks"][0]["slot_id"], "STORAGE_S2")
             self.assertEqual(second["tasks"][0]["floor"], 2)
@@ -183,7 +191,8 @@ class MvpPgInOutTest(unittest.TestCase):
     def test_cancel_work_order_releases_inbound_claim(self) -> None:
         with write_transaction() as conn:
             first = work_orders.create_work_order(
-                conn, {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
+                conn,
+                {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             task_id = first["tasks"][0]["task_id"]
             self.assertEqual(first["tasks"][0]["slot_id"], "STORAGE_S1")
@@ -191,7 +200,8 @@ class MvpPgInOutTest(unittest.TestCase):
             cancelled = work_orders.cancel_work_order(conn, task_id)
             self.assertEqual(cancelled["status"], "CANCELLED")
             second = work_orders.create_work_order(
-                conn, {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
+                conn,
+                {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             self.assertEqual(second["tasks"][0]["slot_id"], "STORAGE_S1")
             self.assertEqual(second["tasks"][0]["floor"], 2)
@@ -199,10 +209,11 @@ class MvpPgInOutTest(unittest.TestCase):
     def test_cancel_running_work_order_requires_recovery(self) -> None:
         with write_transaction() as conn:
             order = work_orders.create_work_order(
-                conn, {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
+                conn,
+                {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             task_id = order["tasks"][0]["task_id"]
-            MvpTaskRepository(conn).set_status(task_id, "RUNNING")
+            task_repo.set_status(conn, task_id, "RUNNING")
             with self.assertRaises(HTTPException) as ctx:
                 work_orders.cancel_work_order(conn, task_id)
             self.assertEqual(ctx.exception.status_code, 409)
@@ -212,14 +223,15 @@ class MvpPgInOutTest(unittest.TestCase):
         with transaction() as conn:
             with self.assertRaises(HTTPException) as ctx:
                 work_orders.create_work_order(
-                    conn, {"operation": "outbound", "item_code": "BOX-A", "quantity": MAX_QTY + 1},
+                    conn,
+                    {"operation": "outbound", "item_code": "BOX-A", "quantity": MAX_QTY + 1},
                 )
             self.assertEqual(ctx.exception.status_code, 400)
             self.assertEqual(ctx.exception.detail, "quantity_exceeds_limit")
 
     def test_outbound_insufficient_inventory(self) -> None:
         with transaction() as conn:
-            on_hand = MvpInventoryRepository(conn).get_quantity("STORAGE_S1", "BOX-A", DEFAULT_FLOOR)
+            on_hand = inventory_repo.get_quantity(conn, "STORAGE_S1", "BOX-A", DEFAULT_FLOOR)
             with self.assertRaises(HTTPException) as ctx:
                 work_orders.create_work_order(
                     conn,
@@ -233,20 +245,23 @@ class MvpPgInOutTest(unittest.TestCase):
             with self.assertRaises(HTTPException) as ctx:
                 work_orders.create_work_order(
                     conn,
-                    {"operation": "outbound", "item_code": "BOX-A", "quantity": 2, "slot_ids": ["STORAGE_S1", "STORAGE_S2"]},
+                    {
+                        "operation": "outbound",
+                        "item_code": "BOX-A",
+                        "quantity": 2,
+                        "slot_ids": ["STORAGE_S1", "STORAGE_S2"],
+                    },
                 )
             self.assertEqual(ctx.exception.status_code, 400)
             self.assertEqual(ctx.exception.detail, "slot_ids_must_be_single")
 
     def test_outbound_claim_blocks_double_spend(self) -> None:
         with write_transaction() as conn:
-            inv = MvpInventoryRepository(conn)
-            tasks = MvpTaskRepository(conn)
             floor = DEFAULT_FLOOR
-            reserved = tasks.active_outbound_claims("BOX-A", "STORAGE_S1", floor)
-            qty = inv.get_quantity("STORAGE_S1", "BOX-A", floor)
+            reserved = task_repo.active_outbound_claims(conn, "BOX-A", "STORAGE_S1", floor)
+            qty = inventory_repo.get_quantity(conn, "STORAGE_S1", "BOX-A", floor)
             # Leave exactly one unclaimed unit after existing active outbound tasks.
-            inv.adjust("STORAGE_S1", "BOX-A", (1 + reserved) - qty, floor)
+            inventory_repo.adjust(conn, "STORAGE_S1", "BOX-A", (1 + reserved) - qty, floor)
             work_orders.create_work_order(
                 conn,
                 {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1"},
@@ -289,7 +304,7 @@ class MvpPgInOutTest(unittest.TestCase):
                 },
             )
             task_id = order["tasks"][0]["task_id"]
-            row = MvpTaskRepository(conn).get(task_id)
+            row = task_repo.get(conn, task_id)
             self.assertEqual(row["from_location_id"], "INBOUND_01")
             self.assertEqual(row["to_location_id"], "STORAGE_S3")
 

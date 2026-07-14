@@ -19,10 +19,17 @@ from app.domains.execution import tasks as task_service
 class RecoveryPhaseGuardTest(unittest.TestCase):
     def test_execute_requires_awaiting_operator_phase(self) -> None:
         conn = MagicMock()
-        with patch.object(recovery, "_assert_awaiting_operator_phase", side_effect=HTTPException(409, "recovery_requires_awaiting_operator_phase")):
+        with patch.object(
+            recovery,
+            "_assert_awaiting_operator_phase",
+            side_effect=HTTPException(409, "recovery_requires_awaiting_operator_phase"),
+        ):
             with self.assertRaises(HTTPException) as ctx:
                 recovery.execute_recovery(
-                    conn, 1, cargo_state="LOADED", strategy="safe_move",
+                    conn,
+                    1,
+                    cargo_state="LOADED",
+                    strategy="safe_move",
                     checks={"site_clear": True, "pose_ok": True, "cargo_ok": True},
                 )
         self.assertEqual(ctx.exception.detail, "recovery_requires_awaiting_operator_phase")
@@ -40,7 +47,7 @@ class RecoveryPhaseGuardTest(unittest.TestCase):
             patch.object(recovery.command_service, "dispatch_robot_command", return_value=result),
             patch.object(recovery.evidence_runtime, "save_orchestration") as save,
         ):
-            task_repo.return_value.get.return_value = {"task_id": 1, "assigned_robot_id": "tb3_1"}
+            task_repo.get.return_value = {"task_id": 1, "assigned_robot_id": "tb3_1"}
             with self.assertRaises(HTTPException) as ctx:
                 recovery.execute_recovery(
                     conn,
@@ -65,19 +72,23 @@ class RecoveryCommandTerminalTest(unittest.TestCase):
                     "phase": "RECOVERY_RUNNING",
                     "recovery": {"active_command_id": "rec-cmd-1"},
                     "step_index": 0,
-                    "steps": [{"kind": "move_to_point", "status": "ABORTED", "command_id": "leg-cmd"}],
+                    "steps": [{"kind": "move_to_point", "status": "ABORTED", "command_id": "step-cmd"}],
                 },
             },
         }
-        with patch.object(recovery, "task_repo") as task_repo, \
-             patch.object(recovery, "evidence_runtime") as evidence_runtime, \
-             patch.object(recovery, "evidence_repo"), \
-             patch.object(recovery, "get_recovery_context") as get_ctx:
-            task_repo.return_value.get.return_value = task
+        with (
+            patch.object(recovery, "task_repo") as task_repo,
+            patch.object(recovery, "evidence_runtime") as evidence_runtime,
+            patch.object(recovery, "evidence_repo"),
+            patch.object(recovery, "get_recovery_context") as get_ctx,
+        ):
+            task_repo.get.return_value = task
             evidence_runtime.attach_orchestration.side_effect = lambda row, _conn: row
             get_ctx.return_value = {"task_id": 5, "orchestration_phase": "AWAITING_OPERATOR"}
             result = recovery.handle_recovery_command_event(
-                conn, 5, {"command_id": "rec-cmd-1", "state": "DONE"},
+                conn,
+                5,
+                {"command_id": "rec-cmd-1", "state": "DONE"},
             )
         self.assertIsNotNone(result)
         saved = evidence_runtime.save_orchestration.call_args[0][2]
@@ -88,12 +99,16 @@ class RecoveryCommandTerminalTest(unittest.TestCase):
 class ListRecoveryTasksTest(unittest.TestCase):
     def test_list_includes_recovery_running(self) -> None:
         conn = MagicMock()
-        tasks = [{
-            "task_id": 9,
-            "preset_snapshot": {"_orchestration": {"phase": "RECOVERY_RUNNING"}},
-        }]
-        with patch.object(recovery, "evidence_runtime") as evidence_runtime, \
-             patch.object(recovery, "get_recovery_context") as get_ctx:
+        tasks = [
+            {
+                "task_id": 9,
+                "preset_snapshot": {"_orchestration": {"phase": "RECOVERY_RUNNING"}},
+            }
+        ]
+        with (
+            patch.object(recovery, "evidence_runtime") as evidence_runtime,
+            patch.object(recovery, "get_recovery_context") as get_ctx,
+        ):
             evidence_runtime.list_orchestrated_running.return_value = tasks
             get_ctx.return_value = {"task_id": 9}
             out = recovery.list_awaiting_operator_tasks(conn)
@@ -104,9 +119,11 @@ class ListRecoveryTasksTest(unittest.TestCase):
 class HeldCompleteTaskTest(unittest.TestCase):
     def test_complete_blocked_in_recovery_running(self) -> None:
         conn = MagicMock()
-        with patch.object(orchestrator, "task_repo") as task_repo, \
-             patch.object(orchestrator, "_orchestration_phase", return_value="RECOVERY_RUNNING"):
-            task_repo.return_value.get.return_value = {"task_id": 1, "status": "RUNNING"}
+        with (
+            patch.object(orchestrator, "task_repo") as task_repo,
+            patch.object(orchestrator, "_orchestration_phase", return_value="RECOVERY_RUNNING"),
+        ):
+            task_repo.get.return_value = {"task_id": 1, "status": "RUNNING"}
             with self.assertRaises(HTTPException) as ctx:
                 task_service.complete_task(conn, 1)
         self.assertEqual(ctx.exception.detail, "held_task_complete_blocked_use_recovery")
@@ -123,13 +140,15 @@ class ActiveCommandProjectionTest(unittest.TestCase):
                     "phase": "RECOVERY_RUNNING",
                     "recovery": {"active_command_id": "rec-99"},
                     "step_index": 0,
-                    "steps": [{"status": "dispatched", "command_id": "leg-1"}],
+                    "steps": [{"status": "dispatched", "command_id": "step-1"}],
                 },
             },
         }
-        with patch("app.domains.execution.evidence.attach_orchestration", return_value=task), \
-             patch.object(wo, "MvpTaskRepository") as repo:
-            repo.return_value.get.return_value = {"task_id": 1}
+        with (
+            patch("app.domains.execution.evidence.attach_orchestration", return_value=task),
+            patch.object(wo, "task_repo") as repo,
+        ):
+            repo.get.return_value = {"task_id": 1}
             cmd = wo._active_command_id(conn, 1)
         self.assertEqual(cmd, "rec-99")
 
@@ -142,7 +161,7 @@ class RecoveryStopConfirmationTest(unittest.TestCase):
             patch.object(recovery, "_stop_robot_movement", side_effect=HTTPException(409, "recovery_stop_unconfirmed")),
             patch.object(recovery.evidence_runtime, "save_orchestration") as save,
         ):
-            task_repo.return_value.get.return_value = {
+            task_repo.get.return_value = {
                 "task_id": 4,
                 "status": "RUNNING",
                 "assigned_robot_id": "tb3_1",
@@ -155,17 +174,20 @@ class RecoveryStopConfirmationTest(unittest.TestCase):
                     checks={"site_clear": True, "pose_ok": True, "cargo_ok": True},
                 )
         self.assertEqual(ctx.exception.detail, "recovery_stop_unconfirmed")
-        task_repo.return_value.set_status.assert_not_called()
+        task_repo.set_status.assert_not_called()
         save.assert_not_called()
 
 
 class RecoveryReadinessTest(unittest.TestCase):
     def test_offline_movement_blocks_safe_recovery(self) -> None:
-        with patch.object(
-            recovery.movement_navigation,
-            "localization_snapshot",
-            return_value={"ok": False, "health": {}},
-        ), patch.object(recovery, "get_movement_health"):
+        with (
+            patch.object(
+                recovery.movement_navigation,
+                "localization_snapshot",
+                return_value={"ok": False, "health": {}},
+            ),
+            patch.object(recovery, "get_movement_health"),
+        ):
             with self.assertRaises(HTTPException) as ctx:
                 recovery._assert_recovery_robot_ready("tb3_1", "robot2_map")
         self.assertEqual(ctx.exception.detail, "recovery_movement_unreachable")

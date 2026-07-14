@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.db.connection import transaction
-from app.db.mvp import MAP_MARKER_TYPES, MarkerInUseError, event_repo, waypoint_repo
+from app.db.postgres import MAP_MARKER_TYPES, MarkerInUseError, event_repo, location_repo
 from app.models.schemas import ApiMessage, MarkerUsage, Waypoint, WaypointRouteUpsert, WaypointUpsert
 
 router = APIRouter(tags=["scenario"])
@@ -15,7 +15,7 @@ router = APIRouter(tags=["scenario"])
 def list_waypoints(map_id: str | None = None) -> list[Waypoint]:
     """맵 waypoint 목록."""
     with transaction() as conn:
-        return [Waypoint(**w) for w in waypoint_repo(conn).list(map_id=map_id)]
+        return [Waypoint(**w) for w in location_repo.list_map_markers(conn, map_id=map_id)]
 
 
 @router.get("/waypoints/{waypoint_id}/usage", response_model=MarkerUsage)
@@ -28,7 +28,7 @@ def waypoint_usage(waypoint_id: str) -> MarkerUsage:
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="waypoint not found")
-        usage = waypoint_repo(conn).usage(waypoint_id)
+        usage = location_repo.marker_usage(conn, waypoint_id)
         return MarkerUsage(**usage)
 
 
@@ -36,8 +36,9 @@ def waypoint_usage(waypoint_id: str) -> MarkerUsage:
 def upsert_waypoint(payload: WaypointUpsert) -> ApiMessage:
     """맵 waypoint를 생성하거나 수정한다."""
     with transaction() as conn:
-        waypoint_repo(conn).upsert(payload.model_dump())
-        event_repo(conn).append(
+        location_repo.upsert_waypoint(conn, payload.model_dump())
+        event_repo.append(
+            conn,
             event_type="DB_WAYPOINT_UPSERT",
             message=f"waypoint upserted: {payload.waypoint_id}",
             payload=payload.model_dump(),
@@ -79,10 +80,11 @@ def delete_waypoint_route(waypoint_id: str) -> ApiMessage:
 def disable_waypoint(waypoint_id: str) -> ApiMessage:
     """참조 중인 운영 위치를 비활성화한다(물리 삭제 대신)."""
     with transaction() as conn:
-        disabled = waypoint_repo(conn).disable(waypoint_id)
+        disabled = location_repo.disable_marker(conn, waypoint_id)
         if not disabled:
             raise HTTPException(status_code=404, detail="waypoint not found")
-        event_repo(conn).append(
+        event_repo.append(
+            conn,
             event_type="DB_WAYPOINT_DISABLE",
             message=f"waypoint disabled: {waypoint_id}",
         )
@@ -93,10 +95,11 @@ def disable_waypoint(waypoint_id: str) -> ApiMessage:
 def force_delete_waypoint(waypoint_id: str) -> ApiMessage:
     """참조 정리 후 waypoint를 물리 삭제한다."""
     with transaction() as conn:
-        result = waypoint_repo(conn).force_delete(waypoint_id)
+        result = location_repo.force_delete_marker(conn, waypoint_id)
         if not result:
             raise HTTPException(status_code=404, detail="waypoint not found")
-        event_repo(conn).append(
+        event_repo.append(
+            conn,
             event_type="DB_WAYPOINT_FORCE_DELETE",
             message=f"waypoint force deleted: {waypoint_id}",
             payload=result,
@@ -109,7 +112,7 @@ def delete_waypoint(waypoint_id: str) -> ApiMessage:
     """참조 없는 waypoint만 물리 삭제한다."""
     with transaction() as conn:
         try:
-            deleted = waypoint_repo(conn).delete(waypoint_id)
+            deleted = location_repo.delete_marker(conn, waypoint_id)
         except MarkerInUseError as exc:
             raise HTTPException(
                 status_code=409,
@@ -117,5 +120,5 @@ def delete_waypoint(waypoint_id: str) -> ApiMessage:
             ) from exc
         if not deleted:
             raise HTTPException(status_code=404, detail="waypoint not found")
-        event_repo(conn).append(event_type="DB_WAYPOINT_DELETE", message=f"waypoint deleted: {waypoint_id}")
+        event_repo.append(conn, event_type="DB_WAYPOINT_DELETE", message=f"waypoint deleted: {waypoint_id}")
     return ApiMessage(message="waypoint deleted")

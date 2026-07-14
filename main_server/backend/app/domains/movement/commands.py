@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from app.api.helpers import callback_base_url
-from app.db.mvp import event_repo, robot_repo
+from app.db.postgres import event_repo, robot_repo
 from app.domains.movement import missions as mission_service
 from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
 from app.domains.movement.navigation import resolve_movement_map_id
@@ -29,7 +29,6 @@ def default_command_id(task_id: int | None, robot_id: str, kind: str) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     prefix = f"task-{task_id}" if task_id is not None else "cmd"
     return f"{prefix}-{robot_id}-{kind}-{stamp}"
-
 
 
 def to_mission_status(result: RobotCommandResponse) -> MissionStatusResponse:
@@ -52,7 +51,7 @@ def resolve_callback_url(request: Request | None, override: str | None) -> str:
 
 
 def dispatch_robot_command(conn, payload: RobotCommandRequest, request: Request | None = None) -> RobotCommandResponse:
-    if not robot_repo(conn).exists(payload.robot_id):
+    if not robot_repo.exists(conn, payload.robot_id):
         raise HTTPException(status_code=404, detail="robot not found")
 
     command_id = payload.command_id or default_command_id(payload.task_id, payload.robot_id, payload.kind)
@@ -80,7 +79,9 @@ def _callback_base(callback_url: str) -> str | None:
     return callback_url.removesuffix("/movement/command-events").rstrip("/") or None
 
 
-def _dispatch_move_to_point(conn, payload: RobotCommandRequest, command_id: str, callback_url: str) -> RobotCommandResponse:
+def _dispatch_move_to_point(
+    conn, payload: RobotCommandRequest, command_id: str, callback_url: str
+) -> RobotCommandResponse:
     p = payload.params
     for key in ("map_id", "x", "y"):
         if key not in p:
@@ -104,7 +105,8 @@ def _dispatch_move_to_point(conn, payload: RobotCommandRequest, command_id: str,
     )
 
     result = _dispatch_passthrough(passthrough, command_id, callback_url)
-    event_repo(conn).append(
+    event_repo.append(
+        conn,
         event_type="MOVEMENT_COMMAND_MAP_CONTEXT",
         robot_id=payload.robot_id,
         command_id=result.command_id,
@@ -146,7 +148,9 @@ def _dispatch_manual_drive(payload: RobotCommandRequest, command_id: str) -> Rob
 def _dispatch_estop(payload: RobotCommandRequest, command_id: str) -> RobotCommandResponse:
     op = str(payload.params.get("op", "stop"))
     try:
-        response = movement_client.clear_estop(payload.robot_id) if op == "clear" else movement_client.estop(payload.robot_id)
+        response = (
+            movement_client.clear_estop(payload.robot_id) if op == "clear" else movement_client.estop(payload.robot_id)
+        )
     except MovementClientError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return RobotCommandResponse(
@@ -200,7 +204,9 @@ def normalize_dock_transfer_params(
     try:
         aruco_marker_id = int(raw["aruco_marker_id"])
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=status_code, detail=f"{detail_prefix}.aruco_marker_id must be an integer") from exc
+        raise HTTPException(
+            status_code=status_code, detail=f"{detail_prefix}.aruco_marker_id must be an integer"
+        ) from exc
     try:
         level = int(raw.get("level", 1))
     except (TypeError, ValueError) as exc:
@@ -301,7 +307,7 @@ def _dispatch_leave_dock(payload: RobotCommandRequest, command_id: str, callback
 
 
 def _dispatch_passthrough(payload: RobotCommandRequest, command_id: str, callback_url: str) -> RobotCommandResponse:
-    """ — 네이티브 POST /robot-commands envelope 패스스루."""
+    """— 네이티브 POST /robot-commands envelope 패스스루."""
     bridge_key = movement_robot_key(payload.robot_id)
     envelope: dict[str, Any] = {
         "robot_id": bridge_key,

@@ -1,6 +1,6 @@
 # 개념 정리 및 검증 강제화 임시 진행도
 
-- 상태: 진행 중 — 주체 명확화 네이밍 1차 적용, 나머지 계약 검수 대기
+- 상태: 진행 중 — Glossary·도메인/DB 책임 1차 적용 완료, 공개 계약 검수 대기
 - 작성일: 2026-07-14 KST
 - 범위: 용어, 도메인 경계, 상태 모델, 호환 경계, 검증 강제력
 - 후속 작업 branch: codex/concept-alignment
@@ -12,15 +12,15 @@
 
 ## 1. 이번 준비 작업의 결론
 
-첫 구현 전에 아래 여섯 결정을 한 묶음으로 검수해야 한다.
+아래 결정은 검수를 마치고 1차 정본과 내부 코드에 반영했다.
 
-1. `Work Order → Robot Task → Robot Task Step → Robot Command`를 공식 계층으로 채택할지
-2. `Mission`을 Movement 호환 용어로만 남길지
-3. `leg`를 폐기하고 `step`만 신규 코드에서 허용할지
-4. 제품·코드 표준명을 `Main`으로 하고 `LMS`를 환경변수/레거시 호환명으로 둘지
-5. Task의 정본 상태에서 `PENDING`, `QUEUED`, `CREATED` 중 무엇을 사용할지
-6. Main 내부 canonical 필드를 `robot_id`, `command_id`, `state`, `kind`, `task_id`, `reported_at`,
-   `waypoint_id`, `CANCELLED`로 둘지
+1. 공식 계층: `Work Order → Robot Task → Robot Task Step → Robot Command`
+2. Work Order–Task: 현행 1:1, DB migration 없음
+3. 내부 실행 용어: Mission이 아닌 Task Execution, leg가 아닌 Step
+4. 제품 표준명: `Main_Control`
+5. Task 초기 상태: `QUEUED`; 내부 완료 `DONE`; DB 완료 `COMPLETED`
+6. 내부 canonical 필드: `robot_id`, `command_id`, `state`, `kind`, `task_id`, `reported_at`,
+   `waypoint_id`, `CANCELLED`
 
 승인된 주체 명확화 네이밍은 canonical 타입에 적용했다. 공개 route, JSON 필드, DB 컬럼은 호환을 위해 유지하며 나머지 미검수 계약은 변경하지 않는다.
 
@@ -30,15 +30,15 @@
 
 | # | 작업 | 우선순위 | 상태 | 완료 기준 |
 | ---: | --- | --- | --- | --- |
-| 1 | 공식 용어 정본 | P0 | 진행 | D-01~D-06 승인 |
-| 2 | 독립 용어집 | P0 | 대기 | 필수 용어와 금지 동의어가 향후 Glossary 정본에 존재 |
+| 1 | 공식 용어 정본 | P0 | 완료 | D-01~D-08·D-11 승인 |
+| 2 | 독립 용어집 | P0 | 완료 | `docs/GLOSSARY.md` Active |
 | 3 | RobotTask/RobotCommand/Phase 분리 | P0 | 진행 | enum, 조합표, invalid-combination 테스트 통과 |
-| 4 | 레거시 alias 정리 | P0 | 조사 | 사용처·호환 이유·제거 조건 기록 및 신규 사용 차단 |
+| 4 | 레거시 alias 정리 | P0 | 진행 | 내부 alias 제거 완료, 공개/저장 호환 별도 승인 |
 | 5 | canonical 필드 | P0 | 검수 대기 | 외부 adapter와 내부 model 경계 및 테스트 확정 |
-| 6 | Domain Responsibility | P1 | 대기 | 책임/비책임/의존 방향 문서화 |
-| 7 | Orchestrator 축소 기준 | P1 | 조사 | 허용 책임과 추출 우선순위 승인 |
+| 6 | Domain Responsibility | P1 | 완료 | `ARCHITECTURE.md` 책임/비책임/코드 단위 반영 |
+| 7 | Orchestrator 축소 기준 | P1 | 진행 | 허용 책임 문서화, 정책 추출은 후속 |
 | 8 | kind별 command schema | P1 | 대기 | discriminated union과 필드 제약 테스트 |
-| 9 | Work Order 저장 모델 | P1 | 검수 대기 | ADR 승인 |
+| 9 | Work Order 저장 모델 | P1 | 완료 | 현행 1:1 Task projection, DB migration 없음 |
 | 10 | 프론트 상태 소유권 | P1 | 대기 | 서버/UI/URL/transport 소유권 표 승인 |
 | 11 | Frontend API adapter | P1 | 조사 | raw 응답 해석이 adapter에만 존재 |
 | 12 | `operate`/`hooks`/`lib` 경계 | P1 | 조사 | 도메인 귀속표와 import 규칙 확정 |
@@ -62,10 +62,9 @@
 
 - 문서는 이미 Work Order, Task, `steps[]`, command `kind`를 구분한다.
 - 새 orchestration JSON도 `steps`/`step_index`를 읽지만, 생성 시 같은 객체를 `legs`에도 저장하고 `cursor`도 함께 둔다.
-- `orchestrator.py`에는 `_leg_done_events`, `unfold_legs`, `_seed_cursor`, `dispatch_current_leg` 호환 alias가 남아 있다.
-- `_seed_cursor`는 테스트가 직접 호출한다. 나머지 세 alias는 현재 검색 기준 정의 외 생산 코드 호출이 없다.
-- `leg` 변수명은 Vision evidence와 DB record projection 및 테스트에 남아 있다.
-- `leg_count`는 orchestration 시작 event/response에 아직 노출된다.
+- `orchestrator.py`의 `_leg_done_events`, `unfold_legs`, `_seed_cursor`, `dispatch_current_leg` 내부 alias는 제거했다.
+- Vision evidence, DB command lookup, 테스트의 변수명은 Step 기준으로 전환했다.
+- `leg_count`는 기존 공개 `/start-mission` 응답 호환 경계에만 남아 있고 내부 결과는 `step_count`를 사용한다.
 
 판단: `leg`를 즉시 삭제하면 저장된 orchestration JSON, 응답 소비자, 테스트 호환성을 함께 확인해야 한다.
 신규 사용 금지는 먼저 적용할 수 있지만 물리 제거는 compatibility read/write 정책 승인 후 수행한다.
@@ -135,18 +134,18 @@
 | ID | 항목 | 제안 | 검수 결과 |
 | --- | --- | --- | --- |
 | D-01 | 공식 계층 | Work Order → Robot Task → Robot Task Step → Robot Command | 승인·1차 적용 |
-| D-02 | Mission | Main 내부에서는 deprecated, Movement 외부 호환 경계에서만 허용 | 미검수 |
-| D-03 | leg | deprecated; 신규 코드 금지, 저장 데이터/외부 소비자 종료 후 제거 | 미검수 |
-| D-04 | 서버명 | 코드·영문 문서 `Main`, 한국어 UI `관제 서버`, `LMS_*`는 호환 설정 prefix | 미검수 |
+| D-02 | Mission | Main_Control 내부 개념에서 제거, 공개·Movement 호환 경계만 허용 | 승인·내부 적용 |
+| D-03 | leg | 신규 내부 코드 금지, 저장 데이터/공개 응답 migration은 별도 | 승인·내부 적용 |
+| D-04 | 서버명 | `Main_Control`, 한국어 UI `관제 서버`, `LMS_*`는 현행 배포 호환 prefix | 승인·문서 적용 |
 | D-05 | 명령 타입 | RobotCommand는 실행 계약, RobotCommandRecord는 기록 projection | 명령 네이밍 적용·Mission 별도 검수 |
 | D-06 | canonical 필드 | `robot_id`, `command_id`, `state`, `kind`, `task_id`, `reported_at`, `waypoint_id`, `CANCELLED` | 미검수 |
-| D-07 | Task 대기 상태 | 안 A: `PENDING`; 안 B: `QUEUED`; `CREATED`는 adapter/DB migration 대상 | 미검수 |
-| D-08 | 완료 상태 | 내부/API `DONE`, DB `COMPLETED` migration 여부 결정 | 미검수 |
+| D-07 | Task 대기 상태 | `QUEUED`; `CREATED`는 기존 저장값 경계에서만 허용 | 승인 |
+| D-08 | 완료 상태 | 내부/API `DONE`, DB `COMPLETED`, DB migration 없음 | 승인 |
 | D-09 | phase 취소 상태 | RobotTaskOrchestrationPhase에 CANCEL_REQUESTED와 CANCELLED 포함 | 승인·적용 |
 | D-10 | Step 상태 | 별도 RobotTaskStepStatus 도입 | 승인·적용 |
-| D-11 | Work Order 저장 | 1:N aggregate 저장 / 명시적 FK projection / 공식 1:1 중 선택 | 미검수 |
+| D-11 | Work Order 저장 | 공식 1:1 Task projection, 독립 table/FK migration 없음 | 승인 |
 | D-12 | Work Order 업무 구분 | WorkOrderOperation 타입 + operation 필드 | 승인·구현 완료 |
-| D-13 | Robot Task 조회 조립 | RobotTaskSummaryAssembler 사용 | 승인·구현 완료 |
+| D-13 | Robot Task 조회 조립 | `assemble_robot_task_summary` 순수 함수 사용 | 승인·구현 완료 |
 | D-14 | Assembler 출력 DTO 이름 | RobotTaskSummary | 승인·구현 완료 |
 | D-15 | 수량 필드 | Work Order requested_quantity, Robot Task allocated_quantity | 승인·구현 완료 |
 | D-16 | 계획 진단 | RobotTaskPlanSummary로 runtime 상태와 분리 | 승인·구현 완료 |
@@ -262,8 +261,8 @@
 | 항목 | 상태 | 다음 결정 |
 | --- | --- | --- |
 | WorkOrderOperation 타입 + operation 필드 | 완료 | enum 적용, 기존 operation JSON 유지 |
-| WorkOrderRobotTask와 RobotTask 중복 DTO | 부분 완료 | RobotTaskSummaryAssembler 적용, 기존 /api/v1 DTO는 호환용 유지 |
-| Work Order–Robot Task 1:N 저장 관계 부재 | 진행 중 | 독립 table, order_id FK, 공식 1:1 중 선택 |
+| WorkOrderRobotTask와 RobotTask 중복 DTO | 부분 완료 | 순수 조립 함수 적용, 기존 /api/v1 DTO는 호환용 유지 |
+| Work Order–Robot Task 저장 관계 | 완료 | 공식 1:1 Task projection, DB migration 없음 |
 | RobotTaskStep이 runtime steps JSON을 강제하지 못함 | 진행 중 | 저장 adapter에서 typed model 검증 적용 범위 결정 |
 | RobotTaskStep params가 dict[str, Any] | 진행 중 | command kind별 discriminated union 도입 |
 | Step–Robot Command Attempt 1:N 미표현 | 진행 중 | retry identity, command_id 생성 및 evidence 연결 규칙 결정 |

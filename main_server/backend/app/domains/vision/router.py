@@ -9,7 +9,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
 from app.db.connection import transaction
-from app.db.mvp import camera_repo
+from app.db.postgres import camera_repo
 from app.domains.safety.hazard import validate_hazard_payload
 from app.domains.vision.client import (
     VisionUpstreamError,
@@ -33,7 +33,12 @@ router = APIRouter(prefix="/vision", tags=["vision"])
 def _require_known_source(source: str) -> None:
     """등록된 camera_sources.source_id만 프록시한다(open proxy/SSRF 방지)."""
     with transaction() as conn:
-        known = {c["source_id"] for c in camera_repo(conn).list()}
+        known = {
+            c["source_id"]
+            for c in camera_repo.list(
+                conn,
+            )
+        }
     if source not in known:
         raise HTTPException(status_code=404, detail="unknown camera source")
 

@@ -46,16 +46,16 @@ def _task(**overrides) -> dict:
     return data
 
 
-def _leg(action: str = "load") -> dict:
+def _step(action: str = "load") -> dict:
     return {"kind": "dock_transfer", "status": "dispatched", "command_id": "cmd-1", "params": {"action": action}}
 
 
 class LiftLoadEvidenceServiceTest(unittest.TestCase):
     def test_build_request_uses_single_marker_and_physical_count_one(self) -> None:
         task = _task(task_type="OUTBOUND", from_floor=2)
-        leg = _leg("load")
+        step = _step("load")
         with patch.object(lift_load_evidence, "settings", _settings()):
-            payload = lift_load_evidence.build_request(task, leg, 11)
+            payload = lift_load_evidence.build_request(task, step, 11)
 
         self.assertEqual(payload["operation"], "PICK_UP")
         self.assertEqual(payload["vision_zone_id"], "storage_upper_static_item_zone")
@@ -100,9 +100,9 @@ class LiftLoadEvidenceServiceTest(unittest.TestCase):
         with (
             patch.object(lift_load_evidence, "settings", _settings()),
             patch.object(lift_load_evidence, "post_lift_load_evaluate", return_value=response),
-            patch.object(lift_load_evidence, "evidence_repo", return_value=repo),
+            patch.object(lift_load_evidence, "evidence_repo", new=repo),
         ):
-            ev_id = lift_load_evidence.evaluate_and_record(conn, _task(), _leg("unload"), 12)
+            ev_id = lift_load_evidence.evaluate_and_record(conn, _task(), _step("unload"), 12)
 
         self.assertEqual(ev_id, 77)
         repo.append.assert_called_once()
@@ -124,9 +124,9 @@ class LiftLoadEvidenceServiceTest(unittest.TestCase):
         with (
             patch.object(lift_load_evidence, "settings", _settings(marker_map={})),
             patch.object(lift_load_evidence, "post_lift_load_evaluate") as post,
-            patch.object(lift_load_evidence, "evidence_repo", return_value=repo),
+            patch.object(lift_load_evidence, "evidence_repo", new=repo),
         ):
-            ev_id = lift_load_evidence.evaluate_and_record(conn, _task(), _leg(), 12)
+            ev_id = lift_load_evidence.evaluate_and_record(conn, _task(), _step(), 12)
 
         self.assertEqual(ev_id, 88)
         post.assert_not_called()
@@ -143,9 +143,9 @@ class LiftLoadEvidenceServiceTest(unittest.TestCase):
                 "post_lift_load_evaluate",
                 side_effect=VisionUpstreamError("vision upstream HTTP 400: reserved marker", status_code=400),
             ),
-            patch.object(lift_load_evidence, "evidence_repo", return_value=repo),
+            patch.object(lift_load_evidence, "evidence_repo", new=repo),
         ):
-            ev_id = lift_load_evidence.evaluate_and_record(conn, _task(), _leg(), 12)
+            ev_id = lift_load_evidence.evaluate_and_record(conn, _task(), _step(), 12)
 
         self.assertEqual(ev_id, 99)
         kwargs = repo.append.call_args.kwargs
@@ -155,7 +155,7 @@ class LiftLoadEvidenceServiceTest(unittest.TestCase):
 
 
 class LiftLoadOrchestratorHookTest(unittest.TestCase):
-    def test_record_only_hook_exception_does_not_block_leg_advance(self) -> None:
+    def test_record_only_hook_exception_does_not_block_step_advance(self) -> None:
         conn = MagicMock()
         task = _task(
             preset_snapshot={
@@ -163,7 +163,7 @@ class LiftLoadOrchestratorHookTest(unittest.TestCase):
                     "phase": "RUNNING",
                     "step_index": 0,
                     "steps": [
-                        _leg("load"),
+                        _step("load"),
                         {"kind": "move_to_point", "status": "pending", "command_id": None, "params": {}},
                     ],
                 }
@@ -176,7 +176,7 @@ class LiftLoadOrchestratorHookTest(unittest.TestCase):
             patch.object(orchestrator, "dispatch_current_step", return_value="next-command") as dispatch,
             patch.object(orchestrator.lift_load_evidence, "evaluate_and_record", side_effect=RuntimeError("boom")),
         ):
-            task_repo.return_value.get.return_value = task
+            task_repo.get.return_value = task
             evidence_runtime.attach_orchestration.side_effect = lambda row, _conn: row
             evidence_runtime.resolve_command_def_id.return_value = 12
             result = orchestrator.advance_task(conn, 303, {"event": "DONE", "command_id": "cmd-1"})
@@ -186,7 +186,7 @@ class LiftLoadOrchestratorHookTest(unittest.TestCase):
         saved_orch = evidence_runtime.save_orchestration.call_args[0][2]
         self.assertEqual(saved_orch["step_index"], 1)
         self.assertEqual(saved_orch["step_index"], 1)
-        task_repo.return_value.set_status.assert_not_called()
+        task_repo.set_status.assert_not_called()
 
 
 if __name__ == "__main__":

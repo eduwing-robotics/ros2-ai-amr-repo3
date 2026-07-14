@@ -1,4 +1,4 @@
-""" runtime tests — commands seed, evidence, safety stops, task_logs."""
+"""runtime tests — commands seed, evidence, safety stops, task_logs."""
 
 from __future__ import annotations
 
@@ -6,10 +6,7 @@ import os
 import unittest
 
 from app.db.connection import init_db, transaction
-from app.db.mvp import (
-    MvpCommandRepository,
-    MvpEvidenceRepository,
-    MvpSafetyStopRepository,
+from app.db.postgres import (
     command_repo,
     evidence_repo,
     safety_stop_repo,
@@ -50,69 +47,84 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
 
     def _make_task(self, conn, data: dict) -> int:
         """task를 만들고 정리 대상으로 등록한다(tearDown에서 삭제)."""
-        task_id = task_repo(conn).create(data)
+        task_id = task_repo.create(conn, data)
         self._task_ids.append(task_id)
         return task_id
 
     def test_commands_seed_idempotent(self) -> None:
         with transaction() as conn:
-            rows = command_repo(conn).list_for_task_type("INBOUND")
+            rows = command_repo.list_for_task_type(conn, "INBOUND")
         self.assertGreaterEqual(len(rows), 2)
         init_db()
         with transaction() as conn:
-            rows2 = command_repo(conn).list_for_task_type("INBOUND")
+            rows2 = command_repo.list_for_task_type(conn, "INBOUND")
         self.assertEqual(len(rows), len(rows2))
 
     def test_evidence_driven_progress(self) -> None:
         with transaction() as conn:
-            task_id = self._make_task(conn, {
-                "task_type": "MOVE",
-                "status": "RUNNING",
-                "quantity": 1,
-            })
-            cmds = command_repo(conn).list_for_task_type("MOVE")
+            task_id = self._make_task(
+                conn,
+                {
+                    "task_type": "MOVE",
+                    "status": "RUNNING",
+                    "quantity": 1,
+                },
+            )
+            cmds = command_repo.list_for_task_type(conn, "MOVE")
             self.assertTrue(cmds)
             cid = int(cmds[0]["id"])
-            evidence_repo(conn).append(
+            evidence_repo.append(
+                conn,
                 task_id=task_id,
                 command_id=cid,
                 event_type="ARRIVED",
                 source="test",
                 trusted=True,
             )
-            progress = command_repo(conn).progress_for_task(task_id, "MOVE")
+            progress = command_repo.progress_for_task(conn, task_id, "MOVE")
             self.assertEqual(progress[0]["status"], "DONE")
 
     def test_safety_stop_transitions(self) -> None:
         with transaction() as conn:
-            ev_id = evidence_repo(conn).append(
+            ev_id = evidence_repo.append(
+                conn,
                 task_id=None,
                 event_type="EMERGENCY",
                 source="test",
                 severity="CRITICAL",
                 trusted=True,
             )
-            stop_id = safety_stop_repo(conn).open_from_evidence(ev_id)
-            active = safety_stop_repo(conn).list_active()
+            stop_id = safety_stop_repo.open_from_evidence(conn, ev_id)
+            active = safety_stop_repo.list_active(
+                conn,
+            )
             self.assertTrue(any(s["id"] == stop_id for s in active))
-            safety_stop_repo(conn).promote_holding(stop_id)
-            safety_stop_repo(conn).close(stop_id)
-            self.assertFalse(any(s["id"] == stop_id for s in safety_stop_repo(conn).list_active()))
+            safety_stop_repo.promote_holding(conn, stop_id)
+            safety_stop_repo.close(conn, stop_id)
+            self.assertFalse(
+                any(
+                    s["id"] == stop_id
+                    for s in safety_stop_repo.list_active(
+                        conn,
+                    )
+                )
+            )
 
     def test_command_fk_on_dispatch_evidence(self) -> None:
         with transaction() as conn:
             task_id = self._make_task(conn, {"task_type": "MOVE", "status": "RUNNING", "quantity": 1})
-            task = task_repo(conn).get(task_id) or {}
+            task = task_repo.get(conn, task_id) or {}
             cmd_id = evidence_runtime.resolve_command_def_id(conn, task, 0, "move_to_point")
             self.assertIsNotNone(cmd_id)
-            evidence_repo(conn).append(
+            evidence_repo.append(
+                conn,
                 task_id=task_id,
                 command_id=cmd_id,
                 event_type="ARRIVED",
                 source="test",
                 trusted=True,
             )
-            progress = command_repo(conn).progress_for_task(task_id, "MOVE")
+            progress = command_repo.progress_for_task(conn, task_id, "MOVE")
             self.assertEqual(progress[0]["status"], "DONE")
             self.assertEqual(progress[0]["command_id"], cmd_id)
 
@@ -120,21 +132,24 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
         with transaction() as conn:
             task_id = self._make_task(conn, {"task_type": "MOVE", "status": "ASSIGNED", "quantity": 1})
             evidence_runtime.save_orchestration(conn, task_id, {"steps": [], "step_index": 0, "phase": "RUNNING"})
-            orch = evidence_repo(conn).get_orchestration(task_id)
+            orch = evidence_repo.get_orchestration(conn, task_id)
             self.assertEqual(orch.get("phase"), "RUNNING")
 
-    def test_inbound_scenario_uses_scan_then_dock_legs(self) -> None:
+    def test_inbound_scenario_uses_scan_then_dock_steps(self) -> None:
         with transaction() as conn:
-            task_id = self._make_task(conn, {
-                "task_type": "INBOUND",
-                "status": "ASSIGNED",
-                "quantity": 1,
-                "from_location_id": "INBOUND_01",
-                "to_location_id": "STORAGE_S1",
-                "from_floor": 1,
-                "to_floor": 1,
-            })
-            task = task_repo(conn).get(task_id) or {}
+            task_id = self._make_task(
+                conn,
+                {
+                    "task_type": "INBOUND",
+                    "status": "ASSIGNED",
+                    "quantity": 1,
+                    "from_location_id": "INBOUND_01",
+                    "to_location_id": "STORAGE_S1",
+                    "from_floor": 1,
+                    "to_floor": 1,
+                },
+            )
+            task = task_repo.get(conn, task_id) or {}
             scenario = evidence_runtime.build_scenario_from_task(conn, task)
             steps = scenario.get("steps") or []
             self.assertEqual(len(steps), 7)
@@ -152,18 +167,21 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             self.assertEqual(steps[6]["params"]["final"], "park")
             self.assertIsInstance(steps[6]["params"]["aruco_marker_id"], int)
 
-    def test_outbound_scenario_leg_order(self) -> None:
+    def test_outbound_scenario_step_order(self) -> None:
         with transaction() as conn:
-            task_id = self._make_task(conn, {
-                "task_type": "OUTBOUND",
-                "status": "ASSIGNED",
-                "quantity": 1,
-                "from_location_id": "STORAGE_S1",
-                "to_location_id": "OUTBOUND_01",
-                "from_floor": 1,
-                "to_floor": 1,
-            })
-            task = task_repo(conn).get(task_id) or {}
+            task_id = self._make_task(
+                conn,
+                {
+                    "task_type": "OUTBOUND",
+                    "status": "ASSIGNED",
+                    "quantity": 1,
+                    "from_location_id": "STORAGE_S1",
+                    "to_location_id": "OUTBOUND_01",
+                    "from_floor": 1,
+                    "to_floor": 1,
+                },
+            )
+            task = task_repo.get(conn, task_id) or {}
             scenario = evidence_runtime.build_scenario_from_task(conn, task)
             steps = scenario.get("steps") or []
             self.assertEqual(len(steps), 7)

@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.db.connection import TASK_EVENT_LOCK_NAMESPACE, advisory_xact_lock_for_key
-from app.db.mvp import event_repo, evidence_repo, robot_repo, task_repo
+from app.db.postgres import event_repo, evidence_repo, robot_repo, task_repo
 from app.domains.execution import evidence as evidence_runtime
 from app.domains.execution import recovery as recovery_service
 from app.domains.execution import state as orch_state
@@ -30,7 +30,7 @@ ORCHESTRATION_HOLD_PHASES = orch_state.HOLD_PHASES
 
 
 def _orchestration_phase(conn, task_id: int) -> str | None:
-    task = evidence_runtime.attach_orchestration(task_repo(conn).get(task_id), conn)
+    task = evidence_runtime.attach_orchestration(task_repo.get(conn, task_id), conn)
     if not task:
         return None
     orchestration = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
@@ -39,7 +39,7 @@ def _orchestration_phase(conn, task_id: int) -> str | None:
 
 
 def complete_task(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
-    task = task_repo(conn).get(task_id)
+    task = task_repo.get(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     if task["status"] != "RUNNING":
@@ -50,7 +50,7 @@ def complete_task(conn, task_id: int, source: str = "operator") -> dict[str, Any
 
 
 def cancel_task(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
-    task = task_repo(conn).get(task_id)
+    task = task_repo.get(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     if task["status"] == "RUNNING":
@@ -59,8 +59,7 @@ def cancel_task(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
 
 
 def _finish_task(conn, task_id: int, to_status: str, source: str) -> dict[str, Any]:
-    tasks = task_repo(conn)
-    task = tasks.get(task_id)
+    task = task_repo.get(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     if task["status"] in {"DONE", "CANCELLED"}:
@@ -68,11 +67,12 @@ def _finish_task(conn, task_id: int, to_status: str, source: str) -> dict[str, A
     robot_id = task.get("assigned_robot_id")
     if to_status == "DONE":
         inventory_ops.apply_on_task_complete(conn, task_id)
-    tasks.set_status(task_id, to_status, clear_robot=bool(robot_id and to_status in {"CANCELLED", "FAILED"}))
+    task_repo.set_status(conn, task_id, to_status, clear_robot=bool(robot_id and to_status in {"CANCELLED", "FAILED"}))
     if robot_id:
-        robot_repo(conn).set_task(robot_id, "IDLE", None)
-    tasks.add_history(task_id, task["status"], to_status, to_status.lower(), source)
-    event_repo(conn).append(
+        robot_repo.set_task(conn, robot_id, "IDLE", None)
+    task_repo.add_history(conn, task_id, task["status"], to_status, to_status.lower(), source)
+    event_repo.append(
+        conn,
         event_type=f"TASK_{to_status}",
         task_id=task_id,
         robot_id=robot_id,
@@ -82,7 +82,7 @@ def _finish_task(conn, task_id: int, to_status: str, source: str) -> dict[str, A
     db_result = "COMPLETED" if to_status == "DONE" else to_status
     if not (to_status == "DONE" and str(task.get("task_type") or "").upper() in {"INBOUND", "OUTBOUND"}):
         evidence_runtime.finalize_task_log(conn, task, db_result)
-    return tasks.get(task_id)
+    return task_repo.get(conn, task_id)
 
 
 def _step_done_events(kind: str) -> set[str]:
@@ -91,15 +91,11 @@ def _step_done_events(kind: str) -> set[str]:
     return {"DONE"}
 
 
-_leg_done_events = _step_done_events
-
-
 def _task(conn, task_id: int) -> dict[str, Any] | None:
-    return evidence_runtime.attach_orchestration(task_repo(conn).get(task_id), conn)
+    return evidence_runtime.attach_orchestration(task_repo.get(conn, task_id), conn)
 
 
 plan_command_steps = evidence_runtime.plan_command_steps
-unfold_legs = plan_command_steps
 
 
 def _orch(task: dict[str, Any]) -> dict[str, Any]:
@@ -113,21 +109,16 @@ def _orch(task: dict[str, Any]) -> dict[str, Any]:
 # commands 시드는 move/dock 5-step만 정의하므로, leave_dock·aruco_align 같은
 # 시드 외 step를 건너뛴 위치로 step_index를 환산해야 seq 매핑이 어긋나지 않는다.
 _SEEDED_STEP_KINDS = {"move_to_point", "dock_transfer"}
-_SEEDED_LEG_KINDS = _SEEDED_STEP_KINDS
 
 
 def _seed_step_index(steps: list[dict[str, Any]], step_index: int) -> int:
     return sum(1 for step in steps[:step_index] if str(step.get("kind")) in _SEEDED_STEP_KINDS)
 
 
-_seed_cursor = _seed_step_index
-
-
 def start_task_orchestration(
     conn, task_id: int, callback_base_url: str | None = None, source: str = "operator"
 ) -> dict[str, Any]:
     advisory_xact_lock_for_key(conn, TASK_EVENT_LOCK_NAMESPACE, task_id)
-    tasks = task_repo(conn)
     task = _task(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
@@ -142,28 +133,27 @@ def start_task_orchestration(
     orchestration = orch_state.new_orchestration(steps, callback_base_url=callback_base_url)
     evidence_runtime.save_orchestration(conn, task_id, orchestration)
 
-    tasks.set_status(task_id, "RUNNING")
-    robot_repo(conn).set_task(robot_id, "RUNNING", task_id)
-    tasks.add_history(task_id, "ASSIGNED", "RUNNING", "orchestrator started", source)
+    task_repo.set_status(conn, task_id, "RUNNING")
+    robot_repo.set_task(conn, robot_id, "RUNNING", task_id)
+    task_repo.add_history(conn, task_id, "ASSIGNED", "RUNNING", "orchestrator started", source)
 
     command_id = dispatch_current_step(conn, task_id)
-    event_repo(conn).append(
+    event_repo.append(
+        conn,
         event_type="TASK_ORCHESTRATION_STARTED",
         robot_id=robot_id,
         message=f"task {task_id} step0 dispatched ({command_id})",
-        payload={"task_id": task_id, "command_id": command_id, "step_count": len(steps), "leg_count": len(steps)},
+        payload={"task_id": task_id, "command_id": command_id, "step_count": len(steps)},
     )
     return {
         "task": _task(conn, task_id),
         "robot_id": robot_id,
         "command_id": command_id,
         "step_count": len(steps),
-        "leg_count": len(steps),
     }
 
 
 def dispatch_current_step(conn, task_id: int) -> str:
-    tasks = task_repo(conn)
     task = _task(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
@@ -206,8 +196,8 @@ def dispatch_current_step(conn, task_id: int) -> str:
         orch_state.set_phase(orch, orch_state.PHASE_FAILED)
         orch_state.set_steps(orch, steps)
         evidence_runtime.save_orchestration(conn, task_id, orch)
-        tasks.set_status(task_id, "FAILED", clear_robot=True)
-        robot_repo(conn).set_task(robot_id, "IDLE", None)
+        task_repo.set_status(conn, task_id, "FAILED", clear_robot=True)
+        robot_repo.set_task(conn, robot_id, "IDLE", None)
         person_hazard.on_robot_task_terminal(robot_id)
         raise HTTPException(status_code=502, detail="step dispatch rejected")
 
@@ -232,14 +222,10 @@ def dispatch_current_step(conn, task_id: int) -> str:
     return result.command_id
 
 
-dispatch_current_leg = dispatch_current_step
-
-
 def advance_on_command_event(
     conn, task_id: int, event: dict[str, Any], source: str = "callback"
 ) -> dict[str, Any] | None:
     advisory_xact_lock_for_key(conn, TASK_EVENT_LOCK_NAMESPACE, task_id)
-    tasks = task_repo(conn)
     task = _task(conn, task_id)
     if not task or task["status"] not in {"RUNNING"}:
         return None
@@ -293,12 +279,13 @@ def advance_on_command_event(
             else:
                 orch_state.set_phase(orch, orch_state.PHASE_CANCELLED)
                 evidence_runtime.save_orchestration(conn, task_id, orch)
-                tasks.set_status(task_id, "CANCELLED", clear_robot=True)
+                task_repo.set_status(conn, task_id, "CANCELLED", clear_robot=True)
                 if robot_id:
-                    robot_repo(conn).set_task(str(robot_id), "IDLE", None)
+                    robot_repo.set_task(conn, str(robot_id), "IDLE", None)
                     person_hazard.on_robot_task_terminal(str(robot_id))
                 result = _task(conn, task_id)
-            event_repo(conn).append(
+            event_repo.append(
+                conn,
                 event_type="WORK_ORDER_STOPPED",
                 task_id=task_id,
                 robot_id=robot_id,
@@ -341,7 +328,8 @@ def advance_on_command_event(
             orch_state.set_phase(orch, orch_state.PHASE_DONE)
             evidence_runtime.save_orchestration(conn, task_id, orch)
             finished = complete_task(conn, task_id, source=source)
-            event_repo(conn).append(
+            event_repo.append(
+                conn,
                 event_type="TASK_PARKING_FAILED",
                 task_id=task_id,
                 robot_id=task.get("assigned_robot_id"),
@@ -360,7 +348,8 @@ def advance_on_command_event(
             }
             evidence_runtime.save_orchestration(conn, task_id, orch)
             robot_id = task.get("assigned_robot_id")
-            event_repo(conn).append(
+            event_repo.append(
+                conn,
                 event_type=orch_state.EVENT_AWAITING_OPERATOR,
                 task_id=task_id,
                 robot_id=robot_id,
@@ -371,12 +360,13 @@ def advance_on_command_event(
 
         orch_state.set_phase(orch, event_name)
         evidence_runtime.save_orchestration(conn, task_id, orch)
-        tasks.set_status(task_id, "FAILED", clear_robot=True)
+        task_repo.set_status(conn, task_id, "FAILED", clear_robot=True)
         robot_id = task.get("assigned_robot_id")
         if robot_id:
-            robot_repo(conn).set_task(robot_id, "IDLE", None)
+            robot_repo.set_task(conn, robot_id, "IDLE", None)
             person_hazard.on_robot_task_terminal(str(robot_id))
-        event_repo(conn).append(
+        event_repo.append(
+            conn,
             event_type=f"TASK_STEP_{event_name}",
             task_id=task_id,
             robot_id=robot_id,
@@ -408,7 +398,7 @@ def advance_on_command_event(
     if str(step.get("kind")) == "move_to_point":
         robot_id = task.get("assigned_robot_id")
         if robot_id:
-            person_hazard.on_move_to_point_leg_done(str(robot_id))
+            person_hazard.on_move_to_point_step_done(str(robot_id))
     orch_state.set_steps(orch, steps)
     step_index += 1
     orch_state.set_step_index(orch, step_index)
@@ -423,7 +413,8 @@ def advance_on_command_event(
         orch_state.set_phase(orch, orch_state.PHASE_DONE)
         evidence_runtime.save_orchestration(conn, task_id, orch)
         finished = complete_task(conn, task_id, source=source)
-        event_repo(conn).append(
+        event_repo.append(
+            conn,
             event_type="TASK_ORCHESTRATION_DONE",
             task_id=task_id,
             robot_id=task.get("assigned_robot_id"),
@@ -434,7 +425,8 @@ def advance_on_command_event(
 
     evidence_runtime.save_orchestration(conn, task_id, orch)
     dispatch_current_step(conn, task_id)
-    event_repo(conn).append(
+    event_repo.append(
+        conn,
         event_type="TASK_STEP_DONE",
         task_id=task_id,
         robot_id=task.get("assigned_robot_id"),
@@ -453,7 +445,7 @@ def handle_command_event(conn, payload: dict[str, Any]) -> dict[str, Any] | None
         command_id = payload.get("command_id")
         if not command_id:
             return None
-        task_id = evidence_repo(conn).find_task_id_by_leg_command(str(command_id))
+        task_id = evidence_repo.find_task_id_by_robot_command(conn, str(command_id))
         if task_id is None:
             return None
     task = _task(conn, int(task_id))

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 
 from app.core.config import settings
 from app.db.connection import transaction
-from app.db.mvp import (
+from app.db.postgres import (
     camera_repo,
     event_repo,
     movement_repo,
@@ -35,9 +35,8 @@ def _sync_battery_from_health(robots: list[Robot], health: dict) -> None:
     if not updates:
         return
     with transaction() as conn:
-        repo = robot_repo(conn)
         for robot_id, pct in updates.items():
-            repo.set_battery(robot_id, pct)
+            robot_repo.set_battery(conn, robot_id, pct)
     for robot in robots:
         if robot.robot_id in updates:
             robot.battery = updates[robot.robot_id]
@@ -76,11 +75,23 @@ def external_config(request: Request) -> dict:
 def status() -> ControlSystemStatusSnapshot:
     """LMS 첫 화면용 snapshot."""
     with transaction() as conn:
-        robots = [Robot(**r) for r in robot_repo(conn).list()]
-        cameras = apply_camera_stream_defaults([CameraSource(**c) for c in camera_repo(conn).list()])
-        commands = [RobotCommandRecord(**c) for c in movement_repo(conn).list(limit=20)]
-        events = event_repo(conn).list(limit=30)
-        tasks = [RobotTask(**t) for t in task_repo(conn).list(limit=30)]
+        robots = [
+            Robot(**r)
+            for r in robot_repo.list(
+                conn,
+            )
+        ]
+        cameras = apply_camera_stream_defaults(
+            [
+                CameraSource(**c)
+                for c in camera_repo.list(
+                    conn,
+                )
+            ]
+        )
+        commands = [RobotCommandRecord(**c) for c in movement_repo.list(conn, limit=20)]
+        events = event_repo.list(conn, limit=30)
+        tasks = [RobotTask(**t) for t in task_repo.list_tasks(conn, limit=30)]
 
     movement_health = get_movement_health([robot.robot_id for robot in robots])
     _sync_battery_from_health(robots, movement_health)

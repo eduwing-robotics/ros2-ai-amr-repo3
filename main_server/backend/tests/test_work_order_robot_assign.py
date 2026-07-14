@@ -1,4 +1,4 @@
-""" — work order manual robot_id assignment."""
+"""— work order manual robot_id assignment."""
 
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ class WorkOrderRobotAssignTest(unittest.TestCase):
     @patch.object(task_service, "robot_repo")
     @patch.object(task_service, "task_repo")
     def test_assign_task_enforces_readiness(self, task_repo, robot_repo, ready, apply_) -> None:
-        task_repo.return_value.get.return_value = {"task_id": 1, "status": "QUEUED", "assigned_robot_id": None}
-        robot_repo.return_value.exists.return_value = True
-        robot_repo.return_value.list_idle.return_value = [{"robot_id": "tb3_2"}]
+        task_repo.get.return_value = {"task_id": 1, "status": "QUEUED", "assigned_robot_id": None}
+        robot_repo.exists.return_value = True
+        robot_repo.list_idle.return_value = [{"robot_id": "tb3_2"}]
         task_service.assign_task(MagicMock(), 1, "tb3_2")
         ready.assert_called_once_with("tb3_2")
         apply_.assert_called_once()

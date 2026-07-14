@@ -18,35 +18,63 @@ def _mock_locations() -> dict[str, dict]:
         "INBOUND_01": {"slot_id": "INBOUND_01", "location_id": "INBOUND_01", "x": 2.0, "y": 0.0, "marker_id": 101},
         "OUTBOUND_01": {"slot_id": "OUTBOUND_01", "location_id": "OUTBOUND_01", "x": 4.0, "y": 0.0, "marker_id": 102},
         "STORAGE_S1": {"slot_id": "STORAGE_S1", "location_id": "STORAGE_S1", "x": 1.0, "y": 1.0, "marker_id": 201},
-        "scan_INBOUND_01": {"slot_id": "scan_INBOUND_01", "location_id": "scan_INBOUND_01", "x": 1.8, "y": 0.0, "marker_id": 101},
-        "scan_OUTBOUND_01": {"slot_id": "scan_OUTBOUND_01", "location_id": "scan_OUTBOUND_01", "x": 3.8, "y": 0.0, "marker_id": 102},
-        "scan_STORAGE_S1": {"slot_id": "scan_STORAGE_S1", "location_id": "scan_STORAGE_S1", "x": 0.8, "y": 1.0, "marker_id": 201},
+        "scan_INBOUND_01": {
+            "slot_id": "scan_INBOUND_01",
+            "location_id": "scan_INBOUND_01",
+            "x": 1.8,
+            "y": 0.0,
+            "marker_id": 101,
+        },
+        "scan_OUTBOUND_01": {
+            "slot_id": "scan_OUTBOUND_01",
+            "location_id": "scan_OUTBOUND_01",
+            "x": 3.8,
+            "y": 0.0,
+            "marker_id": 102,
+        },
+        "scan_STORAGE_S1": {
+            "slot_id": "scan_STORAGE_S1",
+            "location_id": "scan_STORAGE_S1",
+            "x": 0.8,
+            "y": 1.0,
+            "marker_id": 201,
+        },
         "HOME_01": {"slot_id": "HOME_01", "location_id": "HOME_01", "x": 0.0, "y": 0.0, "marker_id": 301},
-        "scan_HOME_01": {"slot_id": "scan_HOME_01", "location_id": "scan_HOME_01", "x": -0.3, "y": 0.0, "marker_id": 301},
+        "scan_HOME_01": {
+            "slot_id": "scan_HOME_01",
+            "location_id": "scan_HOME_01",
+            "x": -0.3,
+            "y": 0.0,
+            "marker_id": 301,
+        },
     }
 
 
 class InOutScenarioOfflineTest(unittest.TestCase):
     def _repo(self, data: dict[str, dict]) -> MagicMock:
         repo = MagicMock()
-        repo.get.side_effect = lambda loc_id: data.get(loc_id)
-        repo.route_steps_for_target.side_effect = lambda target_id: (
+        repo.get.side_effect = lambda _conn, loc_id: data.get(loc_id)
+        repo.route_steps_for_target.side_effect = lambda _conn, target_id: (
             [data["inbound_slot_1_pre_approach"]]
-            if target_id in {"scan_INBOUND_01", "inbound_slot_1_approach"}
-            and "inbound_slot_1_pre_approach" in data
+            if target_id in {"scan_INBOUND_01", "inbound_slot_1_approach"} and "inbound_slot_1_pre_approach" in data
             else []
         )
-        repo.list_by_type.side_effect = lambda t: (
-            [data["HOME_01"]] if t == "home" else
-            [v for k, v in data.items() if k.startswith("scan_")] if t == "scan" else
-            []
+        repo.list_by_type.side_effect = lambda _conn, t: (
+            [data["HOME_01"]]
+            if t == "home"
+            else [v for k, v in data.items() if k.startswith("scan_")]
+            if t == "scan"
+            else []
         )
         return repo
 
     @patch("app.domains.execution.evidence.location_repo")
     def test_inbound_builds_scan_move_then_dock(self, location_repo_fn) -> None:
         data = _mock_locations()
-        location_repo_fn.return_value = self._repo(data)
+        repo = self._repo(data)
+        location_repo_fn.get = repo.get
+        location_repo_fn.route_steps_for_target = repo.route_steps_for_target
+        location_repo_fn.list_by_type = repo.list_by_type
         conn = MagicMock()
         task = {
             "task_id": 1,
@@ -82,15 +110,21 @@ class InOutScenarioOfflineTest(unittest.TestCase):
             "yaw": 1.571,
             "marker_id": None,
         }
-        location_repo_fn.return_value = self._repo(data)
-        scenario = evidence_runtime.build_scenario_from_task(MagicMock(), {
-            "task_id": 4,
-            "task_type": "INBOUND",
-            "from_location_id": "INBOUND_01",
-            "to_location_id": "STORAGE_S1",
-            "from_floor": 1,
-            "to_floor": 1,
-        })
+        repo = self._repo(data)
+        location_repo_fn.get = repo.get
+        location_repo_fn.route_steps_for_target = repo.route_steps_for_target
+        location_repo_fn.list_by_type = repo.list_by_type
+        scenario = evidence_runtime.build_scenario_from_task(
+            MagicMock(),
+            {
+                "task_id": 4,
+                "task_type": "INBOUND",
+                "from_location_id": "INBOUND_01",
+                "to_location_id": "STORAGE_S1",
+                "from_floor": 1,
+                "to_floor": 1,
+            },
+        )
         steps = scenario["steps"]
         self.assertEqual(len(steps), 8)
         self.assertEqual(steps[1]["name"], "transit:inbound_slot_1_pre_approach")
@@ -99,9 +133,12 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         self.assertEqual(steps[3]["action_type"], "dock_transfer")
 
     @patch("app.domains.execution.evidence.location_repo")
-    def test_outbound_builds_home_parking_legs(self, location_repo_fn) -> None:
+    def test_outbound_builds_home_parking_steps(self, location_repo_fn) -> None:
         data = _mock_locations()
-        location_repo_fn.return_value = self._repo(data)
+        repo = self._repo(data)
+        location_repo_fn.get = repo.get
+        location_repo_fn.route_steps_for_target = repo.route_steps_for_target
+        location_repo_fn.list_by_type = repo.list_by_type
         conn = MagicMock()
         task = {
             "task_id": 2,
@@ -124,15 +161,21 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         data = _mock_locations()
         data["HOME_01"]["marker_id"] = None
         data.pop("scan_HOME_01")
-        location_repo_fn.return_value = self._repo(data)
-        scenario = evidence_runtime.build_scenario_from_task(MagicMock(), {
-            "task_id": 3,
-            "task_type": "INBOUND",
-            "from_location_id": "INBOUND_01",
-            "to_location_id": "STORAGE_S1",
-            "from_floor": 1,
-            "to_floor": 1,
-        })
+        repo = self._repo(data)
+        location_repo_fn.get = repo.get
+        location_repo_fn.route_steps_for_target = repo.route_steps_for_target
+        location_repo_fn.list_by_type = repo.list_by_type
+        scenario = evidence_runtime.build_scenario_from_task(
+            MagicMock(),
+            {
+                "task_id": 3,
+                "task_type": "INBOUND",
+                "from_location_id": "INBOUND_01",
+                "to_location_id": "STORAGE_S1",
+                "from_floor": 1,
+                "to_floor": 1,
+            },
+        )
         self.assertEqual(len(scenario["steps"]), 6)
         self.assertEqual(scenario["steps"][-1]["name"], "home:HOME_01")
 

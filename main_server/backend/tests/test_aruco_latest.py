@@ -17,22 +17,25 @@ from app.domains.movement.router import aruco_latest
 
 class ArucoLatestTest(unittest.TestCase):
     def test_api_route_returns_detection(self) -> None:
-        with patch("app.domains.movement.router.robot_repo") as repo_factory, patch(
-            "app.domains.movement.router.transaction"
-        ) as tx, patch("app.domains.movement.router.movement_client") as client:
+        with (
+            patch("app.domains.movement.router.robot_repo") as repo_factory,
+            patch("app.domains.movement.router.transaction") as tx,
+            patch("app.domains.movement.router.movement_client") as client,
+        ):
             tx.return_value.__enter__.return_value = object()
-            repo_factory.return_value.exists.return_value = True
+            repo_factory.exists.return_value = True
             client.aruco_latest.return_value = {"robot_id": "tb3_1", "detections": [{}]}
             result = aruco_latest(robot_id="tb3_1", marker_id=101)
         self.assertEqual(result["robot_id"], "tb3_1")
         self.assertTrue(result["detections"])
 
     def test_api_route_unknown_robot_404(self) -> None:
-        with patch("app.domains.movement.router.robot_repo") as repo_factory, patch(
-            "app.domains.movement.router.transaction"
-        ) as tx:
+        with (
+            patch("app.domains.movement.router.robot_repo") as repo_factory,
+            patch("app.domains.movement.router.transaction") as tx,
+        ):
             tx.return_value.__enter__.return_value = object()
-            repo_factory.return_value.exists.return_value = False
+            repo_factory.exists.return_value = False
             with self.assertRaises(HTTPException) as ctx:
                 aruco_latest(robot_id="missing", marker_id=1)
         self.assertEqual(ctx.exception.status_code, 404)

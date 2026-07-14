@@ -94,7 +94,7 @@ class PersonHazardPolicyTest(unittest.TestCase):
         runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
         conn = MagicMock()
         repo = MagicMock()
-        with patch("app.domains.safety.hazard.evidence_repo", return_value=repo):
+        with patch("app.domains.safety.hazard.evidence_repo", new=repo):
             self.assertFalse(ph.process_advisory(conn, runtime, _fresh_advisory(observed_at=old)))
             repo.append.assert_not_called()
 
@@ -105,15 +105,15 @@ class PersonHazardPolicyTest(unittest.TestCase):
         repo.append.side_effect = [11, 22]
         stop_repo = MagicMock()
         with (
-            patch("app.domains.safety.hazard.evidence_repo", return_value=repo),
-            patch("app.domains.safety.hazard.safety_stop_repo", return_value=stop_repo),
+            patch("app.domains.safety.hazard.evidence_repo", new=repo),
+            patch("app.domains.safety.hazard.safety_stop_repo", new=stop_repo),
             patch("app.domains.safety.hazard.movement_client.estop", return_value={"ok": True}) as estop,
             patch("app.domains.safety.hazard.mark_task_awaiting_operator"),
         ):
             ok = ph.process_advisory(conn, runtime, _fresh_advisory())
         self.assertTrue(ok)
         estop.assert_called_once_with("tb3_1")
-        stop_repo.open_from_evidence.assert_called_once_with(22)
+        stop_repo.open_from_evidence.assert_called_once_with(conn, 22)
         self.assertEqual(repo.append.call_count, 2)
         self.assertFalse(repo.append.call_args_list[0].kwargs.get("trusted", True))
 
@@ -123,7 +123,7 @@ class PersonHazardPolicyTest(unittest.TestCase):
         repo = MagicMock()
         repo.append.side_effect = [11, 22, 33, 44]
         with (
-            patch("app.domains.safety.hazard.evidence_repo", return_value=repo),
+            patch("app.domains.safety.hazard.evidence_repo", new=repo),
             patch("app.domains.safety.hazard.safety_stop_repo"),
             patch("app.domains.safety.hazard.movement_client.estop", return_value={"ok": True}),
             patch("app.domains.safety.hazard.mark_task_awaiting_operator"),
@@ -138,7 +138,7 @@ class PersonHazardPolicyTest(unittest.TestCase):
         repo = MagicMock()
         repo.append.side_effect = [11, 22, 33]
         with (
-            patch("app.domains.safety.hazard.evidence_repo", return_value=repo),
+            patch("app.domains.safety.hazard.evidence_repo", new=repo),
             patch("app.domains.safety.hazard.safety_stop_repo"),
             patch(
                 "app.domains.safety.hazard.movement_client.estop",

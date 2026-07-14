@@ -17,20 +17,23 @@ if _PG_URL:
 from fastapi import HTTPException
 
 from app.db.connection import init_db, transaction, write_transaction
-from app.db.mvp import MarkerInUseError, MvpLocationRepository
+from app.db.postgres import MarkerInUseError, location_repo
 from tests.support.postgres import apply_demo_fixture
 
 
-def _upsert_marker(locs: MvpLocationRepository, marker_id: str, waypoint_type: str = "storage") -> None:
-    locs.upsert_waypoint({
-        "waypoint_id": marker_id,
-        "map_id": "robot1_map",
-        "name": marker_id,
-        "x": 9.0,
-        "y": 9.0,
-        "yaw": 0.0,
-        "waypoint_type": waypoint_type,
-    })
+def _upsert_marker(conn, marker_id: str, waypoint_type: str = "storage") -> None:
+    location_repo.upsert_waypoint(
+        conn,
+        {
+            "waypoint_id": marker_id,
+            "map_id": "robot1_map",
+            "name": marker_id,
+            "x": 9.0,
+            "y": 9.0,
+            "yaw": 0.0,
+            "waypoint_type": waypoint_type,
+        },
+    )
 
 
 @unittest.skipUnless(_PG_URL, "LMS_DATABASE_URL required")
@@ -46,8 +49,7 @@ class MarkerPolicyTest(unittest.TestCase):
     def test_marker_usage_detects_inventory_reference(self) -> None:
         marker_id = "TMP_USAGE_MARKER"
         with write_transaction() as conn:
-            locs = MvpLocationRepository(conn)
-            _upsert_marker(locs, marker_id)
+            _upsert_marker(conn, marker_id)
             conn.execute(
                 """
                 INSERT INTO inventory (item_id, location_id, floor, quantity)
@@ -56,7 +58,7 @@ class MarkerPolicyTest(unittest.TestCase):
                 """,
                 ("BOX-A", marker_id, 1, 2),
             )
-            usage = locs.marker_usage(marker_id)
+            usage = location_repo.marker_usage(conn, marker_id)
             conn.execute("DELETE FROM inventory WHERE location_id = %s", (marker_id,))
             conn.execute("DELETE FROM locations WHERE id = %s", (marker_id,))
         self.assertTrue(usage["blocked"])
@@ -65,8 +67,7 @@ class MarkerPolicyTest(unittest.TestCase):
     def test_delete_referenced_marker_raises(self) -> None:
         marker_id = "TMP_REFERENCED_MARKER"
         with write_transaction() as conn:
-            locs = MvpLocationRepository(conn)
-            _upsert_marker(locs, marker_id)
+            _upsert_marker(conn, marker_id)
             conn.execute(
                 """
                 INSERT INTO inventory (item_id, location_id, floor, quantity)
@@ -76,7 +77,7 @@ class MarkerPolicyTest(unittest.TestCase):
                 ("BOX-A", marker_id, 1, 1),
             )
             with self.assertRaises(MarkerInUseError) as ctx:
-                locs.delete_marker(marker_id)
+                location_repo.delete_marker(conn, marker_id)
             conn.execute("DELETE FROM inventory WHERE location_id = %s", (marker_id,))
             conn.execute("DELETE FROM locations WHERE id = %s", (marker_id,))
             self.assertEqual(ctx.exception.usage["location_id"], marker_id)
@@ -84,16 +85,14 @@ class MarkerPolicyTest(unittest.TestCase):
     def test_delete_unused_marker_succeeds(self) -> None:
         marker_id = "TMP_MARKER_TEST"
         with write_transaction() as conn:
-            locs = MvpLocationRepository(conn)
-            _upsert_marker(locs, marker_id, waypoint_type="transit")
-            self.assertTrue(locs.delete_marker(marker_id))
+            _upsert_marker(conn, marker_id, waypoint_type="transit")
+            self.assertTrue(location_repo.delete_marker(conn, marker_id))
 
     def test_disable_referenced_marker(self) -> None:
         marker_id = "TMP_DISABLE_MARKER"
         with write_transaction() as conn:
-            locs = MvpLocationRepository(conn)
-            _upsert_marker(locs, marker_id)
-            self.assertTrue(locs.disable_marker(marker_id))
+            _upsert_marker(conn, marker_id)
+            self.assertTrue(location_repo.disable_marker(conn, marker_id))
             row = conn.execute("SELECT status FROM locations WHERE id = %s", (marker_id,)).fetchone()
             self.assertEqual(row["status"], "DISABLED")
             conn.execute("DELETE FROM locations WHERE id = %s", (marker_id,))
@@ -101,8 +100,7 @@ class MarkerPolicyTest(unittest.TestCase):
     def test_force_delete_nulls_task_locations_and_removes_inventory(self) -> None:
         marker_id = "TMP_FORCE_DELETE_MARKER"
         with write_transaction() as conn:
-            locs = MvpLocationRepository(conn)
-            _upsert_marker(locs, marker_id)
+            _upsert_marker(conn, marker_id)
             conn.execute(
                 """
                 INSERT INTO inventory (item_id, location_id, floor, quantity)
@@ -119,7 +117,7 @@ class MarkerPolicyTest(unittest.TestCase):
                 ("BOX-A", 4, marker_id, 1, "OUTBOUND_01", 1),
             ).fetchone()["id"]
 
-            result = locs.force_delete_marker(marker_id)
+            result = location_repo.force_delete_marker(conn, marker_id)
             self.assertTrue(result and result["deleted"])
 
             task = conn.execute(
@@ -143,8 +141,7 @@ class MarkerPolicyTest(unittest.TestCase):
 
         marker_id = "TMP_ROUTER_409_MARKER"
         with write_transaction() as conn:
-            locs = MvpLocationRepository(conn)
-            _upsert_marker(locs, marker_id)
+            _upsert_marker(conn, marker_id)
             conn.execute(
                 """
                 INSERT INTO inventory (item_id, location_id, floor, quantity)

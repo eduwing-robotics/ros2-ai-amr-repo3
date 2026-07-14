@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query
 
 from app.core.api_logs import list_logs as list_api_logs
 from app.db.connection import transaction
-from app.db.mvp import camera_repo, movement_repo, robot_repo
+from app.db.postgres import camera_repo, movement_repo, robot_repo
 from app.domains.movement.health import get_movement_health
 from app.domains.vision.client import fetch_camera_health
 from app.models.schemas import Robot, RobotCommandRecord
@@ -24,9 +24,14 @@ def comm_logs(
     with transaction() as conn:
         movement_commands = [
             RobotCommandRecord(**{k: v for k, v in c.items() if k in RobotCommandRecord.model_fields})
-            for c in movement_repo(conn).list(limit=cap)
+            for c in movement_repo.list(conn, limit=cap)
         ]
-        robots = [Robot(**r) for r in robot_repo(conn).list()]
+        robots = [
+            Robot(**r)
+            for r in robot_repo.list(
+                conn,
+            )
+        ]
     logs = list_api_logs(service=service, limit=limit)
     return {
         "logs": logs,
@@ -43,7 +48,12 @@ def comm_logs(
 def probe_movement() -> dict:
     """로봇별 Movement health API를 즉시 호출한다. 이동 명령은 보내지 않는다."""
     with transaction() as conn:
-        robots = [Robot(**r) for r in robot_repo(conn).list()]
+        robots = [
+            Robot(**r)
+            for r in robot_repo.list(
+                conn,
+            )
+        ]
     return {"movement_health": get_movement_health([robot.robot_id for robot in robots], force=True)}
 
 
@@ -51,7 +61,12 @@ def probe_movement() -> dict:
 def probe_camera() -> dict:
     """Camera health를 cache 없이 즉시 확인한다(status와 같은 OR 판정)."""
     with transaction() as conn:
-        camera_sources = [c["source_id"] for c in camera_repo(conn).list()]
+        camera_sources = [
+            c["source_id"]
+            for c in camera_repo.list(
+                conn,
+            )
+        ]
     health = fetch_camera_health(camera_sources, force=True)
     return {
         **health,

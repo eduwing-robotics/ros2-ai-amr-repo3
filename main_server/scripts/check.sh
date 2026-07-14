@@ -98,7 +98,7 @@ done < <(find . \
 # Public Markdown is intentionally flat under docs/.
 while IFS= read -r file; do
   case "$file" in
-    docs/README.md|docs/ARCHITECTURE.md|docs/DATABASE.md|docs/INTERFACES.md|docs/API.md|docs/OPERATIONS.md|docs/UX.md|docs/TEST_CASES.md|docs/MOVEMENT_SERVER_REQUIREMENTS.md) ;;
+    docs/README.md|docs/GLOSSARY.md|docs/ARCHITECTURE.md|docs/DATABASE.md|docs/INTERFACES.md|docs/API.md|docs/OPERATIONS.md|docs/UX.md|docs/TEST_CASES.md|docs/MOVEMENT_SERVER_REQUIREMENTS.md) ;;
     *) err "Unexpected public Markdown file: $file" ;;
   esac
 done < <(find docs -maxdepth 1 -name '*.md' -type f -print)
@@ -367,7 +367,7 @@ cd "$ROOT/backend"
 "$PYTHON" -c "from app.db.connection import init_db; from tests.support.postgres import apply_demo_fixture; init_db(); apply_demo_fixture()"
 "$PYTHON" -m app.db.cli status
 "$PYTHON" -m app.db.cli reference-sync
-"$PYTHON" -m unittest tests.test_mvp_pg_inout tests.test_pg_ddl_smoke tests.test_command_evidence_runtime tests.test_seed_persistence -v
+"$PYTHON" -m unittest tests.test_postgres_inout tests.test_pg_ddl_smoke tests.test_command_evidence_runtime tests.test_seed_persistence -v
 echo "[check_pg_mvp] ok"
 
 }

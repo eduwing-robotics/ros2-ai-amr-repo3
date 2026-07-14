@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from app.core.config import settings
-from app.db.mvp import evidence_repo
+from app.db.postgres import evidence_repo
 from app.domains.vision.client import VisionUpstreamError, post_lift_load_evaluate
 
 logger = logging.getLogger(__name__)
@@ -39,9 +39,9 @@ def _storage_zone_for_floor(floor: Any) -> str:
     return "storage_upper_static_item_zone" if int(floor or 1) == 2 else "storage_lower_static_item_zone"
 
 
-def _operation_and_zone(task: dict[str, Any], leg: dict[str, Any]) -> tuple[str, str]:
+def _operation_and_zone(task: dict[str, Any], step: dict[str, Any]) -> tuple[str, str]:
     task_type = str(task.get("task_type") or "").upper()
-    params = leg.get("params") or {}
+    params = step.get("params") or {}
     action = str(params.get("action") or "").lower()
 
     if task_type == "INBOUND" and action == "load":
@@ -55,8 +55,8 @@ def _operation_and_zone(task: dict[str, Any], leg: dict[str, Any]) -> tuple[str,
     raise LiftLoadEvidenceSkip(f"unsupported lift-load context task_type={task_type} action={action or 'none'}")
 
 
-def build_request(task: dict[str, Any], leg: dict[str, Any], command_def_id: int | str | None) -> dict[str, object]:
-    """Build the Main-facing AI Server request from task + dock_transfer leg context."""
+def build_request(task: dict[str, Any], step: dict[str, Any], command_def_id: int | str | None) -> dict[str, object]:
+    """Build the Main-facing AI Server request from task + dock_transfer step context."""
 
     robot_id = task.get("assigned_robot_id")
     if not robot_id:
@@ -68,7 +68,7 @@ def build_request(task: dict[str, Any], leg: dict[str, Any], command_def_id: int
     if marker_id is None:
         raise LiftLoadEvidenceSkip(f"item marker mapping missing: {item_id}")
 
-    operation, vision_zone_id = _operation_and_zone(task, leg)
+    operation, vision_zone_id = _operation_and_zone(task, step)
     return {
         "source": settings.lift_load_evidence_source or "global_cam_01",
         "robot_id": str(robot_id),
@@ -101,7 +101,9 @@ def _compact_response(response: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _response_data(response: dict[str, Any], request_payload: dict[str, object], task: dict[str, Any]) -> dict[str, Any]:
+def _response_data(
+    response: dict[str, Any], request_payload: dict[str, object], task: dict[str, Any]
+) -> dict[str, Any]:
     event = response.get("event") if isinstance(response.get("event"), dict) else {}
     data = event.get("data_json") if isinstance(event.get("data_json"), dict) else {}
     return {
@@ -144,7 +146,8 @@ def _append(
         command_id = int(command_def_id) if command_def_id is not None else None
     except (TypeError, ValueError):
         command_id = None
-    return evidence_repo(conn).append(
+    return evidence_repo.append(
+        conn,
         task_id=task_id,
         command_id=command_id,
         event_type=event_type,
@@ -187,7 +190,9 @@ def record_error(
     )
 
 
-def evaluate_and_record(conn, task: dict[str, Any], leg: dict[str, Any], command_def_id: int | str | None) -> int | None:
+def evaluate_and_record(
+    conn, task: dict[str, Any], step: dict[str, Any], command_def_id: int | str | None
+) -> int | None:
     """Call AI lift-load evidence and record the advisory result.
 
     Returns the created evidence id, or None when disabled. This is record-only:
@@ -196,11 +201,11 @@ def evaluate_and_record(conn, task: dict[str, Any], leg: dict[str, Any], command
 
     if not _truthy_enabled():
         return None
-    if str(leg.get("kind") or "") != "dock_transfer":
+    if str(step.get("kind") or "") != "dock_transfer":
         return None
 
     try:
-        request_payload = build_request(task, leg, command_def_id)
+        request_payload = build_request(task, step, command_def_id)
     except LiftLoadEvidenceSkip as exc:
         return record_skip(conn, task=task, command_def_id=command_def_id, reason=str(exc))
 
@@ -237,7 +242,8 @@ def evaluate_and_record(conn, task: dict[str, Any], leg: dict[str, Any], command
         command_def_id=command_def_id,
         event_type=event_type,
         confidence=float(confidence) if confidence is not None else None,
-        data_json=_response_data(response, request_payload, task) | {
+        data_json=_response_data(response, request_payload, task)
+        | {
             "ai_event_result": event.get("result"),
             "ai_event_reason_code": event.get("reason_code"),
             "ai_event_data_json": {

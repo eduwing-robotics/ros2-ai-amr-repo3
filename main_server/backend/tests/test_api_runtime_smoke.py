@@ -61,11 +61,11 @@ class ApiRuntimeSmokeTest(unittest.TestCase):
     ) -> None:
         conn = MagicMock()
         transaction_ctx.return_value.__enter__.return_value = conn
-        robot_repo_fn.return_value.list.return_value = []
-        camera_repo_fn.return_value.list.return_value = []
-        movement_repo_fn.return_value.list.return_value = []
-        event_repo_fn.return_value.list.return_value = []
-        task_repo_fn.return_value.list.return_value = []
+        robot_repo_fn.list.return_value = []
+        camera_repo_fn.list.return_value = []
+        movement_repo_fn.list.return_value = []
+        event_repo_fn.list.return_value = []
+        task_repo_fn.list.return_value = []
 
         res = self.client.get("/api/v1/status")
         self.assertEqual(res.status_code, 200)
