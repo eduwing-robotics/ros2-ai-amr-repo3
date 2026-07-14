@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -92,7 +93,9 @@ class VisionFrameGateway(Node):
         self.declare_parameter("image_topic", "/tb3_1/camera/image_raw/compressed")
         self.declare_parameter("image_transport", "compressed")
         self.declare_parameter("ai_server_url", "http://127.0.0.1:8100")
-        self.declare_parameter("gateway_hmac_secret", "")
+        self.declare_parameter(
+            "gateway_hmac_secret", os.environ.get("VISION_GATEWAY_HMAC_SECRET", "")
+        )
         self.declare_parameter("gateway_auth_debug_enabled", False)
         self.declare_parameter("frame_ingest_path", "/api/v1/vision/frame")
         self.declare_parameter("frame_process_path", "/api/v1/vision/frame/process")

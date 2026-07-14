@@ -76,6 +76,37 @@ sf_env_truthy() {
   esac
 }
 
+sf_prepare_vision_gateway_hmac() {
+  if [ -n "${VISION_GATEWAY_HMAC_SECRET:-}" ]; then
+    if sf_env_truthy "${SF_VISION_GATEWAY_HMAC_GENERATED:-false}"; then
+      export SF_VISION_GATEWAY_HMAC_MODE="ephemeral_runtime"
+    else
+      export SF_VISION_GATEWAY_HMAC_MODE="configured"
+    fi
+    export VISION_GATEWAY_HMAC_SECRET
+    return 0
+  fi
+
+  if ! command -v python3 > /dev/null 2>&1; then
+    echo "ERROR: python3 is required to generate the internal Vision gateway credential" >&2
+    return 1
+  fi
+
+  VISION_GATEWAY_HMAC_SECRET="$(python3 - << 'PY'
+import secrets
+
+print(secrets.token_urlsafe(32))
+PY
+)"
+  if [ -z "${VISION_GATEWAY_HMAC_SECRET}" ]; then
+    echo "ERROR: failed to generate the internal Vision gateway credential" >&2
+    return 1
+  fi
+  export VISION_GATEWAY_HMAC_SECRET
+  export SF_VISION_GATEWAY_HMAC_GENERATED=true
+  export SF_VISION_GATEWAY_HMAC_MODE="ephemeral_runtime"
+}
+
 sf_load_ros_network_env() {
   local root_dir="${1:?root_dir is required}"
   local default_file="${root_dir}/config/ros/fastdds-smartfactory.env"

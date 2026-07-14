@@ -131,9 +131,40 @@ def test_gopro_adapter_signs_exact_multipart_body_with_gateway_secret(monkeypatc
     assert captured["timeout"] == 1.5
 
 
-def test_multi_source_bundle_passes_gateway_secret_to_ros_gateway() -> None:
-    body = MULTI_SOURCE_BUNDLE_SCRIPT.read_text()
-    assert '-p "gateway_hmac_secret:=${VISION_GATEWAY_HMAC_SECRET:-}"' in body
+def test_multi_source_bundle_auto_generates_gateway_secret_without_exposing_it() -> None:
+    env = os.environ.copy()
+    env.pop("VISION_GATEWAY_HMAC_SECRET", None)
+    env.pop("SF_VISION_GATEWAY_HMAC_MODE", None)
+
+    result = subprocess.run(
+        [str(MULTI_SOURCE_BUNDLE_SCRIPT), "--print-config"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "gateway_auth: ephemeral_runtime" in result.stdout
+    assert "VISION_GATEWAY_HMAC_SECRET" not in result.stdout
+
+
+def test_multi_source_bundle_preserves_operator_gateway_secret_without_exposing_it() -> None:
+    env = os.environ.copy()
+    env["VISION_GATEWAY_HMAC_SECRET"] = "operator-provided-gateway-secret"
+    env.pop("SF_VISION_GATEWAY_HMAC_MODE", None)
+
+    result = subprocess.run(
+        [str(MULTI_SOURCE_BUNDLE_SCRIPT), "--print-config"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "gateway_auth: configured" in result.stdout
+    assert "operator-provided-gateway-secret" not in result.stdout
 
 
 def test_gopro_adapter_rejects_malformed_ai_event_lists() -> None:

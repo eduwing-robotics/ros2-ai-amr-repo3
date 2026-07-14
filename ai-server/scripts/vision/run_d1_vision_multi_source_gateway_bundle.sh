@@ -123,6 +123,7 @@ set_defaults() {
   export VISION_STREAM_GATEWAY_HOST="${VISION_STREAM_GATEWAY_HOST:-0.0.0.0}"
   export VISION_STREAM_GATEWAY_PORT="${VISION_STREAM_GATEWAY_PORT:-8090}"
   export VISION_STREAM_SOURCE_UPSTREAMS_JSON="${VISION_STREAM_SOURCE_UPSTREAMS_JSON:-{\"${VISION_GLOBAL_SOURCE_ID}\":\"${VISION_GLOBAL_UPSTREAM_URL}\",\"${VISION_SOURCE_1_ID}\":\"http://127.0.0.1:${VISION_SOURCE_1_INTERNAL_PORT}\",\"${VISION_SOURCE_2_ID}\":\"http://127.0.0.1:${VISION_SOURCE_2_INTERNAL_PORT}\"}}"
+  sf_prepare_vision_gateway_hmac
 }
 
 check_prereqs() {
@@ -179,6 +180,7 @@ D1 Main-compatible multi-source gateway bundle
   source2: ${VISION_SOURCE_2_ID}, enabled=${VISION_SOURCE_2_ENABLED}, domain=${VISION_SOURCE_2_DOMAIN}, topic=${VISION_SOURCE_2_TOPIC}, internal_port=${VISION_SOURCE_2_INTERNAL_PORT}
   global_source: ${VISION_GLOBAL_SOURCE_ID}, upstream=${VISION_GLOBAL_UPSTREAM_URL}, ingest=HTTP /api/v1/vision/frame/process
   ai_mjpeg_sources: ${VISION_STREAM_AI_MJPEG_SOURCES}
+  gateway_auth: ${SF_VISION_GATEWAY_HMAC_MODE} (credential value hidden)
   qos: image_sub=${VISION_GATEWAY_IMAGE_QOS_RELIABILITY}, overlay_pub=${VISION_GATEWAY_OVERLAY_PUB_QOS_RELIABILITY}, overlay_sub=${VISION_STREAM_OVERLAY_SUB_QOS_RELIABILITY}
   pipeline: async=${VISION_GATEWAY_ASYNC_PIPELINE}, inline_process=${VISION_GATEWAY_PROCESS_FRAME_INLINE}, frame_process_path=${VISION_GATEWAY_FRAME_PROCESS_PATH}, period=${VISION_GATEWAY_PERIOD_SEC}s, output_period=${VISION_GATEWAY_PUBLISH_OUTPUT_PERIOD_SEC}s, retry_failed=${VISION_GATEWAY_RETRY_FAILED_FRAME}
   model_source_config: ${VISION_MODEL_SOURCE_CONFIG_JSON:-<none>}
@@ -311,7 +313,6 @@ start_source_pair() {
     -p "image_topic:=${image_topic}" \
     -p "image_transport:=compressed" \
     -p "ai_server_url:=${AI_SERVER_URL}" \
-    -p "gateway_hmac_secret:=${VISION_GATEWAY_HMAC_SECRET:-}" \
     -p "frame_process_path:=${VISION_GATEWAY_FRAME_PROCESS_PATH}" \
     -p "request_timeout_sec:=${VISION_GATEWAY_REQUEST_TIMEOUT_SEC}" \
     -p "publish_period_sec:=${VISION_GATEWAY_PERIOD_SEC}" \

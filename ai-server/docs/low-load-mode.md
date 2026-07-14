@@ -29,3 +29,9 @@ Check the resolved `ROS/DDS discovery` block with:
 ```
 
 Use `./scripts/vision/sf_lab.sh urls low-load` after launch to print the active WebRTC URLs and MJPEG diagnostic fallbacks.
+
+The operator bundle creates an ephemeral Vision gateway credential when
+`VISION_GATEWAY_HMAC_SECRET` is not configured. The value stays internal to the
+runtime process tree, so low-load startup and robot camera bringup do not require
+manual secret distribution. An explicitly configured credential is preserved for
+deployments that run the AI Server and frame gateway independently.

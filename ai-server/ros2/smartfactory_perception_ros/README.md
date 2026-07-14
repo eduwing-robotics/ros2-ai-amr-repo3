@@ -81,9 +81,12 @@ Production frame ingress uses the dedicated `VISION_GATEWAY_HMAC_SECRET`, not
 `gateway_hmac_secret`; the sidecar signs the exact multipart request body with
 `X-SF-Timestamp`, `X-SF-Nonce`, and `X-SF-Gateway-Signature`. The AI Server
 rejects missing, stale, invalid, and replayed signatures before a frame can
-reach the latest-frame cache. Missing credentials prevent the sidecar from
-starting. `gateway_auth_debug_enabled:=true` is only for explicitly isolated
-test/lab runs paired with `AI_DEBUG_MUTATIONS_ENABLED=true` on the AI Server.
+reach the latest-frame cache. Standalone/deployment launches fail closed when
+the credential is missing. The local `sf_vision` operator bundle instead creates
+one ephemeral process-tree credential when none is configured, so robot bringup
+does not require secret distribution. `gateway_auth_debug_enabled:=true` is only
+for explicitly isolated test/lab runs paired with
+`AI_DEBUG_MUTATIONS_ENABLED=true` on the AI Server.
 
 Direct Robot1 domain-2 smoke example, using the temporary camera launch topic:
 
