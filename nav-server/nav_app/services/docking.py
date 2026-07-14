@@ -6,67 +6,75 @@ from typing import Any, Dict, Optional
 from nav_app.errors import CommandAborted, StageError
 from nav_app.models import MovementStep
 from nav_app.runtime import runtime
-from nav_app.settings import (
-    ARUCO_DETECTION_MAX_AGE_SEC,
-    ARUCO_DETECTION_TIMEOUT_SEC,
-    ARUCO_DOCK_ANGULAR_GAIN,
-    ARUCO_APPROACH_SKIP_MAP_YAW_MARKER_ERR,
-    ARUCO_DOCK_CENTER_GOOD_ENOUGH_NORM,
-    ARUCO_DOCK_ALIGN_SETTLE_FRAMES,
-    ARUCO_DOCK_CENTER_TOLERANCE_NORM,
-    ARUCO_DOCK_MIN_ANGULAR_RAD,
-    ARUCO_DOCK_CONTROL_PERIOD_SEC,
-    ARUCO_DOCK_LINEAR_SPEED,
-    ARUCO_DOCK_LOST_ACCEPT_WIDTH_RATIO,
-    ARUCO_DOCK_LOST_GRACE_SEC,
-    ARUCO_DOCK_MAX_ANGULAR_SPEED,
-    ARUCO_DOCK_MIN_LINEAR_SPEED,
-    ARUCO_DOCK_TARGET_DISTANCE_M,
-    ARUCO_DOCK_TARGET_WIDTH_PX,
-    ARUCO_DOCKING_TIMEOUT_SEC,
-    ARUCO_MARKER_SEARCH_ANGULAR_SPEED,
-    ARUCO_MARKER_CENTERING_ANGULAR_SPEED,
-    PRE_INSERT_CENTER_CYCLES,
-    PRE_INSERT_CREEP_SEC,
-    PRE_INSERT_CREEP_SPEED_MPS,
-    ARUCO_MARKER_SEARCH_BURST_SEC,
-    ARUCO_MARKER_SEARCH_BURSTS_PER_DIR,
-    ARUCO_MARKER_SEEK_MAX_ROTATION_RAD,
-    ARUCO_MARKER_SEARCH_TIMEOUT_SEC,
-    DOCK_REVERSE_SPEED,
-    DOCK_REVERSE_EXTRA_M,
-    DOCK_FORWARD_CLEARANCE_MARGIN_M,
-    FORK_INSERT_DISTANCE_M,
-    FORK_INSERT_ENABLED,
-    FORK_INSERT_MAX_DURATION_SEC,
-    FORK_INSERT_SPEED_MPS,
-    NAV_APPROACH_ROTATE_MAX_SEC,
-    NAV_APPROACH_ROTATE_SPEED_RAD,
-    NAV_APPROACH_ROTATE_YAW_THRESHOLD_RAD,
-    LEAVE_DOCK_CLEARANCE_MARGIN_M,
-    LEAVE_DOCK_MAX_DURATION_SEC,
-    LEAVE_DOCK_REAR_ARC_DEG,
-    LEAVE_DOCK_REAR_SCAN_MAX_AGE_SEC,
-    LEAVE_DOCK_REVERSE_DISTANCE_M,
-    LEAVE_DOCK_REVERSE_SPEED,
-    DOCK_POST_INSERT_DWELL_SEC,
-    FORK_INSERT_SLIP_COMPENSATION_M,
-    INSERT_VISION_STOP_ENABLED,
-    INSERT_CREEP_SPEED_MPS,
-    INSERT_VISION_SNAPSHOT_ENABLED,
-    INSERT_VISION_SNAPSHOT_DIR,
-    INSERT_STOP_WIDTH_PX,
-    SIMULATED_DOCK_STAGE_DELAY_SEC,
-    is_simulation_mode,
+from nav_app.services import robot_context
+from nav_app.services.capabilities import (
+    ensure_lift_ready_for_dock_transfer,
+    has_capability,
 )
 from nav_app.services.robot_commands import (
     apply_slot_aruco_defaults,
     apply_slot_lift_defaults,
     fork_insert_distance_for_marker,
 )
-from nav_app.services.capabilities import ensure_lift_ready_for_dock_transfer, has_capability
-from nav_app.services.robot_context import aruco_detection_topic as _aruco_detection_topic
+from nav_app.services.robot_context import (
+    aruco_detection_topic as _aruco_detection_topic,
+)
 from nav_app.services.status_helpers import clamp as _clamp
+from nav_app.settings import (
+    ARUCO_APPROACH_SKIP_MAP_YAW_MARKER_ERR,
+    ARUCO_DETECTION_MAX_AGE_SEC,
+    ARUCO_DETECTION_TIMEOUT_SEC,
+    ARUCO_DOCK_ALIGN_SETTLE_FRAMES,
+    ARUCO_DOCK_ANGULAR_GAIN,
+    ARUCO_DOCK_CENTER_GOOD_ENOUGH_NORM,
+    ARUCO_DOCK_CENTER_TOLERANCE_NORM,
+    ARUCO_DOCK_CONTROL_PERIOD_SEC,
+    ARUCO_DOCK_LINEAR_SPEED,
+    ARUCO_DOCK_LOST_ACCEPT_WIDTH_RATIO,
+    ARUCO_DOCK_LOST_GRACE_SEC,
+    ARUCO_DOCK_MAX_ANGULAR_SPEED,
+    ARUCO_DOCK_MIN_ANGULAR_RAD,
+    ARUCO_DOCK_MIN_LINEAR_SPEED,
+    ARUCO_DOCK_TARGET_DISTANCE_M,
+    ARUCO_DOCK_TARGET_WIDTH_PX,
+    ARUCO_DOCKING_TIMEOUT_SEC,
+    ARUCO_MARKER_CENTERING_ANGULAR_SPEED,
+    ARUCO_MARKER_SEARCH_ANGULAR_SPEED,
+    ARUCO_MARKER_SEARCH_BURST_SEC,
+    ARUCO_MARKER_SEARCH_BURSTS_PER_DIR,
+    ARUCO_MARKER_SEARCH_TIMEOUT_SEC,
+    ARUCO_MARKER_SEEK_MAX_ROTATION_RAD,
+    DOCK_FORWARD_CLEARANCE_MARGIN_M,
+    DOCK_POST_INSERT_DWELL_SEC,
+    DOCK_REVERSE_EXTRA_M,
+    DOCK_REVERSE_SPEED,
+    FORK_INSERT_DISTANCE_M,
+    FORK_INSERT_ENABLED,
+    FORK_INSERT_MAX_DURATION_SEC,
+    FORK_INSERT_SLIP_COMPENSATION_M,
+    FORK_INSERT_SPEED_MPS,
+    INSERT_CREEP_SPEED_MPS,
+    INSERT_STOP_WIDTH_PX,
+    INSERT_VISION_SNAPSHOT_DIR,
+    INSERT_VISION_SNAPSHOT_ENABLED,
+    INSERT_VISION_STOP_ENABLED,
+    LEAVE_DOCK_CLEARANCE_MARGIN_M,
+    LEAVE_DOCK_MAX_DURATION_SEC,
+    LEAVE_DOCK_REAR_ARC_DEG,
+    LEAVE_DOCK_REAR_SCAN_MAX_AGE_SEC,
+    LEAVE_DOCK_REVERSE_DISTANCE_M,
+    LEAVE_DOCK_REVERSE_SPEED,
+    METRIC_DOCK_REVERSE_MAX_DURATION_SEC,
+    METRIC_DOCK_REVERSE_MAX_SPEED_MPS,
+    NAV_APPROACH_ROTATE_MAX_SEC,
+    NAV_APPROACH_ROTATE_SPEED_RAD,
+    NAV_APPROACH_ROTATE_YAW_THRESHOLD_RAD,
+    PRE_INSERT_CENTER_CYCLES,
+    PRE_INSERT_CREEP_SEC,
+    PRE_INSERT_CREEP_SPEED_MPS,
+    SIMULATED_DOCK_STAGE_DELAY_SEC,
+    is_simulation_mode,
+)
 
 
 def _physical_motion_bypassed(payload: Dict[str, Any]) -> bool:
@@ -88,14 +96,31 @@ def require_docking_motion_freshness(
     """
     if _physical_motion_bypassed(payload):
         return
+    metric_motion = bool(
+        payload.get("metric_precision_insert") or payload.get("metric_distance_only")
+    )
+    if metric_motion:
+        scan_max_age_sec = _bounded_metric_motion_value(
+            payload, "scan_max_age_sec", 1.0, minimum=0.05, maximum=1.0
+        )
+        tf_max_age_sec = _bounded_metric_motion_value(
+            payload, "tf_max_age_sec", 1.0, minimum=0.05, maximum=1.0
+        )
+        aruco_max_age_sec = _bounded_metric_motion_value(
+            payload, "aruco_max_age_sec", 1.0, minimum=0.05, maximum=1.0
+        )
+    else:
+        scan_max_age_sec = payload.get("scan_max_age_sec")
+        tf_max_age_sec = payload.get("tf_max_age_sec")
+        aruco_max_age_sec = payload.get("aruco_max_age_sec")
     navigator = runtime.navigator
     if not navigator or not hasattr(navigator, "docking_sensor_freshness"):
         raise RuntimeError(f"{stage}: docking_sensor_freshness_unavailable")
     health = navigator.docking_sensor_freshness(
         require_aruco=require_aruco,
-        max_scan_age_sec=payload.get("scan_max_age_sec"),
-        max_tf_age_sec=payload.get("tf_max_age_sec"),
-        max_aruco_age_sec=payload.get("aruco_max_age_sec"),
+        max_scan_age_sec=scan_max_age_sec,
+        max_tf_age_sec=tf_max_age_sec,
+        max_aruco_age_sec=aruco_max_age_sec,
     )
     if not isinstance(health, dict) or not health.get("ok"):
         reason = health.get("reason", "sensor_freshness_invalid") if isinstance(health, dict) else "sensor_freshness_invalid"
@@ -128,7 +153,19 @@ def _publish_docking_velocity(
     Keep bursts short and re-admit each one locally.
     """
     duration_sec = max(0.0, float(velocity.get("duration_sec", 0.0)))
-    segment_sec = max(0.02, min(0.25, float(payload.get("docking_freshness_segment_sec", 0.10))))
+    if payload.get("metric_precision_insert") or payload.get("metric_distance_only"):
+        segment_sec = _bounded_metric_motion_value(
+            payload,
+            "docking_freshness_segment_sec",
+            0.10,
+            minimum=0.02,
+            maximum=0.20,
+        )
+    else:
+        segment_sec = max(
+            0.02,
+            min(0.25, float(payload.get("docking_freshness_segment_sec", 0.10))),
+        )
     remaining = duration_sec
     while remaining > 1e-9:
         _require_docking_motion_or_abort(
@@ -186,20 +223,71 @@ def _accumulate_dock_forward_m(payload: Dict[str, Any], linear_x: float, duratio
     payload["_align_forward_net_m"] = float(payload.get("_align_forward_net_m", 0.0)) + linear_x * duration_sec
 
 
+def _metric_forward_distance(detection: Optional[Dict[str, Any]]) -> Optional[float]:
+    if not detection:
+        return None
+    value = detection.get("forward_distance_m", detection.get("estimated_distance_m"))
+    try:
+        distance = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(distance) or distance < 0.0:
+        return None
+    return distance
+
+
+def _bounded_metric_motion_value(
+    payload: Dict[str, Any],
+    field: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        value = float(payload.get(field, default))
+    except (TypeError, ValueError):
+        value = math.nan
+    if not math.isfinite(value) or not minimum <= value <= maximum:
+        _abort_docking_motion()
+        raise ValueError(
+            f"metric docking {field} must be between {minimum} and {maximum}"
+        )
+    return value
+
+
+def metric_distance_state(detection: Optional[Dict[str, Any]], payload: Dict[str, Any]) -> str:
+    """Classify metric distance as invalid, far, target-band, or overshot."""
+    distance = _metric_forward_distance(detection)
+    if distance is None:
+        return "invalid"
+    target = float(payload.get("target_distance_m", ARUCO_DOCK_TARGET_DISTANCE_M))
+    tolerance = max(0.001, abs(float(payload.get("metric_distance_tolerance_m", 0.02))))
+    if distance < target - tolerance:
+        return "overshot"
+    if distance <= target + tolerance:
+        return "within"
+    return "far"
+
+
 def marker_close_enough(detection: Dict[str, Any], payload: Dict[str, Any]):
     target_width_px = float(payload.get("target_marker_width_px", ARUCO_DOCK_TARGET_WIDTH_PX))
     try:
         width_px = float(detection.get("marker_width_px", 0.0))
     except (TypeError, ValueError):
         width_px = 0.0
-    if payload.get("close_from_marker_width_only", False):
+    metric_only = bool(payload.get("metric_distance_only", False))
+    if payload.get("close_from_marker_width_only", False) and not metric_only:
         return width_px >= target_width_px
+    if metric_only:
+        return metric_distance_state(detection, payload) == "within"
     target_distance_m = float(payload.get("target_distance_m", ARUCO_DOCK_TARGET_DISTANCE_M))
-    estimated_distance = detection.get("estimated_distance_m")
+    estimated_distance = detection.get("forward_distance_m", detection.get("estimated_distance_m"))
     if estimated_distance is not None:
         try:
-            if float(estimated_distance) <= target_distance_m:
-                return True
+            distance_m = float(estimated_distance)
+            if math.isfinite(distance_m) and distance_m >= 0.0:
+                return distance_m <= target_distance_m
         except (TypeError, ValueError):
             pass
     try:
@@ -216,12 +304,14 @@ def marker_near_insert_start(detection: Dict[str, Any], payload: Dict[str, Any])
     except (TypeError, ValueError):
         return False
     target_distance_m = float(payload.get("target_distance_m", ARUCO_DOCK_TARGET_DISTANCE_M))
-    estimated_distance = detection.get("estimated_distance_m")
+    estimated_distance = detection.get("forward_distance_m", detection.get("estimated_distance_m"))
     if estimated_distance is not None:
         try:
             return float(estimated_distance) <= target_distance_m / max(0.01, ARUCO_DOCK_LOST_ACCEPT_WIDTH_RATIO)
         except (TypeError, ValueError):
             pass
+    if payload.get("metric_distance_only", False):
+        return False
     target_width_px = float(payload.get("target_marker_width_px", ARUCO_DOCK_TARGET_WIDTH_PX))
     min_width_px = target_width_px * max(0.0, ARUCO_DOCK_LOST_ACCEPT_WIDTH_RATIO)
     try:
@@ -255,6 +345,73 @@ def _marker_center_error_norm(detection: Optional[Dict[str, Any]]) -> Optional[f
         return float(detection.get("center_error_norm", 0.0))
     except (TypeError, ValueError):
         return None
+
+
+def marker_normal_errors(
+    detection: Optional[Dict[str, Any]], payload: Optional[Dict[str, Any]] = None
+) -> Optional[Dict[str, float]]:
+    """Return camera-frame errors against the desired ArUco normal."""
+    if not detection:
+        return None
+    payload = payload or {}
+    if payload.get("require_pose_quality", False):
+        try:
+            reprojection_error = float(detection["reprojection_error_px"])
+            max_reprojection_error = float(payload.get("max_reprojection_error_px", 2.0))
+        except (KeyError, TypeError, ValueError):
+            return None
+        if (
+            not math.isfinite(reprojection_error)
+            or reprojection_error < 0.0
+            or reprojection_error > max_reprojection_error
+        ):
+            return None
+    lateral = detection.get("lateral_offset_m")
+    yaw = detection.get("marker_yaw_rad")
+    if lateral is None or yaw is None:
+        return None
+    try:
+        lateral_error = float(lateral) - float(payload.get("target_lateral_offset_m", 0.0))
+        yaw_error = float(yaw) - float(payload.get("target_marker_yaw_rad", 0.0))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(lateral_error) or not math.isfinite(yaw_error):
+        return None
+    return {"lateral_m": lateral_error, "yaw_rad": yaw_error}
+
+
+def marker_normal_aligned(
+    detection: Optional[Dict[str, Any]], payload: Optional[Dict[str, Any]] = None
+) -> bool:
+    payload = payload or {}
+    errors = marker_normal_errors(detection, payload)
+    if errors is None:
+        return False
+    lateral_tolerance = abs(float(payload.get("normal_lateral_tolerance_m", 0.04)))
+    yaw_tolerance = abs(float(payload.get("normal_yaw_tolerance_rad", math.radians(5.0))))
+    return bool(
+        abs(errors["lateral_m"]) <= lateral_tolerance
+        and abs(errors["yaw_rad"]) <= yaw_tolerance
+    )
+
+
+def normal_alignment_angular_command(
+    detection: Optional[Dict[str, Any]],
+    payload: Optional[Dict[str, Any]] = None,
+    *,
+    max_angular: float,
+) -> Optional[float]:
+    """Bounded differential-drive correction for marker lateral/yaw error."""
+    payload = payload or {}
+    errors = marker_normal_errors(detection, payload)
+    if errors is None:
+        return None
+    lateral_gain = float(payload.get("normal_lateral_gain", 1.2))
+    yaw_gain = float(payload.get("normal_yaw_gain", 0.8))
+    command = -(lateral_gain * errors["lateral_m"] + yaw_gain * errors["yaw_rad"])
+    return _apply_angular_deadband(
+        _clamp(command, -abs(float(max_angular)), abs(float(max_angular))), payload
+    )
 
 
 def _acquire_center_tolerance(payload: Dict[str, Any]) -> float:
@@ -858,12 +1015,51 @@ def execute_center_align_only(marker_id: int, payload: Dict[str, Any]):
 def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
+    metric_only = bool(payload.get("metric_distance_only", False))
     center_tolerance = _acquire_center_tolerance(payload)
-    deadline = time.monotonic() + float(payload.get("docking_timeout_sec", ARUCO_DOCKING_TIMEOUT_SEC))
+    if metric_only:
+        timeout_sec = _bounded_metric_motion_value(
+            payload,
+            "docking_timeout_sec",
+            20.0,
+            minimum=1.0,
+            maximum=30.0,
+        )
+    else:
+        timeout_sec = float(payload.get("docking_timeout_sec", ARUCO_DOCKING_TIMEOUT_SEC))
+    deadline = time.monotonic() + timeout_sec
     coarse_center_tolerance = float(payload.get("coarse_center_tolerance_norm", max(center_tolerance * 3.0, 0.30)))
-    control_period = max(0.05, float(payload.get("control_period_sec", ARUCO_DOCK_CONTROL_PERIOD_SEC)))
-    linear_speed = abs(float(payload.get("dock_linear_speed", ARUCO_DOCK_LINEAR_SPEED)))
-    min_linear_speed = abs(float(payload.get("dock_min_linear_speed", ARUCO_DOCK_MIN_LINEAR_SPEED)))
+    if metric_only:
+        control_period = _bounded_metric_motion_value(
+            payload,
+            "control_period_sec",
+            0.10,
+            minimum=0.05,
+            maximum=0.20,
+        )
+        linear_speed = _bounded_metric_motion_value(
+            payload,
+            "dock_linear_speed",
+            0.018,
+            minimum=0.005,
+            maximum=0.03,
+        )
+        min_linear_speed = _bounded_metric_motion_value(
+            payload,
+            "dock_min_linear_speed",
+            0.006,
+            minimum=0.001,
+            maximum=linear_speed,
+        )
+    else:
+        control_period = max(
+            0.05,
+            float(payload.get("control_period_sec", ARUCO_DOCK_CONTROL_PERIOD_SEC)),
+        )
+        linear_speed = abs(float(payload.get("dock_linear_speed", ARUCO_DOCK_LINEAR_SPEED)))
+        min_linear_speed = abs(
+            float(payload.get("dock_min_linear_speed", ARUCO_DOCK_MIN_LINEAR_SPEED))
+        )
     angular_gain = float(payload.get("dock_angular_gain", ARUCO_DOCK_ANGULAR_GAIN))
     max_angular = abs(float(payload.get("dock_max_angular_speed", ARUCO_DOCK_MAX_ANGULAR_SPEED)))
     wall_mode = bool(payload.get("wall_adjacent_approach"))
@@ -877,6 +1073,15 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
             f"(coarse_tol={coarse_center_tolerance:.3f} max_ω={max_angular:.2f})"
         )
     lost_grace_sec = max(0.0, float(payload.get("marker_lost_grace_sec", ARUCO_DOCK_LOST_GRACE_SEC)))
+    require_normal = bool(payload.get("require_normal_alignment", False))
+    straight_insert = bool(payload.get("straight_when_normal_aligned", False))
+    normal_coarse_lateral = abs(float(payload.get("normal_coarse_lateral_m", 0.10)))
+    normal_coarse_yaw = abs(float(payload.get("normal_coarse_yaw_rad", 0.22)))
+    normal_lateral_tolerance = abs(float(payload.get("normal_lateral_tolerance_m", 0.04)))
+    normal_backoff_budget = max(0.0, float(payload.get("normal_realign_backoff_m", 0.04)))
+    normal_backoff_m = 0.0
+    straight_miss_count = 0
+    straight_miss_limit = max(1, int(payload.get("straight_alignment_miss_frames", 3)))
     last_detection = None
     last_seen_at = None
     settle_count = 0
@@ -888,7 +1093,13 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
             raise RuntimeError("precision docking aborted by estop")
         detection = runtime.navigator.get_latest_aruco_detection(marker_id, max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC)
         if not detection:
-            if last_detection and marker_near_insert_start(last_detection, payload):
+            last_normal_ok = not require_normal or marker_normal_aligned(last_detection, payload)
+            if (
+                payload.get("allow_marker_lost_at_insert_start", True)
+                and last_detection
+                and last_normal_ok
+                and marker_near_insert_start(last_detection, payload)
+            ):
                 runtime.navigator.publish_stop_velocity()
                 last_detection = dict(last_detection)
                 last_detection["marker_lost_at_insert_start"] = True
@@ -904,7 +1115,7 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
                 forward_tol = float(
                     payload.get("forward_center_tolerance_norm", center_tolerance)
                 )
-                if last_err <= forward_tol:
+                if last_err <= forward_tol and last_normal_ok and not straight_insert:
                     _publish_docking_velocity(payload, "aruco_align", require_aruco=True,
                         linear_x=linear_speed,
                         angular_z=0.0,
@@ -921,7 +1132,33 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
         last_detection = detection
         last_seen_at = time.monotonic()
         error_norm = float(detection.get("center_error_norm", 0.0))
-        if marker_close_enough(detection, payload) and abs(error_norm) <= center_tolerance:
+        metric_state = (
+            metric_distance_state(detection, payload)
+            if payload.get("metric_distance_only", False)
+            else None
+        )
+        if metric_state == "invalid":
+            _abort_docking_motion()
+            raise RuntimeError(
+                f"ArUco marker {marker_id} has no valid calibrated forward distance"
+            )
+        if metric_state == "overshot":
+            _abort_docking_motion()
+            distance = _metric_forward_distance(detection)
+            target = float(payload.get("target_distance_m", ARUCO_DOCK_TARGET_DISTANCE_M))
+            raise RuntimeError(
+                f"metric docking target overshot: distance={distance:.3f}m target={target:.3f}m"
+            )
+        normal_errors = marker_normal_errors(detection, payload) if require_normal else None
+        if require_normal and normal_errors is None:
+            runtime.navigator.publish_stop_velocity()
+            raise RuntimeError(
+                f"ArUco marker {marker_id} has no calibrated lateral/yaw pose; "
+                "metric normal alignment is unavailable"
+            )
+        normal_ok = not require_normal or marker_normal_aligned(detection, payload)
+        close_enough = marker_close_enough(detection, payload)
+        if close_enough and abs(error_norm) <= center_tolerance and normal_ok:
             settle_count += 1
             if _centered_enough(error_norm, center_tolerance, settle_count, settle_need):
                 runtime.navigator.publish_stop_velocity()
@@ -935,7 +1172,11 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
         width = _marker_width_px(detection)
         target_width = float(payload.get("target_marker_width_px", ARUCO_DOCK_TARGET_WIDTH_PX))
         angular_z = 0.0
-        if abs_error > center_tolerance:
+        if require_normal and not normal_ok:
+            angular_z = normal_alignment_angular_command(
+                detection, payload, max_angular=max_angular
+            ) or 0.0
+        elif abs_error > center_tolerance and not straight_insert:
             gain = angular_gain * (0.45 if wall_mode else 1.0)
             cap = max_angular * (0.6 if wall_mode and width < target_width * 0.85 else 1.0)
             angular_z = _apply_angular_deadband(
@@ -943,16 +1184,61 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
                 payload,
             )
 
-        close_enough = marker_close_enough(detection, payload)
         forward_tol = float(
             payload.get("forward_center_tolerance_norm", center_tolerance)
         )
-        # 중앙이 맞기 전에는 전진하지 않음 (계속 디텍팅 → 회전 → 중앙 → 전진)
-        if abs(error_norm) > forward_tol:
+        normal_within_coarse = bool(
+            not require_normal
+            or (
+                normal_errors is not None
+                and abs(normal_errors["lateral_m"]) <= normal_coarse_lateral
+                and abs(normal_errors["yaw_rad"]) <= normal_coarse_yaw
+            )
+        )
+
+        if straight_insert:
+            # The final 0.40m -> 0.18/0.20m leg is deliberately straight.  A
+            # drift does not trigger steering beside the pallet; it stops and
+            # fails so the operator can re-run the 0.40m normal-alignment gate.
+            if not normal_ok or abs(error_norm) > forward_tol:
+                straight_miss_count += 1
+                command_linear = 0.0
+                angular_z = 0.0
+                if straight_miss_count >= straight_miss_limit:
+                    runtime.navigator.publish_stop_velocity()
+                    raise RuntimeError(
+                        f"marker {marker_id} normal alignment drifted during straight insert"
+                    )
+            elif not close_enough:
+                straight_miss_count = 0
+                command_linear = linear_speed
+                angular_z = 0.0
+            else:
+                straight_miss_count = 0
+                command_linear = 0.0
+                angular_z = 0.0
+        # At the standoff target, create a small amount of room before another
+        # curved approach when lateral alignment is still outside tolerance.
+        elif (
+            require_normal
+            and close_enough
+            and normal_errors is not None
+            and abs(normal_errors["lateral_m"]) > normal_lateral_tolerance
+            and normal_backoff_m < normal_backoff_budget
+        ):
+            command_linear = -min_linear_speed
+            angular_z = 0.0
+            normal_backoff_m += min_linear_speed * control_period
+        # 중앙·법선의 coarse gate가 맞기 전에는 전진하지 않는다.
+        elif abs(error_norm) > forward_tol or not normal_within_coarse:
             command_linear = 0.0
         elif not close_enough:
             command_linear = linear_speed
-        elif abs_error > center_tolerance:
+        elif metric_state == "within" and (abs_error > center_tolerance or not normal_ok):
+            # At a metric standoff, finish angular/lateral correction without
+            # creeping closer than the bounded target band.
+            command_linear = 0.0
+        elif abs_error > center_tolerance or not normal_ok:
             error_span = max(0.001, coarse_center_tolerance - center_tolerance)
             scale = 1.0 - min(1.0, max(0.0, (abs_error - center_tolerance) / error_span))
             command_linear = max(min_linear_speed, linear_speed * scale)
@@ -974,10 +1260,16 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
             )
         now = time.monotonic()
         if now - last_progress_log >= 2.0:
+            normal_log = ""
+            if normal_errors is not None:
+                normal_log = (
+                    f" lateral={normal_errors['lateral_m']:+.3f}m"
+                    f" yaw={math.degrees(normal_errors['yaw_rad']):+.1f}deg"
+                )
             print(
                 f"[dock] full align progress marker={marker_id} "
                 f"err={error_norm:.3f} width={width:.0f}/{target_width:.0f} "
-                f"linear={command_linear:.3f} angular={angular_z:.3f}"
+                f"linear={command_linear:.3f} angular={angular_z:.3f}{normal_log}"
             )
             last_progress_log = now
 
@@ -1274,6 +1566,86 @@ def execute_post_insert_dwell(payload: Dict[str, Any]):
     time.sleep(dwell)
 
 
+def execute_metric_precision_insert(payload: Dict[str, Any]):
+    """Recheck the 0.40 m normal, then drive the calibrated final leg straight."""
+    if not runtime.navigator:
+        raise RuntimeError("runtime.navigator is not initialized")
+    marker_value = payload.get("aruco_marker_id")
+    if marker_value is None:
+        raise ValueError("metric precision insert requires aruco_marker_id")
+    marker_id = int(marker_value)
+    stage1 = float(payload.get("stage1_target_distance_m", 0.40))
+    stage2 = float(payload.get("target_distance_m", 0.20))
+    if stage1 <= 0.0 or stage2 <= 0.0 or stage2 >= stage1:
+        raise ValueError("metric precision insert requires 0 < stage2 < stage1")
+
+    recheck = dict(payload)
+    recheck.update(
+        {
+            "target_distance_m": stage1,
+            "metric_distance_only": True,
+            "require_normal_alignment": True,
+            "straight_when_normal_aligned": False,
+            "fork_insert_enabled": False,
+            "insert_vision_stop": False,
+            "allow_marker_lost_at_insert_start": False,
+            "docking_timeout_sec": float(payload.get("normal_realign_timeout_sec", 20.0)),
+        }
+    )
+    detection = runtime.navigator.get_latest_aruco_detection(
+        marker_id, max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
+    )
+    if metric_distance_state(detection, recheck) == "overshot":
+        _abort_docking_motion()
+        distance = _metric_forward_distance(detection)
+        raise RuntimeError(
+            f"metric 0.40m gate already overshot: distance={distance:.3f}m target={stage1:.3f}m"
+        )
+    center_error = _marker_center_error_norm(detection)
+    stage1_ready = bool(
+        detection
+        and center_error is not None
+        and abs(center_error) <= float(recheck.get("center_tolerance_norm", ARUCO_DOCK_CENTER_TOLERANCE_NORM))
+        and marker_close_enough(detection, recheck)
+        and marker_normal_aligned(detection, recheck)
+    )
+    if not stage1_ready:
+        print(f"[dock_transfer] re-align marker={marker_id} at {stage1:.2f}m normal gate")
+        detection = execute_precision_docking(marker_id, recheck)
+    else:
+        print(f"[dock_transfer] marker={marker_id} normal gate already valid at {stage1:.2f}m")
+
+    start_distance = _metric_forward_distance(detection)
+
+    payload.update(
+        {
+            "target_distance_m": stage2,
+            "metric_distance_only": True,
+            "require_normal_alignment": True,
+            "straight_when_normal_aligned": True,
+            "fork_insert_enabled": False,
+            "insert_vision_stop": False,
+            "allow_marker_lost_at_insert_start": False,
+            "marker_lost_grace_sec": 0.0,
+        }
+    )
+    print(
+        f"[dock_transfer] metric straight insert marker={marker_id} "
+        f"{stage1:.2f}m -> {stage2:.2f}m"
+    )
+    final_detection = execute_precision_docking(marker_id, payload)
+    if metric_distance_state(final_detection, payload) != "within":
+        raise RuntimeError("metric straight insert did not finish inside the target distance band")
+    final_distance = _metric_forward_distance(final_detection)
+    if start_distance is not None and final_distance is not None:
+        actual = max(0.0, start_distance - final_distance)
+    else:
+        actual = stage1 - stage2
+    payload["_actual_insert_distance_m"] = actual
+    payload["_requested_insert_distance_m"] = stage1 - stage2
+    return True
+
+
 def execute_fork_insert(payload: Dict[str, Any]):
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
@@ -1486,9 +1858,263 @@ def resolve_dock_reverse_distance_m(payload: Dict[str, Any]) -> float:
     return total
 
 
+def _finite_pose_value(pose: Dict[str, Any], field: str, *, fallback: Optional[str] = None) -> float:
+    value = pose.get(field)
+    if value is None and fallback:
+        value = pose.get(fallback)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise RuntimeError(f"map pose {field} is unavailable") from None
+    if not math.isfinite(number):
+        raise RuntimeError(f"map pose {field} is not finite")
+    return number
+
+
+def _validated_map_pose(
+    pose: Any,
+    *,
+    label: str,
+    source_max_age_sec: Optional[float] = None,
+    captured_max_age_sec: Optional[float] = None,
+) -> Dict[str, Any]:
+    if not isinstance(pose, dict):
+        raise RuntimeError(f"{label}: map pose unavailable")
+    if pose.get("frame_id") != "map":
+        raise RuntimeError(f"{label}: frame_id must be map")
+    source = str(pose.get("source") or "")
+    if source not in {"tf", "amcl_pose"}:
+        raise RuntimeError(f"{label}: live pose source must be tf or amcl_pose")
+    stamp = pose.get("stamp")
+    if not isinstance(stamp, dict) or stamp.get("sec") is None or stamp.get("nanosec") is None:
+        raise RuntimeError(f"{label}: source stamp is unavailable")
+    try:
+        stamp_sec = float(stamp["sec"])
+        stamp_nanosec = float(stamp["nanosec"])
+    except (TypeError, ValueError):
+        raise RuntimeError(f"{label}: source stamp is invalid") from None
+    if (
+        not math.isfinite(stamp_sec)
+        or not math.isfinite(stamp_nanosec)
+        or not stamp_sec.is_integer()
+        or not stamp_nanosec.is_integer()
+        or stamp_sec < 0.0
+        or stamp_nanosec < 0.0
+        or stamp_nanosec >= 1_000_000_000.0
+    ):
+        raise RuntimeError(f"{label}: source stamp is invalid")
+    x = _finite_pose_value(pose, "x")
+    y = _finite_pose_value(pose, "y")
+    yaw = _finite_pose_value(pose, "yaw", fallback="theta")
+    normalized = {
+        **pose,
+        "source": source,
+        "frame_id": "map",
+        "x": x,
+        "y": y,
+        "yaw": yaw,
+        "stamp": {"sec": int(stamp_sec), "nanosec": int(stamp_nanosec)},
+    }
+    if source_max_age_sec is not None:
+        age = _finite_pose_value(pose, "age_sec")
+        if age < 0.0 or age > float(source_max_age_sec):
+            raise RuntimeError(
+                f"{label}: live pose is stale ({age:.3f}s > {float(source_max_age_sec):.3f}s)"
+            )
+        normalized["age_sec"] = age
+    if captured_max_age_sec is not None:
+        captured_at = _finite_pose_value(pose, "captured_at_epoch_sec")
+        captured_age = time.time() - captured_at
+        if captured_age < -1.0 or captured_age > float(captured_max_age_sec):
+            raise RuntimeError(
+                f"{label}: saved return pose is stale ({captured_age:.3f}s)"
+            )
+        normalized["captured_at_epoch_sec"] = captured_at
+    return normalized
+
+
+def _require_localized_for_metric_pose(label: str) -> None:
+    health = robot_context.localization_health()
+    if not isinstance(health, dict) or health.get("localized") is not True:
+        raise RuntimeError(f"{label}: localization is not healthy")
+
+
+def capture_arrived_return_pose(
+    pose: Any, *, source_max_age_sec: float
+) -> Dict[str, Any]:
+    """Capture a fresh live map pose that may later drive physical reverse."""
+    _require_localized_for_metric_pose("metric ARRIVED pose")
+    captured = _validated_map_pose(
+        pose,
+        label="metric ARRIVED pose",
+        source_max_age_sec=source_max_age_sec,
+    )
+    captured["captured_at_epoch_sec"] = time.time()
+    return captured
+
+
+def _current_metric_map_pose(payload: Dict[str, Any], *, label: str) -> Dict[str, Any]:
+    _require_localized_for_metric_pose(label)
+    return _validated_map_pose(
+        runtime.navigator.get_current_pose(),
+        label=label,
+        source_max_age_sec=float(payload.get("return_pose_source_max_age_sec", 1.0)),
+    )
+
+
+def validate_metric_return_pose_preflight(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Fail before insert/lift unless the saved ARRIVED pose is still usable."""
+    target = payload.get("return_target_pose")
+    source_max_age_sec = float(payload.get("return_pose_source_max_age_sec", 1.0))
+    captured_max_age_sec = float(payload.get("return_pose_max_age_sec", 180.0))
+    target_pose = _validated_map_pose(
+        target,
+        label="saved metric return pose preflight",
+        source_max_age_sec=source_max_age_sec,
+        captured_max_age_sec=captured_max_age_sec,
+    )
+    current_pose = _current_metric_map_pose(
+        payload,
+        label="metric return pose preflight live pose",
+    )
+    yaw_tolerance = max(
+        0.001,
+        abs(float(payload.get("return_pose_yaw_tolerance_rad", math.radians(5.0)))),
+    )
+    yaw_error = abs(_normalize_angle(current_pose["yaw"] - target_pose["yaw"]))
+    if yaw_error > yaw_tolerance:
+        raise RuntimeError(
+            "metric return pose preflight yaw mismatch: "
+            f"error={yaw_error:.3f}rad tolerance={yaw_tolerance:.3f}rad"
+        )
+    payload["return_target_pose"] = target_pose
+    return target_pose
+
+
+def execute_reverse_to_map_pose(payload: Dict[str, Any], target: Dict[str, Any]) -> bool:
+    """Reverse straight to a fresh, server-captured map pose."""
+    if not runtime.navigator:
+        raise RuntimeError("runtime.navigator is not initialized")
+    speed = _bounded_metric_motion_value(
+        payload,
+        "reverse_speed",
+        DOCK_REVERSE_SPEED,
+        minimum=0.01,
+        maximum=METRIC_DOCK_REVERSE_MAX_SPEED_MPS,
+    )
+    tolerance = _bounded_metric_motion_value(
+        payload,
+        "reverse_target_tolerance_m",
+        0.015,
+        minimum=0.005,
+        maximum=0.05,
+    )
+    lateral_tolerance = _bounded_metric_motion_value(
+        payload,
+        "reverse_target_lateral_tolerance_m",
+        0.06,
+        minimum=tolerance,
+        maximum=0.10,
+    )
+    control_period = _bounded_metric_motion_value(
+        payload,
+        "reverse_control_period_sec",
+        0.10,
+        minimum=0.05,
+        maximum=0.20,
+    )
+    require_aruco = bool(payload.get("reverse_require_aruco", True))
+    try:
+        target_pose = _validated_map_pose(
+            target,
+            label="saved metric return pose",
+            source_max_age_sec=float(payload.get("return_pose_source_max_age_sec", 1.0)),
+            captured_max_age_sec=float(payload.get("return_pose_max_age_sec", 180.0)),
+        )
+    except Exception:
+        _abort_docking_motion()
+        raise
+    target_x = target_pose["x"]
+    target_y = target_pose["y"]
+    target_yaw = target_pose["yaw"]
+    yaw_tolerance = max(
+        0.001,
+        abs(float(payload.get("return_pose_yaw_tolerance_rad", math.radians(5.0)))),
+    )
+
+    initial = _current_metric_map_pose(payload, label="metric reverse start pose")
+    initial_distance = math.hypot(target_x - initial["x"], target_y - initial["y"])
+    max_duration = _bounded_metric_motion_value(
+        payload,
+        "reverse_target_max_duration_sec",
+        initial_distance / speed * 2.0 + 1.0,
+        minimum=0.5,
+        maximum=METRIC_DOCK_REVERSE_MAX_DURATION_SEC,
+    )
+    deadline = time.monotonic() + max_duration
+    last_log = 0.0
+
+    while time.monotonic() < deadline:
+        try:
+            pose = _current_metric_map_pose(payload, label="metric reverse live pose")
+        except RuntimeError:
+            runtime.navigator.publish_stop_velocity()
+            raise
+        dx = target_x - pose["x"]
+        dy = target_y - pose["y"]
+        distance = math.hypot(dx, dy)
+        yaw = pose["yaw"]
+        yaw_error = abs(_normalize_angle(yaw - target_yaw))
+        if yaw_error > yaw_tolerance:
+            runtime.navigator.publish_stop_velocity()
+            raise RuntimeError(
+                f"metric reverse yaw left the straight corridor: error={yaw_error:.3f}rad"
+            )
+        if distance <= tolerance:
+            runtime.navigator.publish_stop_velocity()
+            print(f"[dock_transfer] exact reverse reached ARRIVED pose (error={distance:.3f}m)")
+            return True
+
+        forward_error = dx * math.cos(target_yaw) + dy * math.sin(target_yaw)
+        lateral_error = -dx * math.sin(target_yaw) + dy * math.cos(target_yaw)
+        if forward_error > tolerance:
+            runtime.navigator.publish_stop_velocity()
+            raise RuntimeError("saved ARRIVED pose is not behind the robot")
+        if abs(lateral_error) > lateral_tolerance:
+            runtime.navigator.publish_stop_velocity()
+            raise RuntimeError(
+                f"saved ARRIVED pose is outside straight reverse corridor: lateral={lateral_error:.3f}m"
+            )
+
+        burst = min(control_period, max(0.05, distance / speed))
+        if not _publish_docking_velocity(
+            payload,
+            "reverse",
+            require_aruco=require_aruco,
+            linear_x=-speed,
+            angular_z=0.0,
+            duration_sec=burst,
+        ):
+            runtime.navigator.publish_stop_velocity()
+            return False
+        now = time.monotonic()
+        if now - last_log >= 1.0:
+            print(
+                f"[dock_transfer] exact reverse remaining={distance:.3f}m "
+                f"lateral={lateral_error:+.3f}m"
+            )
+            last_log = now
+
+    runtime.navigator.publish_stop_velocity()
+    raise RuntimeError("exact dock reverse timed out before ARRIVED pose")
+
+
 def execute_dock_reverse(payload: Dict[str, Any]):
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
+    target = payload.get("return_target_pose")
+    if isinstance(target, dict):
+        return execute_reverse_to_map_pose(payload, target)
     speed = abs(float(payload.get("reverse_speed", DOCK_REVERSE_SPEED)))
     if speed <= 0.0:
         raise ValueError("reverse_speed must be greater than 0")
@@ -1744,7 +2370,9 @@ def execute_aruco_align_step(step: MovementStep):
     return True
 
 
-def execute_dock_transfer_step(step: MovementStep):
+def execute_dock_transfer_step(
+    step: MovementStep, *, metric_docking_admitted: bool = False
+):
     payload = step.payload
     normalize_aruco_payload(payload)
     for field in ("aruco_marker_id", "action", "level"):
@@ -1757,14 +2385,25 @@ def execute_dock_transfer_step(step: MovementStep):
     level = int(payload["level"])
     if level not in (1, 2):
         raise ValueError("dock_transfer level must be 1 or 2")
+    if payload.get("metric_precision_insert") and not metric_docking_admitted:
+        raise ValueError("metric docking requires a server-issued ARRIVED admission")
     apply_slot_fork_defaults(payload, marker_id)
     apply_slot_lift_defaults(payload, marker_id)
     apply_slot_aruco_defaults(payload, marker_id)
+    if payload.get("metric_precision_insert"):
+        payload.setdefault("skip_approach_yaw_rotate", True)
+        payload.setdefault("align_mode", "skip")
     simulation = bool(
         payload.get("dry_run")
         or is_simulation_mode()
         or (runtime.mission_manager and runtime.mission_manager.dry_run)
     )
+    if payload.get("metric_precision_insert") and not simulation:
+        try:
+            validate_metric_return_pose_preflight(payload)
+        except Exception as exc:
+            _abort_docking_motion()
+            raise StageError("return_pose", str(exc)) from exc
     try:
         ensure_lift_ready_for_dock_transfer(simulation=simulation)
     except Exception as exc:
@@ -1815,7 +2454,11 @@ def execute_dock_transfer_step(step: MovementStep):
     except Exception as exc:
         raise StageError("pre_insert_lift", str(exc)) from exc
     try:
-        if not execute_fork_insert(payload):
+        if payload.get("metric_precision_insert"):
+            insert_ok = execute_metric_precision_insert(payload)
+        else:
+            insert_ok = execute_fork_insert(payload)
+        if not insert_ok:
             raise RuntimeError("fork insert failed")
     except Exception as exc:
         raise StageError("insert", str(exc)) from exc

@@ -15,7 +15,7 @@
   "locations": {
     "INBOUND_01": {
       "kind": "inbound",
-      "map_id": "robot1_map",
+      "map_id": "robot2_map",
       "nav_zone": "inbound_slot_1",
       "nav_waypoint": "inbound_slot_1_dock",
       "pose": {
@@ -28,7 +28,7 @@
     },
     "OUTBOUND_01": {
       "kind": "outbound",
-      "map_id": "robot1_map",
+      "map_id": "robot2_map",
       "nav_zone": "outbound_slot_1",
       "nav_waypoint": "outbound_slot_1_dock",
       "pose": {
@@ -41,7 +41,7 @@
     },
     "STORAGE_S1": {
       "kind": "storage",
-      "map_id": "robot1_map",
+      "map_id": "robot2_map",
       "nav_zone": "warehouse_section_a",
       "nav_waypoint": "warehouse_a_dock",
       "pose": {
@@ -54,7 +54,7 @@
     },
     "STORAGE_S2": {
       "kind": "storage",
-      "map_id": "robot1_map",
+      "map_id": "robot2_map",
       "nav_zone": "warehouse_section_b",
       "nav_waypoint": "warehouse_b_dock",
       "pose": {
@@ -67,7 +67,7 @@
     },
     "STORAGE_S3": {
       "kind": "storage",
-      "map_id": "robot1_map",
+      "map_id": "robot2_map",
       "nav_zone": "warehouse_section_c",
       "nav_waypoint": "warehouse_c_dock",
       "pose": {
@@ -80,7 +80,7 @@
     },
     "STORAGE_S4": {
       "kind": "storage",
-      "map_id": "robot1_map",
+      "map_id": "robot2_map",
       "nav_zone": "warehouse_section_d",
       "nav_waypoint": "warehouse_d_dock",
       "pose": {
@@ -93,7 +93,7 @@
     },
     "HOME_01": {
       "kind": "home",
-      "map_id": "robot1_map",
+      "map_id": "robot2_map",
       "nav_zone": "vehicle_1_zone",
       "nav_waypoint": "vehicle_1_dock",
       "pose": {
@@ -143,8 +143,8 @@
       "location_id": "STORAGE_S1",
       "nav_waypoint": "warehouse_a_approach",
       "pose": {
-        "x": 0.026,
-        "y": -0.025,
+        "x": 0.019,
+        "y": -0.618,
         "yaw": 0.0
       },
       "marker_id": 7
@@ -163,8 +163,8 @@
       "location_id": "STORAGE_S3",
       "nav_waypoint": "warehouse_c_approach",
       "pose": {
-        "x": 1.226,
-        "y": -0.025,
+        "x": 1.239,
+        "y": -0.631,
         "yaw": 3.142
       },
       "marker_id": 10

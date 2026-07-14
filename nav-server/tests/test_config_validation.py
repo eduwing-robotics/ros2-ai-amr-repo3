@@ -86,6 +86,68 @@ def test_validate_robot_profile_accepts_lift_config():
     assert not errors
 
 
+def test_metric_docking_live_enable_requires_commissioned_measured_offsets():
+    profile = {
+        "robot_id": "tb3_burger_02",
+        "bridge_robot_id": "tb3_2",
+        "ros_domain_id": 5,
+        "center_domain_id": 1,
+        "namespace": "/tb3_burger_02",
+        "teleop_command_topic": "/mission/tb3_2/teleop_cmd",
+        "camera_topic": "/mission/tb3_2/camera/compressed",
+        "active_map_yaml": "map/robot2_map.yaml",
+        "localization": _localization("robot2_map", "map/robot2_map.yaml"),
+        "field_dispatch": {"inbound": False, "outbound": False, "status": "BLOCKED"},
+        "metric_docking": {
+            "enabled": True,
+            "live_enabled": True,
+            "commissioning_status": "BLOCKED_PENDING_PHYSICAL_VALIDATION",
+            "camera_calibration": "config/camera/tb3_burger_02.json",
+            "camera_to_base": {
+                "measured": False,
+                "target_lateral_offset_m": 0.0,
+                "target_marker_yaw_rad": 0.0,
+            },
+        },
+    }
+
+    errors = validate_robot_profile(profile)
+
+    assert any("commissioning_status=COMMISSIONED" in error for error in errors)
+    assert any("measured camera_to_base" in error for error in errors)
+
+
+def test_metric_docking_accepts_signed_camera_offsets():
+    profile = {
+        "robot_id": "tb3_burger_02",
+        "bridge_robot_id": "tb3_2",
+        "ros_domain_id": 5,
+        "center_domain_id": 1,
+        "namespace": "/tb3_burger_02",
+        "teleop_command_topic": "/mission/tb3_2/teleop_cmd",
+        "camera_topic": "/mission/tb3_2/camera/compressed",
+        "active_map_yaml": "map/robot2_map.yaml",
+        "localization": _localization("robot2_map", "map/robot2_map.yaml"),
+        "field_dispatch": {"inbound": False, "outbound": False, "status": "BLOCKED"},
+        "metric_docking": {
+            "enabled": True,
+            "live_enabled": True,
+            "commissioning_status": "COMMISSIONED",
+            "camera_calibration": "config/camera/tb3_burger_02.json",
+            "camera_to_base": {
+                "measured": True,
+                "target_lateral_offset_m": -0.03,
+                "target_marker_yaw_rad": -0.08,
+            },
+        },
+    }
+
+    errors = validate_robot_profile(profile)
+
+    assert not any("target_lateral_offset_m" in error for error in errors)
+    assert not any("target_marker_yaw_rad" in error for error in errors)
+
+
 def test_global_search_rejects_rotation_and_unsafe_linear_limits():
     localization = _localization()
     localization["global_search"] = {
@@ -306,20 +368,43 @@ def test_robot1_uses_confirmed_map_without_changing_robot_ownership():
 
 
 def test_warehouse_approaches_pass_map_free_space_audit():
-    """Warehouse scan approaches must remain free and 0.18 m clear on robot1_map."""
+    """Warehouse scan approaches must remain free and 0.18 m clear on robot2_map."""
+    import json
     from pathlib import Path
-    import subprocess
-    import sys
+
+    from scripts.validate_zones import (
+        WAREHOUSE_APPROACH_CLEARANCE_M,
+        WAREHOUSE_APPROACH_WAYPOINTS,
+        has_clearance,
+        is_free_cell,
+        parse_origin,
+        read_pgm,
+        read_simple_yaml,
+        world_to_cell,
+    )
 
     root = Path(__file__).resolve().parents[1]
-    result = subprocess.run(
-        [sys.executable, "scripts/validate_zones.py"],
-        cwd=root,
-        env={**__import__("os").environ, "ACTIVE_MAP_YAML": str(root / "map/robot1_map.yaml")},
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "warehouse_a_approach cell=(11, 11) center=(0.026, -0.025) free clearance=0.18m" in result.stdout
-    assert "warehouse_c_approach cell=(35, 11) center=(1.226, -0.025) free clearance=0.18m" in result.stdout
+    map_yaml = read_simple_yaml(root / "map/robot2_map.yaml")
+    zones = json.loads((root / "map/zones.json").read_text(encoding="utf-8"))
+    assert zones["map"]["yaml"] == "robot2_map.yaml"
+    assert zones["map"]["image"] == "robot2_map.pgm"
+    width, height, pixels = read_pgm(root / "map" / map_yaml["image"])
+    resolution = float(map_yaml["resolution"])
+    origin_x, origin_y = parse_origin(map_yaml["origin"])
+    occupied_threshold = float(map_yaml["occupied_thresh"])
+    free_threshold = float(map_yaml["free_thresh"])
+
+    for name in WAREHOUSE_APPROACH_WAYPOINTS:
+        pose = zones["waypoints"][name]
+        cell = world_to_cell(float(pose["x"]), float(pose["y"]), origin_x, origin_y, resolution)
+        assert is_free_cell(cell, width, height, pixels, occupied_threshold, free_threshold), name
+        assert has_clearance(
+            cell,
+            WAREHOUSE_APPROACH_CLEARANCE_M,
+            width,
+            height,
+            pixels,
+            resolution,
+            occupied_threshold,
+            free_threshold,
+        ), name

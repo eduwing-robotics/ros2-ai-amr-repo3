@@ -59,6 +59,23 @@ def _validate_number(robot_id: str, lift: Mapping[str, Any], field: str, errors:
         errors.append(f"{robot_id}: {field} must be >= {minimum}")
 
 
+def _validate_finite_number(
+    robot_id: str,
+    values: Mapping[str, Any],
+    field: str,
+    errors: List[str],
+) -> None:
+    if field not in values:
+        return
+    try:
+        value = float(values[field])
+    except (TypeError, ValueError):
+        errors.append(f"{robot_id}: {field} must be numeric")
+        return
+    if not math.isfinite(value):
+        errors.append(f"{robot_id}: {field} must be finite")
+
+
 def _integer(value: Any) -> int:
     if isinstance(value, bool):
         raise ValueError("boolean is not an integer setting")
@@ -110,6 +127,49 @@ def validate_lift_config(robot_id: str, lift: Any) -> List[str]:
                     continue
                 for field in ("load_height_mm", "unload_height_mm"):
                     _validate_number(robot_id, values, field, errors)
+    return errors
+
+
+def validate_metric_docking_config(robot_id: str, metric: Any) -> List[str]:
+    errors: List[str] = []
+    if metric in (None, ""):
+        return errors
+    if not isinstance(metric, Mapping):
+        return [f"{robot_id}: metric_docking must be an object"]
+    for field in ("enabled", "live_enabled"):
+        if not isinstance(metric.get(field), bool):
+            errors.append(f"{robot_id}: metric_docking.{field} must be boolean")
+    status = str(metric.get("commissioning_status", "")).strip()
+    if not status:
+        errors.append(f"{robot_id}: metric_docking.commissioning_status is required")
+    if metric.get("enabled") is True:
+        if not str(metric.get("camera_calibration", "")).strip():
+            errors.append(f"{robot_id}: metric_docking.camera_calibration is required when enabled")
+        camera_to_base = metric.get("camera_to_base")
+        if not isinstance(camera_to_base, Mapping):
+            errors.append(f"{robot_id}: metric_docking.camera_to_base must be an object")
+        else:
+            if not isinstance(camera_to_base.get("measured"), bool):
+                errors.append(f"{robot_id}: metric_docking.camera_to_base.measured must be boolean")
+            for field in ("target_lateral_offset_m", "target_marker_yaw_rad"):
+                _validate_finite_number(robot_id, camera_to_base, field, errors)
+    if metric.get("live_enabled") is True:
+        if status != "COMMISSIONED":
+            errors.append(
+                f"{robot_id}: metric_docking.live_enabled requires commissioning_status=COMMISSIONED"
+            )
+        camera_to_base = metric.get("camera_to_base")
+        if not isinstance(camera_to_base, Mapping) or camera_to_base.get("measured") is not True:
+            errors.append(
+                f"{robot_id}: metric_docking.live_enabled requires measured camera_to_base"
+            )
+    for field in (
+        "max_reprojection_error_px",
+        "return_pose_source_max_age_sec",
+        "return_pose_max_age_sec",
+        "return_pose_yaw_tolerance_rad",
+    ):
+        _validate_number(robot_id, metric, field, errors)
     return errors
 
 
@@ -404,6 +464,7 @@ def validate_robot_profile(robot: Mapping[str, Any]) -> List[str]:
         if localization.get("map_id") != Path(active_map_yaml).stem:
             errors.append(f"{robot_id}: localization.map_id must equal active_map_yaml stem")
     errors.extend(validate_lift_config(robot_id, robot.get("lift")))
+    errors.extend(validate_metric_docking_config(robot_id, robot.get("metric_docking")))
     errors.extend(validate_localization_config(robot_id, robot.get("localization")))
     return errors
 

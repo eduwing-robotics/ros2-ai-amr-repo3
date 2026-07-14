@@ -17,12 +17,13 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 import rclpy
+from aruco_pose_geometry import estimate_marker_pose
+from camera_calibration import load_calibration, scale_camera_matrix
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import String
-
 
 ARUCO_DICTIONARIES = {
     "DICT_4X4_50": cv2.aruco.DICT_4X4_50,
@@ -79,6 +80,7 @@ class ArucoDetectorNode(Node):
         self.declare_parameter("dictionary", os.getenv("ARUCO_DICTIONARY", "DICT_4X4_50"))
         self.declare_parameter("marker_size_m", float(os.getenv("ARUCO_MARKER_SIZE_M", "0.05")))
         self.declare_parameter("focal_length_px", float(os.getenv("ARUCO_FOCAL_LENGTH_PX", "0")))
+        self.declare_parameter("calibration_file", os.getenv("ARUCO_CALIBRATION_FILE", ""))
         self.declare_parameter("camera_matrix", os.getenv("ARUCO_CAMERA_MATRIX", ""))
         self.declare_parameter("dist_coeffs", os.getenv("ARUCO_DIST_COEFFS", ""))
         self.declare_parameter("publish_empty", os.getenv("ARUCO_PUBLISH_EMPTY", "1") not in ("0", "false", "False"))
@@ -103,6 +105,21 @@ class ArucoDetectorNode(Node):
 
         self.camera_matrix = self._camera_matrix_from_param(self.get_parameter("camera_matrix").value)
         self.dist_coeffs = self._dist_coeffs_from_param(self.get_parameter("dist_coeffs").value)
+        self.calibration_metadata: Dict[str, Any] = {}
+        self._calibration_resolution_warning_logged = False
+        calibration_file = str(self.get_parameter("calibration_file").value).strip()
+        if calibration_file:
+            try:
+                self.camera_matrix, self.dist_coeffs, self.calibration_metadata = load_calibration(
+                    calibration_file
+                )
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                raise ValueError(f"invalid camera calibration file {calibration_file}: {exc}") from exc
+            self.get_logger().info(
+                f"loaded camera calibration {calibration_file} for "
+                f"{self.calibration_metadata['image_width']}x{self.calibration_metadata['image_height']} "
+                f"(RMS={self.calibration_metadata.get('rms_reprojection_error_px', 'unknown')}px)"
+            )
 
         # Camera frames are sensor samples: no reliable backlog may turn an old frame
         # into a current docking observation.  Keep the bounded depth explicit.
@@ -142,24 +159,45 @@ class ArucoDetectorNode(Node):
             return detector.detectMarkers(gray)
         return cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
 
-    def _estimate_distance(self, marker_width_px: float, corner) -> Optional[float]:
-        if marker_width_px <= 0:
+    def _camera_matrix_for_image(self, width: int, height: int) -> Optional[np.ndarray]:
+        if self.camera_matrix is None:
             return None
-        if self.camera_matrix is not None and self.dist_coeffs is not None and hasattr(cv2.aruco, "estimatePoseSingleMarkers"):
+        calibrated_width = int(self.calibration_metadata.get("image_width") or 0)
+        calibrated_height = int(self.calibration_metadata.get("image_height") or 0)
+        if calibrated_width <= 0 or calibrated_height <= 0:
+            return self.camera_matrix
+        try:
+            return scale_camera_matrix(
+                self.camera_matrix,
+                calibrated_width=calibrated_width,
+                calibrated_height=calibrated_height,
+                image_width=width,
+                image_height=height,
+            )
+        except ValueError as exc:
+            if not self._calibration_resolution_warning_logged:
+                self.get_logger().error(str(exc))
+                self._calibration_resolution_warning_logged = True
+            return None
+
+    def _estimate_pose(self, marker_width_px: float, corner, width: int, height: int) -> Dict[str, Any]:
+        if marker_width_px <= 0:
+            return {}
+        camera_matrix = self._camera_matrix_for_image(width, height)
+        if camera_matrix is not None and self.dist_coeffs is not None:
             try:
-                _, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
-                    np.array([corner], dtype=np.float32),
-                    self.marker_size_m,
-                    self.camera_matrix,
-                    self.dist_coeffs,
+                return estimate_marker_pose(
+                    corner.reshape((4, 2)),
+                    marker_size_m=self.marker_size_m,
+                    camera_matrix=camera_matrix,
+                    dist_coeffs=self.dist_coeffs,
                 )
-                tvec = tvecs[0][0]
-                return float(np.linalg.norm(tvec))
             except Exception as exc:
                 self.get_logger().debug(f"pose estimate failed: {exc}")
         if self.focal_length_px > 0 and self.marker_size_m > 0:
-            return float(self.marker_size_m * self.focal_length_px / marker_width_px)
-        return None
+            distance = float(self.marker_size_m * self.focal_length_px / marker_width_px)
+            return {"estimated_distance_m": distance, "forward_distance_m": distance}
+        return {}
 
     def _image_callback(self, msg: CompressedImage):
         self.frames_seen += 1
@@ -191,7 +229,7 @@ class ArucoDetectorNode(Node):
                 center_y = float(np.mean(pts[:, 1]))
                 error_px = center_x - (width / 2.0)
                 error_norm = error_px / max(1.0, width / 2.0)
-                estimated_distance = self._estimate_distance(marker_width_px, corner)
+                marker_pose = self._estimate_pose(marker_width_px, corner, width, height)
                 detection = {
                     "marker_id": int(marker_id),
                     "center_px": [center_x, center_y],
@@ -204,8 +242,10 @@ class ArucoDetectorNode(Node):
                     "image_height": int(height),
                     "corners_px": pts.tolist(),
                 }
-                if estimated_distance is not None and math.isfinite(estimated_distance):
-                    detection["estimated_distance_m"] = estimated_distance
+                for key, value in marker_pose.items():
+                    if isinstance(value, float) and not math.isfinite(value):
+                        continue
+                    detection[key] = value
                 detections.append(detection)
 
         if detections or self.publish_empty:

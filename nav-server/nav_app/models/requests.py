@@ -1,7 +1,6 @@
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel, Field, PrivateAttr
 from route_builder import DEFAULT_RETURN_WAYPOINT
 
 
@@ -18,6 +17,15 @@ class MovementCommandRequest(BaseModel):
     robot_name: str
     steps: List[MovementStep]
     callback_url: Optional[str] = Field(default=None, description="명령 상태 이벤트를 받을 관제 callback URL")
+    # Set only by the in-process RobotCommand adapter after it consumes a
+    # server-issued ARRIVED gate. It is never part of the HTTP/JSON contract.
+    _metric_docking_admitted: bool = PrivateAttr(default=False)
+
+    def admit_metric_docking(self) -> None:
+        self._metric_docking_admitted = True
+
+    def metric_docking_admitted(self) -> bool:
+        return self._metric_docking_admitted
 
 
 class RobotCommandRequest(BaseModel):

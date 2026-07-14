@@ -3,7 +3,7 @@
 상태: Active
 분류: Runbook
 작성: 2026-06-25 00:00 KST
-최종 갱신: 2026-07-05 19:35 KST
+최종 갱신: 2026-07-14 KST
 목적: Pi Camera, ArUco 검출, Movement API, LMS 원자 명령 흐름 실행 절차를 정의한다.
 
 이 문서는 전원을 켠 뒤 Pi Camera, ArUco 검출, Movement API, LMS 원자 명령 흐름까지 처음부터 실행하는 절차다. 로봇 2대 bringup, Navigation2/RViz, Nav 서버, LMS 명령 전송까지 한 번에 보는 전체 순서는 [RUNBOOK_LMS_FULL_STARTUP.md](RUNBOOK_LMS_FULL_STARTUP.md)를 기준으로 한다.
@@ -213,6 +213,8 @@ Nav PC에서 이 명령을 그대로 실행하면 Pi Camera component가 없어 
 [aruco_detector_node]: ArUco detector subscribed to /camera/image_raw/compressed, publishing /mission/tb3_1/aruco/detections
 ```
 
+TB2는 `config/camera/tb3_burger_02.json`을 자동으로 읽고 로그에 calibration 경로를 표시한다. TB1 calibration 파일이 없으면 metric pose를 만들지 않으며 TB2 파일을 복사해 사용하지 않는다.
+
 ## 3. Nav PC 또는 관제 PC에서 domain bridge 실행
 
 center domain에서 ArUco detection 토픽을 보고, center에서 teleop 명령을 보낼 수 있게 bridge를 실행한다. 현재 카메라 원본은 로봇 domain의 `/camera/image_raw/compressed`를 detector 입력으로 직접 사용한다. center domain에서 반드시 확인해야 하는 표준 출력은 ArUco detection 토픽이다.
@@ -286,6 +288,7 @@ curl "http://127.0.0.1:8001/movement-api/v1/aruco/latest?marker_id=0"
 - `center_error_norm`
 - `marker_width_px`
 - `estimated_distance_m` (카메라 matrix 또는 focal length 설정 시)
+- `forward_distance_m`, `lateral_offset_m`, `marker_yaw_rad` (로봇별 calibration이 있을 때)
 
 검출이 비어 있으면 다음을 확인한다.
 
@@ -306,23 +309,27 @@ ros2 topic echo /mission/tb3_1/aruco/detections
 
 ## 5.1 도킹 알고리즘 개요
 
-슬롯·대기장 도킹은 **하이브리드 3단계**다. 이 문서의 알고리즘·튜닝값이 현재 운영 기준이다.
+슬롯·대기장 도킹은 Nav2와 ArUco를 연결한다. pallet metric transfer는 카메라 보정만으로 켜지지 않고 로봇별 현장 commissioning까지 끝난 경우에만 사용한다.
 
 | 구간 | 알고리즘 | 입력 | 출력 |
 | --- | --- | --- | --- |
 | approach | Nav2 (AMCL + planner) | 맵, 라이다, pose | approach xy 근처 |
-| 정렬 | ArUco visual servoing (closed-loop) | 마커 center/width | yaw·전진 보정 |
-| insert / 후진 | Time-based open-loop | calibrated distance, speed | 벽 접촉·이탈 |
+| 정렬 | ArUco visual servoing (closed-loop) | center와 보정 pose | 마커 법선·standoff 정렬 |
+| insert / 후진 | metric closed-loop + map pose return | forward distance, 저장 pose | 직선 진입·원위치 복귀 |
 
-**English one-liner:** Hybrid docking — Nav2 global navigation + ArUco visual alignment + calibrated open-loop fork insert/reverse.
+**English one-liner:** Hybrid docking — Nav2 global navigation + calibrated ArUco closed-loop alignment and distance-bounded straight transfer/return.
 
 ```
-LMS / script
+Main
   → move_to_point (Nav2)
-  → aruco_align (visual, full or center_only)
+  → ArUco 법선 0.40m 정렬, 실제 map pose 저장, ARRIVED
+  → AI gate (unload 전 PRE_DROP_OFF / load 후 Main POST_PICK_UP, AI operation=PICK_UP)
   → dock_transfer
-       pre-insert centering → insert (+slip) → dwell → reverse (insert only)
+       필요한 lift 높이 준비 → 법선 재확인 → 0.18/0.20m 직선 진입
+       → load/unload → 저장한 pose로 직선 후진
 ```
+
+이 흐름은 구현·nohardware 검증이 끝난 **현장 후보**다. 현재 checked-in `tb3_burger_02.metric_docking.live_enabled=false`이며, camera-to-base 목표 offset 측정과 실물 검증 뒤 `commissioning_status=COMMISSIONED`까지 함께 설정해야 활성화된다. `tb3_burger_01`은 TB2 intrinsics를 빌리지 않는다. TB1의 `tb1-synthetic-hil`은 실제 base/Nav/도킹 경로를 유지하고 lift만 virtual backend로 바꾸며 결과는 `nonphysical`이다.
 
 ## 6. LMS 원자 명령 흐름
 
@@ -331,12 +338,12 @@ LMS / script
 ### 6.1 move_to_point로 approach 도착
 
 ```bash
-curl -X POST http://127.0.0.1:8001/robot-commands \
+curl -X POST http://127.0.0.1:8002/robot-commands \
   -H 'Content-Type: application/json' \
   -d '{
     "command_id": "cmd-move-warehouse-a-approach",
     "task_id": 42,
-    "robot_id": "tb3_1",
+    "robot_id": "tb3_2",
     "kind": "move_to_point",
     "dry_run": false,
     "params": {"waypoint_id": "warehouse_a_approach"}
@@ -348,46 +355,30 @@ curl -X POST http://127.0.0.1:8001/robot-commands \
 ### 6.2 dock_transfer 실행
 
 ```bash
-curl -X POST http://127.0.0.1:8001/robot-commands \
+curl -X POST http://127.0.0.1:8002/robot-commands \
   -H 'Content-Type: application/json' \
   -d '{
     "command_id": "cmd-dock-load-001",
     "task_id": 42,
-    "robot_id": "tb3_1",
+    "robot_id": "tb3_2",
     "kind": "dock_transfer",
     "dry_run": false,
-    "params": {"aruco_marker_id": 17, "action": "load", "level": 1}
+    "params": {"aruco_marker_id": 7, "action": "load", "level": 1}
   }'
 ```
 
-`dock_transfer`는 직전 `ARRIVED` 게이트가 없으면 `409`로 거절된다. LMS 계약은 그대로이고, Movement 내부 블록은 아래 순서다.
+`dock_transfer`는 직전 `ARRIVED` 게이트가 없으면 `409`로 거절된다. 외부 Movement payload가 metric 필드를 직접 넣어도 거절된다. metric 경로에서 요청자가 지정할 수 있는 값은 marker·`action`·`level`뿐이며, 속도·제어주기·센서 freshness·복귀 제한은 Nav의 검증된 profile/default가 소유한다. commissioning 뒤 사용할 TB2 metric pallet 후보 순서는 다음과 같다.
 
-1. (선택) approach map yaw 회전
-2. ArUco 마커 획득
-3. 정렬 (`align_mode`: 벽 밀착 슬롯은 approach에서 `full` 완료 시 `skip`)
-4. **pre-insert centering** — 마커 중앙 맞출 때까지 회전·소폭 creep (최대 4사이클)
-5. **fork insert** — `zones.json`의 `fork_insert_distance_m` + `FORK_INSERT_SLIP_COMPENSATION_M`(기본 +2cm)
-6. **post-insert dwell** — 리프트 미연동 시 기본 4초 대기
-7. 리프트 (연동 시)
-8. **후진** — insert **실측 거리만** (`_actual_insert_distance_m`). approach `full align` 전진분은 후진에 포함하지 않음
+1. `ARRIVED` gate의 marker, 0.40m map pose, metric profile 일치 확인
+2. 작업 level에 필요한 pre-insert lift 높이 준비
+3. 같은 marker의 중심, lateral offset, yaw를 다시 확인하고 필요하면 0.40m에서 재정렬
+4. 조향을 `0`으로 잠그고 A/B는 0.18m, C/D·입고·출고는 0.20m까지 전진
+5. load 또는 unload 실행
+6. 저장한 0.40m map pose까지 짧은 안전 제어 주기로 직선 후진
 
-파레트 작업에서는 ArUco를 끝까지 보려고 하지 않는다. 가까워지면 마커가 카메라 시야 밖으로 나갈 수 있기 때문이다. Movement는 마커가 다음 조건을 만족할 때 insert를 허용한다.
+보정 pose가 없거나 marker가 바뀌거나 0.40m 허용 band보다 이미 가깝거나 직선 진입 중 법선 정렬이 벗어나면 즉시 실패한다. 복귀 pose도 `map` frame, live TF/AMCL source, freshness, localization, yaw를 검증한다. metric 경로는 marker width, time-based insert, slip compensation으로 대체하지 않는다.
 
-- 중심 오차가 `ARUCO_DOCK_CENTER_TOLERANCE_NORM`(기본 0.03) 안에 있음
-- marker width가 `ARUCO_DOCK_TARGET_WIDTH_PX * ARUCO_DOCK_LOST_ACCEPT_WIDTH_RATIO` 이상이거나 추정 거리가 목표 근처임
-- 위 조건을 만족하지 않은 상태에서 마커가 사라지면 `align` 실패로 정지
-
-삽입은 `fork_insert_speed_mps`(기본 0.035m/s)로 오픈루프 직진한다. `FORK_INSERT_MAX_DURATION_SEC`(기본 20s)가 설정 거리를 자르지 않도록 필요 시 자동 연장된다.
-
-**슬롯별 insert 거리**는 `map/zones.json` 각 `*_approach`의 `fork_insert_distance_m`을 우선한다. tb3_2 실측 예: 입고2 0.385m, B슬롯 0.375m, 출고1 0.345m (런타임 +2cm 슬립 보정 별도).
-
-**벽 밀착 슬롯** (`inbound_slot_*`, `outbound_slot_*`, `warehouse_a/b_approach`): `move_to_point` 후 자동 `aruco_align(align_mode=full)` 체인. **대기장** (`vehicle_*`): `center_only`만 사용.
-
-**tb3_2 E2E 스크립트 예:**
-
-```bash
-ROBOT_ID=tb3_2 bash scripts/run_inbound2_b_outbound1_wait2_scenario.sh
-```
+TB1과 calibration이 없는 로봇은 기존 center/width 기반 align·insert 경로를 유지한다. `tb1-synthetic-hil`도 이 경로에서 lift 호출만 virtual backend로 바꾼다. 대기장(`vehicle_*`)은 pallet metric profile을 사용하지 않는다. 입·출고 합격 판정은 로컬 시나리오 스크립트가 아니라 Main task orchestration으로 수행한다.
 
 ### 6.3 aruco_align 실행
 
@@ -509,7 +500,17 @@ curl -X POST http://127.0.0.1:8001/movement-api/v1/routes/commands \
 
 ## 10. 정밀주차와 포크 삽입 튜닝값
 
-환경변수로 조정한다.
+TB2 metric pallet 경로의 구현 후보값은 `map/zones.json`의 각 `*_approach.metric_two_stage`가 정본이다. 실물 commissioning 전에는 운영값으로 보지 않는다.
+
+- stage 1: `0.40m`
+- stage 2: A/B `0.18m`, C/D·입고·출고 `0.20m`
+- lateral tolerance: `0.04m`
+- yaw tolerance: `5deg`
+- distance band: target `±0.02m`
+- final stage: `straight_when_normal_aligned=true`
+- pixel/time insert: 사용하지 않음
+
+아래 환경변수는 calibration이 없는 TB1 또는 수동 호환 시험 경로에만 적용한다.
 
 ```bash
 export ARUCO_DOCK_TARGET_WIDTH_PX=65
@@ -528,7 +529,7 @@ export DOCK_REVERSE_SPEED=0.05
 export DOCK_REVERSE_DURATION_SEC=0.7
 ```
 
-기본 기준:
+호환 경로 기준:
 
 - 접근 waypoint: 마커 벽에서 약 `0.4~0.6m` 앞
 - 정밀주차 완료: 포크 삽입 시작 위치. 현재 5cm marker 기준으로 `marker_width_px ~= 65`가 성공 기준
@@ -536,7 +537,7 @@ export DOCK_REVERSE_DURATION_SEC=0.7
 - 마커가 가까워져 사라져도 마지막 검출값이 중심 허용오차 안이고 목표 폭의 `ARUCO_DOCK_LOST_ACCEPT_WIDTH_RATIO` 이상이면 삽입 시작 위치로 인정한다.
 - 이후 ArUco를 더 따라가지 않고 `FORK_INSERT_DISTANCE_M`만큼 저속 직진해서 포크를 넣는다.
 
-현장 튜닝 순서:
+호환 경로 현장 튜닝 순서:
 
 1. `ARUCO_DOCK_TARGET_WIDTH_PX`를 조정해 로봇이 파레트 입구 앞 적절한 거리에서 멈추게 한다.
 2. `ARUCO_DOCK_CENTER_TOLERANCE_NORM`을 조정해 포크가 파레트 입구 중앙에 들어가도록 한다.
@@ -560,13 +561,11 @@ ros2 run lift_bridge lift_bridge
 
 Movement 서버는 `config/robots.json`의 `tb3_burger_02.lift.enabled=true` 설정을 보고 `dock_transfer`의 lift 단계에서 `/lift/cmd_move` 또는 `/lift/cmd_home`을 publish한다.
 
-기본 동작:
+현재 slot profile 동작:
 
 ```text
-action=load, level=1 -> 43mm
-action=load, level=2 -> 50mm
-action=unload -> 6mm
-action=unload + home_on_unload=true -> HOME
+level=1 load -> pre_insert 0mm -> load 6mm -> carry 6mm
+level=2 unload -> pre_insert 50mm -> unload 43mm
 ```
 
 로봇1에 리프트를 장착하면 로봇1 SBC에서 같은 lift bridge를 `ROS_DOMAIN_ID=2`로 실행하고, `config/robots.json`의 `tb3_burger_01.lift.enabled`를 `true`로 바꾼다. 각 로봇은 domain이 다르므로 `/lift/*` 토픽 이름은 그대로 유지한다.

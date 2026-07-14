@@ -8,16 +8,19 @@ from fastapi import HTTPException
 from nav_app.adapters.callbacks import post_json_callback as _post_json_callback
 from nav_app.adapters.callbacks import post_main_callback as _post_main_callback
 from nav_app.runtime import runtime
-from nav_app.settings import ACTIVE_ROBOT_ID, GATE_TIMEOUT_SEC, is_simulation_mode
-from nav_app.util.time import utc_now as _utc_now
+from nav_app.services.lift_backends import lift_provenance
 from nav_app.services.robot_context import (
     report_movement_robot_status as _report_movement_robot_status,
 )
 from nav_app.services.status_helpers import (
     movement_result_from_state as _movement_result_from_state,
+)
+from nav_app.services.status_helpers import (
     stage_for_step_action as _stage_for_step_action,
 )
-from nav_app.services.lift_backends import lift_provenance
+from nav_app.settings import ACTIVE_ROBOT_ID, GATE_TIMEOUT_SEC, is_simulation_mode
+from nav_app.util.time import utc_now as _utc_now
+
 
 def release_traffic_locks_for_command(command: Dict[str, Any]):
     if not runtime.traffic_manager:
@@ -135,6 +138,9 @@ def record_arrived_gate(command: Dict[str, Any]):
         "gate_timeout_sec": gate_timeout_sec,
         "post_align_done": bool(command.get("post_align_done")),
         "nav_position_only": bool(command.get("nav_position_only_approach")),
+        "arrived_return_pose": command.get("arrived_return_pose"),
+        "arrived_marker_id": command.get("arrived_marker_id"),
+        "metric_docking_profile": command.get("metric_docking_profile"),
     }
     runtime.last_arrived_gate_by_robot[command.get("robot_name")] = gate
     command["robot_at"] = "approach"

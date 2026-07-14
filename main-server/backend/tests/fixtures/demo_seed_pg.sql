@@ -8,25 +8,25 @@ INSERT INTO items (id, name) VALUES
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO maps (map_id, name, image_url) VALUES
-    ('robot1_map', 'Robot 1 Map', '')
+    ('robot2_map', 'Robot 2 Map', '')
 ON CONFLICT (map_id) DO NOTHING;
 
 INSERT INTO locations (id, type, status, x, y, yaw, marker_id, map_id) VALUES
-    ('INBOUND_01',  'inbound',  'ACTIVE', -0.04, 1.082, 1.655, 0, 'robot1_map'),
-    ('OUTBOUND_01', 'outbound', 'ACTIVE', 1.327, 0.27, -1.57, 5, 'robot1_map'),
-    ('STORAGE_S1',  'storage',  'ACTIVE', 0.327, 0.573, -0.155, 7, 'robot1_map'),
-    ('STORAGE_S2',  'storage',  'ACTIVE', 0.74, 0.992, 0.0, 8, 'robot1_map'),
-    ('STORAGE_S3',  'storage',  'ACTIVE', 1.06, 1.236, 3.14, 10, 'robot1_map'),
-    ('STORAGE_S4',  'storage',  'ACTIVE', 1.06, 0.992, 3.14, 9, 'robot1_map'),
-    ('HOME_01',     'home',     'ACTIVE', 0.765, 0.33, -1.57, 3, 'robot1_map'),
+    ('INBOUND_01',  'inbound',  'ACTIVE', -0.04, 1.082, 1.655, 0, 'robot2_map'),
+    ('OUTBOUND_01', 'outbound', 'ACTIVE', 1.327, 0.27, -1.57, 5, 'robot2_map'),
+    ('STORAGE_S1',  'storage',  'ACTIVE', 0.327, 0.573, -0.155, 7, 'robot2_map'),
+    ('STORAGE_S2',  'storage',  'ACTIVE', 0.74, 0.992, 0.0, 8, 'robot2_map'),
+    ('STORAGE_S3',  'storage',  'ACTIVE', 1.06, 1.236, 3.14, 10, 'robot2_map'),
+    ('STORAGE_S4',  'storage',  'ACTIVE', 1.06, 0.992, 3.14, 9, 'robot2_map'),
+    ('HOME_01',     'home',     'ACTIVE', 0.765, 0.33, -1.57, 3, 'robot2_map'),
     ('CHARGE_01',   'charge',   'ACTIVE', 0.836, 0.953, 1.394, 4, 'robot1_map'),
-    ('scan_INBOUND_01',  'scan', 'ACTIVE', -0.085, 0.006, 1.571, 0, 'robot1_map'),
-    ('scan_OUTBOUND_01', 'scan', 'ACTIVE', 1.131, 0.006, 1.571, 5, 'robot1_map'),
-    ('scan_STORAGE_S1',  'scan', 'ACTIVE', 0.026, -0.025, 0.0, 7, 'robot1_map'),
-    ('scan_STORAGE_S2',  'scan', 'ACTIVE', 0.033, -0.376, 0.0, 8, 'robot1_map'),
-    ('scan_STORAGE_S3',  'scan', 'ACTIVE', 1.226, -0.025, 3.142, 10, 'robot1_map'),
-    ('scan_STORAGE_S4',  'scan', 'ACTIVE', 1.225, -0.377, 3.142, 9, 'robot1_map'),
-    ('scan_HOME_01',     'scan', 'ACTIVE', 0.527, 0.006, 1.571, 3, 'robot1_map'),
+    ('scan_INBOUND_01',  'scan', 'ACTIVE', -0.085, 0.006, 1.571, 0, 'robot2_map'),
+    ('scan_OUTBOUND_01', 'scan', 'ACTIVE', 1.131, 0.006, 1.571, 5, 'robot2_map'),
+    ('scan_STORAGE_S1',  'scan', 'ACTIVE', 0.019, -0.618, 0.0, 7, 'robot2_map'),
+    ('scan_STORAGE_S2',  'scan', 'ACTIVE', 0.033, -0.376, 0.0, 8, 'robot2_map'),
+    ('scan_STORAGE_S3',  'scan', 'ACTIVE', 1.239, -0.631, 3.142, 10, 'robot2_map'),
+    ('scan_STORAGE_S4',  'scan', 'ACTIVE', 1.225, -0.377, 3.142, 9, 'robot2_map'),
+    ('scan_HOME_01',     'scan', 'ACTIVE', 0.527, 0.006, 1.571, 3, 'robot2_map'),
     ('scan_CHARGE_01',   'scan', 'ACTIVE', 0.816, 0.006, 1.571, 4, 'robot1_map')
 ON CONFLICT (id) DO NOTHING;
 

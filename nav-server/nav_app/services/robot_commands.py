@@ -1,19 +1,48 @@
 """Robot-commands API to movement command adaptation."""
 import json
+import math
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
 from nav_app.models import MovementCommandRequest, MovementStep, RobotCommandRequest
-from nav_app.services import capabilities
 from nav_app.runtime import runtime
-from nav_app.settings import GATE_TIMEOUT_SEC, ROOT
+from nav_app.services import capabilities
 from nav_app.services.command_state import consume_arrived_gate as _consume_arrived_gate
-from nav_app.services.robot_context import active_bridge_robot_id as _active_bridge_robot_id
-
+from nav_app.services.robot_context import (
+    active_bridge_robot_id as _active_bridge_robot_id,
+)
+from nav_app.settings import (
+    GATE_TIMEOUT_SEC,
+    METRIC_DOCK_CONTROL_PERIOD_SEC,
+    METRIC_DOCK_FRESHNESS_SEGMENT_SEC,
+    METRIC_DOCK_REVERSE_CONTROL_PERIOD_SEC,
+    METRIC_DOCK_REVERSE_MAX_DURATION_SEC,
+    METRIC_DOCK_REVERSE_MAX_SPEED_MPS,
+    METRIC_DOCK_REVERSE_SPEED_MPS,
+    METRIC_DOCK_SENSOR_MAX_AGE_SEC,
+    ROBOTS_CONFIG_PATH,
+    ROOT,
+)
 
 NAV_ARUCO_FINALS = {"hold", "return_approach"}
 MAIN_ARUCO_FINAL_ALIASES = {"park": "hold", "charge": "hold"}
+METRIC_DOCKING_RESERVED_FIELDS = {
+    "metric_precision_insert",
+    "metric_distance_only",
+    "metric_docking_profile",
+    "stage1_target_distance_m",
+    "return_target_pose",
+    "reverse_target_tolerance_m",
+    "reverse_target_lateral_tolerance_m",
+    "reverse_require_aruco",
+    "target_lateral_offset_m",
+    "target_marker_yaw_rad",
+    "require_pose_quality",
+    "max_reprojection_error_px",
+}
+METRIC_DOCKING_CLIENT_FIELDS = frozenset({"aruco_marker_id", "action", "level"})
 
 
 def normalize_aruco_final_payload(payload: Dict[str, Any]) -> None:
@@ -96,6 +125,330 @@ def aruco_align_defaults_for_marker(marker_id: int) -> Dict[str, Any]:
     waypoint = load_waypoint_goals().get(waypoint_id) or {}
     defaults = waypoint.get("aruco_align")
     return defaults if isinstance(defaults, dict) else {}
+
+
+def metric_two_stage_for_waypoint(waypoint_id: Optional[str]) -> Dict[str, Any]:
+    """Return an enabled metric docking profile for a pallet-slot approach."""
+    if not waypoint_id:
+        return {}
+    waypoint = load_waypoint_goals().get(str(waypoint_id)) or {}
+    profile = waypoint.get("metric_two_stage")
+    if not isinstance(profile, dict) or profile.get("enabled") is not True:
+        return {}
+    return dict(profile)
+
+
+def _robot_profile(robot_id: str) -> Dict[str, Any]:
+    """Load a robot from the configured manifest instead of a fixed file."""
+    document = json.loads(ROBOTS_CONFIG_PATH.read_text(encoding="utf-8"))
+    for profile in document.get("robots", []):
+        if robot_id in (profile.get("robot_id"), profile.get("bridge_robot_id")):
+            return dict(profile)
+    return {}
+
+
+def _config_path(value: Any) -> Optional[Path]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    path = Path(value.strip())
+    return path if path.is_absolute() else ROOT / path
+
+
+def metric_pose_calibration_available(robot_id: str) -> bool:
+    """Report camera calibration only; calibration never admits live motion alone."""
+    metric = _robot_profile(robot_id).get("metric_docking")
+    if not isinstance(metric, dict):
+        return False
+    calibration = _config_path(metric.get("camera_calibration"))
+    return bool(calibration and calibration.is_file())
+
+
+def metric_docking_live_config(robot_id: str) -> Dict[str, Any]:
+    """Return a commissioned robot-scoped metric config or fail closed with {}."""
+    robot = _robot_profile(robot_id)
+    metric = robot.get("metric_docking")
+    if not isinstance(metric, dict):
+        return {}
+    if metric.get("enabled") is not True or metric.get("live_enabled") is not True:
+        return {}
+    if metric.get("commissioning_status") != "COMMISSIONED":
+        return {}
+    calibration = _config_path(metric.get("camera_calibration"))
+    camera_to_base = metric.get("camera_to_base")
+    if not calibration or not calibration.is_file():
+        return {}
+    if not isinstance(camera_to_base, dict) or camera_to_base.get("measured") is not True:
+        return {}
+    try:
+        lateral = float(camera_to_base["target_lateral_offset_m"])
+        yaw = float(camera_to_base["target_marker_yaw_rad"])
+        reprojection = float(metric.get("max_reprojection_error_px", 2.0))
+        source_max_age = float(
+            metric.get(
+                "return_pose_source_max_age_sec",
+                (robot.get("localization") or {}).get("max_tf_age_sec", 1.0),
+            )
+        )
+        target_max_age = float(metric.get("return_pose_max_age_sec", GATE_TIMEOUT_SEC + 60.0))
+        yaw_tolerance = float(metric.get("return_pose_yaw_tolerance_rad", math.radians(5.0)))
+    except (KeyError, TypeError, ValueError):
+        return {}
+    values = (lateral, yaw, reprojection, source_max_age, target_max_age, yaw_tolerance)
+    if not all(math.isfinite(value) for value in values):
+        return {}
+    if reprojection <= 0.0 or source_max_age <= 0.0 or target_max_age <= 0.0 or yaw_tolerance <= 0.0:
+        return {}
+    return {
+        **metric,
+        "camera_calibration": str(calibration),
+        "target_lateral_offset_m": lateral,
+        "target_marker_yaw_rad": yaw,
+        "max_reprojection_error_px": reprojection,
+        "return_pose_source_max_age_sec": source_max_age,
+        "return_pose_max_age_sec": target_max_age,
+        "return_pose_yaw_tolerance_rad": yaw_tolerance,
+    }
+
+
+def metric_docking_profile_for_robot(
+    robot_id: str, waypoint_id: Optional[str]
+) -> Dict[str, Any]:
+    robot_metric = metric_docking_live_config(robot_id)
+    waypoint_metric = metric_two_stage_for_waypoint(waypoint_id)
+    if not robot_metric or not waypoint_metric:
+        return {}
+    return {
+        **waypoint_metric,
+        "target_lateral_offset_m": robot_metric["target_lateral_offset_m"],
+        "target_marker_yaw_rad": robot_metric["target_marker_yaw_rad"],
+        "require_pose_quality": True,
+        "max_reprojection_error_px": robot_metric["max_reprojection_error_px"],
+        "return_pose_source_max_age_sec": robot_metric["return_pose_source_max_age_sec"],
+        "return_pose_max_age_sec": robot_metric["return_pose_max_age_sec"],
+        "return_pose_yaw_tolerance_rad": robot_metric["return_pose_yaw_tolerance_rad"],
+    }
+
+
+def _strip_metric_docking_reserved_fields(payload: Dict[str, Any]) -> None:
+    for field in METRIC_DOCKING_RESERVED_FIELDS:
+        payload.pop(field, None)
+
+
+def _metric_profile_float(
+    profile: Dict[str, Any],
+    field: str,
+    default: float,
+    *,
+    minimum: float,
+    maximum: float,
+) -> float:
+    try:
+        value = float(profile.get(field, default))
+    except (TypeError, ValueError):
+        value = math.nan
+    if not math.isfinite(value) or not minimum <= value <= maximum:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "metric_docking_profile_invalid",
+                "message": f"metric docking profile field {field} is outside its safety bounds",
+                "field": field,
+                "minimum": minimum,
+                "maximum": maximum,
+            },
+        )
+    return value
+
+
+def _admit_server_metric_request(request: MovementCommandRequest) -> MovementCommandRequest:
+    if any(
+        isinstance(step.payload.get("metric_docking_profile"), dict)
+        or step.payload.get("metric_precision_insert") is True
+        for step in request.steps
+    ):
+        request.admit_metric_docking()
+    return request
+
+
+def apply_metric_docking_gate(payload: Dict[str, Any], gate: Dict[str, Any]) -> bool:
+    """Carry a server-recorded 0.40 m ARRIVED pose into precision transfer."""
+    profile = gate.get("metric_docking_profile")
+    arrived_return_pose = gate.get("arrived_return_pose")
+    if not isinstance(profile, dict) or profile.get("enabled") is not True:
+        return False
+    if (
+        not isinstance(arrived_return_pose, dict)
+        or arrived_return_pose.get("x") is None
+        or arrived_return_pose.get("y") is None
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "metric_docking_return_pose_missing",
+                "message": "metric dock_transfer requires the preceding 0.40m ARRIVED return pose",
+            },
+        )
+    arrived_marker = gate.get("arrived_marker_id")
+    requested_marker = payload.get("aruco_marker_id")
+    if arrived_marker is None or requested_marker is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "metric_docking_marker_missing",
+                "message": "metric dock_transfer requires marker IDs in both ARRIVED gate and request",
+            },
+        )
+    if int(arrived_marker) != int(requested_marker):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "metric_docking_marker_mismatch",
+                "message": "dock_transfer marker differs from the preceding 0.40m ARRIVED gate",
+            },
+        )
+
+    stage1 = _metric_profile_float(
+        profile, "stage1_target_distance_m", 0.40, minimum=0.25, maximum=0.60
+    )
+    stage2 = _metric_profile_float(
+        profile, "stage2_target_distance_m", 0.20, minimum=0.10, maximum=0.30
+    )
+    if stage2 >= stage1:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "metric_docking_profile_invalid",
+                "message": "metric docking requires stage2_target_distance_m < stage1_target_distance_m",
+            },
+        )
+    dock_linear_speed = _metric_profile_float(
+        profile, "dock_linear_speed", 0.018, minimum=0.005, maximum=0.03
+    )
+    dock_min_linear_speed = _metric_profile_float(
+        profile,
+        "dock_min_linear_speed",
+        0.006,
+        minimum=0.001,
+        maximum=dock_linear_speed,
+    )
+    control_period = _metric_profile_float(
+        profile,
+        "control_period_sec",
+        METRIC_DOCK_CONTROL_PERIOD_SEC,
+        minimum=0.05,
+        maximum=0.20,
+    )
+    freshness_segment = _metric_profile_float(
+        profile,
+        "docking_freshness_segment_sec",
+        METRIC_DOCK_FRESHNESS_SEGMENT_SEC,
+        minimum=0.02,
+        maximum=0.20,
+    )
+    scan_max_age = _metric_profile_float(
+        profile,
+        "scan_max_age_sec",
+        METRIC_DOCK_SENSOR_MAX_AGE_SEC,
+        minimum=0.05,
+        maximum=1.0,
+    )
+    tf_max_age = _metric_profile_float(
+        profile,
+        "tf_max_age_sec",
+        METRIC_DOCK_SENSOR_MAX_AGE_SEC,
+        minimum=0.05,
+        maximum=1.0,
+    )
+    aruco_max_age = _metric_profile_float(
+        profile,
+        "aruco_max_age_sec",
+        METRIC_DOCK_SENSOR_MAX_AGE_SEC,
+        minimum=0.05,
+        maximum=1.0,
+    )
+    reverse_speed = _metric_profile_float(
+        profile,
+        "reverse_speed",
+        METRIC_DOCK_REVERSE_SPEED_MPS,
+        minimum=0.01,
+        maximum=METRIC_DOCK_REVERSE_MAX_SPEED_MPS,
+    )
+    reverse_control_period = _metric_profile_float(
+        profile,
+        "reverse_control_period_sec",
+        METRIC_DOCK_REVERSE_CONTROL_PERIOD_SEC,
+        minimum=0.05,
+        maximum=0.20,
+    )
+    reverse_duration_default = max(2.0, (stage1 - stage2) / reverse_speed * 2.0 + 1.0)
+    reverse_max_duration = _metric_profile_float(
+        profile,
+        "reverse_target_max_duration_sec",
+        reverse_duration_default,
+        minimum=0.5,
+        maximum=METRIC_DOCK_REVERSE_MAX_DURATION_SEC,
+    )
+    payload.update(
+        {
+            "metric_precision_insert": True,
+            "metric_distance_only": True,
+            "metric_docking_profile": dict(profile),
+            "stage1_target_distance_m": stage1,
+            "target_distance_m": stage2,
+            "return_target_pose": dict(arrived_return_pose),
+            "fork_insert_enabled": False,
+            "insert_vision_stop": False,
+            "require_normal_alignment": bool(profile.get("require_normal_alignment", True)),
+            "straight_when_normal_aligned": bool(profile.get("straight_when_normal_aligned", True)),
+            "close_from_marker_width_only": False,
+            "use_good_enough": False,
+            "control_period_sec": control_period,
+            "docking_freshness_segment_sec": freshness_segment,
+            "scan_max_age_sec": scan_max_age,
+            "tf_max_age_sec": tf_max_age,
+            "aruco_max_age_sec": aruco_max_age,
+            "dock_linear_speed": dock_linear_speed,
+            "dock_min_linear_speed": dock_min_linear_speed,
+            "normal_realign_timeout_sec": _metric_profile_float(
+                profile, "normal_realign_timeout_sec", 20.0, minimum=1.0, maximum=30.0
+            ),
+            "docking_timeout_sec": _metric_profile_float(
+                profile, "docking_timeout_sec", 20.0, minimum=1.0, maximum=30.0
+            ),
+            "reverse_speed": reverse_speed,
+            "reverse_control_period_sec": reverse_control_period,
+            "reverse_target_max_duration_sec": reverse_max_duration,
+        }
+    )
+    for key, default, minimum, maximum in (
+        ("center_tolerance_norm", 0.03, 0.005, 0.15),
+        ("coarse_center_tolerance_norm", 0.14, 0.03, 0.40),
+        ("normal_lateral_tolerance_m", 0.04, 0.005, 0.15),
+        ("normal_yaw_tolerance_rad", 0.08726646, 0.005, 0.35),
+        ("normal_coarse_lateral_m", 0.10, 0.02, 0.30),
+        ("normal_coarse_yaw_rad", 0.22, 0.05, 0.60),
+        ("dock_angular_gain", 0.45, 0.05, 2.0),
+        ("dock_max_angular_speed", 0.16, 0.02, 0.30),
+        ("metric_distance_tolerance_m", 0.02, 0.005, 0.05),
+        ("target_lateral_offset_m", 0.0, -0.30, 0.30),
+        ("target_marker_yaw_rad", 0.0, -1.0, 1.0),
+        ("max_reprojection_error_px", 2.0, 0.1, 5.0),
+        ("return_pose_source_max_age_sec", 1.0, 0.05, 1.0),
+        ("return_pose_max_age_sec", GATE_TIMEOUT_SEC + 60.0, 1.0, 300.0),
+        ("return_pose_yaw_tolerance_rad", math.radians(5.0), 0.005, 0.35),
+        ("reverse_target_tolerance_m", 0.015, 0.005, 0.05),
+        ("reverse_target_lateral_tolerance_m", 0.06, 0.01, 0.10),
+    ):
+        payload[key] = _metric_profile_float(
+            profile,
+            key,
+            default,
+            minimum=minimum,
+            maximum=maximum,
+        )
+    payload["require_pose_quality"] = bool(profile.get("require_pose_quality", True))
+    payload["reverse_require_aruco"] = bool(profile.get("reverse_require_aruco", True))
+    return True
 
 
 def apply_slot_aruco_defaults(payload: Dict[str, Any], marker_id: int) -> None:
@@ -411,6 +764,40 @@ def move_to_point_steps(req: RobotCommandRequest, goal: Dict[str, Any], traffic_
         aruco_overrides = waypoint_cfg.get("aruco_align")
         if isinstance(aruco_overrides, dict):
             align_payload.update({k: v for k, v in aruco_overrides.items() if v is not None})
+    metric_profile = metric_docking_profile_for_robot(
+        req.robot_id, str(waypoint_id) if waypoint_id else None
+    )
+    if metric_profile:
+        align_payload.update(
+            {
+                "align_mode": "full",
+                "target_distance_m": float(metric_profile.get("stage1_target_distance_m", 0.40)),
+                "metric_distance_only": True,
+                "metric_docking_profile": dict(metric_profile),
+                "require_normal_alignment": bool(metric_profile.get("require_normal_alignment", True)),
+                "straight_when_normal_aligned": False,
+                "fork_insert_on_hold": False,
+                "fork_insert_enabled": False,
+                "insert_vision_stop": False,
+                "close_from_marker_width_only": False,
+                "center_tolerance_norm": float(metric_profile.get("center_tolerance_norm", 0.03)),
+                "coarse_center_tolerance_norm": float(metric_profile.get("coarse_center_tolerance_norm", 0.14)),
+                "normal_lateral_tolerance_m": float(metric_profile.get("normal_lateral_tolerance_m", 0.04)),
+                "normal_yaw_tolerance_rad": float(metric_profile.get("normal_yaw_tolerance_rad", 0.08726646)),
+                "normal_coarse_lateral_m": float(metric_profile.get("normal_coarse_lateral_m", 0.10)),
+                "normal_coarse_yaw_rad": float(metric_profile.get("normal_coarse_yaw_rad", 0.22)),
+                "dock_linear_speed": float(metric_profile.get("dock_linear_speed", 0.018)),
+                "dock_min_linear_speed": float(metric_profile.get("dock_min_linear_speed", 0.006)),
+                "dock_angular_gain": float(metric_profile.get("dock_angular_gain", 0.45)),
+                "dock_max_angular_speed": float(metric_profile.get("dock_max_angular_speed", 0.16)),
+                "metric_distance_tolerance_m": float(metric_profile.get("metric_distance_tolerance_m", 0.02)),
+                "target_lateral_offset_m": float(metric_profile["target_lateral_offset_m"]),
+                "target_marker_yaw_rad": float(metric_profile["target_marker_yaw_rad"]),
+                "require_pose_quality": bool(metric_profile.get("require_pose_quality", True)),
+                "max_reprojection_error_px": float(metric_profile["max_reprojection_error_px"]),
+                "use_good_enough": False,
+            }
+        )
     align_step = MovementStep(
         action="aruco_align",
         payload=align_payload,
@@ -436,20 +823,36 @@ def movement_request_from_robot_command(
     if kind == "move_to_point":
         goal = goal_from_move_to_point_params(params)
         traffic_segments = traffic_segments_from_move_params(params, goal)
-        return MovementCommandRequest(
+        return _admit_server_metric_request(MovementCommandRequest(
             command_id=req.command_id,
             task_id=req.task_id,
             robot_name=req.robot_id,
             steps=move_to_point_steps(req, goal, traffic_segments),
             callback_url=req.callback_url,
-        )
+        ))
     if kind == "dock_transfer":
         capabilities.ensure_dock_transfer_supported(
             allow_runtime_test_grant=allow_runtime_test_dock_transfer,
         )
         gate = _consume_arrived_gate(req.robot_id)
-        dock_payload = {**params, "terminal_state": "DONE", "dry_run": req.dry_run, "gate_source_command_id": gate.get("command_id"), "traffic_segments": gate.get("traffic_segments", [])}
-        marker_id = params.get("aruco_marker_id")
+        metric_gate = isinstance(gate.get("metric_docking_profile"), dict)
+        if metric_gate and not metric_docking_live_config(req.robot_id):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "metric_docking_not_commissioned",
+                    "message": "metric docking commissioning is not currently admitted for this robot",
+                },
+            )
+        client_params = (
+            {key: params[key] for key in METRIC_DOCKING_CLIENT_FIELDS if key in params}
+            if metric_gate
+            else params
+        )
+        dock_payload = {**client_params, "terminal_state": "DONE", "dry_run": req.dry_run, "gate_source_command_id": gate.get("command_id"), "traffic_segments": gate.get("traffic_segments", [])}
+        _strip_metric_docking_reserved_fields(dock_payload)
+        apply_metric_docking_gate(dock_payload, gate)
+        marker_id = dock_payload.get("aruco_marker_id")
         if marker_id is not None and "align_mode" not in dock_payload:
             dock_payload["align_mode"] = align_mode_for_dock_marker(int(marker_id))
         dock_payload.setdefault("use_good_enough", False)
@@ -459,20 +862,24 @@ def movement_request_from_robot_command(
             if is_wall_adjacent_approach(wp):
                 dock_payload["wall_adjacent_approach"] = True
                 dock_payload.setdefault("relax_forward_clearance", True)
-        if gate.get("post_align_done") and "align_mode" not in dock_payload:
+        if dock_payload.get("metric_precision_insert"):
             dock_payload["align_mode"] = "skip"
-        if gate.get("post_align_done"):
+            dock_payload["skip_approach_yaw_rotate"] = True
+            dock_payload["marker_search_on_miss"] = False
+            dock_payload["pre_insert_center_cycles"] = 0
+        elif gate.get("post_align_done"):
+            dock_payload["align_mode"] = "skip"
             dock_payload["skip_approach_yaw_rotate"] = True
             dock_payload.setdefault("require_center_before_insert", False)
             dock_payload.setdefault("marker_search_on_miss", False)
             dock_payload.setdefault("pre_insert_center_cycles", 0)
-        return MovementCommandRequest(
+        return _admit_server_metric_request(MovementCommandRequest(
             command_id=req.command_id,
             task_id=req.task_id,
             robot_name=req.robot_id,
             steps=[MovementStep(action="dock_transfer", payload=dock_payload)],
             callback_url=req.callback_url,
-        )
+        ))
     if kind == "aruco_align":
         gate = _consume_arrived_gate(req.robot_id)
         align_payload = {

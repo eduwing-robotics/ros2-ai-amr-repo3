@@ -153,7 +153,7 @@ Request fields:
 | `action` | `load` 또는 `unload` |
 | `level` | `1` 또는 `2` |
 
-원자 블록: `ArUco 인식 -> 삽입 시작 위치까지 정렬 -> 저속 포크 삽입 -> 리프트(action/level) -> 후진`. 완료 상태는 `DONE`이다. LMS의 `dock_transfer` 계약은 바뀌지 않으며, 포크 삽입 거리/속도는 Movement 내부 기본값 또는 선택 payload로 조정한다.
+원자 블록: `ArUco 인식 -> 삽입 시작 위치까지 정렬 -> 저속 포크 삽입 -> 리프트(action/level) -> 후진`. 완료 상태는 `DONE`이다. Legacy/non-metric(TB1 포함) 경로의 포크 삽입 거리·속도는 Movement 기본값 또는 기존 선택 payload를 사용한다. Commissioned metric 경로는 `aruco_marker_id`·`action`·`level`만 요청에서 받고, 속도·제어주기·센서 freshness·복귀 제한은 Nav profile/default가 소유한다.
 
 ### 3.3 aruco_align
 

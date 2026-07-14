@@ -9,8 +9,8 @@ from nav_app.bootstrap import ensure_import_paths
 ensure_import_paths()
 
 from nav_app.runtime import runtime  # noqa: E402
-from nav_app.server_core import register_app  # noqa: E402
 from nav_app.security import sign_headers  # noqa: E402
+from nav_app.server_core import register_app  # noqa: E402
 from nav_app.services import robot_context  # noqa: E402
 
 
@@ -162,6 +162,27 @@ def test_explicit_dry_run_bypasses_localization(client):
     body = b'{"command_id":"localization-dry-run","robot_name":"tb3_1","steps":[{"action":"move_to_point","payload":{"x":1,"y":2,"dry_run":true}}]}'
     response = client.post("/movement-api/v1/commands", content=body, headers={"content-type": "application/json", **sign_headers("test-main-nav-secret", "POST", "/movement-api/v1/commands", body)})
     assert response.status_code == 200
+
+
+def test_raw_movement_command_cannot_forge_metric_docking_admission(client):
+    path = "/movement-api/v1/commands"
+    body = (
+        b'{"command_id":"raw-metric-bypass","robot_name":"tb3_1","steps":['
+        b'{"action":"dock_transfer","payload":{"dry_run":true,"aruco_marker_id":7,'
+        b'"action":"load","level":1,"metric_precision_insert":true,'
+        b'"return_target_pose":{"x":0,"y":0,"yaw":0}}}]}'
+    )
+    response = client.post(
+        path,
+        content=body,
+        headers={
+            "content-type": "application/json",
+            **sign_headers("test-main-nav-secret", "POST", path, body),
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "metric_docking_gate_required"
 
 
 def test_global_localization_defaults_to_observe_only(client):

@@ -170,7 +170,12 @@
         "outbound": false,
         "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"
       },
-      "simulation_fixture": true
+      "simulation_fixture": true,
+      "metric_docking": {
+        "enabled": false,
+        "live_enabled": false,
+        "commissioning_status": "DISABLED_NO_ROBOT_CAMERA_CALIBRATION"
+      }
     },
     {
       "robot_id": "tb3_burger_02",
@@ -282,7 +287,22 @@
         "outbound": false,
         "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"
       },
-      "simulation_fixture": true
+      "simulation_fixture": true,
+      "metric_docking": {
+        "enabled": true,
+        "live_enabled": false,
+        "commissioning_status": "BLOCKED_PENDING_PHYSICAL_VALIDATION",
+        "camera_calibration": "config/camera/tb3_burger_02.json",
+        "camera_to_base": {
+          "measured": false,
+          "target_lateral_offset_m": 0.0,
+          "target_marker_yaw_rad": 0.0
+        },
+        "max_reprojection_error_px": 2.0,
+        "return_pose_source_max_age_sec": 1.0,
+        "return_pose_max_age_sec": 180.0,
+        "return_pose_yaw_tolerance_rad": 0.08726646
+      }
     }
   ],
   "profile": "nohardware-simulation-v1"

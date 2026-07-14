@@ -169,7 +169,7 @@ wait_http "${AI_BASE}/api/v1/health" 30 "${AI_PY}" >/dev/null
 
 echo "[nohardware-tcp] signed vision gateway frame ingress accepts configured credential and rejects unsigned ingress"
 "${AI_PY}" "${ROOT_DIR}/tests/nohardware/check_ai_gateway_frame_tcp.py" \
-  --base "${AI_BASE}" --secret "${NOHARDWARE_VISION_GATEWAY_HMAC_SECRET}"
+  --base "${AI_BASE}" --secret="${NOHARDWARE_VISION_GATEWAY_HMAC_SECRET}"
 
 echo "[nohardware-tcp] Main vision_proxy.fetch_stream_transports + post_lift_load_evaluate -> AI endpoints"
 (

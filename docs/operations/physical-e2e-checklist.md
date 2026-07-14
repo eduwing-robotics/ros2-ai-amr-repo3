@@ -26,7 +26,9 @@
 - `robot2_map`의 현장 location, scan, waypoint, pose, ArUco marker binding은 아직 commissioned 상태가 아니다. 기존 `robot1_map` 좌표를 복사해 사용하지 않는다.
 - TB1과 TB2 모두 `field_dispatch.inbound=false`, `field_dispatch.outbound=false`다. 별도 commissioning과 robot-scoped audit 전에는 입고·출고를 시작하지 않는다.
 - TB1에는 물리 lift가 없다. TB1에서 lift가 필요한 단계는 `tb1-synthetic-hil`로만 수행하고 `PHYSICAL_LIFT_NOT_VERIFIED`를 기록한다.
+- TB1 synthetic 경로는 TB2 카메라 보정값이나 TB2 metric docking profile을 사용하지 않는다. 실제 base/Nav2/카메라/도킹 경로에서 lift 단계만 virtual backend로 바꾼다.
 - `tb1-synthetic-hil`은 Nav의 virtual lift test grant를 제공하지만 Main이 보는 TB1 capability는 현재 `navigate,charge`다. Main의 INBOUND/OUTBOUND 배정 요구사항을 통과하는 명시적 nonphysical test admission이 없으므로 UI 입고·출고는 아직 시작할 수 없다.
+- TB2의 `0.40m 법선 정렬 → 0.18/0.20m 직선 진입 → lift/drop → 저장 pose 복귀`는 nohardware 계약 검증까지 완료한 구현 후보이며, 아직 실물 합격 근거가 아니다. checked-in 설정은 `metric_docking.live_enabled=false`라 자동 실행되지 않는다.
 - `/operate/control`의 teleop·맵 이동은 직접 robot command다. 현재 person monitor는 task orchestration의 physical-motion step에서 arm되므로, **수동 주행만으로는 Main trusted person-stop E2E 합격 근거가 되지 않는다.**
 - 따라서 현재 바로 수행 가능한 범위는 아래 0~3단계와 5단계다. 4단계는 marker commissioning 뒤, 6단계는 안전한 `robot2_map` task 경로가 준비된 뒤, 7단계는 field commissioning과 synthetic test admission이 모두 준비된 뒤, 8단계는 TB2 준비 뒤 수행한다.
 
@@ -199,11 +201,11 @@ SF_NAV_ALLOW_SYNTHETIC_HIL=1 scripts/sf_nav.sh --profile tb1-synthetic-hil foreg
 
 ### 대표 입고 흐름
 
-`/operate/inout 입고 생성 → Main 예약·task 생성 → Nav inbound 접근 → synthetic load → AI POST_PICK_UP → Nav storage 접근 → AI PRE_DROP_OFF → synthetic unload → home/park → Main DONE·재고 증가 → UI/기록`
+`/operate/inout 입고 생성 → Main 예약·task 생성 → Nav inbound 접근 → synthetic load → Main POST_PICK_UP gate (AI operation=PICK_UP) → Nav storage 접근 → AI PRE_DROP_OFF → synthetic unload → home/park → Main DONE·재고 증가 → UI/기록`
 
 ### 대표 출고 흐름
 
-`/operate/inout 출고 생성 → Main 재고 예약·task 생성 → Nav storage 접근 → synthetic load → AI POST_PICK_UP → Nav outbound 접근 → AI PRE_DROP_OFF → synthetic unload → home/park → Main DONE·재고 감소 → UI/기록`
+`/operate/inout 출고 생성 → Main 재고 예약·task 생성 → Nav storage 접근 → synthetic load → Main POST_PICK_UP gate (AI operation=PICK_UP) → Nav outbound 접근 → AI PRE_DROP_OFF → synthetic unload → home/park → Main DONE·재고 감소 → UI/기록`
 
 UI 입고 세부 조작은 [Inbound Scenario Test](../../main-server/docs/operations/INBOUND_SCENARIO_TEST.md)를 따른다. 실패·취소·evidence hold도 각각 기록한다.
 
@@ -224,8 +226,14 @@ TB2가 준비되면 `tb2-live`를 명시하고 0~6단계를 TB2로 다시 통과
 - [ ] TB2 health가 lift subscriber, fresh position/limit telemetry, `cmd_stop` readiness를 보고한다.
 - [ ] `global_cam_01`의 ZoneROI·marker·load evidence가 실제 화물과 일치한다.
 - [ ] Main lift-load evidence가 `enabled=true`, `mode=gate`이며 wrong/stale evidence를 hold한다.
+- [ ] TB2 camera-to-base/fork 기준의 target lateral·yaw offset과 허용 reprojection error를 현장에서 측정한다. 측정 전에는 `live_enabled`를 켜지 않으며, 이후에도 안전 담당자가 있는 제한 commissioning 세션에서만 시험한다.
+- [ ] 각 pallet 위치에서 Nav2 접근 뒤 마커 법선의 0.40m pose와 yaw가 현장 기준에 맞는다.
+- [ ] load는 직선 진입·lift 뒤 `POST_PICK_UP`, unload는 `PRE_DROP_OFF` PASS 뒤 직선 진입·drop 순서다.
+- [ ] A/B는 0.18m, C/D·입고·출고는 0.20m 목표에서 멈추고 조향이 잠긴다.
+- [ ] transfer 뒤 저장한 0.40m map pose로 후진하며 lateral corridor 이탈 시 fail closed 한다.
 - [ ] 실제 load/unload와 pallet 상태를 현장 관찰·AI evidence·Nav telemetry로 함께 확인한다.
 - [ ] synthetic event나 TB1 결과를 TB2 물리 합격 근거로 사용하지 않는다.
+- [ ] 위 항목을 안전한 제한 시험으로 통과한 뒤에만 TB2 `metric_docking.live_enabled=true`, `commissioning_status=COMMISSIONED`, `camera_to_base.measured=true`를 한 변경으로 승인한다.
 
 ## 최종 판정
 

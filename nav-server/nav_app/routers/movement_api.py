@@ -2,7 +2,6 @@
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-
 from route_builder import RouteBuildError, build_movement_steps, list_inventory
 from traffic_manager import TrafficLockConflict
 
@@ -21,6 +20,23 @@ from nav_app.models import (
     MovementStep,
 )
 from nav_app.runtime import runtime
+from nav_app.security import require_main_signature
+from nav_app.services import (
+    capabilities,
+    command_state,
+    manual_control,
+    map_state,
+    movement_executor,
+    robot_commands,
+    robot_context,
+)
+from nav_app.services.lift_backends import synthetic_hil_admitted
+from nav_app.services.route_helpers import (
+    raw_route_preview,
+    raw_steps_from_route_request,
+    traffic_segments_from_steps,
+)
+from nav_app.services.safety import engage_estop
 from nav_app.settings import (
     ACTIVE_ROBOT_ID,
     ARUCO_DETECTION_MAX_AGE_SEC,
@@ -28,21 +44,6 @@ from nav_app.settings import (
     is_simulation_mode,
 )
 from nav_app.util.time import utc_now as _utc_now
-from nav_app.services import capabilities
-from nav_app.services import command_state
-from nav_app.services import manual_control
-from nav_app.services import map_state
-from nav_app.services import movement_executor
-from nav_app.services.safety import engage_estop
-from nav_app.services import robot_commands
-from nav_app.services import robot_context
-from nav_app.services.lift_backends import synthetic_hil_admitted
-from nav_app.services.route_helpers import (
-    raw_route_preview,
-    raw_steps_from_route_request,
-    traffic_segments_from_steps,
-)
-from nav_app.security import require_main_signature
 
 router = APIRouter()
 
@@ -123,6 +124,23 @@ def _movement_accept_command(
         )
     if not req.steps:
         raise HTTPException(status_code=400, detail="steps는 비어 있을 수 없습니다.")
+    reserved_metric_fields = sorted(
+        {
+            field
+            for step in req.steps
+            for field in robot_commands.METRIC_DOCKING_RESERVED_FIELDS
+            if field in step.payload
+        }
+    )
+    if reserved_metric_fields and not req.metric_docking_admitted():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "metric_docking_gate_required",
+                "message": "metric docking fields are server-reserved and require an ARRIVED gate",
+                "reserved_fields": reserved_metric_fields,
+            },
+        )
     request_is_dry_run = all(bool(step.payload.get("dry_run")) for step in req.steps)
     _ensure_synthetic_hil_live_admission(request_dry_run=request_dry_run, steps=req.steps)
     capabilities.ensure_steps_supported(

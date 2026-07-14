@@ -4,28 +4,50 @@ import time
 from nav_app.errors import CommandAborted, StageError
 from nav_app.models import MovementCommandRequest, MovementStep
 from nav_app.runtime import runtime
-from nav_app.settings import SIMULATED_STEP_DELAY_SEC, is_simulation_mode
-from nav_app.util.time import utc_now as _utc_now
 from nav_app.services.command_state import (
     record_arrived_gate as _record_arrived_gate,
+)
+from nav_app.services.command_state import (
     release_traffic_locks_for_command as _release_traffic_locks_for_command,
+)
+from nav_app.services.command_state import (
     report_command_callback as _report_command_callback,
+)
+from nav_app.services.command_state import (
     report_movement_result as _report_movement_result,
 )
 from nav_app.services.docking import (
+    capture_arrived_return_pose as _capture_arrived_return_pose,
+)
+from nav_app.services.docking import (
     execute_aruco_align_step as _execute_aruco_align_step,
+)
+from nav_app.services.docking import (
     execute_dock_transfer_step as _execute_dock_transfer_step,
+)
+from nav_app.services.docking import (
     execute_leave_dock_step as _execute_leave_dock_step,
+)
+from nav_app.services.docking import (
     execute_slot_reverse_out_step as _execute_slot_reverse_out_step,
+)
+from nav_app.services.docking import (
     rotate_to_approach_yaw_if_needed as _rotate_to_approach_yaw_if_needed,
+)
+from nav_app.services.docking import (
     skip_approach_yaw_if_marker_visible as _skip_approach_yaw_if_marker_visible,
 )
 from nav_app.services.robot_commands import approach_yaw_for_waypoint
 from nav_app.services.robot_context import (
     report_movement_robot_status as _report_movement_robot_status,
 )
-from nav_app.services.status_helpers import stage_for_step_action as _stage_for_step_action
 from nav_app.services.safety import engage_estop
+from nav_app.services.status_helpers import (
+    stage_for_step_action as _stage_for_step_action,
+)
+from nav_app.settings import SIMULATED_STEP_DELAY_SEC, is_simulation_mode
+from nav_app.util.time import utc_now as _utc_now
+
 
 def execute_dry_step(step: MovementStep):
     delay = step.duration if step.duration is not None and step.duration > 0 else runtime.mission_manager.dry_run_step_delay_sec
@@ -49,7 +71,9 @@ def simulate_nav_goal(goal, frame_id="map"):
     return True
 
 
-def execute_simulated_step(step: MovementStep):
+def execute_simulated_step(
+    step: MovementStep, *, metric_docking_admitted: bool = False
+):
     if step.action == "wait":
         simulate_delay(step.duration or step.payload.get("duration", SIMULATED_STEP_DELAY_SEC))
         return True
@@ -69,7 +93,9 @@ def execute_simulated_step(step: MovementStep):
             simulate_nav_goal(goal, frame_id=frame_id)
         return True
     if step.action == "dock_transfer":
-        return _execute_dock_transfer_step(step)
+        return _execute_dock_transfer_step(
+            step, metric_docking_admitted=metric_docking_admitted
+        )
     if step.action == "aruco_align":
         return _execute_aruco_align_step(step)
     if step.action == "leave_dock":
@@ -93,11 +119,13 @@ def execute_simulated_step(step: MovementStep):
     raise ValueError(f"unsupported movement step action: {step.action}")
 
 
-def execute_real_step(step: MovementStep):
+def execute_real_step(step: MovementStep, *, metric_docking_admitted: bool = False):
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
     if is_simulation_mode():
-        return execute_simulated_step(step)
+        return execute_simulated_step(
+            step, metric_docking_admitted=metric_docking_admitted
+        )
 
     if step.action == "wait":
         duration = float(step.duration or step.payload.get("duration", 0.0) or 0.0)
@@ -125,7 +153,9 @@ def execute_real_step(step: MovementStep):
         return result
 
     if step.action == "dock_transfer":
-        return _execute_dock_transfer_step(step)
+        return _execute_dock_transfer_step(
+            step, metric_docking_admitted=metric_docking_admitted
+        )
 
     if step.action == "aruco_align":
         return _execute_aruco_align_step(step)
@@ -187,6 +217,7 @@ def execute_movement_command(req: MovementCommandRequest):
         terminal_state = "DONE"
         terminal_message = "completed"
         post_align_done = False
+        metric_docking_admitted = req.metric_docking_admitted()
         for index, step in enumerate(req.steps):
             if runtime.navigator and runtime.navigator.safety.estop and step.action != "estop":
                 raise CommandAborted("estop", stage=_stage_for_step_action(step.action))
@@ -196,9 +227,23 @@ def execute_movement_command(req: MovementCommandRequest):
             command["updated_at"] = _utc_now()
             step_dry_run = bool(step.payload.get("dry_run"))
             if is_simulation_mode():
-                result = execute_simulated_step(step)
+                result = execute_simulated_step(
+                    step, metric_docking_admitted=metric_docking_admitted
+                )
             else:
-                result = execute_dry_step(step) if (step_dry_run or runtime.mission_manager.dry_run) and step.action not in ("dock_transfer", "aruco_align", "estop") else execute_real_step(step)
+                result = execute_dry_step(step) if (step_dry_run or runtime.mission_manager.dry_run) and step.action not in ("dock_transfer", "aruco_align", "estop") else execute_real_step(step, metric_docking_admitted=metric_docking_admitted)
+            if result is True and step.action == "aruco_align":
+                metric_profile = step.payload.get("metric_docking_profile")
+                if isinstance(metric_profile, dict) and metric_profile.get("enabled") is True:
+                    current_pose = runtime.navigator.get_current_pose() if runtime.navigator else None
+                    command["arrived_return_pose"] = _capture_arrived_return_pose(
+                        current_pose,
+                        source_max_age_sec=float(
+                            metric_profile.get("return_pose_source_max_age_sec", 1.0)
+                        ),
+                    )
+                    command["metric_docking_profile"] = dict(metric_profile)
+                    command["arrived_marker_id"] = step.payload.get("aruco_marker_id")
             if result is not True:
                 detail = result
                 if runtime.navigator and getattr(runtime.navigator, "last_nav_failure", None):
