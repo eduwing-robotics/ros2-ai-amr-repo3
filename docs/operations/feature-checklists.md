@@ -2,6 +2,8 @@
 
 각 항목은 시작/종료 문서의 health 조건을 만족한 뒤 수행한다. 중지 조건이 하나라도 있으면 다음 단계로 진행하지 않는다.
 
+한 번의 실물 시험에서 수행할 순서와 TB1·TB2 합격 경계는 [TB1 우선 실물 E2E 실행 체크리스트](physical-e2e-checklist.md)를 따른다. 이 문서는 기능별 공통 gate만 소유한다.
+
 [operator-preflight.sh](../../scripts/operator-preflight.sh)의 모든 mode는 read-only이며 service 시작과 robot motion을 수행하지 않는다. Movement, Vision, frame gateway HMAC의 세 secret이 모두 필요하다.
 
 ## 공통
@@ -66,7 +68,7 @@
 - [ ] stream의 freshness/latency 상태를 확인한다.
 - [ ] person advisory는 Main trusted decision 전에는 motion state를 바꾸지 않는다.
 - [ ] person advisory 또는 monitor outage가 발생하면 Main safety stop과 `AWAITING_OPERATOR` 상태를 확인한다.
-- [ ] E-stop clear 후 DB recovery state와 live Movement health가 안전 조건을 만족할 때만 `safe_replan`을 실행한다.
+- [ ] E-stop clear 후 DB recovery state, live Movement health, recovery physical-motion monitor가 모두 안전 조건을 만족할 때만 `safe_replan`을 실행한다. 현재 person 실물 시험은 `restart` 또는 `manual_abort`를 사용한다.
 
 중지: camera/source stale, monitor enable/poll failure, live health unavailable/unsafe, E-stop active.
 

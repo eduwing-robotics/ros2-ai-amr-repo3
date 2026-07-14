@@ -3,8 +3,16 @@
 상태: Active
 소유: Ops
 작성: 2026-06-30 23:10 KST
-최종 갱신: 2026-06-30 23:10 KST
+최종 갱신: 2026-07-14 KST
 목적: 입고(inbound) 작업의 정상 흐름과 작업 중 취소·돌발 끼어듦을 수동으로 검증하는 절차를 정의한다.
+
+Cross-service 실행 순서와 physical/synthetic 판정은 [TB1 우선 실물 E2E 실행 체크리스트](../../../docs/operations/physical-e2e-checklist.md)를 먼저 따른다. 이 문서는 Main 입고 화면과 task 상태 검증만 소유한다.
+
+## 현재 실행 제한
+
+- 실제 환경 맵은 `robot2_map`이지만 location·scan·waypoint·pose·marker binding이 아직 commissioned 상태가 아니다. Main과 Nav의 inbound/outbound field dispatch는 모두 차단돼 있다.
+- 기존 `robot1_map` 좌표로 실제 입고를 실행하지 않는다. `robot2_map` commissioning과 robot-scoped audit 전에는 아래 절차를 UI·DB 상태 확인에만 사용한다.
+- TB1은 물리 lift가 없다. `tb1-synthetic-hil`은 Nav virtual lift를 제공하지만 Main의 nonphysical INBOUND/OUTBOUND task admission은 아직 없다. admission이 추가된 뒤 수행해도 lift-only synthetic 검증이며 물리 입고 합격 근거가 아니다.
 
 ## 사전 조건
 

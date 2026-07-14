@@ -39,7 +39,7 @@
    ./scripts/real.sh --dev
    ```
 
-7. health를 확인하고 read-only hardware checklist를 실행한 뒤 기능별 checklist를 진행한다.
+7. health를 확인하고 read-only hardware checklist를 실행한 뒤 [TB1 우선 실물 E2E 실행 체크리스트](physical-e2e-checklist.md)의 순서로 진행한다.
 
    ```bash
    curl "${LMS_VISION_API_BASE_URL}/api/v1/health"

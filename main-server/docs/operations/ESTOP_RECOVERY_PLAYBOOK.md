@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Ops
-최종 갱신: 2026-07-09 18:05 KST
+최종 갱신: 2026-07-14 KST
 목적: 전 로봇 비상정지 후 운영자가 작업을 복구·재개하는 현장 절차를 짧게 고정한다.
 
 개념·상태기계: [TASK_ORCHESTRATION](../architecture/TASK_ORCHESTRATION.md). UI: 운영 화면 복구 패널.
@@ -26,11 +26,13 @@
 
 1. 화물 상태 선택: `LOADED` / `EMPTY` / `UNKNOWN`.
 2. 전략 선택:
-   - `safe_replan` — 안전지점 이동 후 재계획
+   - `safe_replan` — 안전지점 이동 후 재계획. 현재 recovery move는 person monitor를 다시 arm하지 않으므로 사람 발견 실물 시험의 PASS 경로로 사용하지 않는다.
    - `restart` — 현재 작업 종료 후 입출고에서 재생성
    - `manual_abort` — 현장 회수 후 작업 중단
 3. 체크리스트(현장 해소·pose·화물) 확인 후 **복구 실행**.
 4. `RECOVERY_RUNNING`이면 이동 완료까지 대기 → 다시 `AWAITING_OPERATOR`로 돌아와 다음 결정.
+
+TB1 무화물 person 시험은 `EMPTY`와 `restart` 또는 `manual_abort`로 운영자 결정을 검증한다. `safe_replan`은 recovery physical-motion monitor가 보강되고 현장 검증되기 전까지 별도 차단 항목이다.
 
 API: `POST /tasks/{id}/recovery/preview` · `POST /tasks/{id}/recovery/execute`.
 

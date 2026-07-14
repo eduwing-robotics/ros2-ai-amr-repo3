@@ -57,7 +57,7 @@ Warehouse scan approach의 authoritative pose는 다음과 같다.
 
 Load 완료 뒤 `POST_PICK_UP`, unload 직전 `PRE_DROP_OFF` evidence를 평가한다. request binding과 freshness를 통과한 `PASS`, `command_satisfying=true`만 다음 command를 허용한다.
 
-Person advisory 또는 monitor outage는 Main trusted safety stop과 `AWAITING_OPERATOR`를 만든다. E-stop clear만으로 재개하지 않으며 DB recovery state와 live Movement health가 안전해야 `safe_replan`을 실행한다.
+Person advisory 또는 monitor outage는 Main trusted safety stop과 `AWAITING_OPERATOR`를 만든다. E-stop clear만으로 재개하지 않으며 DB recovery state, live Movement health, recovery physical-motion monitor가 모두 안전해야 `safe_replan`을 실행한다. 현재 recovery move는 person monitor를 다시 arm하지 않으므로 사람 발견 실물 시험에서는 `restart` 또는 `manual_abort`만 사용하고 `safe_replan`을 PASS 근거로 사용하지 않는다.
 
 ## 검증 경계
 
