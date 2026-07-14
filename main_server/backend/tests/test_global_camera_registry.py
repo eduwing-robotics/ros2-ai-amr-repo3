@@ -20,7 +20,7 @@ from fastapi import HTTPException
 
 from app.api.routers.system import status
 from app.db.connection import init_db, transaction
-from app.db.postgres import camera_repo
+from app.db.postgres import cameras
 from app.domains.vision.router import (
     _require_known_source,
     vision_overlay_stream,
@@ -41,7 +41,7 @@ class GlobalCameraRegistryTest(unittest.TestCase):
         with transaction() as conn:
             return {
                 c["source_id"]
-                for c in camera_repo.list(
+                for c in cameras.list_cameras(
                     conn,
                 )
             }

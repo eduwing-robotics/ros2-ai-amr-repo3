@@ -5,7 +5,7 @@ from typing import Any
 from app.db.postgres.common import row_timestamp
 
 
-def list(conn) -> list[dict[str, Any]]:
+def list_robots(conn) -> list[dict[str, Any]]:
     rows = conn.execute("SELECT * FROM robots ORDER BY id").fetchall()
     return [_map(conn, r) for r in rows]
 
@@ -41,7 +41,7 @@ def upsert(conn, data: dict[str, Any]) -> None:
     )
 
 
-def delete(conn, robot_id: str) -> bool:
+def delete_robot(conn, robot_id: str) -> bool:
     cur = conn.execute("DELETE FROM robots WHERE id = %s", (robot_id,))
     return cur.rowcount > 0
 

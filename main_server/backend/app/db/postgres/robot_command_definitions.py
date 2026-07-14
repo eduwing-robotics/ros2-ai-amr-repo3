@@ -13,7 +13,7 @@ def list_for_task_type(conn, task_type: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def get(conn, command_id: int) -> dict[str, Any] | None:
+def get_robot_command_definition(conn, command_id: int) -> dict[str, Any] | None:
     row = conn.execute("SELECT * FROM commands WHERE id = %s", (command_id,)).fetchone()
     return dict(row) if row else None
 

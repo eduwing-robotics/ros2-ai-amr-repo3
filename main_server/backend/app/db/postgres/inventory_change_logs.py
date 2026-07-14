@@ -5,7 +5,7 @@ from typing import Any
 from app.db.postgres.common import row_timestamp
 
 
-def list(conn, limit: int = 50) -> list[dict[str, Any]]:
+def list_inventory_change_logs(conn, limit: int = 50) -> list[dict[str, Any]]:
     rows = conn.execute("SELECT * FROM item_change_logs ORDER BY changed_at DESC LIMIT %s", (limit,)).fetchall()
     return [
         {

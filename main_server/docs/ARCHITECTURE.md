@@ -4,18 +4,22 @@
 
 상태: Active
 소유: Docs
-최종 갱신: 2026-07-14 11:03 KST
-목적: 관제·이동·인식 경계, 입출고·오케스트레이션, 백엔드 레이어, 핵심 용어·레포 트리를 한 문서에 둔다.
+최종 갱신: 2026-07-14 18:32 KST
+목적: Main_Control의 시스템 경계, 주요 업무 흐름, 도메인 책임과 의존 방향을 정의한다.
 
-시스템은 Main·Movement·Vision 세 서버로 나뉜다. **Main**은 운영자 UI와 PostgreSQL을 소유하고 실행할 작업을 결정한다. **Movement**는 Nav2 주행·정밀 도킹·리프트를, **Vision**은 카메라 영상과 아루코 인식을 담당한다. Main은 입출고 단계를 계획하고 Movement 콜백과 폴링으로 진행을 추적한 뒤 재고를 반영한다.
+시스템은 Main_Control·Movement·Vision 세 서버로 나뉜다. **Main_Control**은 운영자 UI와 PostgreSQL을
+소유하고 실행할 작업을 결정한다. **Movement**는 Nav2 주행·정밀 도킹·리프트를, **Vision**은 카메라 영상과
+아루코 인식을 담당한다. Main_Control은 입출고 단계를 계획하고 Movement 콜백과 폴링으로 진행을 추적한 뒤
+재고를 반영한다.
 
-DB SoT·ERD: [DATABASE](DATABASE.md). API: [API](API.md). 연동: [INTERFACES](INTERFACES.md). Movement 전달 요구: [MOVEMENT_SERVER_REQUIREMENTS](MOVEMENT_SERVER_REQUIREMENTS.md).
+공식 업무 용어와 상태 축은 [GLOSSARY](GLOSSARY.md), DB SoT·ERD는 [DATABASE](DATABASE.md), 외부 계약은
+[INTERFACES](INTERFACES.md)와 [API](API.md)가 정본이다. 이 문서는 해당 정의를 반복하지 않는다.
 
 ## 1. 토폴로지
 
 ```mermaid
 flowchart LR
-  UI[운영자_화면] -->|입출고_요청| Main[관제_서버]
+  UI[운영자_화면] -->|입출고_요청| Main[Main_Control]
   Main --> PG[(PostgreSQL)]
   Main -->|이동_명령| Mov[이동_서버]
   Mov -->|상태_콜백| Main
@@ -134,13 +138,12 @@ flowchart TD
 
 용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **robot task**와 이동/도킹 한 번 단위의 **robot task step**으로 분해된다(§6).
 
-Work Order 조회는 `assemble_robot_task_summary`가 task·실행 상태·계획·위치 정보를 읽기 전용 `RobotTaskSummary`로 조립한다. 상태가 없는 조립 로직은 클래스로 감싸지 않는다. 내부에서는 `requested_quantity`, `allocated_quantity`, `robot_task_id`, `active_command_id`를 사용하고, `/api/v1` compatibility adapter만 기존 `quantity`, `task_id`, `command_id`로 변환한다. 계획 진단 정보는 runtime 상태와 섞지 않고 `RobotTaskPlanSummary`가 소유한다.
+Work Order 조회는 Task·실행 상태·계획·위치 정보를 읽기 전용 projection으로 조립한다. 내부 canonical 필드와
+기존 `/api/v1` 필드의 차이는 API compatibility adapter에서 변환한다.
 
 ## 6. 작업 실행 흐름
 
-코드: `domains/execution/orchestrator.py`, `poller.py`, `recovery.py`.
-
-작업 진행 보정·자동 배정·사람 위험 감지는 각 transaction에서 서로 다른 PostgreSQL `pg_try_advisory_xact_lock`을 비차단으로 획득한다. 여러 Uvicorn worker나 Main 인스턴스가 떠도 lock을 얻은 하나만 해당 tick을 실행하며, 사용자 API 요청은 이 lock을 사용하지 않는다.
+작업 진행 보정·자동 배정·사람 위험 감지는 각 transaction에서 서로 다른 PostgreSQL `pg_try_advisory_xact_lock`을 비차단으로 획득한다. 여러 Uvicorn worker나 Main_Control 인스턴스가 떠도 lock을 얻은 하나만 해당 tick을 실행하며, 사용자 API 요청은 이 lock을 사용하지 않는다.
 
 ```mermaid
 stateDiagram-v2
@@ -183,17 +186,15 @@ sequenceDiagram
 
 입고 작업의 단계 예: 입고존 접근 → 적재 도킹 → 보관슬롯 접근 → 하역 도킹 → 홈 복귀.
 
-코드에서의 이름: 단계 계획은 `plan_command_steps`, 단계 전송은 `dispatch_current_step`, 콜백/폴러의 전진은 `advance_on_command_event`, 진행 폴러 루프는 `poll_task_progress_loop`이다.
-
 ## 7. 백엔드 레이어
 
 ```mermaid
 flowchart TB
-  Routes[api_routes] --> Router[domain_router]
-  Router --> Domain[domain_service_or_client]
-  Domain --> DB[db_mvp]
+  Routes[API_composition] --> Router[domain_API_boundary]
+  Router --> Domain[domain_capability]
+  Domain --> DB[PostgreSQL_adapter]
   Domain --> Ext[Movement_Vision_HTTP]
-  Router --> M[models_schemas]
+  Router --> M[request_response_models]
   DB --> PG[(PostgreSQL)]
 ```
 
@@ -209,10 +210,10 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-  Boot[lifespan] --> InitDB[init_PG]
-  Boot --> Sweep[poll_task_progress_loop_5s]
-  Boot --> Hazard[person_hazard_3Hz]
-  API[api_v1] --> Orch[orchestrator]
+  Boot[application_lifecycle] --> InitDB[PostgreSQL_initialization]
+  Boot --> Sweep[task_progress_reconciliation]
+  Boot --> Hazard[person_hazard_monitoring]
+  API[api_v1] --> Orch[execution_coordination]
   Orch --> Sweep
 ```
 
@@ -220,44 +221,18 @@ flowchart LR
 - DB 연결은 `LMS_DATABASE_URL`(PostgreSQL)이 필수이며, SQLite 런타임은 없다.
 - 스키마 정본은 `database/dbml/smartfactory-db-final.dbml`이고, 이를 `database/schema_pg.sql`(+ infra DDL)로 구현한다.
 
-```mermaid
-flowchart TD
-  WO[work_orders_service] --> Orch[execution_orchestrator]
-  Orch --> RC[movement_commands]
-  Orch --> CB[movement_router_callbacks]
-  CB --> Orch
-  SW[execution_poller] --> Orch
-  Orch --> Inv[warehouse_inventory]
-  PH[safety_hazard] --> Estop[fleet_estop]
-  TR[execution_recovery] --> Orch
-```
-
-- router는 얇게 유지하고 업무 흐름은 **orchestrator가 허브**로 조율한다. 의존 방향은 `work_orders → execution → movement/warehouse/records → db/postgres`이며 역참조하지 않는다.
-- orchestrator는 Step 전진과 중단·복구 순서만 조율한다. 재고 확정, Evidence 기록, Robot 해제 같은 정책은 각 소유 도메인의 함수에 위임한다.
+- router는 HTTP 변환 경계이고, 업무 정책과 실행 순서는 소유 도메인 capability가 담당한다.
+- 목표 의존 방향은 API → domain capability → adapter다. DB adapter는 domain을 import하지 않고 Records가
+  runtime record의 Movement 조회 projection을 조합한다. Movement callback의 Execution 전진과 Maps/Movement
+  runtime adapter 조합은 §10의 명시적 coordination 경계로 남아 있다.
+- 실행 조율은 Step 전진과 중단·복구 순서를 연결한다. 현재는 재고 확정, Evidence 기록, Robot 해제,
+  Safety·Vision 호출까지 함께 조율하며, 정책 판단의 최종 소유자는 각 도메인 경계를 따른다.
 - 외부 연동 실패는 감추지 않고 501이나 명시적 에러 코드로 드러낸다.
 
-## 8. 용어 (핵심)
+## 8. 용어 안내
 
-문서와 화면에서 쓰는 **업무 용어**와 코드·API에서 쓰는 **이름**을 잇는 대조표다. 코드를 읽을 때 이 표를 옆에 두면 된다.
-
-| 업무어 | 코드·문서 | 설명 |
-| --- | --- | --- |
-| 관제 서버 | Main_Control | FastAPI + PostgreSQL. 브라우저·외부 서버의 허브 |
-| 이동 서버 | Movement Server | 로봇별 Nav2·도킹·리프트 |
-| 인식 서버 | Vision | 영상·아루코·위험 advisory |
-| 입출고 요청 | work order | 품목+수량 상위 요청 |
-| 로봇 작업 | `RobotTask` | work order에서 분해되어 한 로봇에 배정되는 실행 단위 |
-| 로봇 작업 단계 | `RobotTaskStep` / `steps[]` | robot task 안의 계획된 이동/도킹 단위 |
-| 단계 번호 | `step_index` | 현재 진행 중인 step 인덱스 |
-| 접근 대기 → 도킹 | gate | approach 도착(ARRIVED) 후 `dock_transfer` |
-| 대기점 / 작업점 | approach / dock | 도킹 전 멈추는 지점 vs 마커 앞 작업 지점 |
-| 운영자 개입 대기 | `AWAITING_OPERATOR` | ESTOP 등 후 자동 재개 금지 |
-| 복구 진행 중 | `RECOVERY_RUNNING` | 운영자 복구 이동 실행 중 |
-| `move_to_point` 등 | command `kind` | 공개 계약 — 변경 금지 |
-| `/work-orders`, `/robot-commands` | HTTP path | 공개 계약 — 변경 금지 |
-| waypoint | `locations` | 맵 좌표 SoT |
-| storage slot | `locations(type=storage)` | 선반 슬롯 |
-| evidence | `evidence_events` | 이벤트·이동 이력 SoT |
+공식 계층 `Work Order → Task → Step → Robot Command`, 상태 축, Evidence, Mission과 deprecated `leg`의
+정의는 [GLOSSARY](GLOSSARY.md)만 정본으로 삼는다. 이 문서의 흐름도에 쓰인 용어도 그 정의를 따른다.
 
 ## 9. 레포 트리 (요약)
 
@@ -293,33 +268,66 @@ maps/            ROS map asset
 | 일관성 | transaction, command·robot·step 검증, callback event ID/sequence, advisory lock | 외부 서버와의 분산 transaction은 없으며 폴링으로 수렴 |
 | 회복성 | callback + 상태 폴링, 재시작 후 진행 task 재동기화 | Movement/Vision 장기 장애의 자동 복구 목표는 미정 |
 | 관측성 | health/ready/status, command trace, evidence·task·inventory logs | 중앙 로그·metric·alert와 SLO는 아직 없음 |
-| 보안 | 외부 주소·비밀값 분리, Movement callback shared token | 운영자 API 인증/RBAC와 TLS 종단은 아직 제공하지 않음 |
+| 보안 | 외부 주소·비밀값 분리, upstream URL·응답 크기 검증, Movement callback shared token | 운영자 API 인증/RBAC와 TLS 종단은 아직 제공하지 않음 |
 | 성능 | health cache와 제한된 목록 조회 | 부하 시험과 응답시간·처리량 목표는 아직 없음 |
 
 따라서 현재 릴리스 범위는 신뢰된 개발·현장 네트워크의 포트폴리오 검증이다. 외부망 또는 다사용자 운영으로
 확장할 때는 인증·권한, TLS, secret 관리, 로그/metric/alert, 측정 가능한 SLO를 별도 릴리스 기준으로 확정한다.
 
-### 10.1 도메인 책임과 코드 단위
+### 10.1 도메인 책임
 
-| 도메인 | 소유 책임 | 소유하지 않는 책임 |
-| --- | --- | --- |
-| `work_orders` | 입출고 요청 검증, 슬롯 계획, 1:1 Task projection | Step 전진, Movement HTTP 세부 |
-| `execution` | Task 상태 전이, Step 실행 조율, 중단·복구 순서 | 경로 계산, 재고 SQL, Vision 판정 |
-| `movement` | Robot Command 생성·전송, callback 정규화 | Task 완료 정책, 슬롯 선택 |
-| `safety` | ESTOP latch, 위험 advisory, 운영자 개입 전환 | 업무 완료 판정, 자동 재개 |
-| `vision` | 카메라·인식 요청과 Observation Evidence 입력 | Task 상태 전이 |
-| `warehouse` | 재고 조회·확정과 Inventory Change | Step dispatch |
-| `records` | Runtime Record 조회·표현 | 실행 정책 결정 |
-| `maps` | waypoint·map asset·location route | 로봇 실행 상태 |
-| `db/postgres` | DB 물리 이름, SQL, DB↔내부 값 변환 | 업무 순서와 외부 호출 |
+| 도메인 | 한 문장 책임 | 명시적으로 소유하지 않는 책임 | 현재 경계 예외 |
+| --- | --- | --- | --- |
+| `admin` | 허용된 PostgreSQL table의 구조와 row를 운영 진단용으로 조회한다. | 업무 데이터 정책과 임의 SQL 실행 | 없음 |
+| `work_orders` | 입출고 요청을 검증·계획하고 현행 1:1 Task projection의 생명주기를 제공한다. | Step 전진과 Movement 전송 세부 | 없음 |
+| `execution` | Task 배정·상태 전이와 Step 실행·중단·복구 순서를 조율한다. | 경로 계산, 재고 SQL, Vision 판정 기준 | safe-stop coordinator가 외부 취소와 상태 저장을 같은 transaction 흐름에서 조율 |
+| `movement` | 외부 Movement 계약을 호출하고 Robot Command 결과를 canonical 입력으로 정규화한다. | Task 완료 정책과 슬롯 선택 | callback coordinator는 분리됐지만 fleet ESTOP는 router에 남음 |
+| `safety` | 사람 위험과 ESTOP 정책을 적용하고 운영자 개입이 필요한 중단을 조율한다. | 업무 완료 판정과 자동 재개 | Execution state와 Evidence를 직접 변경 |
+| `vision` | 카메라·인식 서버를 중계하고 lift/load 관측 결과를 기록한다. | Task 상태 전이와 안전 정책 | 없음 |
+| `warehouse` | 품목·슬롯·재고를 관리하고 Task 완료에 따른 재고 변화를 확정한다. | Step dispatch와 로봇 제어 | CRUD 정책 일부가 router에 존재 |
+| `records` | 여러 도메인이 만든 event·log·evidence의 읽기 projection을 제공한다. | 기록 생성 정책과 실행 의사결정 | 없음 |
+| `maps` | map asset, waypoint와 location route를 제공한다. | 로봇 실행 상태와 주행 정책 | runtime overlay 때문에 Movement와 양방향 참조 |
+| `db/postgres` | 물리 table별 SQL, transaction 연결과 DB↔내부 값 변환을 제공한다. | 업무 순서와 외부 HTTP 호출 | 없음 |
 
-코드 단위는 다음 기준을 적용한다.
+`api/routers`는 여러 도메인을 조합하는 HTTP 경계이고, `models`는 request/response 및 상태 계약이며 독립 업무
+도메인이 아니다. 위의 현재 경계 예외는 승인된 목표 구조가 아니라 Stage 3 이후에 줄여야 할 기술 부채다.
 
-- 도메인은 package로 표현한다. 기능을 다시 `*Domain` 클래스 하나로 감싸지 않는다.
-- 상태가 없는 계산·조립·정책은 주체가 드러나는 module function으로 작성한다.
-- 클래스는 Pydantic/enum 같은 계약·상태 모델, 외부 client, 실제 상태를 가진 객체에만 사용한다.
-- DB 참조는 `db/postgres/<physical_responsibility>.py` 파일명과 SQL에서 드러내고, 함수명은 수행 책임을 표현한다.
-- 문서는 구체 클래스 목록이 아니라 도메인 책임, 공개 계약, 상태 축을 정본으로 삼는다.
+현재 책임 판정에서 Work Orders는 Warehouse가 제공하는 재고·위치 사실을 사용해 슬롯 선택과 작업 계획 정책을
+소유한다. Records는 여러 소유 도메인이 생성한 기록의 읽기 projection이며 쓰기 정책을 가져오지 않는다.
+Movement client의 process-local emergency mirror는 외부 서버 상태를 중계하기 위한 캐시이고, 위험 판정과
+ESTOP·자동 재개 금지 정책의 소유자는 Safety다.
+
+### 10.2 코드 인터페이스 명명 규칙
+
+- 도메인 경계의 공개 이름은 **소유자 + 대상 + 행위**를 식별할 수 있어야 한다. `start`, `run`, `process`,
+  `handle`, `execute`, `dispatch` 같은 동사만으로 capability를 표현하지 않는다.
+- class가 대상과 생명주기를 명확히 소유하면 `Robot.start()`처럼 짧은 method를 허용한다. 의미 없이
+  `Robot.start_robot()`처럼 대상을 반복하지 않는다.
+- module-level 공개 함수는 class 주체가 없으므로 `start_task_execution`, `dispatch_robot_command`,
+  `record_execution_evidence`처럼 대상을 포함한다. private helper는 module 문맥이 분명하면 간결하게 둔다.
+- DB 함수도 호출부에서 대상을 잃지 않게 이름을 붙인다. 물리 table 이름과 Python capability 이름은 별도로
+  검수하며, DB table의 참조·소유 의미를 지우기 위해 일괄 축약하지 않는다.
+- 외부 payload의 `robot_name`, command `event/status/result`, `mission_id` 같은 변형은 compatibility adapter에서
+  canonical `robot_id`, `state`, `task_id`로 바꾼 뒤 domain logic에 전달한다.
+- `leg`는 deprecated이며 신규 내부 코드에서 사용하지 않는다. `Mission`은 Movement와 기존 공개 API 호환
+  경계에서만 허용한다. 제거 조건은 [GLOSSARY](GLOSSARY.md)를 따른다.
+- class는 호출 간 상태, lifecycle, invariant, 교체 가능한 외부 경계 중 하나를 실제로 소유할 때 도입한다.
+  상태 없는 계산·조립은 명확한 module function을 우선하며, 추상 계층 자체를 목적으로 만들지 않는다.
+
+문서는 구체 클래스·함수 목록이 아니라 위 책임, [GLOSSARY](GLOSSARY.md)의 업무 개념과 외부 계약을 정본으로
+삼는다. 현재 심볼별 감사 결과는 내부 진행 문서이며 공개 아키텍처 계약이 아니다.
+
+### 10.3 알려진 구현 한계
+
+- Step의 `kind`와 `params`는 외부 계약에서 검증하지만 persisted runtime의 사건별 payload는 아직 동적 구조를
+  포함한다. kind별 discriminated union과 저장 adapter의 전면 typed validation은 공개 계약을 바꾸지 않는 후속
+  강화 항목이다.
+- DB 변경과 외부 Movement 명령 사이에는 분산 transaction이나 Outbox가 없다. 현재는 command ID 멱등성,
+  callback sequence 검증과 상태 polling으로 수렴하며, 전달 보장이 더 강해질 때 Outbox를 별도 설계한다.
+- 광범위 예외 처리는 background loop의 tick 격리, readiness·cache fallback, DB rollback 후 재발생,
+  record-only 보조 evidence에만 허용한다. Task 상태 전이, 재고 반영, ESTOP, command dispatch와 필수 저장에서는
+  오류를 삼키지 않는다. domain의 기존 HTTP 오류를 typed domain error로 전환할 때는 endpoint 계약 회귀 테스트를
+  먼저 고정하고 한 흐름씩 수행한다.
 
 ## 관련
 

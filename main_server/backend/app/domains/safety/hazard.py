@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.config import settings
-from app.db.postgres import evidence_repo, safety_stop_repo
-from app.domains.execution import evidence as evidence_runtime
+from app.db.postgres import runtime_records, safety_stops
+from app.domains.execution import evidence
 from app.domains.execution import state as orch_state
 from app.domains.movement.client import MovementClientError, movement_client
 from app.domains.vision.client import (
@@ -18,6 +18,7 @@ from app.domains.vision.client import (
     fetch_person_hazard_latest,
     put_person_monitor_state,
 )
+from app.models.person_hazard import validate_person_hazard_payload
 
 logger = logging.getLogger(__name__)
 
@@ -26,31 +27,8 @@ ROBOT_SOURCE_MAP: dict[str, str] = {
     "tb3_2": "tb3_2_picam",
 }
 
-FORBIDDEN_PAYLOAD_KEYS = frozenset(
-    {
-        "bbox",
-        "bbox_xyxy",
-        "mask",
-        "mask_rle",
-        "polygon",
-        "raw_detections",
-        "detections",
-    }
-)
-
-FORBIDDEN_MOTION_STRINGS = frozenset(
-    {
-        "HOLD",
-        "E_STOP",
-        "STOP_COMMAND",
-        "MOTION_CANCELLED",
-        "BLOCKED",
-    }
-)
-
-
-@dataclass
-class MonitorRuntime:
+@dataclass(slots=True)
+class PersonHazardMonitorRuntime:
     robot_id: str
     source: str
     task_id: int
@@ -60,12 +38,15 @@ class MonitorRuntime:
     last_step_kind: str | None = None
 
 
-_runtime: dict[str, MonitorRuntime] = {}
+_runtime: dict[str, PersonHazardMonitorRuntime] = {}
 _cooldown_until: dict[str, float] = {}
 _degraded_log_at: dict[str, float] = {}
 _pending_estops: dict[str, int] = {}
+_processed_advisories: dict[str, float] = {}
 _last_reconcile_at = 0.0
 RECONCILE_INTERVAL_SEC = 5.0
+ADVISORY_REPLAY_TTL_SEC = 3600.0
+MAX_PROCESSED_ADVISORIES = 10_000
 
 
 def robot_source(robot_id: str) -> str:
@@ -75,32 +56,11 @@ def robot_source(robot_id: str) -> str:
     return source
 
 
-def validate_hazard_payload(payload: dict[str, Any]) -> None:
-    """Reject compact-contract violations before DB write or E-stop."""
-
-    def _walk(obj: Any) -> None:
-        if isinstance(obj, dict):
-            for key, val in obj.items():
-                if key in FORBIDDEN_PAYLOAD_KEYS:
-                    raise ValueError(f"forbidden field: {key}")
-                if isinstance(val, str) and val.upper() in FORBIDDEN_MOTION_STRINGS:
-                    raise ValueError(f"forbidden motion string: {val}")
-                _walk(val)
-        elif isinstance(obj, list):
-            for item in obj:
-                _walk(item)
-
-    _walk(payload)
-    event = payload.get("event")
-    if isinstance(event, dict) and event.get("trusted") is not False:
-        raise ValueError("person hazard event.trusted must be false")
-
-
-def active_monitors() -> list[MonitorRuntime]:
+def active_monitors() -> list[PersonHazardMonitorRuntime]:
     return [m for m in _runtime.values() if m.enabled]
 
 
-def get_runtime(robot_id: str) -> MonitorRuntime | None:
+def get_runtime(robot_id: str) -> PersonHazardMonitorRuntime | None:
     return _runtime.get(robot_id)
 
 
@@ -112,7 +72,7 @@ def reconcile_active_monitors(conn, *, force: bool = False) -> int:
         return 0
     _last_reconcile_at = now
     restored = 0
-    for task in evidence_runtime.list_orchestrated_running(conn):
+    for task in evidence.list_orchestrated_running(conn):
         robot_id = str(task.get("assigned_robot_id") or "")
         if not robot_id or get_runtime(robot_id):
             continue
@@ -149,7 +109,7 @@ def enable_monitor(robot_id: str, task_id: int, *, command_id: str | None = None
         logger.warning("person monitor enable failed robot=%s: %s", robot_id, exc)
         return
     now = datetime.now(timezone.utc)
-    _runtime[robot_id] = MonitorRuntime(
+    _runtime[robot_id] = PersonHazardMonitorRuntime(
         robot_id=robot_id,
         source=source,
         task_id=task_id,
@@ -190,23 +150,23 @@ def on_robot_task_terminal(robot_id: str) -> None:
 
 
 def mark_task_awaiting_operator(conn, task_id: int, *, reason: str, robot_id: str | None = None) -> None:
-    orch = evidence_repo.get_orchestration(conn, task_id)
+    orch = runtime_records.get_orchestration(conn, task_id)
     if not orch:
         return
     orch = dict(orch)
     execution = orch_state.RobotTaskExecutionState.wrap(orch)
-    execution.phase = orch_state.PHASE_AWAITING_OPERATOR
-    execution.recovery = {
+    execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
+    execution.replace_recovery({
         "reason": reason,
         "robot_id": robot_id,
         "marked_at": datetime.now(timezone.utc).isoformat(),
-    }
-    evidence_runtime.save_orchestration(conn, task_id, orch)
+    })
+    evidence.save_orchestration(conn, task_id, orch)
 
 
 def mark_running_tasks_awaiting_operator(conn, *, reason: str) -> int:
     count = 0
-    for task in evidence_runtime.list_orchestrated_running(conn):
+    for task in evidence.list_orchestrated_running(conn):
         task_id = int(task["task_id"])
         orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
         if orch_state.RobotTaskExecutionState.wrap(orch).phase == orch_state.PHASE_AWAITING_OPERATOR:
@@ -252,12 +212,33 @@ def _set_cooldown(robot_id: str, source: str, task_id: int, dedup: str) -> None:
     _cooldown_until[key] = time.monotonic() + settings.person_hazard_cooldown_sec
 
 
+def _advisory_replay_key(runtime: PersonHazardMonitorRuntime, dedup: str) -> str:
+    return f"{runtime.robot_id}:{runtime.source}:{runtime.task_id}:{dedup}"
+
+
+def _advisory_seen(runtime: PersonHazardMonitorRuntime, dedup: str) -> bool:
+    now = time.monotonic()
+    expired = [key for key, seen_at in _processed_advisories.items() if now - seen_at > ADVISORY_REPLAY_TTL_SEC]
+    for key in expired:
+        _processed_advisories.pop(key, None)
+    return _advisory_replay_key(runtime, dedup) in _processed_advisories
+
+
+def _mark_advisory_seen(runtime: PersonHazardMonitorRuntime, dedup: str) -> None:
+    if len(_processed_advisories) >= MAX_PROCESSED_ADVISORIES:
+        oldest = min(_processed_advisories, key=_processed_advisories.get)
+        _processed_advisories.pop(oldest, None)
+    _processed_advisories[_advisory_replay_key(runtime, dedup)] = time.monotonic()
+
+
 def _is_stale(observed_at: datetime | None, enable_time: datetime) -> bool:
     if observed_at is None:
         return True
     now = datetime.now(timezone.utc)
     if observed_at.tzinfo is None:
         observed_at = observed_at.replace(tzinfo=timezone.utc)
+    if (observed_at - now).total_seconds() > settings.person_hazard_stale_sec:
+        return True
     if observed_at < enable_time:
         return True
     return (now - observed_at).total_seconds() > settings.person_hazard_stale_sec
@@ -271,19 +252,23 @@ def _record_degraded(robot_id: str, detail: str) -> None:
     logger.warning("person hazard degraded robot=%s: %s", robot_id, detail)
 
 
-def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> bool:
+def apply_person_hazard_advisory(conn, runtime: PersonHazardMonitorRuntime, payload: dict[str, Any]) -> bool:
     """Return True if E-stop decision was taken."""
-    validate_hazard_payload(payload)
+    validate_person_hazard_payload(
+        payload,
+        expected_robot_id=runtime.robot_id,
+        expected_source=runtime.source,
+        expected_task_id=runtime.task_id,
+    )
     event = payload.get("event") or {}
     if not isinstance(event, dict):
-        return False
-    event_task = event.get("task_id")
-    if event_task is not None and str(event_task) != str(runtime.task_id):
         return False
     observed_at = _parse_observed_at(str(event.get("observed_at") or ""))
     if _is_stale(observed_at, runtime.enable_time):
         return False
     dedup = _dedup_key(event)
+    if _advisory_seen(runtime, dedup):
+        return False
     if _cooldown_active(runtime.robot_id, runtime.source, runtime.task_id, dedup):
         return False
 
@@ -293,7 +278,7 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
 
         data_json = json.loads(data_json)
 
-    advisory_id = evidence_repo.append(
+    advisory_id = runtime_records.append(
         conn,
         task_id=runtime.task_id,
         event_type="HUMAN_DETECTED",
@@ -323,7 +308,7 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
             estop_error = str(exc)
             _pending_estops[runtime.robot_id] = runtime.task_id
 
-    decision_id = evidence_repo.append(
+    decision_id = runtime_records.append(
         conn,
         task_id=runtime.task_id,
         event_type="SAFETY_ESTOP_DECISION",
@@ -341,8 +326,9 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
             "observed_at": event.get("observed_at"),
         },
     )
-    safety_stop_repo.open_from_evidence(conn, decision_id)
+    safety_stops.open_from_evidence(conn, decision_id)
     mark_task_awaiting_operator(conn, runtime.task_id, reason="person_hazard", robot_id=runtime.robot_id)
+    _mark_advisory_seen(runtime, dedup)
     _set_cooldown(runtime.robot_id, runtime.source, runtime.task_id, dedup)
     return estop_ok
 
@@ -356,7 +342,7 @@ def retry_pending_estops(conn) -> int:
         except MovementClientError as exc:
             _record_degraded(robot_id, f"E-stop retry failed: {exc}")
             continue
-        evidence_repo.append(
+        runtime_records.append(
             conn,
             task_id=task_id,
             event_type="SAFETY_ESTOP_CONFIRMED",
@@ -370,11 +356,11 @@ def retry_pending_estops(conn) -> int:
     return confirmed
 
 
-def handle_hazard_response(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> None:
+def apply_person_hazard_response(conn, runtime: PersonHazardMonitorRuntime, payload: dict[str, Any]) -> None:
     result = str(payload.get("result") or "").upper()
     reason = str(payload.get("reason_code") or "").upper()
     if result == "ADVISORY" and reason == "HUMAN_DETECTED":
-        process_advisory(conn, runtime, payload)
+        apply_person_hazard_advisory(conn, runtime, payload)
         return
     if result == "NO_ACTIVE_MONITOR":
         if runtime.enabled:
@@ -385,7 +371,7 @@ def handle_hazard_response(conn, runtime: MonitorRuntime, payload: dict[str, Any
         return
 
 
-def poll_robot(conn, runtime: MonitorRuntime) -> None:
+def poll_robot_person_hazard(conn, runtime: PersonHazardMonitorRuntime) -> None:
     try:
         payload = fetch_person_hazard_latest(runtime.robot_id)
     except VisionUpstreamError as exc:
@@ -394,16 +380,16 @@ def poll_robot(conn, runtime: MonitorRuntime) -> None:
             return
         _record_degraded(runtime.robot_id, str(exc))
         return
-    handle_hazard_response(conn, runtime, payload)
+    apply_person_hazard_response(conn, runtime, payload)
 
 
-def poll_once(conn) -> int:
+def poll_person_hazards_once(conn) -> int:
     if not settings.person_hazard_enabled:
         return 0
     reconcile_active_monitors(conn)
     retry_pending_estops(conn)
     polled = 0
     for runtime in list(active_monitors()):
-        poll_robot(conn, runtime)
+        poll_robot_person_hazard(conn, runtime)
         polled += 1
     return polled

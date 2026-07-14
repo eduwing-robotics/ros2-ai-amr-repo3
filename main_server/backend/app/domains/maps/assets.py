@@ -13,6 +13,10 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 
+MAX_MAP_YAML_BYTES = 64 * 1024
+MAX_MAP_PGM_BYTES = 64 * 1024 * 1024
+MAX_MAP_PIXELS = 25_000_000
+
 
 @dataclass(frozen=True)
 class MapAsset:
@@ -67,6 +71,8 @@ def _parse_scalar(value: str) -> Any:
 
 def _read_simple_yaml(path: Path) -> dict[str, Any]:
     """ROS map.yaml의 단순 key: value 형식을 읽는다."""
+    if path.stat().st_size > MAX_MAP_YAML_BYTES:
+        raise HTTPException(status_code=400, detail=f"map YAML is too large: {path.name}")
     data: dict[str, Any] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         clean = line.split("#", 1)[0].strip()
@@ -79,6 +85,8 @@ def _read_simple_yaml(path: Path) -> dict[str, Any]:
 
 def _pgm_header(path: Path) -> tuple[str, int, int, int, int]:
     """PGM magic/width/height/maxval과 픽셀 시작 offset을 읽는다."""
+    if path.stat().st_size > MAX_MAP_PGM_BYTES:
+        raise HTTPException(status_code=400, detail=f"PGM file is too large: {path.name}")
     raw = path.read_bytes()
     tokens: list[bytes] = []
     i = 0
@@ -105,6 +113,8 @@ def _pgm_header(path: Path) -> tuple[str, int, int, int, int]:
         raise HTTPException(status_code=400, detail=f"invalid PGM header: {path.name}") from exc
     if width <= 0 or height <= 0 or maxval <= 0:
         raise HTTPException(status_code=400, detail=f"invalid PGM dimensions: {path.name}")
+    if width * height > MAX_MAP_PIXELS:
+        raise HTTPException(status_code=400, detail=f"PGM dimensions exceed safety limit: {path.name}")
     return tokens[0].decode("ascii"), width, height, maxval, i
 
 
@@ -157,12 +167,18 @@ def scan_map_assets_with_skips() -> tuple[list[MapAsset], list[dict[str, str]]]:
     for yaml_path in yaml_paths:
         rel = str(yaml_path.relative_to(root))
         try:
-            data = _read_simple_yaml(yaml_path)
+            resolved_yaml_path = yaml_path.resolve()
+            try:
+                resolved_yaml_path.relative_to(root)
+            except ValueError:
+                skipped.append({"yaml": rel, "reason": "yaml 경로가 maps 폴더 밖임"})
+                continue
+            data = _read_simple_yaml(resolved_yaml_path)
             image_name = str(data.get("image", "")).strip()
             if not image_name:
                 skipped.append({"yaml": rel, "reason": "yaml에 image 항목이 없음"})
                 continue
-            image_path = (yaml_path.parent / image_name).resolve()
+            image_path = (resolved_yaml_path.parent / image_name).resolve()
             try:
                 image_path.relative_to(root)
             except ValueError:
@@ -180,8 +196,8 @@ def scan_map_assets_with_skips() -> tuple[list[MapAsset], list[dict[str, str]]]:
             assets.append(
                 MapAsset(
                     map_id=settings.movement_active_map_id,
-                    name=yaml_path.stem,
-                    yaml_path=yaml_path,
+                    name=resolved_yaml_path.stem,
+                    yaml_path=resolved_yaml_path,
                     image_path=image_path,
                     resolution=float(data.get("resolution", 0.05)),
                     origin_x=float(origin[0]),

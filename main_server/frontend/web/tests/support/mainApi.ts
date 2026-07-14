@@ -18,6 +18,7 @@ type State = {
   tasks?: unknown[];
   cameraSources?: unknown[];
   cameraOnline?: boolean;
+  events?: unknown[];
 };
 
 function json(route: Route, body: unknown, status = 200) {
@@ -33,7 +34,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
       robots: [robot],
       camera_sources: state.cameraSources ?? [],
       tasks: state.tasks ?? [],
-      events: [],
+      events: state.events ?? [],
       movement_health: { tb3_1: { ok: state.movementOk ?? true, is_emergency: Boolean(state.emergency) } },
     });
     if (path === "/robots") return json(route, [robot]);
@@ -48,6 +49,36 @@ export async function mockMainApi(page: Page, state: State = {}) {
     if (path.includes("/priority") || path.includes("/cancel")) return json(route, { ok: true });
     if (path.startsWith("/maps")) return json(route, [map]);
     if (path.startsWith("/robot-poses")) return json(route, []);
+    if (path === "/movement/sync-status") return json(route, {
+      robots: [{ robot_id: robot.robot_id, localized: true, pose_state: "fresh" }],
+      map_state: { ok: true, active_map_id: map.map_id },
+      movement_logs: [],
+      planned_paths: [],
+    });
+    if (path === "/movement/map-state") return json(route, {
+      ok: state.movementOk ?? true,
+      active_map_id: map.map_id,
+    });
+    if (/^\/robots\/[^/]+\/localization$/.test(path)) return json(route, {
+      robot_id: robot.robot_id,
+      ok: state.movementOk ?? true,
+      robot_online: state.movementOk ?? true,
+      command_accepting: state.movementOk ?? true,
+      localized: true,
+      pose_state: "fresh",
+    });
+    if (/^\/robots\/[^/]+\/nav-state$/.test(path)) return json(route, {
+      robot_id: robot.robot_id,
+      ok: state.movementOk ?? true,
+      robot_online: state.movementOk ?? true,
+      command_accepting: state.movementOk ?? true,
+      localized: true,
+    });
+    if (path === "/vision/streams") return json(route, {
+      stream_transports: [{ kind: "webrtc", configured: false, status: "not_configured" }],
+    });
+    if (path === "/vision/overlay/latest") return json(route, { staleness_sec: 0 });
+    if (path === "/vision/overlay/latest/image") return route.fulfill({ status: 404, body: "" });
     if (path === "/tasks/recovery/awaiting-operator") return json(route, state.recoveryTasks ?? []);
     if (/^\/tasks\/\d+\/recovery\/preview$/.test(path)) return json(route, {
       task_id: 1,
@@ -59,6 +90,6 @@ export async function mockMainApi(page: Page, state: State = {}) {
     });
     if (path.startsWith("/events") || path.startsWith("/api-logs")) return json(route, []);
     if (path.startsWith("/cameras") || path.startsWith("/camera-sources")) return json(route, []);
-    return json(route, []);
+    throw new Error(`Unhandled Main API mock: ${req.method()} ${path}`);
   });
 }

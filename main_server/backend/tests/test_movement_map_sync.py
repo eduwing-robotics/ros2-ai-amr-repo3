@@ -12,9 +12,9 @@ from fastapi import HTTPException
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.domains.movement import commands as command_service
+from app.domains.movement import commands
 from app.domains.movement.navigation import RuntimeMapContext, resolve_movement_map_id
-from app.models.schemas import RobotCommandRequest
+from app.models.robot_commands import RobotCommandRequest
 
 
 def _ctx(**kwargs) -> RuntimeMapContext:

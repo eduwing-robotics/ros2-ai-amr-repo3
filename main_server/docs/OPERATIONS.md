@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Ops
-최종 갱신: 2026-07-13 19:23 KST
+최종 갱신: 2026-07-14 17:30 KST
 목적: 실서버 실행·검증·ESTOP 복구와 추가 개발 정책의 단일 정본.
 
 Main은 PostgreSQL과 실제 Movement·Vision 서버만 사용한다. fake/mock 서버 실행 경로는 제공하지 않는다.
@@ -79,6 +79,7 @@ bash ./scripts/check.sh backend
 bash ./scripts/check.sh frontend
 bash ./scripts/check.sh db          # 전용 PostgreSQL test DB 필요
 bash ./scripts/check.sh operator    # 실행 중인 실제 Main 필요, 기본 read-only
+bash ./scripts/check.sh robot --dry-run # 실장비 시나리오와 통과 조건 확인
 bash ./scripts/check.sh all         # 로컬 gate 후 PostgreSQL integration
 ```
 
@@ -87,7 +88,26 @@ bash ./scripts/check.sh all         # 로컬 gate 후 PostgreSQL integration
 - `LMS_ALLOW_MUTABLE_DB_TESTS=1`은 폐기 가능한 DB에서만 사용한다.
 - `check.sh operator`의 변경 검사는 `LMS_VERIFY_MUTATING=1`과 mutable DB 허용을 모두 요구한다.
 - Frontend gate는 TypeScript typecheck, ESLint, Vite production build를 실행한다.
-- 실장비 Movement·Vision 연동과 브라우저 E2E는 자동 gate 밖의 최종 검증이다.
+- 실장비 Movement·Vision 연동은 `check.sh robot`의 현장 인수 단계에서 최종 검증한다.
+
+### 실로봇 인수 실행
+
+```bash
+bash ./scripts/check.sh robot \
+  --robot-id tb3_2 \
+  --operator "검증자 이름" \
+  --api-base http://smartfactory-main.local:8088/api/v1 \
+  --ui-base http://smartfactory-main.local:8088
+```
+
+기본 실행은 로컬 전체 gate 후 Main `/health`·`/ready`, 운영 API, Movement와 Vision 강제 probe,
+callback token을 확인한다. 그 다음 [TEST_CASES](TEST_CASES.md)의 HW-01~11을 순서대로 안내하고
+각 단계 전후의 API snapshot을 `.bootstrap/robot-acceptance/`에 저장한다. 이 경로는 로컬 증적이므로 Git에
+추가하지 않는다. ESTOP·서버 단절·재시작·로봇 이동은 스크립트가 실행하지 않으며 현장 안전 책임자가 수행한다.
+
+`--preflight-only`는 장비 준비 상태만 확인하고 모든 HW 판정을 `UNVERIFIED`로 남긴다. 전체 인수 실행은
+FAIL 또는 `UNVERIFIED`가 하나라도 있으면 종료 코드 1을 반환한다. `--skip-local`은 같은 commit의
+`check.sh all` 결과가 별도 보존된 경우에만 사용한다.
 
 ## 3. ESTOP 복구
 

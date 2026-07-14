@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Backend
-최종 갱신: 2026-07-14 11:03 KST
+최종 갱신: 2026-07-14 18:28 KST
 목적: Main `/api/v1` **작성 규칙 + 엔드포인트 카탈로그**. 외부 계약: [INTERFACES](INTERFACES.md).
 
 브라우저가 사용하는 Main REST API의 경로와 역할을 정리한다. 요청·응답 필드는 실행 서버의 OpenAPI가 정본이다. Movement·Vision 서버 간 계약은 [INTERFACES](INTERFACES.md)에서 관리한다.
@@ -213,7 +213,7 @@ Command callback은 `command_id`, robot, event/state가 필수이며 누락 시 
 - **완료·복귀:** 목적지 `dock_transfer(unload)`가 `DONE`이면 재고를 한 번만 반영하고 `business_completed=true`가 된다. 이후 HOME 복귀와 `aruco_align(park)`는 후처리이며 `return_status`는 `RETURNING_HOME | PARKING | PARKED | PARK_FAILED`다. 주차 실패는 완료된 입출고를 실패로 되돌리지 않고 `parking_error`에 기록한다.
 - **배정·복구:** `POST /tasks/auto-assign-and-start`는 로봇 배정과 mission 시작을 한 번에 처리한다. 비상정지 후 복구는 awaiting-operator 목록 → context 조회 → preview → execute 순서로 진행한다. 운영 UI는 명시된 HOME 안전 위치 이동과 정지 확인 후 수동 회수만 제공하며 자동 하역·자동 작업 재개는 지원하지 않는다. 운영 절차는 [OPERATIONS §3](OPERATIONS.md).
 - **waypoints:** `map_id`로 필터·저장한다. 다른 데이터가 참조 중이면 삭제가 `409 marker_in_use`로 거부되며, usage 확인 → disable 또는 force-delete로 처리한다. 도킹용 필드로 `scan_waypoint_id`·`aruco_marker_id`·`dock_mode`를 가진다.
-- **maps:** 표시용 메타와 Nav2 runtime 상태(`runtime_*`, `asset_status`, `runtime_match`)를 분리해 담는다. import는 기존 메타를 보존하고, sync는 runtime 정보만 새로 고친다. 에셋 파일은 `image.png`·`map.pgm`·`map.yaml`로 제공하며 로봇 pose 응답에는 맵 경계 안 여부(`in_bounds`)가 포함된다.
+- **maps:** 표시용 메타와 Nav2 runtime 상태(`runtime_*`, `asset_status`, `runtime_match`)를 분리해 담는다. import는 기존 메타를 보존하고, sync는 runtime 정보만 새로 고친다. 에셋 파일은 `image.png`·`map.pgm`·`map.yaml`로 제공하며 로봇 pose 응답에는 맵 경계 안 여부(`in_bounds`)가 포함된다. YAML·PGM은 map root 이탈과 symlink 이탈, 과대 파일·pixel 선언을 거부한다.
 
 ## Vision · teleop
 

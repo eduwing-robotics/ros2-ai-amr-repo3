@@ -145,9 +145,6 @@ export interface RobotCommandRecord {
   created_at: string;
 }
 
-/** @deprecated Use RobotCommandRecord. */
-export type MovementCommand = RobotCommandRecord;
-
 // --- 로봇 작업 ---
 export interface RobotTask {
   task_id: number;
@@ -172,11 +169,6 @@ export interface RobotTaskCreate {
   to_location?: string | null;
   created_by?: string | null;
 }
-
-/** @deprecated Use RobotTask. */
-export type Task = RobotTask;
-/** @deprecated Use RobotTaskCreate. */
-export type TaskCreate = RobotTaskCreate;
 
 // --- 수동 이동(teleop) ---
 export type TeleopCommand =

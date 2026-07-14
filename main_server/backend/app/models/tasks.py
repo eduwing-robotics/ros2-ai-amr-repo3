@@ -89,10 +89,3 @@ class RobotTaskAssign(BaseModel):
     """Robot task assignment request."""
 
     robot_id: str
-
-
-# Deprecated compatibility aliases. Do not use in new code.
-# Remove after public /tasks schema consumers migrate to RobotTask names.
-Task = RobotTask
-TaskCreate = RobotTaskCreate
-TaskAssign = RobotTaskAssign

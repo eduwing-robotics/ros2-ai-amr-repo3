@@ -123,9 +123,8 @@
 .operator-kpi-strip {
   flex: none;
   display: grid;
-  /* KPI 카드 폭 170~240px 상한 + 좌측 정렬 (대시보드 그리드 관례: 카드 200~280px) */
-  grid-template-columns: repeat(auto-fill, minmax(170px, 240px));
-  justify-content: start;
+  /* 타일이 상단 폭을 빈공간 없이 나눠 채운다 (최소 170px에서 자동 줄바꿈) */
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 8px;
 }
 .kpi-tile {
@@ -151,6 +150,16 @@
 .kpi-tile.warn .kpi-hint { color: var(--warn-fg); }
 .kpi-tile.err { border-left-color: var(--red); background: var(--err-bg); }
 .kpi-tile.err .kpi-hint { color: var(--err-fg); }
+
+/* 알람 확장 패널 — KPI 알람 타일 클릭으로 열림. 모두 확인 시 강조 해제 */
+.operator-alarm-panel { flex: none; padding: 10px 12px; }
+.operator-alarm-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.operator-alarm-head h2 { margin: 0; padding: 0; border: 0; font-size: 13px; }
+.operator-alarm-head .rowbtn { margin-right: 0; }
+.operator-alarm-panel .event-feed { max-height: 32vh; }
+/* 확인(ack)된 알람 행 — err/warn 색을 걷어내고 조용히 (.event-feed-row.err보다 높은 특이도) */
+.operator-alarm-panel .event-feed-row.acked { background: var(--surface-2); color: inherit; border-left-color: transparent; opacity: .65; }
+.event-ack-chip { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--idle-bg); color: var(--idle-fg); font-size: 10px; font-weight: 700; }
 
 .operator-map-column {
   display: flex;

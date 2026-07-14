@@ -4,7 +4,7 @@
 
 상태: Active
 소유: Integration
-최종 갱신: 2026-07-14 11:03 KST
+최종 갱신: 2026-07-14 18:28 KST
 목적: **Main 서버 기준** 외부 HTTP 계약 — Movement/Vision 경계, robot-commands, 콜백, lift-load evidence.
 
 Main 서버와 다른 서버(Movement·Vision) 사이의 HTTP 계약을 정의한다. Main이 호출하는 API, 수신하는 콜백,
@@ -41,6 +41,8 @@ Base URL: http://smartfactory-main.local:8088/api/v1
 ```
 
 외부 서버가 콜백할 base URL과 Main이 바라보는 upstream 주소는 `GET /api/v1/system/external-config`로 조회할 수 있다.
+
+Movement·Vision base URL과 callback URL은 `http`/`https`와 명시적 host가 필요하며 userinfo·query·fragment를 허용하지 않는다. Main proxy는 JSON/binary/오류 응답에 크기 상한을 적용하고 upstream 오류 본문을 브라우저 응답에 노출하지 않는다. `external-config`는 내부 endpoint topology를 포함하므로 신뢰된 운영망에서만 노출한다.
 
 Vision 연동은 Main이 **끌어오고 중계(pull/proxy)** 한다. Main이 중계하는 path 예:
 
@@ -222,7 +224,7 @@ POST http://<main>:8088/api/v1/movement/command-events
 릴리즈 환경에서는 Main과 Movement에 같은 `LMS_MOVEMENT_CALLBACK_TOKEN`을 설정하고 Movement가 모든 callback에
 `X-Movement-Callback-Token` 헤더를 보낸다. Main token이 비어 있으면 로컬 개발 호환 모드로 인증을 강제하지 않는다.
 성공 ACK는 `ok`, `message`, `duplicate`, `task_advanced`를 반환한다. 중복 callback도 `200 duplicate=true`로 응답해
-Movement의 불필요한 재전송을 끝낸다.
+Movement의 불필요한 재전송을 끝낸다. Callback과 누락 보정 poller는 같은 Execution 전진 경로와 task lock을 사용하며, 이미 terminal인 step은 다시 적용하지 않는다.
 
 Main은 callback 누락을 가정하고 `GET /robot-commands/{id}`로 보정한다.
 
@@ -240,8 +242,9 @@ Main 진단 API: `GET /api/v1/movement/map-state` · `/sync-status` · `/robots/
 
 ## 8. Robot-commands envelope (Main outbound)
 
-Main `POST /api/v1/robot-commands`는 `domains/movement/commands.py`가 소유한다. Movement 네이티브 envelope가
-없으면 legacy route로 조용히 대체하지 않고 `501 movement_robot_commands_api_missing`으로 드러낸다.
+Main_Control의 `POST /api/v1/robot-commands`는 Robot Command 외부 계약이다. Movement 네이티브 envelope가
+없으면 legacy route로 조용히 대체하지 않고 `501 movement_robot_commands_api_missing`으로 드러낸다. 내부
+파일·함수 배치는 이 외부 계약의 일부가 아니다.
 
 요청 헤더 `Idempotency-Key`는 body의 `command_id`와 같다. Movement는 같은 key와 같은 payload의 재전송에는 기존
 명령 상태를 반환하고 새 동작을 시작하지 않아야 하며, 같은 key에 다른 payload가 오면 `409`를 반환해야 한다.

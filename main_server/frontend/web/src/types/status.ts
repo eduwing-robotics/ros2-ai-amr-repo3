@@ -40,6 +40,3 @@ export interface ControlSystemStatusSnapshot {
   events: AppEvent[];
   tasks: RobotTask[];
 }
-
-/** @deprecated Use ControlSystemStatusSnapshot. */
-export type StatusSnapshot = ControlSystemStatusSnapshot;

@@ -17,7 +17,7 @@ if _PG_URL:
 from fastapi import HTTPException
 
 from app.db.connection import init_db, transaction, write_transaction
-from app.db.postgres import DEFAULT_FLOOR, inventory_repo, task_repo
+from app.db.postgres import DEFAULT_FLOOR, inventory, tasks
 from app.domains.warehouse import inventory as inventory_ops
 from app.domains.work_orders import service as work_orders
 from tests.support.postgres import apply_demo_fixture
@@ -86,12 +86,12 @@ class PostgresInOutTest(unittest.TestCase):
             self.assertEqual(task["slot_id"], "STORAGE_S1")
             self.assertEqual(task["floor"], 2)
             task_id = task["task_id"]
-            row = task_repo.get(conn, task_id)
+            row = tasks.get_task(conn, task_id)
             self.assertEqual(row["to_floor"], 2)
-            task_repo.assign(conn, task_id, "tb3_1")
-            task_repo.set_status(conn, task_id, "RUNNING")
-            inventory_ops.apply_on_task_complete(conn, task_id)
-            self.assertEqual(inventory_repo.get_quantity(conn, "STORAGE_S1", "BOX-A", 2), 1)
+            tasks.assign(conn, task_id, "tb3_1")
+            tasks.set_status(conn, task_id, "RUNNING")
+            inventory_ops.settle_inventory_for_completed_task(conn, task_id)
+            self.assertEqual(inventory.get_quantity(conn, "STORAGE_S1", "BOX-A", 2), 1)
 
     def test_outbound_second_floor_requires_second_floor_inventory(self) -> None:
         """2층 출고 — 1층 재고가 있어도 2층 재고가 없으면 부족으로 본다."""
@@ -104,14 +104,14 @@ class PostgresInOutTest(unittest.TestCase):
             self.assertEqual(ctx.exception.status_code, 409)
             self.assertEqual(ctx.exception.detail, "insufficient_inventory")
 
-            inventory_repo.adjust(conn, "STORAGE_S1", "BOX-A", 2, 2)
+            inventory.adjust(conn, "STORAGE_S1", "BOX-A", 2, 2)
             order = work_orders.create_work_order(
                 conn,
                 {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 2},
             )
             task = order["tasks"][0]
             self.assertEqual(task["floor"], 2)
-            row = task_repo.get(conn, task["task_id"])
+            row = tasks.get_task(conn, task["task_id"])
             self.assertEqual(row["from_floor"], 2)
 
     def test_inbound_specified_occupied_same_item_slot_rejected(self) -> None:
@@ -129,7 +129,7 @@ class PostgresInOutTest(unittest.TestCase):
         """수량 N — task 1건, 완료 시 빈 슬롯 재고 0 → +N."""
         with write_transaction() as conn:
             qty = 3
-            before = inventory_repo.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
+            before = inventory.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
             self.assertEqual(before, 0)
             order = work_orders.create_work_order(
                 conn,
@@ -138,13 +138,13 @@ class PostgresInOutTest(unittest.TestCase):
             self.assertEqual(len(order["tasks"]), 1)
             self.assertEqual(order["tasks"][0]["quantity"], qty)
             task_id = order["tasks"][0]["task_id"]
-            row = task_repo.get(conn, task_id)
+            row = tasks.get_task(conn, task_id)
             self.assertEqual(int(row["quantity"]), qty)
-            task_repo.assign(conn, task_id, "tb3_1")
-            task_repo.set_status(conn, task_id, "RUNNING")
-            inventory_ops.apply_on_task_complete(conn, task_id)
-            task_repo.set_status(conn, task_id, "COMPLETED")
-            after = inventory_repo.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
+            tasks.assign(conn, task_id, "tb3_1")
+            tasks.set_status(conn, task_id, "RUNNING")
+            inventory_ops.settle_inventory_for_completed_task(conn, task_id)
+            tasks.set_status(conn, task_id, "COMPLETED")
+            after = inventory.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
         self.assertEqual(after, qty)
 
     def test_inventory_completion_is_idempotent(self) -> None:
@@ -155,11 +155,11 @@ class PostgresInOutTest(unittest.TestCase):
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 2, "slot_id": "STORAGE_S3"},
             )
             task_id = order["tasks"][0]["task_id"]
-            task_repo.assign(conn, task_id, "tb3_1")
-            task_repo.set_status(conn, task_id, "RUNNING")
-            self.assertTrue(inventory_ops.apply_on_task_complete(conn, task_id))
-            self.assertFalse(inventory_ops.apply_on_task_complete(conn, task_id))
-            quantity = inventory_repo.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
+            tasks.assign(conn, task_id, "tb3_1")
+            tasks.set_status(conn, task_id, "RUNNING")
+            self.assertTrue(inventory_ops.settle_inventory_for_completed_task(conn, task_id))
+            self.assertFalse(inventory_ops.settle_inventory_for_completed_task(conn, task_id))
+            quantity = inventory.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
         self.assertEqual(quantity, 2)
 
     def test_inbound_specified_mixed_item_slot_rejected(self) -> None:
@@ -213,7 +213,7 @@ class PostgresInOutTest(unittest.TestCase):
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             task_id = order["tasks"][0]["task_id"]
-            task_repo.set_status(conn, task_id, "RUNNING")
+            tasks.set_status(conn, task_id, "RUNNING")
             with self.assertRaises(HTTPException) as ctx:
                 work_orders.cancel_work_order(conn, task_id)
             self.assertEqual(ctx.exception.status_code, 409)
@@ -231,7 +231,7 @@ class PostgresInOutTest(unittest.TestCase):
 
     def test_outbound_insufficient_inventory(self) -> None:
         with transaction() as conn:
-            on_hand = inventory_repo.get_quantity(conn, "STORAGE_S1", "BOX-A", DEFAULT_FLOOR)
+            on_hand = inventory.get_quantity(conn, "STORAGE_S1", "BOX-A", DEFAULT_FLOOR)
             with self.assertRaises(HTTPException) as ctx:
                 work_orders.create_work_order(
                     conn,
@@ -258,10 +258,10 @@ class PostgresInOutTest(unittest.TestCase):
     def test_outbound_claim_blocks_double_spend(self) -> None:
         with write_transaction() as conn:
             floor = DEFAULT_FLOOR
-            reserved = task_repo.active_outbound_claims(conn, "BOX-A", "STORAGE_S1", floor)
-            qty = inventory_repo.get_quantity(conn, "STORAGE_S1", "BOX-A", floor)
+            reserved = tasks.active_outbound_claims(conn, "BOX-A", "STORAGE_S1", floor)
+            qty = inventory.get_quantity(conn, "STORAGE_S1", "BOX-A", floor)
             # Leave exactly one unclaimed unit after existing active outbound tasks.
-            inventory_repo.adjust(conn, "STORAGE_S1", "BOX-A", (1 + reserved) - qty, floor)
+            inventory.adjust(conn, "STORAGE_S1", "BOX-A", (1 + reserved) - qty, floor)
             work_orders.create_work_order(
                 conn,
                 {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1"},
@@ -304,7 +304,7 @@ class PostgresInOutTest(unittest.TestCase):
                 },
             )
             task_id = order["tasks"][0]["task_id"]
-            row = task_repo.get(conn, task_id)
+            row = tasks.get_task(conn, task_id)
             self.assertEqual(row["from_location_id"], "INBOUND_01")
             self.assertEqual(row["to_location_id"], "STORAGE_S3")
 

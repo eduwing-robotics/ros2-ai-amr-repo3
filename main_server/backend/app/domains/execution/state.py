@@ -18,6 +18,8 @@ class RobotTaskOrchestrationPhase(StrEnum):
     RECOVERY_RUNNING = "RECOVERY_RUNNING"
     DONE = "DONE"
     FAILED = "FAILED"
+    ABORTED = "ABORTED"
+    REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
 
 
@@ -48,9 +50,16 @@ class RobotTaskExecutionState:
     def phase(self) -> str:
         return normalize_phase(str(self.data.get("phase") or ""))
 
-    @phase.setter
-    def phase(self, value: str) -> None:
-        self.data["phase"] = normalize_phase(value)
+    def transition_to(self, phase: str | RobotTaskOrchestrationPhase) -> str:
+        """Set a known orchestration phase while preserving the stored string contract."""
+
+        normalized = normalize_phase(phase)
+        try:
+            known_phase = RobotTaskOrchestrationPhase(normalized)
+        except ValueError as exc:
+            raise ValueError(f"unknown robot task orchestration phase: {normalized}") from exc
+        self.data["phase"] = known_phase.value
+        return known_phase.value
 
     @property
     def steps(self) -> list[dict[str, Any]]:
@@ -79,6 +88,17 @@ class RobotTaskExecutionState:
     def recovery(self, value: dict[str, Any]) -> None:
         self.data["recovery"] = value
 
+    def replace_recovery(self, value: dict[str, Any]) -> dict[str, Any]:
+        recovery = dict(value)
+        self.recovery = recovery
+        return recovery
+
+    def update_recovery(self, **changes: Any) -> dict[str, Any]:
+        recovery = dict(self.recovery)
+        recovery.update(changes)
+        self.recovery = recovery
+        return recovery
+
     @property
     def business_completed(self) -> bool:
         return bool(self.data.get("business_completed"))
@@ -95,6 +115,16 @@ class RobotTaskExecutionState:
     @return_status.setter
     def return_status(self, value: str | None) -> None:
         self.data["return_status"] = value
+
+    def advance_step(self) -> int:
+        self.step_index += 1
+        return self.step_index
+
+    def mark_business_completed(self, *, at_step: int) -> None:
+        self.business_completed = True
+        self.data["business_completed_at_step"] = int(at_step)
+        self.return_status = "RETURNING_HOME"
+        self.data["parking_error"] = None
 
     def to_dict(self) -> dict[str, Any]:
         return self.data
@@ -131,7 +161,7 @@ def set_step_index(orch: dict[str, Any], index: int) -> None:
 
 
 def set_phase(orch: dict[str, Any], phase: str) -> None:
-    RobotTaskExecutionState.wrap(orch).phase = phase
+    RobotTaskExecutionState.wrap(orch).transition_to(phase)
 
 
 def is_hold_phase(phase: str | None) -> bool:
@@ -149,7 +179,3 @@ def new_orchestration(steps: list[dict[str, Any]], *, callback_base_url: str | N
         "phase": PHASE_RUNNING,
         "callback_base_url": callback_base_url,
     }
-
-
-# Deprecated compatibility alias. Do not use in new code.
-ExecutionState = RobotTaskExecutionState

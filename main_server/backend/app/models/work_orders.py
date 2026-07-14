@@ -72,10 +72,6 @@ class WorkOrderRobotTask(BaseModel):
     parking_error: dict[str, Any] | None = None
 
 
-# Deprecated compatibility alias. Do not use in new code.
-WorkOrderTask = WorkOrderRobotTask
-
-
 class WorkOrder(BaseModel):
     """입고/출고 업무 요청."""
 

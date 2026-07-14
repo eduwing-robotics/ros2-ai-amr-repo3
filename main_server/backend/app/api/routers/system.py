@@ -6,18 +6,19 @@ from fastapi import APIRouter, Request
 
 from app.core.config import settings
 from app.db.connection import transaction
-from app.db.postgres import (
-    camera_repo,
-    event_repo,
-    movement_repo,
-    robot_repo,
-    task_repo,
-)
+from app.db.postgres import cameras as postgres_cameras
+from app.db.postgres import operational_events
+from app.db.postgres import robots as postgres_robots
+from app.db.postgres import tasks as postgres_tasks
 from app.domains.movement.client import movement_client
 from app.domains.movement.health import battery_from_health, get_movement_health
+from app.domains.records import movement_commands
 from app.domains.vision.cameras import apply_camera_stream_defaults, camera_system_config
 from app.domains.vision.client import fetch_camera_health
-from app.models.schemas import CameraSource, ControlSystemStatusSnapshot, Robot, RobotCommandRecord, RobotTask
+from app.models.movement import RobotCommandRecord
+from app.models.records import CameraSource, ControlSystemStatusSnapshot
+from app.models.robots import Robot
+from app.models.tasks import RobotTask
 
 router = APIRouter(tags=["system"])
 
@@ -36,7 +37,7 @@ def _sync_battery_from_health(robots: list[Robot], health: dict) -> None:
         return
     with transaction() as conn:
         for robot_id, pct in updates.items():
-            robot_repo.set_battery(conn, robot_id, pct)
+            postgres_robots.set_battery(conn, robot_id, pct)
     for robot in robots:
         if robot.robot_id in updates:
             robot.battery = updates[robot.robot_id]
@@ -77,21 +78,21 @@ def status() -> ControlSystemStatusSnapshot:
     with transaction() as conn:
         robots = [
             Robot(**r)
-            for r in robot_repo.list(
+            for r in postgres_robots.list_robots(
                 conn,
             )
         ]
         cameras = apply_camera_stream_defaults(
             [
                 CameraSource(**c)
-                for c in camera_repo.list(
+                for c in postgres_cameras.list_cameras(
                     conn,
                 )
             ]
         )
-        commands = [RobotCommandRecord(**c) for c in movement_repo.list(conn, limit=20)]
-        events = event_repo.list(conn, limit=30)
-        tasks = [RobotTask(**t) for t in task_repo.list_tasks(conn, limit=30)]
+        commands = [RobotCommandRecord(**c) for c in movement_commands.list_movement_command_records(conn, limit=20)]
+        events = operational_events.list_operational_events(conn, limit=30)
+        tasks = [RobotTask(**t) for t in postgres_tasks.list_tasks(conn, limit=30)]
 
     movement_health = get_movement_health([robot.robot_id for robot in robots])
     _sync_battery_from_health(robots, movement_health)

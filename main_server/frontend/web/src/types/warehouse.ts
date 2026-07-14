@@ -114,9 +114,6 @@ export interface WorkOrderRobotTask {
   parking_error?: JsonObject | null;
 }
 
-/** @deprecated Use WorkOrderRobotTask. */
-export type WorkOrderTask = WorkOrderRobotTask;
-
 export interface WorkOrder {
   order_id: number;
   operation: Operation | string;

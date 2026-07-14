@@ -12,8 +12,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 from fastapi import HTTPException
 
-from app.domains.execution import evidence as evidence_runtime
-from app.domains.execution import orchestrator, state
+from app.domains.execution import evidence, orchestrator, state
 
 
 class OrchestratorStepPlanningTest(unittest.TestCase):
@@ -23,8 +22,8 @@ class OrchestratorStepPlanningTest(unittest.TestCase):
             "map_id": "map1",
             "steps": [{"seq": 1, "waypoint_id": "wp1", "action_type": "custom_action"}],
         }
-        with patch.object(evidence_runtime, "location_repo") as location_repo:
-            location_repo.list_map_markers.return_value = [
+        with patch.object(evidence, "locations") as locations:
+            locations.list_map_markers.return_value = [
                 {"waypoint_id": "wp1", "x": 1.0, "y": 2.0, "yaw": 0.0, "name": "A"},
             ]
             steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
@@ -43,7 +42,7 @@ class OrchestratorStepPlanningTest(unittest.TestCase):
                 }
             ],
         }
-        with patch.object(evidence_runtime, "location_repo"):
+        with patch.object(evidence, "locations"):
             steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
         self.assertEqual(steps[0]["kind"], "dock_transfer")
 
@@ -57,7 +56,7 @@ class OrchestratorStepPlanningTest(unittest.TestCase):
 class ExecutionStateTest(unittest.TestCase):
     def test_typed_view_preserves_canonical_persisted_shape(self) -> None:
         raw = {"steps": [{"kind": "move_to_point"}], "step_index": 2, "phase": "AWAITING_OPERATOR"}
-        view = state.ExecutionState.wrap(raw)
+        view = state.RobotTaskExecutionState.wrap(raw)
         self.assertEqual(view.steps, raw["steps"])
         self.assertEqual(view.step_index, 2)
         self.assertEqual(view.phase, state.PHASE_AWAITING_OPERATOR)
@@ -71,6 +70,26 @@ class ExecutionStateTest(unittest.TestCase):
         self.assertEqual(raw["steps"], [{"kind": "dock_transfer"}])
         self.assertEqual(raw["step_index"], 1)
         self.assertTrue(raw["business_completed"])
+        self.assertEqual(raw["return_status"], "RETURNING_HOME")
+
+    def test_transition_rejects_unknown_phase(self) -> None:
+        view = state.RobotTaskExecutionState.wrap({})
+        with self.assertRaisesRegex(ValueError, "unknown robot task orchestration phase"):
+            view.transition_to("NOT_A_PHASE")
+
+    def test_state_operations_preserve_persisted_shape(self) -> None:
+        raw = {"phase": "RUNNING", "step_index": 0, "recovery": {"reason": "estop"}}
+        view = state.RobotTaskExecutionState.wrap(raw)
+
+        self.assertEqual(view.transition_to(state.PHASE_RECOVERY_RUNNING), "RECOVERY_RUNNING")
+        view.update_recovery(active_command_id="cmd-1")
+        self.assertEqual(view.advance_step(), 1)
+        view.mark_business_completed(at_step=0)
+
+        self.assertEqual(raw["recovery"]["active_command_id"], "cmd-1")
+        self.assertEqual(raw["step_index"], 1)
+        self.assertTrue(raw["business_completed"])
+        self.assertEqual(raw["business_completed_at_step"], 0)
         self.assertEqual(raw["return_status"], "RETURNING_HOME")
 
 
@@ -133,7 +152,7 @@ class CallbackConsistencyTest(unittest.TestCase):
         }
         with (
             patch.object(orchestrator, "_task", return_value=task),
-            patch.object(orchestrator, "evidence_runtime") as evidence,
+            patch.object(orchestrator, "evidence") as evidence,
         ):
             result = orchestrator.advance_on_command_event(
                 conn, 1, {"command_id": "cmd-1", "event": "RUNNING", "sequence": 1}

@@ -12,17 +12,14 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from app.api.helpers import callback_base_url
-from app.db.postgres import event_repo, robot_repo
-from app.domains.movement import missions as mission_service
+from app.db.postgres import operational_events, robots
+from app.domains.movement import missions
 from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
 from app.domains.movement.navigation import resolve_movement_map_id
 from app.domains.movement.teleop import execute_teleop
-from app.models.schemas import (
-    MissionStatusResponse,
-    RobotCommandRequest,
-    RobotCommandResponse,
-    TeleopRequest,
-)
+from app.models.movement import MissionStatusResponse
+from app.models.robot_commands import RobotCommandRequest, RobotCommandResponse
+from app.models.robots import TeleopRequest
 
 
 def default_command_id(task_id: int | None, robot_id: str, kind: str) -> str:
@@ -51,7 +48,7 @@ def resolve_callback_url(request: Request | None, override: str | None) -> str:
 
 
 def dispatch_robot_command(conn, payload: RobotCommandRequest, request: Request | None = None) -> RobotCommandResponse:
-    if not robot_repo.exists(conn, payload.robot_id):
+    if not robots.exists(conn, payload.robot_id):
         raise HTTPException(status_code=404, detail="robot not found")
 
     command_id = payload.command_id or default_command_id(payload.task_id, payload.robot_id, payload.kind)
@@ -105,7 +102,7 @@ def _dispatch_move_to_point(
     )
 
     result = _dispatch_passthrough(passthrough, command_id, callback_url)
-    event_repo.append(
+    operational_events.append(
         conn,
         event_type="MOVEMENT_COMMAND_MAP_CONTEXT",
         robot_id=payload.robot_id,
@@ -340,7 +337,7 @@ def _dispatch_passthrough(payload: RobotCommandRequest, command_id: str, callbac
 
 
 def get_command_status(robot_id: str, command_id: str) -> RobotCommandResponse:
-    response = mission_service.command_status(robot_id, command_id)
+    response = missions.command_status(robot_id, command_id)
     state = str(response.get("state") or response.get("status") or "")
     kind = str(response.get("kind") or response.get("command_kind") or "move_to_point")
     return RobotCommandResponse(

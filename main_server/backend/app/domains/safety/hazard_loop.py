@@ -7,7 +7,7 @@ import logging
 
 from app.core.config import settings
 from app.db.connection import PERSON_HAZARD_LOCK_ID, transaction, try_advisory_xact_lock
-from app.domains.safety.hazard import poll_once
+from app.domains.safety.hazard import poll_person_hazards_once
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ def poll_person_hazard_once() -> bool:
     with transaction() as conn:
         if not try_advisory_xact_lock(conn, PERSON_HAZARD_LOCK_ID):
             return False
-        poll_once(conn)
+        poll_person_hazards_once(conn)
         return True
 
 

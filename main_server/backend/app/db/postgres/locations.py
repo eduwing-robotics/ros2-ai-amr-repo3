@@ -13,7 +13,7 @@ def list_locations(conn, location_type: str | None = None) -> list[dict[str, Any
     return [_as_slot(conn, r) for r in rows]
 
 
-def get(conn, location_id: str) -> dict[str, Any] | None:
+def get_location(conn, location_id: str) -> dict[str, Any] | None:
     row = conn.execute("SELECT * FROM locations WHERE id = %s", (location_id,)).fetchone()
     return _as_slot(conn, row) if row else None
 
@@ -257,6 +257,6 @@ def upsert(conn, data: dict[str, Any]) -> None:
     )
 
 
-def delete(conn, location_id: str) -> bool:
+def delete_location(conn, location_id: str) -> bool:
     cur = conn.execute("DELETE FROM locations WHERE id = %s AND type = 'storage'", (location_id,))
     return cur.rowcount > 0

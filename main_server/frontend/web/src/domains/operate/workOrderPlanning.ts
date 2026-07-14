@@ -1,11 +1,5 @@
 import type { Operation } from "../../types";
 
-// 오류 매핑은 lib/apiErrors.ts로 일원화. 기존 import 경로 호환을 위해 재노출한다.
-export {
-  API_ERROR_MESSAGES as WORK_ORDER_ERROR_HINTS,
-  parseApiDetail as parseWorkOrderApiDetail,
-} from "../../lib/apiErrors";
-
 export interface SlotCandidate {
   slot_id: string;
   label: string;

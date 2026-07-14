@@ -9,10 +9,10 @@ from fastapi import HTTPException
 from app.core.config import settings
 from app.db.postgres import (
     DEFAULT_FLOOR,
-    inventory_repo,
-    item_repo,
-    location_repo,
-    task_repo,
+    inventory,
+    items,
+    locations,
+    tasks,
 )
 
 MAX_WORK_ORDER_QUANTITY = 50
@@ -22,7 +22,7 @@ FLOOR_CHOICES = (1, 2)
 def preview_work_order(conn, payload: dict[str, Any]) -> dict[str, Any]:
     item_code = payload["item_code"]
     validated_quantity(int(payload["quantity"]))
-    if not item_repo.exists(conn, item_code):
+    if not items.exists(conn, item_code):
         raise HTTPException(status_code=404, detail="item not found")
     result = plan_work_order(conn, payload)
     result.pop("_planned_entries", None)
@@ -128,18 +128,18 @@ def _plan_single_slot(
 def _slot_occupied(conn, slot_id: str, floor: int) -> bool:
     """슬롯(층)당 파레트 1개: 재고(품목 무관)나 진행 중 입고 claim이 있으면 사용 중."""
     return (
-        inventory_repo.location_total(conn, slot_id, floor) > 0
-        or task_repo.active_inbound_claims(conn, slot_id, floor) > 0
+        inventory.location_total(conn, slot_id, floor) > 0
+        or tasks.active_inbound_claims(conn, slot_id, floor) > 0
     )
 
 
 def _plan_inbound_single(
     conn, item_code: str, quantity: int, payload: dict[str, Any], floor: int | None
 ) -> dict[str, Any]:
-    slots = [s for s in location_repo.list_locations(conn, "storage") if s.get("enabled", True)]
+    slots = [s for s in locations.list_locations(conn, "storage") if s.get("enabled", True)]
     if not slots:
         raise HTTPException(status_code=409, detail="no_available_slot")
-    inbound_loc = location_repo.get_inbound(conn, payload.get("inbound_waypoint_id"))
+    inbound_loc = locations.get_inbound(conn, payload.get("inbound_waypoint_id"))
     for slot in slots:
         for candidate_floor in _candidate_floors(floor):
             if _slot_occupied(conn, slot["slot_id"], candidate_floor):
@@ -154,24 +154,24 @@ def _plan_inbound_single(
 def _plan_outbound_single(
     conn, item_code: str, quantity: int, payload: dict[str, Any], floor: int | None
 ) -> dict[str, Any]:
-    rows = [r for r in inventory_repo.list(conn, item_code=item_code, floor=floor) if int(r.get("quantity") or 0) > 0]
+    rows = [r for r in inventory.list_inventory(conn, item_code=item_code, floor=floor) if int(r.get("quantity") or 0) > 0]
     on_hand_total = sum(int(r.get("quantity") or 0) for r in rows)
     reserved_total = sum(
-        task_repo.active_outbound_claims(conn, item_code, r["slot_id"], int(r.get("floor") or DEFAULT_FLOOR))
+        tasks.active_outbound_claims(conn, item_code, r["slot_id"], int(r.get("floor") or DEFAULT_FLOOR))
         for r in rows
     )
     if on_hand_total - reserved_total < quantity:
         raise HTTPException(status_code=409, detail="insufficient_inventory")
 
-    outbound_loc = location_repo.get_outbound(conn, payload.get("outbound_waypoint_id"))
-    slots_by_id = {s["slot_id"]: s for s in location_repo.list_locations(conn, "storage") if s.get("enabled", True)}
+    outbound_loc = locations.get_outbound(conn, payload.get("outbound_waypoint_id"))
+    slots_by_id = {s["slot_id"]: s for s in locations.list_locations(conn, "storage") if s.get("enabled", True)}
     for row in rows:
         slot = slots_by_id.get(row["slot_id"])
         if not slot:
             continue
         slot_id = row["slot_id"]
         candidate_floor = int(row.get("floor") or DEFAULT_FLOOR)
-        available = int(row["quantity"]) - task_repo.active_outbound_claims(conn, item_code, slot_id, candidate_floor)
+        available = int(row["quantity"]) - tasks.active_outbound_claims(conn, item_code, slot_id, candidate_floor)
         if available >= quantity:
             return {
                 "slot": slot,
@@ -189,12 +189,12 @@ def _resolve_single_slot(
     payload: dict[str, Any],
     floor: int | None,
 ) -> dict[str, Any]:
-    slots_by_id = {s["slot_id"]: s for s in location_repo.list_locations(conn, "storage")}
+    slots_by_id = {s["slot_id"]: s for s in locations.list_locations(conn, "storage")}
     slot = slots_by_id.get(slot_id)
     if not slot or not slot.get("enabled", True):
         raise HTTPException(status_code=409, detail="invalid_slot")
-    inbound_loc = location_repo.get_inbound(conn, payload.get("inbound_waypoint_id"))
-    outbound_loc = location_repo.get_outbound(conn, payload.get("outbound_waypoint_id"))
+    inbound_loc = locations.get_inbound(conn, payload.get("inbound_waypoint_id"))
+    outbound_loc = locations.get_outbound(conn, payload.get("outbound_waypoint_id"))
     if operation == "inbound":
         for candidate_floor in _candidate_floors(floor):
             if _slot_occupied(conn, slot_id, candidate_floor):
@@ -204,8 +204,8 @@ def _resolve_single_slot(
         raise HTTPException(status_code=409, detail="no_available_slot")
 
     for candidate_floor in _candidate_floors(floor):
-        on_hand = inventory_repo.get_quantity(conn, slot_id, item_code, candidate_floor)
-        reserved = task_repo.active_outbound_claims(conn, item_code, slot_id, candidate_floor)
+        on_hand = inventory.get_quantity(conn, slot_id, item_code, candidate_floor)
+        reserved = tasks.active_outbound_claims(conn, item_code, slot_id, candidate_floor)
         if on_hand - reserved < quantity:
             continue
         available_qty = on_hand - reserved
@@ -241,9 +241,9 @@ def _plan_summary(
 def _planned_zone(conn, operation: str, payload: dict[str, Any]) -> dict[str, Any] | None:
     try:
         if operation == "inbound":
-            loc = location_repo.get_inbound(conn, payload.get("inbound_waypoint_id"))
+            loc = locations.get_inbound(conn, payload.get("inbound_waypoint_id"))
         else:
-            loc = location_repo.get_outbound(conn, payload.get("outbound_waypoint_id"))
+            loc = locations.get_outbound(conn, payload.get("outbound_waypoint_id"))
     except ValueError:
         return None
     return {

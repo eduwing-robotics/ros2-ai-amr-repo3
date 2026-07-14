@@ -5,7 +5,7 @@ from typing import Any
 from app.db.postgres.common import row_timestamp
 
 
-def list(conn, limit: int = 50) -> list[dict[str, Any]]:
+def list_task_result_logs(conn, limit: int = 50) -> list[dict[str, Any]]:
     rows = conn.execute("SELECT * FROM task_logs ORDER BY finished_at DESC LIMIT %s", (limit,)).fetchall()
     return [_map(conn, r) for r in rows]
 

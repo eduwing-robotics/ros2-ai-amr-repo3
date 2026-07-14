@@ -1,56 +1,73 @@
-# Movement Server Integration Requirements
+# Movement Callback API Integration Requirements
 
 상태: Active
 소유: Main·Movement Integration
-최종 갱신: 2026-07-13 19:23 KST
-목적: Movement 서버 팀이 Main과 명령·콜백·실시간 상태 정합성을 맞추기 위한 구현·인수 요구서.
+최종 갱신: 2026-07-14 18:28 KST
+목적: 현재 Main 구현을 기준으로 Movement 서버의 명령 callback·상태 보고·재전송 계약을 맞추기 위한 전달 명세.
 
-이 문서는 Movement 서버 전달본이다. Main의 전체 외부 계약은 [INTERFACES](INTERFACES.md)를 따른다.
+이 문서는 현재 구현된 callback API의 정본이다. 전체 서버 간 계약은 [INTERFACES](INTERFACES.md), Main의
+브라우저 API는 [API](API.md)를 따른다. Movement/base watchdog과 향후 message broker 설계는 이 문서 범위가 아니다.
 
-## 1. 연결과 책임
+## 1. 통신 방향과 기준 주소
 
-Main은 로봇별 Movement HTTP API를 호출하고 Movement는 명령 상태와 로봇 상태를 Main으로 callback한다.
-
-| 방향 | API | 요구 |
+| 방향 | Method·path | 용도 |
 | --- | --- | --- |
-| Main → Movement | `GET /movement-api/v1/health` | online·command_accepting·localized·is_emergency·battery 반환 |
-| Main → Movement | `POST /robot-commands` | 명령 접수와 command ID 멱등 처리 |
-| Main → Movement | `GET /robot-commands/{command_id}` | callback 누락 보정용 현재 상태 반환 |
-| Main → Movement | `POST /robot-commands/{command_id}/cancel` | 실제 감속·정지 후 terminal callback |
-| Movement → Main | `POST /api/v1/movement/command-events` | canonical 명령 lifecycle callback |
-| Movement → Main | `POST /api/v1/movement/robots/{robot}/status` | 로봇 online·pose·현재 명령 상태 보고 |
+| Main → Movement | `POST /robot-commands` | canonical command 접수 |
+| Main → Movement | `GET /robot-commands/{command_id}` | callback 누락 보정용 상태 조회 |
+| Main → Movement | `POST /robot-commands/{command_id}/cancel` | 실행 command 취소 |
+| Movement → Main | `POST /api/v1/movement/command-events` | canonical command lifecycle callback |
+| Movement → Main | `POST /api/v1/movement/results` | legacy result callback |
+| Movement → Main | `POST /api/v1/movement/robots/{robot_name}/status` | robot 상태·pose 보고 |
 
-Callback URL은 Main이 명령 body의 `callback_url`로 전달한다. 현재 기본값은
-`http://smartfactory-main.local:8088/api/v1/movement/command-events`이며 Movement 호스트에서 DNS와 TCP 접근이 가능해야 한다.
+Main 기준 기본 주소:
 
-## 2. Command callback payload
+```text
+http://smartfactory-main.local:8088
+```
 
-명령 상태가 바뀔 때 다음 JSON을 보낸다.
+Main은 command body의 `callback_url`로 실제 callback 주소를 전달한다. Movement는 주소를 자체 조합하지 않고
+전달받은 값을 우선 사용한다.
+
+```text
+http://smartfactory-main.local:8088/api/v1/movement/command-events
+```
+
+Main은 callback URL에 `http` 또는 `https` scheme과 명시적 host를 요구하며 userinfo·query·fragment는 허용하지 않는다.
+
+## 2. Main → Movement command 연결
+
+Main은 다음 두 값을 동일하게 전송한다.
+
+```http
+Idempotency-Key: task-42-tb3_1-move_to_point-001
+```
 
 ```json
 {
-  "command_id": "task-42-tb3_1-move_to_point-...",
+  "command_id": "task-42-tb3_1-move_to_point-001",
+  "robot_id": "tb3_1",
   "robot_name": "tb3_1",
   "task_id": 42,
-  "event": "RUNNING",
-  "message": "navigation started",
-  "reported_at": "2026-07-13T09:40:00Z",
-  "event_id": "tb3_1:task-42-...:2",
-  "sequence": 2
+  "kind": "move_to_point",
+  "dry_run": false,
+  "params": {
+    "map_id": "Main_map",
+    "x": 1.2,
+    "y": 3.4,
+    "yaw": 1.57
+  },
+  "callback_url": "http://smartfactory-main.local:8088/api/v1/movement/command-events"
 }
 ```
 
-필수 필드는 `command_id`, `robot_name` 또는 `robot_id`, `event` 또는 `state`다.
-권장 필드는 재전송 중복을 식별하는 전역 고유 `event_id`와 command별 0부터 단조 증가하는 `sequence`다.
-상태 문자열은 `ACCEPTED`, `RUNNING`, `DONE`, `FAILED`, `ABORTED`, `REJECTED`, `CANCELLED`, `STOPPED`를 사용한다.
+Movement 요구사항:
 
-Main은 callback robot이 해당 task의 배정 로봇과 같고 command가 현재 step과 같을 때만 업무를 전진시킨다.
-불일치 callback은 감사 기록만 남거나 상태 적용에서 무시되므로 Movement는 ID를 임의로 재생성하지 않는다.
+- 같은 `command_id`·같은 payload 재요청은 새 goal을 만들지 않고 기존 command 상태를 반환한다.
+- 같은 `command_id`·다른 payload는 `409`로 거부한다.
+- `GET /robot-commands/{command_id}`는 callback과 같은 상태 문자열을 반환한다.
+- cancel 재요청도 새 동작을 만들지 않는 멱등 API여야 한다.
 
-## 3. 인증과 ACK
-
-릴리즈 환경에서는 양 서버에 같은 `LMS_MOVEMENT_CALLBACK_TOKEN`을 설정하고 모든 callback에 다음 헤더를 보낸다.
-`X-Movement-Callback-Token: <shared-token>`
+## 3. Canonical command callback
 
 ```http
 POST /api/v1/movement/command-events HTTP/1.1
@@ -58,65 +75,239 @@ Content-Type: application/json
 X-Movement-Callback-Token: <shared-token>
 ```
 
-Main token이 비어 있는 개발환경에서는 인증을 강제하지 않지만, 실장비 인수 시 빈 값은 허용하지 않는다.
+### 3.1 Request schema
 
-성공 응답은 다음 형식이다.
+| 필드 | 형식 | 필수 | 현재 Main 처리 |
+| --- | --- | --- | --- |
+| `command_id` | non-empty string | 예 | command·현재 Step 상관관계 확인 |
+| `robot_name` 또는 `robot_id` | non-empty string | 둘 중 하나 | Task 배정 robot 확인 |
+| `event` 또는 `state` | non-empty string | 둘 중 하나 | command lifecycle 상태로 사용 |
+| `task_id` | integer ≥ 1 | 아니요 | 없으면 `command_id`로 Task 검색 |
+| `message` | string | 아니요 | 감사 event 설명에 저장 |
+| `reported_at` | RFC 3339 datetime | 아니요 | 원본 callback 시각 보존 |
+| `event_id` | non-empty string | 권장 | callback 재전송 중복 확인 |
+| `sequence` | integer ≥ 0 | 권장 | 현재 Step의 역행·중복 상태 차단 |
+| `pose` | object | 아니요 | 원본 payload에 보존 |
+| 그 외 필드 | JSON | 허용 | Pydantic `extra=allow`, 원본 payload 보존 |
+
+권장 lifecycle 상태:
+
+```text
+ACCEPTED → RUNNING → DONE
+                   ↘ FAILED | ABORTED | REJECTED | CANCELLED | STOPPED
+```
+
+요청 예시:
+
+```json
+{
+  "command_id": "task-42-tb3_1-move_to_point-001",
+  "robot_name": "tb3_1",
+  "task_id": 42,
+  "event": "DONE",
+  "message": "goal reached",
+  "reported_at": "2026-07-14T08:05:30Z",
+  "event_id": "tb3_1:task-42-tb3_1-move_to_point-001:3",
+  "sequence": 3
+}
+```
+
+### 3.2 Success ACK
 
 ```json
 {
   "ok": true,
   "message": "movement command event saved",
   "duplicate": false,
-  "task_advanced": false
+  "task_advanced": true
 }
 ```
 
-- `422`: 필수 필드 또는 형식 오류. payload 수정 후 재전송한다.
-- `401`: token 불일치. 설정을 수정하기 전 무한 재시도하지 않는다.
-- `200 duplicate=true`: 이미 처리된 event이므로 성공으로 확정하고 재전송을 끝낸다.
+| 필드 | 의미 |
+| --- | --- |
+| `ok` | callback API 처리 성공 |
+| `message` | 처리 결과 설명 |
+| `duplicate` | 같은 `event_id`가 이미 저장됐는지 여부 |
+| `task_advanced` | 이 callback으로 Task Step 또는 recovery 상태가 실제 변경됐는지 여부 |
 
-## 4. 명령 멱등성과 재전송
+`task_advanced=false`는 callback 실패를 뜻하지 않는다. `ACCEPTED`·`RUNNING`, 이미 terminal인 Step, robot·command
+불일치 또는 현재 Task와 관계없는 callback도 정상 저장 후 `false`일 수 있다.
 
-Main은 `POST /robot-commands`의 `Idempotency-Key` 헤더와 body `command_id`에 같은 값을 보낸다.
+### 3.3 HTTP status
 
-- 같은 key·같은 payload 재요청: 새 주행을 시작하지 않고 기존 command 상태를 `200`으로 반환한다.
-- 같은 key·다른 payload 재요청: `409`를 반환한다.
-- 요청을 실행했지만 응답 전 연결이 끊겨도 재요청으로 두 번째 Nav2 goal을 만들지 않는다.
+| status | 의미 | Movement 처리 |
+| --- | --- | --- |
+| `200` | 저장·처리 또는 중복 확인 완료 | ACK 확인 후 해당 사건 재전송 종료 |
+| `200 duplicate=true` | 같은 `event_id`가 이미 처리됨 | 성공으로 확정하고 재전송 종료 |
+| `401` | callback token 누락·불일치 | 설정 수정 전 무한 재시도 금지 |
+| `422` | 필수 필드·형식 오류 | payload 수정 후 새 요청 |
+| `5xx` 또는 network 오류 | Main 처리 완료 여부 불명 | 같은 `event_id`·`sequence`로 backoff 재전송 |
 
-Callback은 network/5xx에 한해 짧은 backoff로 재전송한다.
-같은 사건 재전송에는 같은 `event_id`와 `sequence`를 유지한다.
-새 상태 전이는 sequence를 증가시키며 과거 상태를 새 번호로 다시 보내지 않는다.
-Main의 5초 command poller는 callback 유실 보정용이므로 Movement의 상태 API는 callback과 같은 terminal 상태를 반환해야 한다.
+## 4. Legacy result callback
 
-## 5. 실시간 상태와 안전 정지
+신규 Movement 구현은 canonical `/movement/command-events`를 사용한다. 아래 API는 기존 연동 호환용이다.
 
-Robot status callback과 `/health`·`/nav-state` 조회 결과는 같은 사실을 표현해야 한다.
+```http
+POST /api/v1/movement/results
+```
 
-- status callback 권장 주기: 상태 변화 즉시, 주기 보고는 1초 이내.
-- `robot_online=false` 또는 heartbeat stale이면 `command_accepting=false`를 함께 반환한다.
-- pose에는 `frame_id`, `x`, `y`, `yaw`, `reported_at`과 가능한 경우 `age_sec`를 포함한다.
-- `current_command_id`는 실제 실행 중인 명령과 일치하고 terminal 이후 비운다.
+필드:
 
+| 필드 | 형식 | 필수 |
+| --- | --- | --- |
+| `command_id` | non-empty string | 예 |
+| `robot_name` 또는 `robot_id` | non-empty string | 둘 중 하나 |
+| `result` | non-empty string | 예 |
+| `task_id` | integer ≥ 1 | 아니요 |
+| `message` | string | 아니요 |
+| `reported_at` | RFC 3339 datetime | 아니요 |
+| `event_id` | non-empty string | 권장 |
+| `sequence` | integer ≥ 0 | 권장 |
 
-통신 안전은 Main의 HTTP polling이 아니라 Movement/로봇 내부 watchdog이 소유한다.
-- Movement→base 제어 heartbeat는 권장 5–10Hz다.
-- 마지막 유효 제어·heartbeat가 0.3–1.0초를 넘으면 로봇 자체에서 속도 0과 제동을 수행한다.
-- 통신 단절 fault는 latch하고 자동으로 작업을 재개하지 않는다.
-- 재연결 후에는 Main/운영자 복구 확인을 거쳐 새 command로 재개한다.
+Main 정규화:
 
-Main의 상태 화면과 5초 poller는 운영 가시성과 callback 복구 수단이며 하드웨어 fail-safe를 대체하지 않는다.
+| result | canonical event |
+| --- | --- |
+| `OK`, `SUCCESS`, `SUCCEEDED`, `COMPLETED` | `DONE` |
+| `CANCELED` | `CANCELED` |
+| `CANCELLED` | `CANCELLED` |
+| `STOPPED` | `STOPPED` |
+| `ABORTED` | `ABORTED` |
+| `FAILED` | `FAILED` |
+| `REJECTED` | `REJECTED` |
 
-## 6. 공동 인수 테스트
+ACK 형식과 인증·재전송 규칙은 canonical callback과 동일하다.
+
+## 5. Robot status callback
+
+```http
+POST /api/v1/movement/robots/{robot_name}/status HTTP/1.1
+Content-Type: application/json
+X-Movement-Callback-Token: <shared-token>
+```
+
+Robot identity는 URL의 `{robot_name}`에서 결정한다.
+
+| 필드 | 형식 | 필수 | 의미 |
+| --- | --- | --- | --- |
+| `state` | string | 조건부 | idle·navigating·error 등 |
+| `current_command_id` | string 또는 null | 조건부 | 현재 실행 command |
+| `localized` | boolean | 조건부 | localization 유효 여부 |
+| `pose` | object | 조건부 | `frame_id`, `x`, `y`, `yaw`, 선택 `source`·`reported_at` |
+| `reported_at` | RFC 3339 datetime | 아니요 | status 발생 시각 |
+| 그 외 필드 | JSON | 허용 | 원본 status event에 보존 |
+
+`state`, `current_command_id`, `localized`, `pose` 중 하나 이상이 있어야 한다. `pose`가 있고 `localized`가
+명시적으로 `false`가 아니면 Main의 최신 robot pose에 반영한다.
+
+요청 예시:
+
+```json
+{
+  "state": "navigating",
+  "current_command_id": "task-42-tb3_1-move_to_point-001",
+  "localized": true,
+  "pose": {
+    "frame_id": "map",
+    "x": 1.15,
+    "y": 3.31,
+    "yaw": 1.55,
+    "reported_at": "2026-07-14T08:05:29Z"
+  },
+  "reported_at": "2026-07-14T08:05:29Z"
+}
+```
+
+성공 ACK:
+
+```json
+{
+  "ok": true,
+  "message": "movement robot status saved"
+}
+```
+
+현재 status callback에는 `event_id` 중복 ACK가 없다. 상태 변화 즉시 전송하고 주기 보고가 필요하면 1초 이내를
+권장한다. `current_command_id`는 실제 실행 command와 일치시키고 terminal 이후 비운다.
+
+## 6. 인증 설정
+
+Main 환경 변수:
+
+```env
+LMS_MOVEMENT_CALLBACK_TOKEN=<shared-secret>
+```
+
+세 callback API 모두 `X-Movement-Callback-Token`을 같은 방식으로 검사한다. Main 설정값이 비어 있으면 현재
+개발 호환 모드에서는 인증을 생략한다. 실장비·릴리즈 인수에서는 Main과 Movement에 같은 non-empty token을
+설정한다.
+
+## 7. Main 내부 적용 규칙
+
+현재 Main은 callback을 다음 순서로 처리한다.
+
+1. HTTP token과 request schema 검증
+2. DB transaction 시작
+3. `event_id`가 있으면 기존 callback event 조회
+4. callback 원본을 operational event로 저장
+5. `task_id` 또는 `command_id`로 대상 Task 확인
+6. 배정 robot과 callback robot 비교
+7. 현재 Step의 `command_id` 비교
+8. Task별 advisory lock 획득
+9. `sequence` 역행과 terminal Step 재적용 차단
+10. Step·Task·recovery 상태 변경 후 transaction commit
+11. ACK 반환
+
+robot 또는 command가 현재 Task와 일치하지 않으면 감사 event는 남지만 Task는 전진하지 않는다. DB 저장이나
+상태 변경이 실패하면 transaction이 rollback되고 Movement는 `5xx` 또는 연결 오류로 판단해 같은 사건을 재전송한다.
+
+중단 요청 상태가 `CANCEL_REQUESTED`이면 Movement의 `CANCELLED`, `CANCELED`, `STOPPED`, `ABORTED` callback을
+다음처럼 적용한다.
+
+- 비적재 상태: Task `CANCELLED`
+- 적재 상태: Task는 `RUNNING`, orchestration은 `AWAITING_OPERATOR`
+- 물류 업무 완료 후 복귀·주차 중단: 업무 `DONE` 유지, parking failure 기록
+
+## 8. Callback 유실 보정
+
+Main은 약 5초마다 실행 중 command에 다음 API를 호출한다.
+
+```http
+GET /robot-commands/{command_id}
+```
+
+Movement 상태가 terminal이면 callback과 같은 Execution 전진 함수를 사용한다. callback과 poller가 동시에 같은
+terminal 상태를 확인해도 Task lock과 terminal-Step 검사로 업무 상태는 한 번만 변경된다.
+
+Movement의 상태 조회 응답은 callback과 동일한 `command_id`와 상태 의미를 반환해야 한다.
+
+## 9. 현재 구현 제한
+
+- `event_id`와 `sequence`는 현재 권장값이며 필수 필드는 아니다.
+- `event_id` 중복 확인은 애플리케이션 조회 방식이며 DB unique constraint는 아직 없다.
+- 완전히 동시에 도착한 동일 callback은 Task를 한 번만 전진시키지만 감사 event가 중복 저장될 가능성이 있다.
+- Robot status callback에는 별도 event ID·중복 ACK가 없다.
+- `/movement/results`는 legacy 호환 API이며 신규 구현의 기준이 아니다.
+- Callback URL 등록 API는 없고 Main이 command body에 전달하는 `callback_url`을 사용한다.
+
+## 10. 공동 인수 테스트
 
 | 시험 | 통과 조건 |
 | --- | --- |
-| 같은 command POST 2회 | Nav2 goal은 1개, 같은 command 상태 반환 |
-| callback 필수 필드 누락 | Main `422`, Movement가 payload 수정 후 재전송 |
-| token 누락·오류 | Main `401`, 설정 수정 전 무한 재시도 없음 |
-| 같은 event_id 2회 | 두 번째 ACK `duplicate=true`, task·재고 1회만 변경 |
-| sequence 역순 | 이전 sequence가 현재 task 상태를 되돌리지 않음 |
-| callback 차단 | 5초 poller가 terminal 상태를 복구 |
-| robot status 단절 | 1초 내 offline/command 차단, 로봇 내부 watchdog 정지 |
-| Main 재시작 | Movement 상태 조회로 진행 command와 task 재동기화 |
+| 같은 command POST 2회 | Movement goal 1개, 기존 command 상태 반환 |
+| 같은 command ID·다른 payload | Movement `409` |
+| canonical callback 정상 | Main `200`, event 저장, terminal이면 `task_advanced=true` |
+| 필수 robot 또는 state 누락 | Main `422` |
+| token 누락·오류 | Main `401` |
+| 같은 `event_id` 2회 | 두 번째 `200 duplicate=true`, Task·재고 1회 변경 |
+| 작은 `sequence` 재전송 | Main 상태가 과거로 되돌아가지 않음 |
+| 다른 robot callback | event는 남고 `task_advanced=false` |
+| 다른 command callback | event는 남고 `task_advanced=false` |
+| Main `5xx` 후 재전송 | 동일 event ID로 최종 `200` 수신 |
+| callback 차단 | 약 5초 poller가 terminal 상태 복구 |
+| cancel terminal callback | cargo 상태에 따라 `CANCELLED` 또는 `AWAITING_OPERATOR` |
+| Robot status callback | pose·status event 저장, `200` ACK |
+| Main 재시작 | Movement command 조회로 실행 상태 수렴 |
 
-각 결과에는 시각, robot ID, task ID, command ID, event ID/sequence, 최종 Movement/Main 상태를 함께 남긴다.
+시험 결과에는 Main·Movement 시각, robot ID, task ID, command ID, event ID, sequence, HTTP status와 양쪽 최종
+상태를 함께 기록한다.

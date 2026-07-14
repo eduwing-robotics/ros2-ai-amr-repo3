@@ -13,6 +13,13 @@ from urllib.request import Request, urlopen
 
 from app.core.api_logs import begin_call, finish_call
 from app.core.config import settings
+from app.core.http_security import (
+    MAX_JSON_RESPONSE_BYTES,
+    UpstreamResponseTooLarge,
+    read_error_detail,
+    read_limited,
+    validate_service_base_url,
+)
 
 _emergency_by_robot: dict[str, bool] = {}
 
@@ -150,9 +157,11 @@ class HttpMovementClient(MovementClient):
         fallback_url: str,
         timeout_sec: float,
     ):
-        self.base_urls = {k: v.rstrip("/") for k, v in base_urls.items()}
-        self.fallback_urls = {k: v.rstrip("/") for k, v in fallback_urls.items()}
-        self.fallback_url = fallback_url.rstrip("/")
+        self.base_urls = {k: validate_service_base_url(v) for k, v in base_urls.items()}
+        self.fallback_urls = {k: validate_service_base_url(v) for k, v in fallback_urls.items() if v}
+        self.fallback_url = validate_service_base_url(fallback_url)
+        if timeout_sec <= 0 or timeout_sec > 30:
+            raise ValueError("movement timeout must be greater than 0 and at most 30 seconds")
         self.timeout_sec = timeout_sec
 
     @staticmethod
@@ -339,20 +348,31 @@ class HttpMovementClient(MovementClient):
         ctx = begin_call("movement", kind, method, url, source=source)
         try:
             with urlopen(req, timeout=self.timeout_sec) as res:
-                raw = res.read().decode("utf-8")
+                raw = read_limited(res, max_bytes=MAX_JSON_RESPONSE_BYTES).decode("utf-8")
             finish_call(ctx, True, 200, success_message)
         except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            finish_call(ctx, False, exc.code, detail)
-            raise MovementClientError(f"movement HTTP {exc.code}: {detail}", status_code=exc.code) from exc
+            read_error_detail(exc)
+            safe_detail = f"movement upstream HTTP {exc.code}"
+            finish_call(ctx, False, exc.code, safe_detail)
+            raise MovementClientError(safe_detail, status_code=exc.code) from exc
         except URLError as exc:
-            finish_call(ctx, False, "unreachable", str(exc.reason))
-            raise MovementClientError(f"movement unreachable: {exc.reason}") from exc
+            finish_call(ctx, False, "unreachable", "movement unreachable")
+            raise MovementClientError("movement unreachable") from exc
         except TimeoutError as exc:
             finish_call(ctx, False, "timeout", "movement request timed out")
             raise MovementClientError("movement request timed out") from exc
+        except UpstreamResponseTooLarge as exc:
+            finish_call(ctx, False, 502, "movement response too large")
+            raise MovementClientError("movement response too large", status_code=502) from exc
+        except UnicodeDecodeError as exc:
+            finish_call(ctx, False, 502, "movement response is not valid JSON")
+            raise MovementClientError("movement response is not valid JSON", status_code=502) from exc
 
-        return json.loads(raw) if raw else {}
+        try:
+            return json.loads(raw) if raw else {}
+        except json.JSONDecodeError as exc:
+            finish_call(ctx, False, 502, "movement response is not valid JSON")
+            raise MovementClientError("movement response is not valid JSON", status_code=502) from exc
 
 
 def create_movement_client() -> MovementClient:

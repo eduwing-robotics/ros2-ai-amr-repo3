@@ -7,12 +7,12 @@ import unittest
 
 from app.db.connection import init_db, transaction
 from app.db.postgres import (
-    command_repo,
-    evidence_repo,
-    safety_stop_repo,
-    task_repo,
+    robot_command_definitions,
+    runtime_records,
+    safety_stops,
+    tasks,
 )
-from app.domains.execution import evidence as evidence_runtime
+from app.domains.execution import evidence
 
 SKIP = not os.environ.get("LMS_DATABASE_URL")
 
@@ -47,17 +47,17 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
 
     def _make_task(self, conn, data: dict) -> int:
         """task를 만들고 정리 대상으로 등록한다(tearDown에서 삭제)."""
-        task_id = task_repo.create(conn, data)
+        task_id = tasks.create_task_record(conn, data)
         self._task_ids.append(task_id)
         return task_id
 
     def test_commands_seed_idempotent(self) -> None:
         with transaction() as conn:
-            rows = command_repo.list_for_task_type(conn, "INBOUND")
+            rows = robot_command_definitions.list_for_task_type(conn, "INBOUND")
         self.assertGreaterEqual(len(rows), 2)
         init_db()
         with transaction() as conn:
-            rows2 = command_repo.list_for_task_type(conn, "INBOUND")
+            rows2 = robot_command_definitions.list_for_task_type(conn, "INBOUND")
         self.assertEqual(len(rows), len(rows2))
 
     def test_evidence_driven_progress(self) -> None:
@@ -70,10 +70,10 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                     "quantity": 1,
                 },
             )
-            cmds = command_repo.list_for_task_type(conn, "MOVE")
+            cmds = robot_command_definitions.list_for_task_type(conn, "MOVE")
             self.assertTrue(cmds)
             cid = int(cmds[0]["id"])
-            evidence_repo.append(
+            runtime_records.append(
                 conn,
                 task_id=task_id,
                 command_id=cid,
@@ -81,12 +81,12 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                 source="test",
                 trusted=True,
             )
-            progress = command_repo.progress_for_task(conn, task_id, "MOVE")
+            progress = robot_command_definitions.progress_for_task(conn, task_id, "MOVE")
             self.assertEqual(progress[0]["status"], "DONE")
 
     def test_safety_stop_transitions(self) -> None:
         with transaction() as conn:
-            ev_id = evidence_repo.append(
+            ev_id = runtime_records.append(
                 conn,
                 task_id=None,
                 event_type="EMERGENCY",
@@ -94,17 +94,17 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                 severity="CRITICAL",
                 trusted=True,
             )
-            stop_id = safety_stop_repo.open_from_evidence(conn, ev_id)
-            active = safety_stop_repo.list_active(
+            stop_id = safety_stops.open_from_evidence(conn, ev_id)
+            active = safety_stops.list_active(
                 conn,
             )
             self.assertTrue(any(s["id"] == stop_id for s in active))
-            safety_stop_repo.promote_holding(conn, stop_id)
-            safety_stop_repo.close(conn, stop_id)
+            safety_stops.promote_holding(conn, stop_id)
+            safety_stops.close(conn, stop_id)
             self.assertFalse(
                 any(
                     s["id"] == stop_id
-                    for s in safety_stop_repo.list_active(
+                    for s in safety_stops.list_active(
                         conn,
                     )
                 )
@@ -113,10 +113,10 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
     def test_command_fk_on_dispatch_evidence(self) -> None:
         with transaction() as conn:
             task_id = self._make_task(conn, {"task_type": "MOVE", "status": "RUNNING", "quantity": 1})
-            task = task_repo.get(conn, task_id) or {}
-            cmd_id = evidence_runtime.resolve_command_def_id(conn, task, 0, "move_to_point")
+            task = tasks.get_task(conn, task_id) or {}
+            cmd_id = evidence.resolve_command_def_id(conn, task, 0, "move_to_point")
             self.assertIsNotNone(cmd_id)
-            evidence_repo.append(
+            runtime_records.append(
                 conn,
                 task_id=task_id,
                 command_id=cmd_id,
@@ -124,15 +124,15 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                 source="test",
                 trusted=True,
             )
-            progress = command_repo.progress_for_task(conn, task_id, "MOVE")
+            progress = robot_command_definitions.progress_for_task(conn, task_id, "MOVE")
             self.assertEqual(progress[0]["status"], "DONE")
             self.assertEqual(progress[0]["command_id"], cmd_id)
 
     def test_orchestration_state_in_evidence(self) -> None:
         with transaction() as conn:
             task_id = self._make_task(conn, {"task_type": "MOVE", "status": "ASSIGNED", "quantity": 1})
-            evidence_runtime.save_orchestration(conn, task_id, {"steps": [], "step_index": 0, "phase": "RUNNING"})
-            orch = evidence_repo.get_orchestration(conn, task_id)
+            evidence.save_orchestration(conn, task_id, {"steps": [], "step_index": 0, "phase": "RUNNING"})
+            orch = runtime_records.get_orchestration(conn, task_id)
             self.assertEqual(orch.get("phase"), "RUNNING")
 
     def test_inbound_scenario_uses_scan_then_dock_steps(self) -> None:
@@ -149,8 +149,8 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                     "to_floor": 1,
                 },
             )
-            task = task_repo.get(conn, task_id) or {}
-            scenario = evidence_runtime.build_scenario_from_task(conn, task)
+            task = tasks.get_task(conn, task_id) or {}
+            scenario = evidence.build_scenario_from_task(conn, task)
             steps = scenario.get("steps") or []
             self.assertEqual(len(steps), 7)
             self.assertEqual(steps[0].get("action_type"), "leave_dock")
@@ -181,8 +181,8 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                     "to_floor": 1,
                 },
             )
-            task = task_repo.get(conn, task_id) or {}
-            scenario = evidence_runtime.build_scenario_from_task(conn, task)
+            task = tasks.get_task(conn, task_id) or {}
+            scenario = evidence.build_scenario_from_task(conn, task)
             steps = scenario.get("steps") or []
             self.assertEqual(len(steps), 7)
             self.assertEqual(steps[0].get("action_type"), "leave_dock")

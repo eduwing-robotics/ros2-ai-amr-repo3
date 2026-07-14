@@ -16,6 +16,13 @@ from urllib.request import Request, urlopen
 from app.core.api_logs import begin_call, finish_call
 from app.core.config import settings
 from app.core.health_cache import get_cached_swr
+from app.core.http_security import (
+    MAX_JSON_RESPONSE_BYTES,
+    UpstreamResponseTooLarge,
+    read_error_detail,
+    read_limited,
+    validate_service_base_url,
+)
 from app.domains.movement.client import movement_client, movement_robot_key, robot_is_emergency
 
 
@@ -77,8 +84,9 @@ def http_health(robot_id: str) -> dict[str, Any]:
 def health_bases_for(robot_id: str) -> list[str]:
     """Movement command client와 동일한 primary/fallback 순서를 사용한다."""
     key = movement_robot_key(robot_id)
-    primary = settings.movement_base_urls.get(key, settings.movement_base_url).rstrip("/")
-    fallback = settings.movement_fallback_base_urls.get(key, "").rstrip("/")
+    primary = validate_service_base_url(settings.movement_base_urls.get(key, settings.movement_base_url))
+    raw_fallback = settings.movement_fallback_base_urls.get(key, "")
+    fallback = validate_service_base_url(raw_fallback) if raw_fallback else ""
     bases = [primary]
     if fallback and fallback != primary:
         bases.append(fallback)
@@ -108,7 +116,7 @@ def _probe_health_url(robot_id: str, url: str, routed_base: str) -> dict[str, An
     ctx = begin_call("movement", "health", "GET", url, source=robot_id)
     try:
         with urlopen(req, timeout=settings.movement_health_timeout_sec) as res:
-            raw = res.read().decode("utf-8")
+            raw = read_limited(res, max_bytes=MAX_JSON_RESPONSE_BYTES).decode("utf-8")
         payload = json.loads(raw) if raw else {}
         finish_call(ctx, True, 200, "health ok")
         return {
@@ -121,18 +129,22 @@ def _probe_health_url(robot_id: str, url: str, routed_base: str) -> dict[str, An
             "is_emergency": bool(payload.get("is_emergency")) or robot_is_emergency(robot_id),
         }
     except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        finish_call(ctx, False, exc.code, detail)
-        return failed_health(robot_id, url, f"HTTP {exc.code}: {detail}")
-    except URLError as exc:
-        finish_call(ctx, False, "unreachable", str(exc.reason))
-        return failed_health(robot_id, url, f"unreachable: {exc.reason}")
+        read_error_detail(exc)
+        safe_detail = f"HTTP {exc.code}"
+        finish_call(ctx, False, exc.code, safe_detail)
+        return failed_health(robot_id, url, safe_detail)
+    except URLError:
+        finish_call(ctx, False, "unreachable", "unreachable")
+        return failed_health(robot_id, url, "unreachable")
     except TimeoutError:
         finish_call(ctx, False, "timeout", "timeout")
         return failed_health(robot_id, url, "timeout")
     except json.JSONDecodeError as exc:
         finish_call(ctx, False, "invalid_json", str(exc))
-        return failed_health(robot_id, url, f"invalid json: {exc}")
+        return failed_health(robot_id, url, "invalid json")
+    except (UnicodeDecodeError, UpstreamResponseTooLarge):
+        finish_call(ctx, False, "invalid_response", "invalid or oversized response")
+        return failed_health(robot_id, url, "invalid or oversized response")
 
 
 def _probe_pose_as_health(robot_id: str, routed_base: str) -> dict[str, Any]:
@@ -143,7 +155,7 @@ def _probe_pose_as_health(robot_id: str, routed_base: str) -> dict[str, Any]:
     ctx = begin_call("movement", "health_pose_fallback", "GET", url, source=robot_id)
     try:
         with urlopen(req, timeout=settings.movement_health_timeout_sec) as res:
-            raw = res.read().decode("utf-8")
+            raw = read_limited(res, max_bytes=MAX_JSON_RESPONSE_BYTES).decode("utf-8")
         payload = json.loads(raw) if raw else {}
         pose = payload.get("pose")
         localized = bool(payload.get("localized")) or bool(pose)
@@ -162,18 +174,22 @@ def _probe_pose_as_health(robot_id: str, routed_base: str) -> dict[str, Any]:
             "health_error": "health endpoint unavailable; pose API responded",
         }
     except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        finish_call(ctx, False, exc.code, detail)
-        return failed_health(robot_id, url, f"pose fallback HTTP {exc.code}: {detail}")
-    except URLError as exc:
-        finish_call(ctx, False, "unreachable", str(exc.reason))
-        return failed_health(robot_id, url, f"pose fallback unreachable: {exc.reason}")
+        read_error_detail(exc)
+        safe_detail = f"pose fallback HTTP {exc.code}"
+        finish_call(ctx, False, exc.code, safe_detail)
+        return failed_health(robot_id, url, safe_detail)
+    except URLError:
+        finish_call(ctx, False, "unreachable", "pose fallback unreachable")
+        return failed_health(robot_id, url, "pose fallback unreachable")
     except TimeoutError:
         finish_call(ctx, False, "timeout", "pose fallback timeout")
         return failed_health(robot_id, url, "pose fallback timeout")
     except json.JSONDecodeError as exc:
         finish_call(ctx, False, "invalid_json", str(exc))
-        return failed_health(robot_id, url, f"pose fallback invalid json: {exc}")
+        return failed_health(robot_id, url, "pose fallback invalid json")
+    except (UnicodeDecodeError, UpstreamResponseTooLarge):
+        finish_call(ctx, False, "invalid_response", "pose fallback invalid or oversized response")
+        return failed_health(robot_id, url, "pose fallback invalid or oversized response")
 
 
 def failed_health(robot_id: str, url: str, error: str) -> dict[str, Any]:

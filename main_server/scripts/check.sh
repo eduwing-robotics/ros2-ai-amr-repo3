@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() {
-  echo "Usage: ./scripts/check.sh <backend|frontend|ux|db|docs|hygiene|operator|pg|all>" >&2
+  echo "Usage: ./scripts/check.sh <backend|frontend|ux|db|docs|hygiene|operator|robot|pg|all>" >&2
   exit 2
 }
 
@@ -84,6 +84,8 @@ done < <(find . \
   -path './.git' -prune -o \
   -path './frontend/web/node_modules' -prune -o \
   -path './frontend/web/dist' -prune -o \
+  -path './frontend/web/playwright-report' -prune -o \
+  -path './frontend/web/test-results' -prune -o \
   -path './frontend/web/.claude' -prune -o \
   -path './backend/.venv' -prune -o \
   -path './backend/.pytest_cache' -prune -o \
@@ -409,6 +411,7 @@ case "$COMMAND" in
   docs) check_docs "$@" ;;
   hygiene) check_hygiene "$@" ;;
   operator) check_operator "$@" ;;
+  robot) "$SCRIPT_ROOT/scripts/robot_acceptance.sh" "$@" ;;
   pg) check_pg "$@" ;;
   all) check_all "$@" ;;
   *) usage ;;

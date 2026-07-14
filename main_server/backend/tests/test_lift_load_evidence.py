@@ -55,7 +55,7 @@ class LiftLoadEvidenceServiceTest(unittest.TestCase):
         task = _task(task_type="OUTBOUND", from_floor=2)
         step = _step("load")
         with patch.object(lift_load_evidence, "settings", _settings()):
-            payload = lift_load_evidence.build_request(task, step, 11)
+            payload = lift_load_evidence.build_lift_load_evidence_request(task, step, 11)
 
         self.assertEqual(payload["operation"], "PICK_UP")
         self.assertEqual(payload["vision_zone_id"], "storage_upper_static_item_zone")
@@ -100,9 +100,9 @@ class LiftLoadEvidenceServiceTest(unittest.TestCase):
         with (
             patch.object(lift_load_evidence, "settings", _settings()),
             patch.object(lift_load_evidence, "post_lift_load_evaluate", return_value=response),
-            patch.object(lift_load_evidence, "evidence_repo", new=repo),
+            patch.object(lift_load_evidence, "runtime_records", new=repo),
         ):
-            ev_id = lift_load_evidence.evaluate_and_record(conn, _task(), _step("unload"), 12)
+            ev_id = lift_load_evidence.evaluate_lift_load_evidence_and_record(conn, _task(), _step("unload"), 12)
 
         self.assertEqual(ev_id, 77)
         repo.append.assert_called_once()
@@ -124,9 +124,9 @@ class LiftLoadEvidenceServiceTest(unittest.TestCase):
         with (
             patch.object(lift_load_evidence, "settings", _settings(marker_map={})),
             patch.object(lift_load_evidence, "post_lift_load_evaluate") as post,
-            patch.object(lift_load_evidence, "evidence_repo", new=repo),
+            patch.object(lift_load_evidence, "runtime_records", new=repo),
         ):
-            ev_id = lift_load_evidence.evaluate_and_record(conn, _task(), _step(), 12)
+            ev_id = lift_load_evidence.evaluate_lift_load_evidence_and_record(conn, _task(), _step(), 12)
 
         self.assertEqual(ev_id, 88)
         post.assert_not_called()
@@ -143,9 +143,9 @@ class LiftLoadEvidenceServiceTest(unittest.TestCase):
                 "post_lift_load_evaluate",
                 side_effect=VisionUpstreamError("vision upstream HTTP 400: reserved marker", status_code=400),
             ),
-            patch.object(lift_load_evidence, "evidence_repo", new=repo),
+            patch.object(lift_load_evidence, "runtime_records", new=repo),
         ):
-            ev_id = lift_load_evidence.evaluate_and_record(conn, _task(), _step(), 12)
+            ev_id = lift_load_evidence.evaluate_lift_load_evidence_and_record(conn, _task(), _step(), 12)
 
         self.assertEqual(ev_id, 99)
         kwargs = repo.append.call_args.kwargs
@@ -170,23 +170,27 @@ class LiftLoadOrchestratorHookTest(unittest.TestCase):
             }
         )
         with (
-            patch.object(orchestrator, "task_repo") as task_repo,
-            patch.object(orchestrator, "evidence_runtime") as evidence_runtime,
-            patch.object(orchestrator, "event_repo"),
+            patch.object(orchestrator, "tasks") as tasks,
+            patch.object(orchestrator, "evidence") as evidence,
+            patch.object(orchestrator, "operational_events"),
             patch.object(orchestrator, "dispatch_current_step", return_value="next-command") as dispatch,
-            patch.object(orchestrator.lift_load_evidence, "evaluate_and_record", side_effect=RuntimeError("boom")),
+            patch.object(
+                orchestrator.lift_load_evidence,
+                "evaluate_lift_load_evidence_and_record",
+                side_effect=RuntimeError("boom"),
+            ),
         ):
-            task_repo.get.return_value = task
-            evidence_runtime.attach_orchestration.side_effect = lambda row, _conn: row
-            evidence_runtime.resolve_command_def_id.return_value = 12
+            tasks.get_task.return_value = task
+            evidence.attach_orchestration.side_effect = lambda row, _conn: row
+            evidence.resolve_command_def_id.return_value = 12
             result = orchestrator.advance_task(conn, 303, {"event": "DONE", "command_id": "cmd-1"})
 
         self.assertIsNotNone(result)
         dispatch.assert_called_once_with(conn, 303)
-        saved_orch = evidence_runtime.save_orchestration.call_args[0][2]
+        saved_orch = evidence.save_orchestration.call_args[0][2]
         self.assertEqual(saved_orch["step_index"], 1)
         self.assertEqual(saved_orch["step_index"], 1)
-        task_repo.set_status.assert_not_called()
+        tasks.set_status.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -24,6 +24,14 @@ from urllib.request import Request, urlopen
 
 from app.core.api_logs import begin_call, finish_call
 from app.core.config import settings
+from app.core.http_security import (
+    MAX_BINARY_RESPONSE_BYTES,
+    MAX_JSON_RESPONSE_BYTES,
+    UpstreamResponseTooLarge,
+    read_error_detail,
+    read_limited,
+    validate_service_base_url,
+)
 
 
 class VisionUpstreamError(RuntimeError):
@@ -36,12 +44,26 @@ class VisionUpstreamError(RuntimeError):
 
 def _api_bases() -> list[str]:
     """AI 서버 후보 base 목록: primary(호스트명) 우선, fallback(IP)이 있으면 뒤에."""
-    return [b for b in (settings.vision_api_base_url, settings.vision_api_fallback_base_url) if b]
+    return [validate_service_base_url(b) for b in (settings.vision_api_base_url, settings.vision_api_fallback_base_url) if b]
 
 
 def _stream_bases() -> list[str]:
     """stream bridge 후보 base 목록: primary 우선, fallback이 있으면 뒤에."""
-    return [b for b in (settings.vision_stream_base_url, settings.vision_stream_fallback_base_url) if b]
+    return [
+        validate_service_base_url(b)
+        for b in (settings.vision_stream_base_url, settings.vision_stream_fallback_base_url)
+        if b
+    ]
+
+
+def _read_json_response(response) -> dict:
+    body = read_limited(response, max_bytes=MAX_JSON_RESPONSE_BYTES)
+    return json.loads(body.decode("utf-8")) if body else {}
+
+
+def _safe_http_error(code: int, *, stream: bool = False) -> str:
+    prefix = "vision stream upstream" if stream else "vision upstream"
+    return f"{prefix} HTTP {code}"
 
 
 def fetch_image(kind: str, source: str) -> tuple[bytes, str]:
@@ -80,9 +102,8 @@ def _probe_bridge_health() -> dict[str, object]:
         req = Request(url, method="GET", headers={"Accept": "application/json"})
         try:
             with urlopen(req, timeout=_health_timeout_sec()) as res:
-                body = res.read()
+                payload = _read_json_response(res)
                 content_type = res.headers.get("Content-Type", "application/json")
-            payload = json.loads(body.decode("utf-8")) if body else {}
             return {
                 "ok": True,
                 "base_url": base,
@@ -91,16 +112,16 @@ def _probe_bridge_health() -> dict[str, object]:
                 "response": payload,
             }
         except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
+            read_error_detail(exc)
             return {
                 "ok": False,
                 "base_url": base,
-                "error": f"HTTP {exc.code}: {detail}",
+                "error": f"HTTP {exc.code}",
                 "checked_at": datetime.now(timezone.utc).isoformat(),
                 "url": url,
             }
-        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-            last_error = str(getattr(exc, "reason", exc))
+        except (URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError, UpstreamResponseTooLarge):
+            last_error = "unreachable or invalid response"
             continue
     return {
         "ok": False,
@@ -122,7 +143,7 @@ def _probe_ai_image_health(source: str) -> dict[str, object]:
         req = Request(url, method="GET", headers={"Accept": "application/json"})
         try:
             with urlopen(req, timeout=_health_timeout_sec()) as res:
-                res.read()
+                read_limited(res, max_bytes=MAX_BINARY_RESPONSE_BYTES)
             return {
                 "ok": True,
                 "base_url": base,
@@ -138,17 +159,17 @@ def _probe_ai_image_health(source: str) -> dict[str, object]:
                     "checked_at": datetime.now(timezone.utc).isoformat(),
                     "note": f"upstream HTTP {exc.code}",
                 }
-            detail = exc.read().decode("utf-8", errors="replace")
+            read_error_detail(exc)
             return {
                 "ok": False,
                 "base_url": base,
                 "source": source,
-                "error": f"HTTP {exc.code}: {detail}",
+                "error": f"HTTP {exc.code}",
                 "checked_at": datetime.now(timezone.utc).isoformat(),
                 "url": url,
             }
-        except (URLError, TimeoutError) as exc:
-            last_error = str(getattr(exc, "reason", exc))
+        except (URLError, TimeoutError, UpstreamResponseTooLarge):
+            last_error = "unreachable or invalid response"
             continue
     return {
         "ok": False,
@@ -209,9 +230,8 @@ def fetch_bridge_health() -> dict[str, object]:
         req = Request(url, method="GET", headers={"Accept": "application/json"})
         try:
             with urlopen(req, timeout=_health_timeout_sec()) as res:
-                body = res.read()
+                payload = _read_json_response(res)
                 content_type = res.headers.get("Content-Type", "application/json")
-            payload = json.loads(body.decode("utf-8")) if body else {}
             return {
                 "ok": True,
                 "base_url": base,
@@ -221,10 +241,10 @@ def fetch_bridge_health() -> dict[str, object]:
             }
         except HTTPError as exc:
             # 이름해석 성공(upstream이 상태를 줌) → 폴백하지 않는다.
-            detail = exc.read().decode("utf-8", errors="replace")
-            return {"ok": False, "base_url": base, "error": f"HTTP {exc.code}: {detail}", "checked_at": datetime.now(timezone.utc).isoformat(), "url": url}
-        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
-            last_error = str(getattr(exc, "reason", exc))
+            read_error_detail(exc)
+            return {"ok": False, "base_url": base, "error": f"HTTP {exc.code}", "checked_at": datetime.now(timezone.utc).isoformat(), "url": url}
+        except (URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError, UpstreamResponseTooLarge):
+            last_error = "unreachable or invalid response"
             continue
     return {"ok": False, "base_url": bases[0] if bases else "", "error": last_error, "checked_at": datetime.now(timezone.utc).isoformat(), "url": last_url}
 
@@ -245,11 +265,12 @@ def open_mjpeg_stream(kind: str, source: str, max_fps: int, view: str = "full") 
             res = urlopen(req, timeout=settings.vision_stream_timeout_sec)
             finish_call(ctx, True, 200, "stream opened")
         except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            finish_call(ctx, False, exc.code, detail)
-            raise VisionUpstreamError(f"vision stream upstream HTTP {exc.code}: {detail}", status_code=exc.code) from exc
-        except (URLError, TimeoutError) as exc:
-            last_reason = str(getattr(exc, "reason", exc))
+            read_error_detail(exc)
+            safe_detail = _safe_http_error(exc.code, stream=True)
+            finish_call(ctx, False, exc.code, safe_detail)
+            raise VisionUpstreamError(safe_detail, status_code=exc.code) from exc
+        except (URLError, TimeoutError):
+            last_reason = "unreachable"
             finish_call(ctx, False, "unreachable", last_reason)
             continue
 
@@ -319,20 +340,21 @@ def _post_json(
         ctx = begin_call(service, kind, "POST", url, source=str(payload.get("source") or ""))
         try:
             with urlopen(req, timeout=settings.vision_timeout_sec) as res:
-                resp_body = res.read()
+                resp_body = read_limited(res, max_bytes=MAX_JSON_RESPONSE_BYTES)
                 finish_call(ctx, True, 200, "application/json")
                 return json.loads(resp_body.decode("utf-8")) if resp_body else {}
         except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            finish_call(ctx, False, exc.code, detail)
-            raise VisionUpstreamError(f"vision upstream HTTP {exc.code}: {detail}", status_code=exc.code) from exc
-        except (URLError, TimeoutError) as exc:
-            last_reason = str(getattr(exc, "reason", exc))
+            read_error_detail(exc)
+            safe_detail = _safe_http_error(exc.code)
+            finish_call(ctx, False, exc.code, safe_detail)
+            raise VisionUpstreamError(safe_detail, status_code=exc.code) from exc
+        except (URLError, TimeoutError):
+            last_reason = "unreachable"
             finish_call(ctx, False, "unreachable", last_reason)
             continue
-        except json.JSONDecodeError as exc:
-            raise VisionUpstreamError(f"vision upstream invalid JSON: {exc}", status_code=502) from exc
-    raise VisionUpstreamError(f"vision upstream unreachable: {last_reason}", status_code=504)
+        except (UnicodeDecodeError, json.JSONDecodeError, UpstreamResponseTooLarge) as exc:
+            raise VisionUpstreamError("vision upstream invalid or oversized JSON", status_code=502) from exc
+    raise VisionUpstreamError(f"vision upstream {last_reason}", status_code=504)
 
 
 def _get_binary(path: str, params: dict[str, str], bases: list[str], service: str = "vision") -> tuple[bytes, str]:
@@ -343,20 +365,24 @@ def _get_binary(path: str, params: dict[str, str], bases: list[str], service: st
         ctx = begin_call(service, path.rsplit("/", 1)[-1] or path, "GET", url, source=params.get("source"))
         try:
             with urlopen(req, timeout=settings.vision_timeout_sec) as res:
-                body = res.read()
+                body = read_limited(res, max_bytes=MAX_BINARY_RESPONSE_BYTES)
                 content_type = res.headers.get("Content-Type", "application/octet-stream")
                 finish_call(ctx, True, 200, content_type)
                 return body, content_type
         except HTTPError as exc:
             # upstream이 의미 있는 상태(400 unknown source, 404 no frame)를 주면 보존한다(폴백 안 함).
-            detail = exc.read().decode("utf-8", errors="replace")
-            finish_call(ctx, False, exc.code, detail)
-            raise VisionUpstreamError(f"vision upstream HTTP {exc.code}: {detail}", status_code=exc.code) from exc
-        except (URLError, TimeoutError) as exc:
-            last_reason = str(getattr(exc, "reason", exc))
+            read_error_detail(exc)
+            safe_detail = _safe_http_error(exc.code)
+            finish_call(ctx, False, exc.code, safe_detail)
+            raise VisionUpstreamError(safe_detail, status_code=exc.code) from exc
+        except (URLError, TimeoutError):
+            last_reason = "unreachable"
             finish_call(ctx, False, "unreachable", last_reason)
             continue
-    raise VisionUpstreamError(f"vision upstream unreachable: {last_reason}", status_code=504)
+        except UpstreamResponseTooLarge as exc:
+            finish_call(ctx, False, 502, "vision response too large")
+            raise VisionUpstreamError("vision response too large", status_code=502) from exc
+    raise VisionUpstreamError(f"vision upstream {last_reason}", status_code=504)
 
 
 def _post_binary(
@@ -381,19 +407,23 @@ def _post_binary(
         ctx = begin_call(service, "webrtc_offer", "POST", url, source=source or params.get("source"))
         try:
             with urlopen(req, timeout=settings.vision_timeout_sec) as res:
-                resp_body = res.read()
+                resp_body = read_limited(res, max_bytes=MAX_BINARY_RESPONSE_BYTES)
                 resp_type = res.headers.get("Content-Type", "application/json")
                 finish_call(ctx, True, 200, resp_type)
                 return resp_body, resp_type
         except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            finish_call(ctx, False, exc.code, detail)
-            raise VisionUpstreamError(f"vision upstream HTTP {exc.code}: {detail}", status_code=exc.code) from exc
-        except (URLError, TimeoutError) as exc:
-            last_reason = str(getattr(exc, "reason", exc))
+            read_error_detail(exc)
+            safe_detail = _safe_http_error(exc.code)
+            finish_call(ctx, False, exc.code, safe_detail)
+            raise VisionUpstreamError(safe_detail, status_code=exc.code) from exc
+        except (URLError, TimeoutError):
+            last_reason = "unreachable"
             finish_call(ctx, False, "unreachable", last_reason)
             continue
-    raise VisionUpstreamError(f"vision upstream unreachable: {last_reason}", status_code=504)
+        except UpstreamResponseTooLarge as exc:
+            finish_call(ctx, False, 502, "vision response too large")
+            raise VisionUpstreamError("vision response too large", status_code=502) from exc
+    raise VisionUpstreamError(f"vision upstream {last_reason}", status_code=504)
 
 
 def _person_hazard_timeout_sec() -> float:
@@ -410,20 +440,21 @@ def _get_json(path: str, params: dict[str, str], bases: list[str] | None = None,
         ctx = begin_call(service, path.rsplit("/", 1)[-1] or path, "GET", url, source=params.get("source") or params.get("robot_id"))
         try:
             with urlopen(req, timeout=_person_hazard_timeout_sec()) as res:
-                body = res.read()
+                body = read_limited(res, max_bytes=MAX_JSON_RESPONSE_BYTES)
                 finish_call(ctx, True, 200, "application/json")
                 return json.loads(body.decode("utf-8")) if body else {}
         except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            finish_call(ctx, False, exc.code, detail)
-            raise VisionUpstreamError(f"vision upstream HTTP {exc.code}: {detail}", status_code=exc.code) from exc
-        except (URLError, TimeoutError) as exc:
-            last_reason = str(getattr(exc, "reason", exc))
+            read_error_detail(exc)
+            safe_detail = _safe_http_error(exc.code)
+            finish_call(ctx, False, exc.code, safe_detail)
+            raise VisionUpstreamError(safe_detail, status_code=exc.code) from exc
+        except (URLError, TimeoutError):
+            last_reason = "unreachable"
             finish_call(ctx, False, "unreachable", last_reason)
             continue
-        except json.JSONDecodeError as exc:
-            raise VisionUpstreamError(f"vision upstream invalid JSON: {exc}", status_code=502) from exc
-    raise VisionUpstreamError(f"vision upstream unreachable: {last_reason}", status_code=504)
+        except (UnicodeDecodeError, json.JSONDecodeError, UpstreamResponseTooLarge) as exc:
+            raise VisionUpstreamError("vision upstream invalid or oversized JSON", status_code=502) from exc
+    raise VisionUpstreamError(f"vision upstream {last_reason}", status_code=504)
 
 
 def _put_json(path: str, payload: dict[str, object], bases: list[str] | None = None, *, service: str = "vision") -> dict:
@@ -442,20 +473,21 @@ def _put_json(path: str, payload: dict[str, object], bases: list[str] | None = N
         ctx = begin_call(service, path.rsplit("/", 1)[-1] or path, "PUT", url, source=str(payload.get("source") or ""))
         try:
             with urlopen(req, timeout=_person_hazard_timeout_sec()) as res:
-                resp_body = res.read()
+                resp_body = read_limited(res, max_bytes=MAX_JSON_RESPONSE_BYTES)
                 finish_call(ctx, True, 200, "application/json")
                 return json.loads(resp_body.decode("utf-8")) if resp_body else {}
         except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            finish_call(ctx, False, exc.code, detail)
-            raise VisionUpstreamError(f"vision upstream HTTP {exc.code}: {detail}", status_code=exc.code) from exc
-        except (URLError, TimeoutError) as exc:
-            last_reason = str(getattr(exc, "reason", exc))
+            read_error_detail(exc)
+            safe_detail = _safe_http_error(exc.code)
+            finish_call(ctx, False, exc.code, safe_detail)
+            raise VisionUpstreamError(safe_detail, status_code=exc.code) from exc
+        except (URLError, TimeoutError):
+            last_reason = "unreachable"
             finish_call(ctx, False, "unreachable", last_reason)
             continue
-        except json.JSONDecodeError as exc:
-            raise VisionUpstreamError(f"vision upstream invalid JSON: {exc}", status_code=502) from exc
-    raise VisionUpstreamError(f"vision upstream unreachable: {last_reason}", status_code=504)
+        except (UnicodeDecodeError, json.JSONDecodeError, UpstreamResponseTooLarge) as exc:
+            raise VisionUpstreamError("vision upstream invalid or oversized JSON", status_code=502) from exc
+    raise VisionUpstreamError(f"vision upstream {last_reason}", status_code=504)
 
 
 def fetch_person_monitors() -> dict:

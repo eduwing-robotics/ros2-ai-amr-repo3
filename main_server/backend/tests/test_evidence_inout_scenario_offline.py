@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.domains.execution import evidence as evidence_runtime
+from app.domains.execution import evidence
 
 
 def _mock_locations() -> dict[str, dict]:
@@ -68,11 +68,11 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         )
         return repo
 
-    @patch("app.domains.execution.evidence.location_repo")
+    @patch("app.domains.execution.evidence.locations")
     def test_inbound_builds_scan_move_then_dock(self, location_repo_fn) -> None:
         data = _mock_locations()
         repo = self._repo(data)
-        location_repo_fn.get = repo.get
+        location_repo_fn.get_location = repo.get
         location_repo_fn.route_steps_for_target = repo.route_steps_for_target
         location_repo_fn.list_by_type = repo.list_by_type
         conn = MagicMock()
@@ -84,7 +84,7 @@ class InOutScenarioOfflineTest(unittest.TestCase):
             "from_floor": 1,
             "to_floor": 1,
         }
-        scenario = evidence_runtime.build_scenario_from_task(conn, task)
+        scenario = evidence.build_scenario_from_task(conn, task)
         steps = scenario["steps"]
         self.assertEqual(len(steps), 7)
         self.assertEqual(steps[0]["action_type"], "leave_dock")
@@ -99,7 +99,7 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         self.assertEqual(steps[6]["action_type"], "aruco_align")
         self.assertEqual(steps[6]["params"], {"aruco_marker_id": 301, "final": "park"})
 
-    @patch("app.domains.execution.evidence.location_repo")
+    @patch("app.domains.execution.evidence.locations")
     def test_inbound1_uses_pre_approach_when_configured(self, location_repo_fn) -> None:
         data = _mock_locations()
         data["inbound_slot_1_pre_approach"] = {
@@ -111,10 +111,10 @@ class InOutScenarioOfflineTest(unittest.TestCase):
             "marker_id": None,
         }
         repo = self._repo(data)
-        location_repo_fn.get = repo.get
+        location_repo_fn.get_location = repo.get
         location_repo_fn.route_steps_for_target = repo.route_steps_for_target
         location_repo_fn.list_by_type = repo.list_by_type
-        scenario = evidence_runtime.build_scenario_from_task(
+        scenario = evidence.build_scenario_from_task(
             MagicMock(),
             {
                 "task_id": 4,
@@ -132,11 +132,11 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         self.assertEqual(steps[2]["name"], "scan:scan_INBOUND_01")
         self.assertEqual(steps[3]["action_type"], "dock_transfer")
 
-    @patch("app.domains.execution.evidence.location_repo")
+    @patch("app.domains.execution.evidence.locations")
     def test_outbound_builds_home_parking_steps(self, location_repo_fn) -> None:
         data = _mock_locations()
         repo = self._repo(data)
-        location_repo_fn.get = repo.get
+        location_repo_fn.get_location = repo.get
         location_repo_fn.route_steps_for_target = repo.route_steps_for_target
         location_repo_fn.list_by_type = repo.list_by_type
         conn = MagicMock()
@@ -148,7 +148,7 @@ class InOutScenarioOfflineTest(unittest.TestCase):
             "from_floor": 1,
             "to_floor": 1,
         }
-        scenario = evidence_runtime.build_scenario_from_task(conn, task)
+        scenario = evidence.build_scenario_from_task(conn, task)
         steps = scenario["steps"]
         self.assertEqual(len(steps), 7)
         self.assertEqual(steps[0]["action_type"], "leave_dock")
@@ -156,16 +156,16 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         self.assertEqual(steps[4]["params"]["action"], "unload")
         self.assertEqual(steps[6]["action_type"], "aruco_align")
 
-    @patch("app.domains.execution.evidence.location_repo")
+    @patch("app.domains.execution.evidence.locations")
     def test_home_without_marker_falls_back_to_plain_move(self, location_repo_fn) -> None:
         data = _mock_locations()
         data["HOME_01"]["marker_id"] = None
         data.pop("scan_HOME_01")
         repo = self._repo(data)
-        location_repo_fn.get = repo.get
+        location_repo_fn.get_location = repo.get
         location_repo_fn.route_steps_for_target = repo.route_steps_for_target
         location_repo_fn.list_by_type = repo.list_by_type
-        scenario = evidence_runtime.build_scenario_from_task(
+        scenario = evidence.build_scenario_from_task(
             MagicMock(),
             {
                 "task_id": 3,

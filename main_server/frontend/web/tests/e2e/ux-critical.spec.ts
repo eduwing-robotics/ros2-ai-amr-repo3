@@ -204,6 +204,43 @@ test("WEB-15 작업 메뉴는 하단 워크스페이스를 접고 다시 펼친�
   await expect(content).toBeVisible();
 });
 
+test("WEB-17 알람 타일은 이벤트 목록을 펼치고 모두 확인 시 강조·카운트를 지운다", async ({ page }) => {
+  await mockMainApi(page, {
+    events: [
+      { id: 1, created_at: "2026-07-14T09:00:00Z", event_type: "ROBOT_ESTOP", message: "tb3_1 비상 정지" },
+      { id: 2, created_at: "2026-07-14T09:01:00Z", event_type: "MOVEMENT_RESULT", message: "이동 timeout" },
+      // 로봇 상태 하트비트는 state=error여도 알람으로 세지 않는다
+      { id: 3, created_at: "2026-07-14T09:02:00Z", event_type: "MOVEMENT_ROBOT_STATUS", message: "error" },
+    ],
+  });
+  await page.goto("/operate/control");
+
+  const alarmTile = page.locator('.kpi-tile-btn[aria-controls="operator-alarm-panel"]');
+  const panel = page.locator("#operator-alarm-panel");
+
+  // 미확인 알람: 하트비트 제외 카운트 2 + err 강조
+  await expect(alarmTile).toHaveClass(/err/);
+  await expect(alarmTile.locator(".kpi-value")).toHaveText("2");
+  await expect(panel).not.toBeAttached();
+
+  // 클릭 → 이벤트 목록 확장
+  await alarmTile.click();
+  await expect(alarmTile).toHaveAttribute("aria-expanded", "true");
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText("비상 정지").first()).toBeVisible();
+
+  // 모두 확인 → 빨간 강조·카운트 제거, 행은 확인됨으로 유지
+  await panel.getByRole("button", { name: "모두 확인" }).click();
+  await expect(alarmTile).not.toHaveClass(/err|warn/);
+  await expect(alarmTile.locator(".kpi-value")).toHaveText("0");
+  await expect(panel.locator(".event-feed-row.acked")).toHaveCount(2);
+  await expect(panel.getByRole("button", { name: "모두 확인" })).toBeDisabled();
+
+  // 다시 클릭 → 접힘
+  await alarmTile.click();
+  await expect(panel).not.toBeAttached();
+});
+
 test("WEB-16 WebRTC 대기 영상 요소는 hidden으로 제거되지 않는다", async ({ page }) => {
   await mockMainApi(page, {
     cameraOnline: true,

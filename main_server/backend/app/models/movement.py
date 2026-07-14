@@ -106,8 +106,3 @@ class MovementCallbackAck(BaseModel):
     message: str = "movement callback accepted"
     duplicate: bool = False
     task_advanced: bool = False
-
-# Deprecated compatibility aliases. Do not use in new code.
-MovementCommand = RobotCommandRecord
-MovementCommandEvent = RobotCommandEvent
-MovementCommandResult = RobotCommandResult

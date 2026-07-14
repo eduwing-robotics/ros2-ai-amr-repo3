@@ -8,11 +8,11 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
-from app.db.postgres import event_repo, robot_repo
+from app.db.postgres import operational_events, robots
 from app.domains.maps.assets import list_map_asset_records
 from app.domains.movement.client import MovementClientError, movement_client
 from app.domains.movement.health import base_url_for, get_movement_health
-from app.models.schemas import RobotPoseUpdate
+from app.models.robots import RobotPoseUpdate
 
 
 class RuntimeMapContext(BaseModel):
@@ -300,10 +300,10 @@ def localization_snapshot(robot_id: str) -> dict:
 
 def report_pose_for_robot(conn, robot_id: str, payload: RobotPoseUpdate, source: str | None = None) -> None:
     """Pose report — DBML에 pose 컬럼 없음: robots.last_seen_at 갱신만."""
-    if not robot_repo.exists(conn, robot_id):
+    if not robots.exists(conn, robot_id):
         raise HTTPException(status_code=404, detail="robot not found")
-    robot_repo.touch(conn, robot_id)
-    event_repo.append(
+    robots.touch(conn, robot_id)
+    operational_events.append(
         conn,
         event_type="POSE_REPORT",
         robot_id=robot_id,

@@ -18,7 +18,7 @@ from app.domains.movement.router import aruco_latest
 class ArucoLatestTest(unittest.TestCase):
     def test_api_route_returns_detection(self) -> None:
         with (
-            patch("app.domains.movement.router.robot_repo") as repo_factory,
+            patch("app.domains.movement.router.postgres_robots") as repo_factory,
             patch("app.domains.movement.router.transaction") as tx,
             patch("app.domains.movement.router.movement_client") as client,
         ):
@@ -31,7 +31,7 @@ class ArucoLatestTest(unittest.TestCase):
 
     def test_api_route_unknown_robot_404(self) -> None:
         with (
-            patch("app.domains.movement.router.robot_repo") as repo_factory,
+            patch("app.domains.movement.router.postgres_robots") as repo_factory,
             patch("app.domains.movement.router.transaction") as tx,
         ):
             tx.return_value.__enter__.return_value = object()

@@ -2,7 +2,7 @@
 
 상태: Active — approved terminology baseline
 소유: Docs · Architecture
-최종 갱신: 2026-07-14 11:11 KST
+최종 갱신: 2026-07-14 15:14 KST
 목적: Main_Control의 업무 개념, 코드·API·DB·UI 표현과 호환·폐기 용어를 한 곳에서 연결한다.
 
 이 문서는 현재 구현을 기준으로 승인된 공식 용어 정본이다. 세부 함수와 모든 필드를 나열하지 않고 업무 흐름,
@@ -23,7 +23,7 @@ flowchart TD
   S -->|"1:N 가능 · 재시도 포함"| C
 ```
 
-이 초안의 기본 계층은 `Work Order → Task → Step → Robot Command`다. 업무 문서에서는 `Task`와
+공식 계층은 `Work Order → Task → Step → Robot Command`다. 업무 문서에서는 `Task`와
 `Step`을 사용하고, 코드에서 주체를 분명히 해야 할 때는 `RobotTask`, `RobotTaskStep`을 사용한다.
 
 ## 2. 시스템과 호환 경계
@@ -40,7 +40,7 @@ flowchart LR
   Main --> Vision["Vision<br/>영상·인식·Evidence 입력"]
 ```
 
-Main 내부에서는 canonical 이름을 사용한다. 외부 서버나 기존 클라이언트의 다른 이름은 호환 경계에서 받고,
+Main_Control 내부에서는 canonical 이름을 사용한다. 외부 서버나 기존 클라이언트의 다른 이름은 호환 경계에서 받고,
 도메인 로직에 전달하기 전에 내부 표현으로 변환하는 것을 목표로 한다.
 
 ## 3. 빠른 대조표
@@ -53,8 +53,8 @@ Main 내부에서는 canonical 이름을 사용한다. 외부 서버나 기존 �
 | Robot Command | `RobotCommandRequest` | `/robot-commands`, `command_id`, `kind` | 로봇 명령 | `MovementCommand`, mission command |
 | Waypoint | `Waypoint` | `waypoint_id`, DB `locations` | 지점 | 식별자 의미의 `waypoint` 필드 |
 | Storage Slot | `StorageSlot` | `slot_id`, `locations(type=storage)` | 보관 슬롯 | 별도 물리 slot table로 오해하는 표현 |
-| Evidence | evidence model/service | `evidence_events` | 증거·판정 기록 | 일반 event와의 역할 검수 필요 |
-| Main_Control | `MainControl` | `/api/v1`, 현행 `LMS_*` 설정 | 관제 서버 | Main, LMS, main server |
+| Evidence | 해당 업무를 관측한 도메인의 기록 모델 | `evidence_events` | 증거·판정 기록 | 일반 event·조회 projection과 구분 |
+| Main_Control | 애플리케이션·배포 단위 | `/api/v1`, 현행 `LMS_*` 설정 | 관제 서버 | Main, LMS, main server |
 
 ## 4. 업무 실행 용어
 
@@ -113,7 +113,7 @@ Main이 로봇의 한 가지 동작을 요청하기 위해 Movement로 보내는
 ### Movement Command
 
 Movement 서버로 전송되거나 Movement 응답에서 관찰되는 명령 표현이다. 현재 `MovementCommand`는
-`RobotCommandRecord`의 호환 alias이며, Main 내부의 별도 업무 계층으로 취급하지 않는다.
+`RobotCommandRecord`의 호환 alias이며, Main_Control 내부의 별도 업무 계층으로 취급하지 않는다.
 
 - 권장 사용처: Movement client·adapter·연동 문서
 - 내부 canonical 개념: Robot Command
@@ -161,7 +161,7 @@ flowchart LR
 ArUco 정렬, 적재·하역 또는 최종 주차처럼 정밀 작업이 수행되는 목표 지점이다. Approach Point와 구분하며,
 Main은 approach 도착 확인 후 별도 명령으로 dock 동작을 요청한다.
 
-- 소유: 좌표·업무 연결은 Main, 정밀 접근과 동작은 Movement
+- 소유: 좌표·업무 연결은 Main_Control, 정밀 접근과 동작은 Movement
 - 관련 command kind: `dock_transfer`, `aruco_align`
 - DB 대표 표현: `locations(type=dock)` 및 업무 위치 helper
 
@@ -189,7 +189,7 @@ flowchart LR
 | Task Status | Task 전체 생명주기 | `QUEUED`, `ASSIGNED`, `RUNNING`, `DONE`, `FAILED`, `CANCELLED` | `ARRIVED`, `STOPPED`, `AWAITING_OPERATOR` |
 | Step Status | Task 내부 Step | `PENDING`, `DISPATCHED`, `RUNNING`, `DONE`, `FAILED`, `CANCELLED` | `ASSIGNED`, `RECOVERY_RUNNING` |
 | Command State | 단일 Robot Command | `ACCEPTED`, `RUNNING`, `ARRIVED`, `DONE`, `FAILED`, `CANCELLED`, `STOPPED` | `QUEUED`, `AWAITING_OPERATOR` |
-| Orchestration Phase | Main 실행 조율 | `RUNNING`, `CANCEL_REQUESTED`, `AWAITING_OPERATOR`, `RECOVERY_RUNNING`, `DONE`, `FAILED`, `CANCELLED` | `ACCEPTED`, `ARRIVED`, `DISPATCHED` |
+| Orchestration Phase | Main_Control 실행 조율 | `RUNNING`, `CANCEL_REQUESTED`, `AWAITING_OPERATOR`, `RECOVERY_RUNNING`, `DONE`, `FAILED`, `CANCELLED` | `ACCEPTED`, `ARRIVED`, `DISPATCHED` |
 
 ### Task Status
 
@@ -229,7 +229,7 @@ Main이 Task의 현재 실행·취소·운영자 대기·복구 과정을 조율
 Main의 작업 중단·기록이 함께 필요하다. 해제 후 Task를 자동 재개하지 않는다.
 
 - 코드·API 대표 표현: `ESTOP`, `estop`
-- 소유: 실제 선점 정지는 Movement/로봇, fleet 조율과 운영 기록은 Main safety
+- 소유: 실제 선점 정지는 Movement/로봇, fleet 조율과 운영 기록은 Main_Control safety
 - UI: 비상정지
 
 ### Safe Stop
@@ -258,10 +258,11 @@ ESTOP, 명령 실패 또는 안전 중단 이후 운영자가 상황을 확인�
 명령·인식·안전 판단을 설명하거나 사후 검증하기 위해 보존하는 관측 기록이다. 현재 Vision의 lift-load 판정,
 Movement 실행 결과와 안전 관련 사건 등이 `evidence_events`에 기록될 수 있다.
 
-- 소유 도메인: `records/evidence`
+- 생성 책임: 관측을 수행한 `execution`, `movement`, `safety`, `vision`, `warehouse` 도메인
+- 조회 projection: `records`
 - DB: `evidence_events`
 - 관련 식별자: `task_id`, `command_id`, `event_type`, `source`, `observed_at`
-- 검수 필요: 일반 `events`, movement command 기록, task log와 정본·감사·projection 역할을 구분해야 한다.
+- 경계: `records`는 현재 조회 projection을 제공하며 다른 도메인의 기록 생성 정책을 소유하지 않는다.
 
 ## 9. canonical 필드와 호환 입력
 
@@ -283,9 +284,9 @@ flowchart LR
 | Waypoint ID | `waypoint_id` | `waypoint` | 식별자 의미일 때만 변환 |
 | 취소 철자 | `CANCELLED` | `CANCELED` | 영국식 철자를 canonical로 사용 |
 
-## 10. deprecated·금지 동의어 초안
+## 10. deprecated·금지 동의어
 
-아래 규칙은 신규 내부 코드에 대한 초안이다. 외부 compatibility adapter, migration, 기존 저장 데이터 read와
+아래 규칙은 신규 내부 코드에 적용한다. 외부 compatibility adapter, migration, 기존 저장 데이터 read와
 공개 API 호환은 예외로 두며, 실제 제거는 소비자와 저장 데이터 확인 후 별도로 진행한다.
 
 | 공식 표현 | 신규 내부 코드에서 피할 표현 | 현재 허용 위치 | 제거 조건 |

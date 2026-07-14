@@ -15,8 +15,8 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.db.connection import AUTO_ASSIGN_LOCK_ID, advisory_xact_lock
-from app.db.postgres import event_repo, robot_repo, task_repo
-from app.domains.execution import orchestrator as orchestrator_service
+from app.db.postgres import operational_events, robots, tasks
+from app.domains.execution import orchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def create_task(conn, payload: dict[str, Any]) -> dict[str, Any]:
     from_location = payload.get("from_location")
     to_location = payload.get("to_location")
 
-    task_id = task_repo.create(
+    task_id = tasks.create_task_record(
         conn,
         {
             "task_type": payload.get("task_type") or "MOVE",
@@ -43,29 +43,29 @@ def create_task(conn, payload: dict[str, Any]) -> dict[str, Any]:
             "created_by": payload.get("created_by") or "operator",
         },
     )
-    task_repo.add_history(conn, task_id, None, "QUEUED", "created", "operator")
-    event_repo.append(
+    tasks.add_history(conn, task_id, None, "QUEUED", "created", "operator")
+    operational_events.append(
         conn,
         event_type="TASK_CREATED",
         message=f"task {task_id} created ({payload.get('task_type') or 'MOVE'})",
         payload={"task_id": task_id},
     )
-    return task_repo.get(conn, task_id)
+    return tasks.get_task(conn, task_id)
 
 
 def assign_task(conn, task_id: int, robot_id: str, source: str = "operator") -> dict[str, Any]:
-    task = task_repo.get(conn, task_id)
+    task = tasks.get_task(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     if task["status"] not in ASSIGNABLE_STATUSES or task.get("assigned_robot_id"):
         raise HTTPException(status_code=409, detail=f"task is not assignable (status={task['status']})")
-    if not robot_repo.exists(conn, robot_id):
+    if not robots.exists(conn, robot_id):
         raise HTTPException(status_code=404, detail="robot not found")
-    if not any(r["robot_id"] == robot_id for r in robot_repo.list_idle(conn)):
+    if not any(r["robot_id"] == robot_id for r in robots.list_idle(conn)):
         raise HTTPException(status_code=409, detail="robot is not idle")
     _assert_robot_ready_for_assignment(robot_id)
     _apply_assignment(conn, task, robot_id, source)
-    return task_repo.get(conn, task_id)
+    return tasks.get_task(conn, task_id)
 
 
 def assign_work_order_robot(conn, task_id: int, robot_id: str) -> dict[str, Any]:
@@ -103,17 +103,17 @@ def _assert_robot_ready_for_assignment(robot_id: str) -> None:
 
 
 def complete_task(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
-    return orchestrator_service.complete_task(conn, task_id, source)
+    return orchestrator.finalize_running_task_as_done(conn, task_id, source)
 
 
 def cancel_task(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
-    return orchestrator_service.cancel_task(conn, task_id, source)
+    return orchestrator.finalize_non_running_task_as_cancelled(conn, task_id, source)
 
 
 def start_task_execution(
     conn, task_id: int, callback_base_url: str | None = None, source: str = "operator"
 ) -> dict[str, Any]:
-    return orchestrator_service.start_task_orchestration(conn, task_id, callback_base_url, source)
+    return orchestrator.start_task_orchestration(conn, task_id, callback_base_url, source)
 
 
 def auto_assign_and_start(
@@ -149,8 +149,8 @@ def auto_assign(conn, source: str = "auto") -> dict[str, Any]:
     수동 배정(assign_task)과 동일한 가용성 기준을 적용한다(http 모드).
     """
     advisory_xact_lock(conn, AUTO_ASSIGN_LOCK_ID)
-    queued = task_repo.list_assignable(conn)
-    idle = robot_repo.list_idle(conn)
+    queued = tasks.list_assignable(conn)
+    idle = robots.list_idle(conn)
     ready = [r for r in idle if robot_assignment_block_reason(r["robot_id"]) is None]
     not_ready = len(idle) - len(ready)
     assignments = []
@@ -167,10 +167,10 @@ def auto_assign(conn, source: str = "auto") -> dict[str, Any]:
 
 def _apply_assignment(conn, task: dict[str, Any], robot_id: str, source: str) -> None:
     task_id = task["task_id"]
-    task_repo.assign(conn, task_id, robot_id, ASSIGNED_STATUS)
-    robot_repo.set_task(conn, robot_id, ASSIGNED_STATUS, task_id)
-    task_repo.add_history(conn, task_id, task["status"], ASSIGNED_STATUS, f"assigned to {robot_id}", source)
-    event_repo.append(
+    tasks.assign(conn, task_id, robot_id, ASSIGNED_STATUS)
+    robots.set_task(conn, robot_id, ASSIGNED_STATUS, task_id)
+    tasks.add_history(conn, task_id, task["status"], ASSIGNED_STATUS, f"assigned to {robot_id}", source)
+    operational_events.append(
         conn,
         event_type="TASK_ASSIGNED",
         robot_id=robot_id,

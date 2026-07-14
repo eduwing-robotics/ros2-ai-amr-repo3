@@ -16,7 +16,7 @@ if _PG_URL:
 
 from app.core.config import settings
 from app.db.connection import init_db, transaction, write_transaction
-from app.db.postgres import location_repo
+from app.db.postgres import locations
 from tests.support.postgres import apply_demo_fixture
 
 
@@ -49,7 +49,7 @@ class SeedPersistenceTest(unittest.TestCase):
         apply_demo_fixture()
         marker_id = "TMP_SEED_PERSIST_MARKER"
         with write_transaction() as conn:
-            location_repo.upsert_waypoint(
+            locations.upsert_waypoint(
                 conn,
                 {
                     "waypoint_id": marker_id,
@@ -86,7 +86,7 @@ class SeedPersistenceTest(unittest.TestCase):
 
     def test_waypoints_share_the_single_runtime_map(self) -> None:
         with write_transaction() as conn:
-            location_repo.upsert_waypoint(
+            locations.upsert_waypoint(
                 conn,
                 {
                     "waypoint_id": "MAP_A_ONLY",
@@ -98,7 +98,7 @@ class SeedPersistenceTest(unittest.TestCase):
                     "waypoint_type": "transit",
                 },
             )
-            location_repo.upsert_waypoint(
+            locations.upsert_waypoint(
                 conn,
                 {
                     "waypoint_id": "MAP_B_ONLY",
@@ -110,8 +110,8 @@ class SeedPersistenceTest(unittest.TestCase):
                     "waypoint_type": "transit",
                 },
             )
-            ids_a = {w["waypoint_id"] for w in location_repo.list_map_markers(conn, "map_a")}
-            ids_b = {w["waypoint_id"] for w in location_repo.list_map_markers(conn, "map_b")}
+            ids_a = {w["waypoint_id"] for w in locations.list_map_markers(conn, "map_a")}
+            ids_b = {w["waypoint_id"] for w in locations.list_map_markers(conn, "map_b")}
             conn.execute("DELETE FROM locations WHERE id IN ('MAP_A_ONLY', 'MAP_B_ONLY')")
         self.assertIn("MAP_A_ONLY", ids_a)
         self.assertIn("MAP_B_ONLY", ids_a)
@@ -130,7 +130,7 @@ class SeedPersistenceTest(unittest.TestCase):
 
     def test_waypoint_returns_runtime_map_id(self) -> None:
         with write_transaction() as conn:
-            location_repo.upsert_waypoint(
+            locations.upsert_waypoint(
                 conn,
                 {
                     "waypoint_id": "MAP_ID_ROW_TEST",
@@ -142,7 +142,7 @@ class SeedPersistenceTest(unittest.TestCase):
                     "waypoint_type": "transit",
                 },
             )
-            markers = location_repo.list_map_markers(conn, "custom_map")
+            markers = locations.list_map_markers(conn, "custom_map")
             conn.execute("DELETE FROM locations WHERE id = %s", ("MAP_ID_ROW_TEST",))
         found = next(m for m in markers if m["waypoint_id"] == "MAP_ID_ROW_TEST")
         self.assertEqual(found["map_id"], settings.movement_active_map_id)

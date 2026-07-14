@@ -7,7 +7,7 @@ import { OPERATE_SLIM_NAV, routePath } from "../../app/menus";
 import { useStatus } from "../../hooks/useStatus";
 import { useEmergency } from "../../hooks/useEmergency";
 import { useRobotConnectivity } from "../../hooks/useRobotConnectivity";
-import { eventDotClass, eventTypeLabel } from "../../lib/format";
+import { eventDotClass, eventKey, eventTypeLabel } from "../../lib/format";
 import { DashboardMap } from "../map/DashboardMap";
 import { LiveCamera } from "../vision/LiveCamera";
 import { Teleop } from "../movement/Teleop";
@@ -56,6 +56,8 @@ function OperatorKpiStrip({
   warnCount,
   tasksOpen,
   onToggleTasks,
+  alarmsOpen,
+  onToggleAlarms,
 }: {
   robotsTotal: number;
   onlineCount: number;
@@ -68,9 +70,13 @@ function OperatorKpiStrip({
   warnCount: number;
   tasksOpen: boolean;
   onToggleTasks: () => void;
+  alarmsOpen: boolean;
+  onToggleAlarms: () => void;
 }) {
   const robotState = robotsTotal > 0 && onlineCount === 0 ? " err" : onlineCount < robotsTotal ? " warn" : "";
+  // 확인(ack)된 알람은 색·카운트에서 제외 — 미확인 알람만 강조
   const alarmState = errCount ? " err" : warnCount ? " warn" : "";
+  const alarmCount = errCount + warnCount;
   return (
     <div className="operator-kpi-strip" role="group" aria-label="현황 요약">
       <div className={`kpi-tile${robotState}`}>
@@ -97,17 +103,84 @@ function OperatorKpiStrip({
           {recoveryCount ? ` · 복구 ${recoveryCount}` : ""}
         </span>
       </button>
-      <div className={`kpi-tile${alarmState}`}>
-        <span className="kpi-label">알람</span>
-        <span className="kpi-value">{errCount + warnCount}</span>
-        <span className="kpi-hint">{errCount || warnCount ? `위험 ${errCount} · 주의 ${warnCount}` : "이상 없음"}</span>
-      </div>
+      <button
+        type="button"
+        className={`kpi-tile kpi-tile-btn${alarmState}`}
+        onClick={onToggleAlarms}
+        aria-expanded={alarmsOpen}
+        aria-controls="operator-alarm-panel"
+        aria-label={`알람, 미확인 ${alarmCount}건, ${alarmsOpen ? "펼쳐짐" : "접힘"}`}
+      >
+        <span className="kpi-label">알람 {alarmsOpen ? "⌄" : "⌃"}</span>
+        <span className="kpi-value">{alarmCount}</span>
+        <span className="kpi-hint">{alarmCount ? `위험 ${errCount} · 주의 ${warnCount}` : "이상 없음"}</span>
+      </button>
       <div className={`kpi-tile${emergencyCount ? " err" : ""}`}>
         <span className="kpi-label">E-STOP</span>
         <span className="kpi-value">{emergencyCount ? `${emergencyCount}대` : "정상"}</span>
         <span className="kpi-hint">{emergencyCount ? "비상 정지 발동" : "비상 정지 없음"}</span>
       </div>
     </div>
+  );
+}
+
+/* 알람 확인(ack) 상태 — 확인한 이벤트 키를 localStorage에 보관해 새로고침에도 유지.
+   현재 스냅샷에 없는 키는 저장 시 정리해 무한 증가를 막는다. */
+const ALARM_ACK_STORAGE_KEY = "lms.alarms.acked";
+
+function loadAckedAlarmKeys(): Set<string> {
+  try {
+    const raw = localStorage.getItem(ALARM_ACK_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+/* 알람 확장 패널 — KPI 알람 타일 클릭으로 열리는 err/warn 이벤트 목록 + 모두 확인 */
+function AlarmPanel({
+  alarms,
+  ackedKeys,
+  unackedCount,
+  onAckAll,
+}: {
+  alarms: AppEvent[];
+  ackedKeys: Set<string>;
+  unackedCount: number;
+  onAckAll: () => void;
+}) {
+  return (
+    <section className="operator-alarm-panel panel" id="operator-alarm-panel" aria-label="알람 이벤트">
+      <div className="operator-alarm-head">
+        <h2>알람 이벤트{unackedCount ? ` · 미확인 ${unackedCount}` : ""}</h2>
+        <button type="button" className="rowbtn" onClick={onAckAll} disabled={!unackedCount}>
+          모두 확인
+        </button>
+      </div>
+      {alarms.length === 0 ? (
+        <div className="event-feed empty">알람 이벤트 없음</div>
+      ) : (
+        <div className="event-feed">
+          {alarms.map((event) => {
+            const key = eventKey(event);
+            const acked = ackedKeys.has(key);
+            return (
+              <div key={key} className={`event-feed-row ${eventDotClass(event)}${acked ? " acked" : ""}`}>
+                <span className="mono event-time">
+                  {event.created_at ? new Date(String(event.created_at)).toLocaleTimeString() : "-"}
+                </span>
+                <span className="event-type" title={event.event_type ?? undefined}>
+                  {eventTypeLabel(event.event_type)}
+                  {acked ? <span className="event-ack-chip">확인됨</span> : null}
+                </span>
+                <span className="event-msg">{event.message ?? ""}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -261,16 +334,37 @@ export function OperatorShell() {
   ).length;
   const runningTaskCount = Math.max(0, activeTaskCount - queuedTaskCount);
 
+  // 알람(err/warn) 이벤트 — 최신순. 확인(ack)된 알람은 카운트·강조색에서 제외한다.
+  const [alarmsOpen, setAlarmsOpen] = useState(false);
+  const [ackedAlarmKeys, setAckedAlarmKeys] = useState<Set<string>>(loadAckedAlarmKeys);
+  const alarmEvents = useMemo(
+    () =>
+      events
+        .filter((ev) => eventDotClass(ev) !== "off")
+        .sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""))),
+    [events],
+  );
   const alarmCounts = useMemo(() => {
     let err = 0;
     let warn = 0;
-    for (const ev of events) {
-      const cls = eventDotClass(ev);
-      if (cls === "err") err += 1;
-      else if (cls === "warn") warn += 1;
+    for (const ev of alarmEvents) {
+      if (ackedAlarmKeys.has(eventKey(ev))) continue;
+      if (eventDotClass(ev) === "err") err += 1;
+      else warn += 1;
     }
     return { err, warn };
-  }, [events]);
+  }, [alarmEvents, ackedAlarmKeys]);
+
+  const acknowledgeAlarms = useCallback(() => {
+    // 현재 스냅샷의 알람 키만 저장 — 지나간 이벤트 키가 무한히 쌓이지 않게 정리
+    const next = new Set(alarmEvents.map((ev) => eventKey(ev)));
+    setAckedAlarmKeys(next);
+    try {
+      localStorage.setItem(ALARM_ACK_STORAGE_KEY, JSON.stringify([...next]));
+    } catch {
+      // 저장 실패(시크릿 모드 등)해도 세션 내 확인 상태는 유지된다
+    }
+  }, [alarmEvents]);
 
   useEffect(() => {
     if (section === "inout") {
@@ -429,7 +523,17 @@ export function OperatorShell() {
               warnCount={alarmCounts.warn}
               tasksOpen={taskPanelOpen}
               onToggleTasks={() => toggleTrayPanel("tasks")}
+              alarmsOpen={alarmsOpen}
+              onToggleAlarms={() => setAlarmsOpen((open) => !open)}
             />
+            {alarmsOpen ? (
+              <AlarmPanel
+                alarms={alarmEvents}
+                ackedKeys={ackedAlarmKeys}
+                unackedCount={alarmCounts.err + alarmCounts.warn}
+                onAckAll={acknowledgeAlarms}
+              />
+            ) : null}
             <div className="operator-map-column" ref={mapColumnRef}>
               <div className="operator-map-wrap" ref={mapWrapRef}>
                 <div className="operator-map-stage-wrap">

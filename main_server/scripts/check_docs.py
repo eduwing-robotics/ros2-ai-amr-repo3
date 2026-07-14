@@ -15,6 +15,8 @@ PATH_RE = re.compile(
     r"`((?:backend|database|docs|frontend|scripts|tools)/[^`\n]+|(?:README|\.gitignore)[^`\n]*)`"
 )
 SKIP_MARKERS = ("*", "<", ">", "{", "}", "…", "|")
+UX_TEST_ID_RE = re.compile(r"\btest\s*\(\s*[`\"]WEB-(\d{2})\b")
+UX_DOC_ID_RE = re.compile(r"^## WEB-(\d{2})\b", re.MULTILINE)
 
 
 def repository_markdown() -> list[Path]:
@@ -64,11 +66,28 @@ def main() -> int:
                         f"missing repository path: {source.relative_to(ROOT)} -> {raw}"
                     )
 
+    ux_spec = ROOT / "frontend/web/tests/e2e/ux-critical.spec.ts"
+    ux_doc = ROOT / "docs/TEST_CASES.md"
+    if ux_spec.is_file() and ux_doc.is_file():
+        code_ids = set(UX_TEST_ID_RE.findall(ux_spec.read_text(encoding="utf-8")))
+        doc_ids = set(UX_DOC_ID_RE.findall(ux_doc.read_text(encoding="utf-8")))
+        if code_ids != doc_ids:
+            missing = sorted(code_ids - doc_ids)
+            stale = sorted(doc_ids - code_ids)
+            errors.append(
+                "UX case ID drift: "
+                f"missing docs={missing or 'none'}, missing tests={stale or 'none'}"
+            )
+        if code_ids:
+            expected = {f"{number:02d}" for number in range(1, max(map(int, code_ids)) + 1)}
+            if code_ids != expected:
+                errors.append(f"UX test IDs must be contiguous: found={sorted(code_ids)}")
+
     if errors:
         for error in sorted(set(errors)):
             print(f"[docs] ERROR: {error}", file=sys.stderr)
         return 1
-    print(f"[docs] links and repository paths OK ({len(docs)} repository Markdown files)")
+    print(f"[docs] links, paths, and UX case IDs OK ({len(docs)} repository Markdown files)")
     return 0
 
 

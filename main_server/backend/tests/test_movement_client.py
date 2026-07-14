@@ -98,6 +98,18 @@ class HttpMovementClientTest(unittest.TestCase):
             with self.assertRaises(MovementClientError) as ctx:
                 self.client.robot_command("tb3_1", {"command_id": "c", "kind": "dock_transfer"})
         self.assertEqual(ctx.exception.status_code, 409)
+        self.assertNotIn("gate: ARRIVED required", str(ctx.exception))
+
+    def test_rejects_invalid_base_url(self) -> None:
+        with self.assertRaises(ValueError):
+            HttpMovementClient({"tb3_1": "file:///etc/passwd"}, {}, "http://nav.local:8001", 1.0)
+
+    def test_rejects_oversized_json_response(self) -> None:
+        with patch("app.domains.movement.client.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b"x" * (2 * 1024 * 1024 + 1)
+            with self.assertRaises(MovementClientError) as ctx:
+                self.client.robot_command("tb3_1", {"command_id": "large", "kind": "move_to_point"})
+        self.assertEqual(ctx.exception.status_code, 502)
 
 
 if __name__ == "__main__":

@@ -4,14 +4,13 @@ import { Panel } from "../../components/Panel";
 import { Field } from "../../components/Field";
 import { Button } from "../../components/Button";
 import { ApiError } from "../../lib/api";
+import { API_ERROR_MESSAGES, parseApiDetail } from "../../lib/apiErrors";
 import { pairsFromWaypoints } from "../../lib/dockPairs";
 import { formatPlanSummaryLine, operationLabel, slotSummary, zoneTypeForOperation } from "./workOrderLabels";
 import {
   emptySlotCount,
-  parseWorkOrderApiDetail,
   slotCandidatesForOperation,
   stockOnHandForItem,
-  WORK_ORDER_ERROR_HINTS,
 } from "./workOrderPlanning";
 import { useItems, useInventory, useStorageSlots } from "../warehouse/useWarehouseData";
 import { useAllWaypoints, useRobots } from "../../hooks/useScenarioData";
@@ -169,7 +168,7 @@ function validationMessage({
   if (disabled) return "비상 정지 중 — 입출고 실행 불가";
   if (!itemCode) return "품목을 선택하세요.";
   if (!Number.isFinite(qty) || qty < 1) return "수량은 1 이상이어야 합니다.";
-  if (quantityOverMax) return WORK_ORDER_ERROR_HINTS.quantity_exceeds_limit;
+  if (quantityOverMax) return API_ERROR_MESSAGES.quantity_exceeds_limit;
   if (quantityOverStock) return `보유 재고(${stockOnHand})를 초과할 수 없습니다.`;
   if (noEmptySlot) return "빈 슬롯이 없습니다.";
   if (needsZone) return `${operationLabel(operation)} 존을 선택하세요.`;
@@ -322,9 +321,9 @@ export function WorkOrderForm({
       setZoneId(reset.zoneId);
     } catch (e) {
       if (e instanceof ApiError) {
-        const detail = parseWorkOrderApiDetail(e.message);
+        const detail = parseApiDetail(e.message);
         setErrorCode(detail);
-        setError(WORK_ORDER_ERROR_HINTS[detail] || detail || `요청 실패 (HTTP ${e.status})`);
+        setError(API_ERROR_MESSAGES[detail] || detail || `요청 실패 (HTTP ${e.status})`);
       } else {
         setError((e as Error).message);
       }

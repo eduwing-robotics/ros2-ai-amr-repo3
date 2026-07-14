@@ -8,7 +8,7 @@ from app.db.postgres.common import ACTIVE_TASK_STATUSES, DEFAULT_FLOOR, row_time
 ACTIVE = ACTIVE_TASK_STATUSES
 
 
-def create(conn, data: dict[str, Any]) -> int:
+def create_task_record(conn, data: dict[str, Any]) -> int:
     row = conn.execute(
         "\n            INSERT INTO tasks (\n                task_type, status, priority, robot_id, item_id, quantity,\n                from_location_id, from_floor, to_location_id, to_floor\n            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)\n            RETURNING id\n            ",
         (
@@ -32,7 +32,7 @@ def add_history(conn, task_id: int, from_status: str | None, to_status: str, mes
     return
 
 
-def get(conn, task_id: int) -> dict[str, Any] | None:
+def get_task(conn, task_id: int) -> dict[str, Any] | None:
     row = conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,)).fetchone()
     return _map(conn, row) if row else None
 

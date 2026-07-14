@@ -11,9 +11,9 @@ from app.core.api_logs import list_logs as list_api_logs
 from app.core.config import settings
 from app.core.health_cache import clear_cache
 from app.db.connection import transaction
-from app.db.postgres import event_repo, movement_repo, robot_repo
-from app.domains.execution import orchestrator as orchestrator_service
-from app.domains.movement import missions as mission_service
+from app.db.postgres import operational_events
+from app.db.postgres import robots as postgres_robots
+from app.domains.movement import callbacks, missions
 from app.domains.movement.client import MovementClientError, movement_client, set_robot_emergency
 from app.domains.movement.commands import dispatch_robot_command, get_command_status
 from app.domains.movement.health import base_url_for, get_movement_health
@@ -28,15 +28,17 @@ from app.domains.movement.navigation import (
     runtime_map_context_route,
 )
 from app.domains.movement.teleop import execute_teleop
-from app.models.schemas import (
-    ApiMessage,
-    InitialPoseRequest,
+from app.domains.records import movement_commands
+from app.models.common import ApiMessage
+from app.models.movement import (
     MovementCallbackAck,
     MovementRobotStatusCallback,
     RobotCommandEvent,
-    RobotCommandRequest,
-    RobotCommandResponse,
     RobotCommandResult,
+)
+from app.models.robot_commands import RobotCommandRequest, RobotCommandResponse
+from app.models.robots import (
+    InitialPoseRequest,
     RobotPose,
     RobotPoseReport,
     RobotPoseUpdate,
@@ -61,7 +63,7 @@ def require_callback_token(request: Request) -> None:
 def robot_localization(robot_id: str) -> dict:
     """로봇 localization/pose 미표시 원인을 구조화해 반환한다."""
     with transaction() as conn:
-        if not robot_repo.exists(conn, robot_id):
+        if not postgres_robots.exists(conn, robot_id):
             raise HTTPException(status_code=404, detail="robot not found")
     return localization_snapshot(robot_id)
 
@@ -70,7 +72,7 @@ def robot_localization(robot_id: str) -> dict:
 def robot_nav_state(robot_id: str) -> dict:
     """Movement nav-state API를 우선 사용하고, 없으면 health 기반으로 보정한다."""
     with transaction() as conn:
-        if not robot_repo.exists(conn, robot_id):
+        if not postgres_robots.exists(conn, robot_id):
             raise HTTPException(status_code=404, detail="robot not found")
     health = get_movement_health([robot_id]).get(robot_id, {})
     try:
@@ -117,17 +119,17 @@ def movement_runtime_map_context_route() -> dict:
 def movement_sync_status() -> dict:
     """로봇별 Movement 동기화/진단 상태를 한 번에 반환한다."""
     with transaction() as conn:
-        robots = [
+        robot_ids = [
             r["robot_id"]
-            for r in robot_repo.list(
+            for r in postgres_robots.list_robots(
                 conn,
             )
         ]
-        events = event_repo.list(conn, limit=120)
+        events = operational_events.list_operational_events(conn, limit=120)
     logs = list_api_logs(service="movement", limit=120)
     map_state = movement_map_state()
     rows = []
-    for robot_id in robots:
+    for robot_id in robot_ids:
         snapshot = localization_snapshot(robot_id)
         robot_events = [
             e for e in events if e.get("robot_id") == robot_id and str(e.get("event_type", "")).startswith("MOVEMENT_")
@@ -162,7 +164,7 @@ def aruco_latest(
 ) -> dict:
     """이동서버 ArUco 검출 readout 프록시 — 수동 정렬 테스트."""
     with transaction() as conn:
-        if not robot_repo.exists(conn, robot_id):
+        if not postgres_robots.exists(conn, robot_id):
             raise HTTPException(status_code=404, detail="robot not found")
     try:
         payload = movement_client.aruco_latest(robot_id, marker_id)
@@ -177,7 +179,7 @@ def aruco_latest(
 def set_robot_initial_pose(robot_id: str, payload: InitialPoseRequest) -> dict:
     """웹에서 지정한 초기 pose를 Movement 서버로 전달한다. map_id는 runtime active map으로 해석한다."""
     with transaction() as conn:
-        if not robot_repo.exists(conn, robot_id):
+        if not postgres_robots.exists(conn, robot_id):
             raise HTTPException(status_code=404, detail="robot not found")
     runtime_map_id, map_state = resolve_movement_map_id(payload.map_id)
     map_context = {
@@ -199,7 +201,7 @@ def set_robot_initial_pose(robot_id: str, payload: InitialPoseRequest) -> dict:
             status_code=status, detail={"error": error, "message": detail, "robot_id": robot_id}
         ) from exc
     with transaction() as conn:
-        event_repo.append(
+        operational_events.append(
             conn,
             event_type="MOVEMENT_INITIAL_POSE",
             robot_id=robot_id,
@@ -213,8 +215,8 @@ def set_robot_initial_pose(robot_id: str, payload: InitialPoseRequest) -> dict:
 def movement_command_trace(command_id: str, robot_id: str | None = Query(default=None)) -> dict:
     """command_id 기준 DB 기록, callback 이벤트, Movement polling 상태를 묶어 반환한다."""
     with transaction() as conn:
-        commands = movement_repo.list(conn, limit=200)
-        events = event_repo.list(conn, limit=200)
+        commands = movement_commands.list_movement_command_records(conn, limit=200)
+        events = operational_events.list_operational_events(conn, limit=200)
     command = next((c for c in commands if c.get("command_id") == command_id), None)
     resolved_robot_id = robot_id or (command or {}).get("robot_id")
     callbacks = [e for e in events if e.get("command_id") == command_id]
@@ -222,7 +224,7 @@ def movement_command_trace(command_id: str, robot_id: str | None = Query(default
     polling_error: str | None = None
     if resolved_robot_id:
         try:
-            polling = mission_service.command_status(resolved_robot_id, command_id)
+            polling = missions.command_status(resolved_robot_id, command_id)
         except HTTPException as exc:
             polling_error = str(exc.detail)
     state = None
@@ -251,7 +253,7 @@ def movement_command_event(payload: RobotCommandEvent, request: Request) -> Move
     """Movement callback_url 이벤트를 수신해 이벤트 타임라인에 기록한다."""
     require_callback_token(request)
     with transaction() as conn:
-        return MovementCallbackAck(**ingest_command_event(conn, payload.to_payload()))
+        return MovementCallbackAck(**callbacks.ingest_command_event(conn, payload.to_payload()))
 
 
 @router.post("/movement/results", response_model=MovementCallbackAck)
@@ -259,7 +261,7 @@ def movement_result(payload: RobotCommandResult, request: Request) -> MovementCa
     """Legacy result callback을 기록하고 command lifecycle에 반영한다."""
     require_callback_token(request)
     with transaction() as conn:
-        return MovementCallbackAck(**ingest_result(conn, payload.to_payload()))
+        return MovementCallbackAck(**callbacks.ingest_result(conn, payload.to_payload()))
 
 
 @router.post("/movement/robots/{robot_name}/status", response_model=ApiMessage)
@@ -267,7 +269,7 @@ def movement_robot_status(robot_name: str, payload: MovementRobotStatusCallback,
     """Movement robot status callback을 current robot/pose에 반영한다."""
     require_callback_token(request)
     with transaction() as conn:
-        ingest_robot_status(conn, robot_name, payload.to_payload())
+        callbacks.ingest_robot_status(conn, robot_name, payload.to_payload())
     return ApiMessage(message="movement robot status saved")
 
 
@@ -309,7 +311,7 @@ def list_robot_poses(map_id: str | None = None) -> list[RobotPose]:
     with transaction() as conn:
         robot_ids = [
             r["robot_id"]
-            for r in robot_repo.list(
+            for r in postgres_robots.list_robots(
                 conn,
             )
         ]
@@ -372,7 +374,7 @@ def report_mission_pose(command_id: str, payload: RobotPoseReport) -> ApiMessage
     update = RobotPoseUpdate(**payload.model_dump(exclude={"robot_id"}))
     with transaction() as conn:
         report_pose_for_robot(conn, payload.robot_id, update, source=payload.source or "movement_mission")
-        event_repo.append(
+        operational_events.append(
             conn,
             event_type="MOVEMENT_POSE",
             robot_id=payload.robot_id,
@@ -389,103 +391,6 @@ def teleop(payload: TeleopRequest) -> TeleopResponse:
     return execute_teleop(payload)
 
 
-RESULT_EVENT_MAP = {
-    "OK": "DONE",
-    "SUCCESS": "DONE",
-    "SUCCEEDED": "DONE",
-    "COMPLETED": "DONE",
-    "CANCELED": "CANCELED",
-    "CANCELLED": "CANCELLED",
-    "STOPPED": "STOPPED",
-    "ABORTED": "ABORTED",
-    "FAILED": "FAILED",
-    "REJECTED": "REJECTED",
-}
-
-
-def _is_duplicate_callback(conn, payload: dict[str, Any]) -> bool:
-    event_id = str(payload.get("event_id") or "")
-    return bool(event_id and event_repo.callback_event_exists(conn, event_id))
-
-
-def _event_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    out = dict(payload)
-    if payload.get("event_id"):
-        out["callback_event_id"] = payload["event_id"]
-    return out
-
-
-def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
-    """Persist Movement command callback and advance orchestration when applicable."""
-    if _is_duplicate_callback(conn, payload):
-        return {"message": "duplicate movement callback ignored", "duplicate": True, "task_advanced": False}
-    command_id = payload.get("command_id")
-    robot_id = payload.get("robot_name") or payload.get("robot_id")
-    event = payload.get("event") or payload.get("state") or "UNKNOWN"
-    event_repo.append(
-        conn,
-        event_type=f"MOVEMENT_COMMAND_{event}",
-        robot_id=robot_id,
-        command_id=command_id,
-        message=payload.get("message") or str(event),
-        payload=_event_payload(payload),
-    )
-    advanced = orchestrator_service.handle_command_event(conn, payload) is not None
-    return {"message": "movement command event saved", "duplicate": False, "task_advanced": advanced}
-
-
-def ingest_result(conn, payload: dict[str, Any]) -> dict[str, Any]:
-    """Persist Movement result callback and update movement command record."""
-    if _is_duplicate_callback(conn, payload):
-        return {"message": "duplicate movement result ignored", "duplicate": True, "task_advanced": False}
-    command_id = payload.get("command_id")
-    robot_id = payload.get("robot_name") or payload.get("robot_id")
-    result = str(payload.get("result") or "UNKNOWN").upper()
-    event_repo.append(
-        conn,
-        event_type=f"MOVEMENT_RESULT_{result}",
-        robot_id=robot_id,
-        command_id=command_id,
-        message=payload.get("message") or str(result),
-        payload=_event_payload(payload),
-    )
-    if not command_id:
-        return {"message": "movement result saved without command", "duplicate": False, "task_advanced": False}
-    movement_repo.record_result(
-        conn,
-        command_id,
-        str(result),
-        payload.get("message") or str(result),
-        payload,
-    )
-    normalized = {**payload, "event": RESULT_EVENT_MAP.get(result, result)}
-    advanced = orchestrator_service.handle_command_event(conn, normalized) is not None
-    return {"message": "movement result saved", "duplicate": False, "task_advanced": advanced}
-
-
-def ingest_robot_status(conn, robot_name: str, payload: dict[str, Any]) -> None:
-    """Apply Movement robot status callback to pose and event timeline."""
-    pose = payload.get("pose") or {}
-    if pose and payload.get("localized", True):
-        update = RobotPoseUpdate(
-            map_id=pose.get("frame_id") or "map",
-            x=pose["x"],
-            y=pose["y"],
-            yaw=pose.get("yaw", 0.0),
-            source=pose.get("source") or "movement_status",
-            reported_at=pose.get("reported_at") or payload.get("reported_at"),
-        )
-        report_pose_for_robot(conn, robot_name, update, source=update.source)
-    event_repo.append(
-        conn,
-        event_type="MOVEMENT_ROBOT_STATUS",
-        robot_id=robot_name,
-        command_id=payload.get("current_command_id"),
-        message=payload.get("state") or "status",
-        payload=payload,
-    )
-
-
 def estop_all_robots(conn) -> list[dict[str, Any]]:
     """Request estop for every registered robot and record outcomes."""
     from app.domains.safety.hazard import mark_running_tasks_awaiting_operator
@@ -493,7 +398,7 @@ def estop_all_robots(conn) -> list[dict[str, Any]]:
     mark_running_tasks_awaiting_operator(conn, reason="operator_estop")
     robot_ids = [
         r["robot_id"]
-        for r in robot_repo.list(
+        for r in postgres_robots.list_robots(
             conn,
         )
     ]
@@ -503,7 +408,7 @@ def estop_all_robots(conn) -> list[dict[str, Any]]:
         try:
             payload = movement_client.estop(robot_id)
             results.append({"robot_id": robot_id, "ok": True, "response": payload})
-            event_repo.append(
+            operational_events.append(
                 conn,
                 event_type="ROBOT_ESTOP",
                 robot_id=robot_id,
@@ -520,7 +425,7 @@ def clear_estop_all_robots(conn) -> list[dict[str, Any]]:
     """Clear estop for every registered robot and record outcomes."""
     robot_ids = [
         r["robot_id"]
-        for r in robot_repo.list(
+        for r in postgres_robots.list_robots(
             conn,
         )
     ]
@@ -530,7 +435,7 @@ def clear_estop_all_robots(conn) -> list[dict[str, Any]]:
             payload = movement_client.clear_estop(robot_id)
             set_robot_emergency(robot_id, False)
             results.append({"robot_id": robot_id, "ok": True, "response": payload})
-            event_repo.append(
+            operational_events.append(
                 conn,
                 event_type="ROBOT_CLEAR_ESTOP",
                 robot_id=robot_id,

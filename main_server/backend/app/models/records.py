@@ -101,6 +101,3 @@ class ControlSystemStatusSnapshot(BaseModel):
     movement_commands: list[RobotCommandRecord]
     events: list[dict[str, Any]]
     tasks: list[RobotTask] = Field(default_factory=list)
-
-# Deprecated compatibility alias. Do not use in new code.
-StatusSnapshot = ControlSystemStatusSnapshot

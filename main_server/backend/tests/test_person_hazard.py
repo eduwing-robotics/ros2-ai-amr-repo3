@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from app.domains.safety import hazard as ph
+from app.models.person_hazard import validate_person_hazard_payload
 
 
 def _fresh_advisory(*, task_id: int = 101, observed_at: str | None = None) -> dict:
@@ -42,7 +43,13 @@ class PersonHazardPolicyTest(unittest.TestCase):
         ph._runtime.clear()
         ph._cooldown_until.clear()
         ph._pending_estops.clear()
+        ph._processed_advisories.clear()
         ph._last_reconcile_at = 0.0
+
+    def test_runtime_rejects_undeclared_state(self) -> None:
+        runtime = ph.PersonHazardMonitorRuntime("tb3_1", "tb3_1_picam", 101)
+        with self.assertRaises(AttributeError):
+            runtime.untracked_state = True
 
     def test_reconcile_restores_dispatched_move_monitor(self) -> None:
         task = {
@@ -56,9 +63,9 @@ class PersonHazardPolicyTest(unittest.TestCase):
             },
         }
         with (
-            patch.object(ph.evidence_runtime, "list_orchestrated_running", return_value=[task]),
+            patch.object(ph.evidence, "list_orchestrated_running", return_value=[task]),
             patch.object(ph, "enable_monitor") as enable,
-            patch.object(ph, "get_runtime", side_effect=[None, ph.MonitorRuntime("tb3_1", "tb3_1_picam", 101)]),
+            patch.object(ph, "get_runtime", side_effect=[None, ph.PersonHazardMonitorRuntime("tb3_1", "tb3_1_picam", 101)]),
         ):
             restored = ph.reconcile_active_monitors(MagicMock(), force=True)
         self.assertEqual(restored, 1)
@@ -71,7 +78,7 @@ class PersonHazardPolicyTest(unittest.TestCase):
             "preset_snapshot": {"_orchestration": {"steps": [{"kind": "dock_transfer", "status": "dispatched"}]}},
         }
         with (
-            patch.object(ph.evidence_runtime, "list_orchestrated_running", return_value=[task]),
+            patch.object(ph.evidence, "list_orchestrated_running", return_value=[task]),
             patch.object(ph, "enable_monitor") as enable,
         ):
             self.assertEqual(ph.reconcile_active_monitors(MagicMock(), force=True), 0)
@@ -81,36 +88,57 @@ class PersonHazardPolicyTest(unittest.TestCase):
         payload = _fresh_advisory()
         payload["event"]["bbox"] = [1, 2, 3, 4]
         with self.assertRaises(ValueError):
-            ph.validate_hazard_payload(payload)
+            validate_person_hazard_payload(payload)
 
     def test_rejects_motion_command_strings(self) -> None:
         payload = _fresh_advisory()
         payload["event"]["note"] = "E_STOP"
         with self.assertRaises(ValueError):
-            ph.validate_hazard_payload(payload)
+            validate_person_hazard_payload(payload)
+
+    def test_rejects_cross_robot_or_source_advisory(self) -> None:
+        runtime = ph.PersonHazardMonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        payload = _fresh_advisory()
+        payload["event"]["robot_id"] = "tb3_2"
+        with self.assertRaisesRegex(ValueError, "robot_id mismatch"):
+            ph.apply_person_hazard_advisory(MagicMock(), runtime, payload)
+
+    def test_rejects_missing_task_id(self) -> None:
+        payload = _fresh_advisory()
+        payload["event"].pop("task_id")
+        with self.assertRaisesRegex(ValueError, "requires robot_id, source, and task_id"):
+            validate_person_hazard_payload(payload)
+
+    def test_future_advisory_skips_evidence(self) -> None:
+        future = (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
+        runtime = ph.PersonHazardMonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        repo = MagicMock()
+        with patch("app.domains.safety.hazard.runtime_records", new=repo):
+            self.assertFalse(ph.apply_person_hazard_advisory(MagicMock(), runtime, _fresh_advisory(observed_at=future)))
+        repo.append.assert_not_called()
 
     def test_stale_advisory_skips_evidence(self) -> None:
         old = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
-        runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        runtime = ph.PersonHazardMonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
         conn = MagicMock()
         repo = MagicMock()
-        with patch("app.domains.safety.hazard.evidence_repo", new=repo):
-            self.assertFalse(ph.process_advisory(conn, runtime, _fresh_advisory(observed_at=old)))
+        with patch("app.domains.safety.hazard.runtime_records", new=repo):
+            self.assertFalse(ph.apply_person_hazard_advisory(conn, runtime, _fresh_advisory(observed_at=old)))
             repo.append.assert_not_called()
 
     def test_fresh_advisory_creates_evidence_and_estop(self) -> None:
-        runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        runtime = ph.PersonHazardMonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
         conn = MagicMock()
         repo = MagicMock()
         repo.append.side_effect = [11, 22]
         stop_repo = MagicMock()
         with (
-            patch("app.domains.safety.hazard.evidence_repo", new=repo),
-            patch("app.domains.safety.hazard.safety_stop_repo", new=stop_repo),
+            patch("app.domains.safety.hazard.runtime_records", new=repo),
+            patch("app.domains.safety.hazard.safety_stops", new=stop_repo),
             patch("app.domains.safety.hazard.movement_client.estop", return_value={"ok": True}) as estop,
             patch("app.domains.safety.hazard.mark_task_awaiting_operator"),
         ):
-            ok = ph.process_advisory(conn, runtime, _fresh_advisory())
+            ok = ph.apply_person_hazard_advisory(conn, runtime, _fresh_advisory())
         self.assertTrue(ok)
         estop.assert_called_once_with("tb3_1")
         stop_repo.open_from_evidence.assert_called_once_with(conn, 22)
@@ -118,35 +146,50 @@ class PersonHazardPolicyTest(unittest.TestCase):
         self.assertFalse(repo.append.call_args_list[0].kwargs.get("trusted", True))
 
     def test_duplicate_advisory_respects_cooldown(self) -> None:
-        runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        runtime = ph.PersonHazardMonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
         conn = MagicMock()
         repo = MagicMock()
         repo.append.side_effect = [11, 22, 33, 44]
         with (
-            patch("app.domains.safety.hazard.evidence_repo", new=repo),
-            patch("app.domains.safety.hazard.safety_stop_repo"),
+            patch("app.domains.safety.hazard.runtime_records", new=repo),
+            patch("app.domains.safety.hazard.safety_stops"),
             patch("app.domains.safety.hazard.movement_client.estop", return_value={"ok": True}),
             patch("app.domains.safety.hazard.mark_task_awaiting_operator"),
         ):
-            ph.process_advisory(conn, runtime, _fresh_advisory())
-            ph.process_advisory(conn, runtime, _fresh_advisory())
+            ph.apply_person_hazard_advisory(conn, runtime, _fresh_advisory())
+            ph.apply_person_hazard_advisory(conn, runtime, _fresh_advisory())
+        self.assertEqual(repo.append.call_count, 2)
+
+    def test_replayed_advisory_stays_blocked_after_cooldown_reset(self) -> None:
+        runtime = ph.PersonHazardMonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        repo = MagicMock()
+        repo.append.side_effect = [11, 22, 33, 44]
+        with (
+            patch("app.domains.safety.hazard.runtime_records", new=repo),
+            patch("app.domains.safety.hazard.safety_stops"),
+            patch("app.domains.safety.hazard.movement_client.estop", return_value={"ok": True}),
+            patch("app.domains.safety.hazard.mark_task_awaiting_operator"),
+        ):
+            ph.apply_person_hazard_advisory(MagicMock(), runtime, _fresh_advisory())
+            ph._cooldown_until.clear()
+            ph.apply_person_hazard_advisory(MagicMock(), runtime, _fresh_advisory())
         self.assertEqual(repo.append.call_count, 2)
 
     def test_failed_estop_is_retried_until_confirmed(self) -> None:
-        runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        runtime = ph.PersonHazardMonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
         conn = MagicMock()
         repo = MagicMock()
         repo.append.side_effect = [11, 22, 33]
         with (
-            patch("app.domains.safety.hazard.evidence_repo", new=repo),
-            patch("app.domains.safety.hazard.safety_stop_repo"),
+            patch("app.domains.safety.hazard.runtime_records", new=repo),
+            patch("app.domains.safety.hazard.safety_stops"),
             patch(
                 "app.domains.safety.hazard.movement_client.estop",
                 side_effect=[ph.MovementClientError("offline"), {"ok": True}],
             ) as estop,
             patch("app.domains.safety.hazard.mark_task_awaiting_operator"),
         ):
-            self.assertFalse(ph.process_advisory(conn, runtime, _fresh_advisory()))
+            self.assertFalse(ph.apply_person_hazard_advisory(conn, runtime, _fresh_advisory()))
             self.assertEqual(ph._pending_estops, {"tb3_1": 101})
             self.assertEqual(ph.retry_pending_estops(conn), 1)
         self.assertEqual(estop.call_count, 2)

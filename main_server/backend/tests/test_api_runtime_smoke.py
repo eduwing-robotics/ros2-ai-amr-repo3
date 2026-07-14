@@ -43,11 +43,11 @@ class ApiRuntimeSmokeTest(unittest.TestCase):
 
     @patch("app.api.routers.system.fetch_camera_health", return_value={})
     @patch("app.api.routers.system.get_movement_health", return_value={})
-    @patch("app.api.routers.system.task_repo")
-    @patch("app.api.routers.system.event_repo")
-    @patch("app.api.routers.system.movement_repo")
-    @patch("app.api.routers.system.camera_repo")
-    @patch("app.api.routers.system.robot_repo")
+    @patch("app.api.routers.system.postgres_tasks")
+    @patch("app.api.routers.system.operational_events")
+    @patch("app.api.routers.system.movement_commands")
+    @patch("app.api.routers.system.postgres_cameras")
+    @patch("app.api.routers.system.postgres_robots")
     @patch("app.api.routers.system.transaction")
     def test_status_snapshot_keys(
         self,
@@ -61,10 +61,10 @@ class ApiRuntimeSmokeTest(unittest.TestCase):
     ) -> None:
         conn = MagicMock()
         transaction_ctx.return_value.__enter__.return_value = conn
-        robot_repo_fn.list.return_value = []
-        camera_repo_fn.list.return_value = []
-        movement_repo_fn.list.return_value = []
-        event_repo_fn.list.return_value = []
+        robot_repo_fn.list_robots.return_value = []
+        camera_repo_fn.list_cameras.return_value = []
+        movement_repo_fn.list_movement_command_records.return_value = []
+        event_repo_fn.list_operational_events.return_value = []
         task_repo_fn.list.return_value = []
 
         res = self.client.get("/api/v1/status")

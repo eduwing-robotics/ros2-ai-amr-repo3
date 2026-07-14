@@ -39,7 +39,7 @@ def test_task_tick_skips_work_when_other_process_holds_locks() -> None:
          patch.object(task_progress_poller, "try_advisory_xact_lock", return_value=False), \
          patch.object(task_progress_poller, "poll_running_tasks") as progress, \
          patch.object(task_progress_poller, "poll_recovery_tasks") as recovery, \
-         patch.object(task_progress_poller.task_service, "auto_assign_and_start") as assign:
+         patch.object(task_progress_poller.tasks, "auto_assign_and_start") as assign:
         result = task_progress_poller.poll_task_progress_once()
 
     assert result["advanced"] == 0
@@ -58,6 +58,6 @@ def test_hazard_tick_skips_when_other_process_holds_lock() -> None:
 
     with patch.object(person_hazard_loop, "transaction", tx), \
          patch.object(person_hazard_loop, "try_advisory_xact_lock", return_value=False), \
-         patch.object(person_hazard_loop, "poll_once") as poll:
+         patch.object(person_hazard_loop, "poll_person_hazards_once") as poll:
         assert not person_hazard_loop.poll_person_hazard_once()
     poll.assert_not_called()

@@ -7,7 +7,7 @@ Camera 서버 IP가 바뀌는 환경에서는 LMS_CAMERA_HOST만 바꿔 Main/UI�
 from __future__ import annotations
 
 from app.core.config import settings
-from app.models.schemas import CameraSource
+from app.models.records import CameraSource
 
 
 def camera_system_config() -> dict[str, str]:

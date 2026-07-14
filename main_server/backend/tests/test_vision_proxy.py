@@ -6,8 +6,10 @@ import io
 import json
 import sys
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from urllib.error import HTTPError
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
@@ -138,6 +140,43 @@ class VisionProxyTest(unittest.TestCase):
         mock_res.read.assert_not_called()
         called_url = mock_urlopen.call_args[0][0].full_url
         self.assertIn("view=lift_roi", called_url)
+
+    @patch("app.domains.vision.client.urlopen")
+    @patch("app.domains.vision.client.settings")
+    def test_binary_response_size_is_bounded(self, mock_settings, mock_urlopen) -> None:
+        mock_settings.vision_api_base_url = "http://vision:8100"
+        mock_settings.vision_api_fallback_base_url = ""
+        mock_settings.vision_timeout_sec = 1.0
+        mock_res = MagicMock()
+        mock_res.read.return_value = b"12345"
+        mock_res.headers = {"Content-Type": "image/png"}
+        mock_res.__enter__ = lambda s: s
+        mock_res.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_res
+
+        with patch.object(vision_proxy, "MAX_BINARY_RESPONSE_BYTES", 4):
+            with self.assertRaises(vision_proxy.VisionUpstreamError) as ctx:
+                vision_proxy.fetch_image("frame", "tb3_1_picam")
+        self.assertEqual(ctx.exception.status_code, 502)
+
+    @patch("app.domains.vision.client.urlopen")
+    @patch("app.domains.vision.client.settings")
+    def test_http_error_body_is_not_exposed(self, mock_settings, mock_urlopen) -> None:
+        mock_settings.vision_api_base_url = "http://vision:8100"
+        mock_settings.vision_api_fallback_base_url = ""
+        mock_settings.vision_timeout_sec = 1.0
+        mock_urlopen.side_effect = HTTPError(
+            "http://vision:8100/frame",
+            502,
+            "Bad Gateway",
+            None,
+            BytesIO(b"internal-token=do-not-expose"),
+        )
+
+        with self.assertRaises(vision_proxy.VisionUpstreamError) as ctx:
+            vision_proxy.fetch_image("frame", "tb3_1_picam")
+        self.assertEqual(ctx.exception.status_code, 502)
+        self.assertNotIn("internal-token", str(ctx.exception))
 
 
 if __name__ == "__main__":

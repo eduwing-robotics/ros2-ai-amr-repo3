@@ -5,7 +5,7 @@ from typing import Any
 from app.db.postgres import runtime_records
 
 
-def create(
+def create_robot_command_record(
     conn,
     *,
     command_id: str,
@@ -40,9 +40,3 @@ def record_result(conn, command_id: str, result: str, message: str = "", payload
         source="movement",
         data_json={"command_id": command_id, "result": result, "message": message, "result_payload": payload or {}},
     )
-
-
-def list(conn, limit: int = 50) -> list[dict[str, Any]]:
-    from app.domains.execution import evidence as evidence_runtime
-
-    return evidence_runtime.derived_movement_commands(conn, limit=limit)

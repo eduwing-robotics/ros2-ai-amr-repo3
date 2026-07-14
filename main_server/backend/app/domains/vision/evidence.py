@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from app.core.config import settings
-from app.db.postgres import evidence_repo
+from app.db.postgres import runtime_records
 from app.domains.vision.client import VisionUpstreamError, post_lift_load_evaluate
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,9 @@ def _operation_and_zone(task: dict[str, Any], step: dict[str, Any]) -> tuple[str
     raise LiftLoadEvidenceSkip(f"unsupported lift-load context task_type={task_type} action={action or 'none'}")
 
 
-def build_request(task: dict[str, Any], step: dict[str, Any], command_def_id: int | str | None) -> dict[str, object]:
+def build_lift_load_evidence_request(
+    task: dict[str, Any], step: dict[str, Any], command_def_id: int | str | None
+) -> dict[str, object]:
     """Build the Main-facing AI Server request from task + dock_transfer step context."""
 
     robot_id = task.get("assigned_robot_id")
@@ -146,7 +148,7 @@ def _append(
         command_id = int(command_def_id) if command_def_id is not None else None
     except (TypeError, ValueError):
         command_id = None
-    return evidence_repo.append(
+    return runtime_records.append(
         conn,
         task_id=task_id,
         command_id=command_id,
@@ -158,7 +160,9 @@ def _append(
     )
 
 
-def record_skip(conn, *, task: dict[str, Any], command_def_id: int | str | None, reason: str) -> int:
+def record_lift_load_evidence_skip(
+    conn, *, task: dict[str, Any], command_def_id: int | str | None, reason: str
+) -> int:
     return _append(
         conn,
         task_id=task.get("task_id"),
@@ -168,7 +172,7 @@ def record_skip(conn, *, task: dict[str, Any], command_def_id: int | str | None,
     )
 
 
-def record_error(
+def record_lift_load_evidence_error(
     conn,
     *,
     task: dict[str, Any],
@@ -190,7 +194,7 @@ def record_error(
     )
 
 
-def evaluate_and_record(
+def evaluate_lift_load_evidence_and_record(
     conn, task: dict[str, Any], step: dict[str, Any], command_def_id: int | str | None
 ) -> int | None:
     """Call AI lift-load evidence and record the advisory result.
@@ -205,14 +209,14 @@ def evaluate_and_record(
         return None
 
     try:
-        request_payload = build_request(task, step, command_def_id)
+        request_payload = build_lift_load_evidence_request(task, step, command_def_id)
     except LiftLoadEvidenceSkip as exc:
-        return record_skip(conn, task=task, command_def_id=command_def_id, reason=str(exc))
+        return record_lift_load_evidence_skip(conn, task=task, command_def_id=command_def_id, reason=str(exc))
 
     try:
         response = post_lift_load_evaluate(request_payload)
     except VisionUpstreamError as exc:
-        return record_error(
+        return record_lift_load_evidence_error(
             conn,
             task=task,
             command_def_id=command_def_id,
@@ -222,7 +226,7 @@ def evaluate_and_record(
         )
     except Exception as exc:  # pragma: no cover - defensive boundary for record-only hook
         logger.exception("lift-load evidence call failed")
-        return record_error(
+        return record_lift_load_evidence_error(
             conn,
             task=task,
             command_def_id=command_def_id,

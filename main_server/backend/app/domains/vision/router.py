@@ -9,8 +9,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
 from app.db.connection import transaction
-from app.db.postgres import camera_repo
-from app.domains.safety.hazard import validate_hazard_payload
+from app.db.postgres import cameras
 from app.domains.vision.client import (
     VisionUpstreamError,
     fetch_bridge_status,
@@ -24,6 +23,7 @@ from app.domains.vision.client import (
     post_webrtc_offer,
     put_person_monitor_state,
 )
+from app.models.person_hazard import validate_person_hazard_payload
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ def _require_known_source(source: str) -> None:
     with transaction() as conn:
         known = {
             c["source_id"]
-            for c in camera_repo.list(
+            for c in cameras.list_cameras(
                 conn,
             )
         }
@@ -196,7 +196,7 @@ def vision_person_hazard_latest(robot_id: str = Query(...)) -> Response:
     try:
         payload = fetch_person_hazard_latest(robot_id)
         if payload.get("event") is not None:
-            validate_hazard_payload(payload)
+            validate_person_hazard_payload(payload, expected_robot_id=robot_id)
     except ValueError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except VisionUpstreamError as exc:

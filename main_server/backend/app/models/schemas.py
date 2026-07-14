@@ -5,9 +5,6 @@ from app.models.maps import MapRecord, MarkerUsage, Waypoint, WaypointRouteUpser
 from app.models.movement import (
     MissionStatusResponse,
     MovementCallbackAck,
-    MovementCommand,
-    MovementCommandEvent,
-    MovementCommandResult,
     MovementRobotStatusCallback,
     RobotCommandEvent,
     RobotCommandRecord,
@@ -19,7 +16,6 @@ from app.models.records import (
     ControlSystemStatusSnapshot,
     EvidenceEventRecord,
     ItemChangeLogRecord,
-    StatusSnapshot,
     TaskLogRecord,
     TimelineEvent,
 )
@@ -48,9 +44,6 @@ from app.models.tasks import (
     RobotTaskStatus,
     RobotTaskStep,
     RobotTaskStepStatus,
-    Task,
-    TaskAssign,
-    TaskCreate,
 )
 from app.models.warehouse import (
     InventoryRecord,
@@ -72,8 +65,17 @@ from app.models.work_orders import (
     WorkOrderPreviewRequest,
     WorkOrderPriorityUpdate,
     WorkOrderRobotTask,
-    WorkOrderTask,
 )
+
+# Legacy Python import compatibility. Product code imports canonical owner modules.
+MovementCommand = RobotCommandRecord
+MovementCommandEvent = RobotCommandEvent
+MovementCommandResult = RobotCommandResult
+StatusSnapshot = ControlSystemStatusSnapshot
+Task = RobotTask
+TaskAssign = RobotTaskAssign
+TaskCreate = RobotTaskCreate
+WorkOrderTask = WorkOrderRobotTask
 
 __all__ = [
     "ApiMessage",

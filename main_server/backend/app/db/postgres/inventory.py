@@ -5,7 +5,7 @@ from typing import Any
 from app.db.postgres.common import DEFAULT_FLOOR, row_timestamp
 
 
-def list(
+def list_inventory(
     conn, slot_id: str | None = None, item_code: str | None = None, floor: int | None = None
 ) -> list[dict[str, Any]]:
     clauses: list[str] = []

@@ -6,14 +6,14 @@ from fastapi import HTTPException
 
 from app.db.postgres import (
     DEFAULT_FLOOR,
-    event_repo,
-    inventory_repo,
-    task_repo,
+    inventory,
+    operational_events,
+    tasks,
 )
 
 
-def apply_on_task_complete(conn, task_id: int) -> bool:
-    task = task_repo.get(conn, task_id)
+def settle_inventory_for_completed_task(conn, task_id: int) -> bool:
+    task = tasks.get_task(conn, task_id)
     if not task:
         return False
     task_type = str(task.get("task_type") or "").upper()
@@ -28,7 +28,7 @@ def apply_on_task_complete(conn, task_id: int) -> bool:
         return False
 
     completion_event = f"{task_type}_COMPLETE"
-    if inventory_repo.has_task_event(conn, task_id, completion_event):
+    if inventory.has_task_event(conn, task_id, completion_event):
         return False
 
     if task_type == "INBOUND":
@@ -36,12 +36,12 @@ def apply_on_task_complete(conn, task_id: int) -> bool:
         floor = int(task.get("to_floor") or DEFAULT_FLOOR)
         if not location_id:
             return False
-        before = inventory_repo.get_quantity(conn, location_id, item_id, floor)
+        before = inventory.get_quantity(conn, location_id, item_id, floor)
         try:
-            after = inventory_repo.adjust(conn, location_id, item_id, quantity, floor)
+            after = inventory.adjust(conn, location_id, item_id, quantity, floor)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        inventory_repo.append_change_log(
+        inventory.append_change_log(
             conn,
             task_id=task_id,
             item_id=item_id,
@@ -59,12 +59,12 @@ def apply_on_task_complete(conn, task_id: int) -> bool:
         floor = int(task.get("from_floor") or DEFAULT_FLOOR)
         if not location_id:
             return False
-        before = inventory_repo.get_quantity(conn, location_id, item_id, floor)
+        before = inventory.get_quantity(conn, location_id, item_id, floor)
         try:
-            after = inventory_repo.adjust(conn, location_id, item_id, -quantity, floor)
+            after = inventory.adjust(conn, location_id, item_id, -quantity, floor)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        inventory_repo.append_change_log(
+        inventory.append_change_log(
             conn,
             task_id=task_id,
             item_id=item_id,
@@ -78,7 +78,7 @@ def apply_on_task_complete(conn, task_id: int) -> bool:
         )
         event = "inventory outbound"
 
-    task_repo.append_task_log(
+    tasks.append_task_log(
         conn,
         task_id=task_id,
         task_type=task_type,
@@ -87,7 +87,7 @@ def apply_on_task_complete(conn, task_id: int) -> bool:
         snapshot={"task": task, "quantity_after": after},
     )
 
-    event_repo.append(
+    operational_events.append(
         conn,
         event_type="INVENTORY_ADJUSTED",
         task_id=task_id,

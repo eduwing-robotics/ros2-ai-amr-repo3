@@ -12,8 +12,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 from fastapi import HTTPException
 
-from app.domains.execution import orchestrator
-from app.domains.execution import tasks as task_service
+from app.domains.execution import orchestrator, tasks
 
 
 def _queued(task_id: int) -> dict:
@@ -22,16 +21,16 @@ def _queued(task_id: int) -> dict:
 
 class AutoAssignAndStartTest(unittest.TestCase):
     def _patched(self, queued: list[dict], idle: list[dict]):
-        task_repo = MagicMock()
-        task_repo.list_assignable.return_value = queued
-        robot_repo = MagicMock()
-        robot_repo.list_idle.return_value = idle
+        postgres_tasks = MagicMock()
+        postgres_tasks.list_assignable.return_value = queued
+        postgres_robots = MagicMock()
+        postgres_robots.list_idle.return_value = idle
         return (
-            patch.object(task_service, "task_repo", task_repo),
-            patch.object(task_service, "robot_repo", robot_repo),
-            patch.object(task_service, "event_repo", MagicMock()),
+            patch.object(tasks, "tasks", postgres_tasks),
+            patch.object(tasks, "robots", postgres_robots),
+            patch.object(tasks, "operational_events", MagicMock()),
             # readiness는 offline 단위테스트에서 항상 통과(ready) 처리.
-            patch.object(task_service, "robot_assignment_block_reason", return_value=None),
+            patch.object(tasks, "robot_assignment_block_reason", return_value=None),
         )
 
     def test_assigns_and_starts_up_to_idle_robots(self) -> None:
@@ -46,7 +45,7 @@ class AutoAssignAndStartTest(unittest.TestCase):
                 "start_task_orchestration",
             ) as start,
         ):
-            result = task_service.auto_assign_and_start(MagicMock(), source="task_progress_poller")
+            result = tasks.auto_assign_and_start(MagicMock(), source="task_progress_poller")
         self.assertEqual(result["assigned"], [{"task_id": 1, "robot_id": "tb3_1"}])
         self.assertEqual(result["started"], [1])
         self.assertEqual(result["start_failed"], [])
@@ -76,7 +75,7 @@ class AutoAssignAndStartTest(unittest.TestCase):
                 side_effect=_start,
             ),
         ):
-            result = task_service.auto_assign_and_start(MagicMock(), source="task_progress_poller")
+            result = tasks.auto_assign_and_start(MagicMock(), source="task_progress_poller")
         self.assertEqual(len(result["assigned"]), 2)
         self.assertEqual(result["started"], [2])
         self.assertEqual(result["start_failed"], [{"task_id": 1, "detail": "step dispatch rejected"}])

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def list(conn) -> list[dict[str, Any]]:
+def list_cameras(conn) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT source_id, label, robot_id, status, stream_url FROM cameras ORDER BY source_id"
     ).fetchall()
@@ -23,6 +23,6 @@ def upsert(conn, data: dict[str, Any]) -> None:
     )
 
 
-def delete(conn, source_id: str) -> bool:
+def delete_camera(conn, source_id: str) -> bool:
     cur = conn.execute("DELETE FROM cameras WHERE source_id = %s", (source_id,))
     return cur.rowcount > 0

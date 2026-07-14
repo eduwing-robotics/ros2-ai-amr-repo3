@@ -12,8 +12,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 from fastapi import HTTPException
 
-from app.domains.execution import orchestrator, recovery
-from app.domains.execution import tasks as task_service
+from app.domains.execution import orchestrator, recovery, tasks
 
 
 class RecoveryPhaseGuardTest(unittest.TestCase):
@@ -43,11 +42,11 @@ class RecoveryPhaseGuardTest(unittest.TestCase):
             patch.object(recovery, "save_recovery_decision"),
             patch.object(recovery, "preview_recovery_plan", return_value=plan),
             patch.object(recovery, "_assert_recovery_robot_ready"),
-            patch.object(recovery, "task_repo") as task_repo,
-            patch.object(recovery.command_service, "dispatch_robot_command", return_value=result),
-            patch.object(recovery.evidence_runtime, "save_orchestration") as save,
+            patch.object(recovery, "tasks") as postgres_tasks,
+            patch.object(recovery.commands, "dispatch_robot_command", return_value=result),
+            patch.object(recovery.evidence, "save_orchestration") as save,
         ):
-            task_repo.get.return_value = {"task_id": 1, "assigned_robot_id": "tb3_1"}
+            postgres_tasks.get_task.return_value = {"task_id": 1, "assigned_robot_id": "tb3_1"}
             with self.assertRaises(HTTPException) as ctx:
                 recovery.execute_recovery(
                     conn,
@@ -77,13 +76,13 @@ class RecoveryCommandTerminalTest(unittest.TestCase):
             },
         }
         with (
-            patch.object(recovery, "task_repo") as task_repo,
-            patch.object(recovery, "evidence_runtime") as evidence_runtime,
-            patch.object(recovery, "evidence_repo"),
+            patch.object(recovery, "tasks") as postgres_tasks,
+            patch.object(recovery, "evidence") as evidence,
+            patch.object(recovery, "runtime_records"),
             patch.object(recovery, "get_recovery_context") as get_ctx,
         ):
-            task_repo.get.return_value = task
-            evidence_runtime.attach_orchestration.side_effect = lambda row, _conn: row
+            postgres_tasks.get_task.return_value = task
+            evidence.attach_orchestration.side_effect = lambda row, _conn: row
             get_ctx.return_value = {"task_id": 5, "orchestration_phase": "AWAITING_OPERATOR"}
             result = recovery.handle_recovery_command_event(
                 conn,
@@ -91,7 +90,7 @@ class RecoveryCommandTerminalTest(unittest.TestCase):
                 {"command_id": "rec-cmd-1", "state": "DONE"},
             )
         self.assertIsNotNone(result)
-        saved = evidence_runtime.save_orchestration.call_args[0][2]
+        saved = evidence.save_orchestration.call_args[0][2]
         self.assertEqual(saved["phase"], "AWAITING_OPERATOR")
         self.assertNotIn("active_command_id", saved["recovery"])
 
@@ -99,17 +98,17 @@ class RecoveryCommandTerminalTest(unittest.TestCase):
 class ListRecoveryTasksTest(unittest.TestCase):
     def test_list_includes_recovery_running(self) -> None:
         conn = MagicMock()
-        tasks = [
+        task_rows = [
             {
                 "task_id": 9,
                 "preset_snapshot": {"_orchestration": {"phase": "RECOVERY_RUNNING"}},
             }
         ]
         with (
-            patch.object(recovery, "evidence_runtime") as evidence_runtime,
+            patch.object(recovery, "evidence") as evidence,
             patch.object(recovery, "get_recovery_context") as get_ctx,
         ):
-            evidence_runtime.list_orchestrated_running.return_value = tasks
+            evidence.list_orchestrated_running.return_value = task_rows
             get_ctx.return_value = {"task_id": 9}
             out = recovery.list_awaiting_operator_tasks(conn)
         self.assertEqual(len(out), 1)
@@ -120,12 +119,12 @@ class HeldCompleteTaskTest(unittest.TestCase):
     def test_complete_blocked_in_recovery_running(self) -> None:
         conn = MagicMock()
         with (
-            patch.object(orchestrator, "task_repo") as task_repo,
+            patch.object(orchestrator, "tasks") as postgres_tasks,
             patch.object(orchestrator, "_orchestration_phase", return_value="RECOVERY_RUNNING"),
         ):
-            task_repo.get.return_value = {"task_id": 1, "status": "RUNNING"}
+            postgres_tasks.get_task.return_value = {"task_id": 1, "status": "RUNNING"}
             with self.assertRaises(HTTPException) as ctx:
-                task_service.complete_task(conn, 1)
+                tasks.complete_task(conn, 1)
         self.assertEqual(ctx.exception.detail, "held_task_complete_blocked_use_recovery")
 
 
@@ -146,9 +145,9 @@ class ActiveCommandProjectionTest(unittest.TestCase):
         }
         with (
             patch("app.domains.execution.evidence.attach_orchestration", return_value=task),
-            patch.object(wo, "task_repo") as repo,
+            patch.object(wo, "postgres_tasks") as repo,
         ):
-            repo.get.return_value = {"task_id": 1}
+            repo.get_task.return_value = {"task_id": 1}
             cmd = wo._active_command_id(conn, 1)
         self.assertEqual(cmd, "rec-99")
 
@@ -157,11 +156,11 @@ class RecoveryStopConfirmationTest(unittest.TestCase):
     def test_manual_abort_keeps_task_held_when_stop_is_unconfirmed(self) -> None:
         conn = MagicMock()
         with (
-            patch.object(recovery, "task_repo") as task_repo,
+            patch.object(recovery, "tasks") as postgres_tasks,
             patch.object(recovery, "_stop_robot_movement", side_effect=HTTPException(409, "recovery_stop_unconfirmed")),
-            patch.object(recovery.evidence_runtime, "save_orchestration") as save,
+            patch.object(recovery.evidence, "save_orchestration") as save,
         ):
-            task_repo.get.return_value = {
+            postgres_tasks.get_task.return_value = {
                 "task_id": 4,
                 "status": "RUNNING",
                 "assigned_robot_id": "tb3_1",
@@ -174,7 +173,7 @@ class RecoveryStopConfirmationTest(unittest.TestCase):
                     checks={"site_clear": True, "pose_ok": True, "cargo_ok": True},
                 )
         self.assertEqual(ctx.exception.detail, "recovery_stop_unconfirmed")
-        task_repo.set_status.assert_not_called()
+        postgres_tasks.set_status.assert_not_called()
         save.assert_not_called()
 
 

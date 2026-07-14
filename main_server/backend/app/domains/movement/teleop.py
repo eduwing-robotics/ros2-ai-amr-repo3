@@ -12,9 +12,9 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.db.connection import transaction
-from app.db.postgres import event_repo, movement_repo, robot_repo
+from app.db.postgres import operational_events, robot_command_records, robots
 from app.domains.movement.client import MovementClientError, movement_client
-from app.models.schemas import TeleopRequest, TeleopResponse
+from app.models.robots import TeleopRequest, TeleopResponse
 
 COMMAND_MAP = {
     "w": "forward",
@@ -35,15 +35,15 @@ TRANSLATE_COMMANDS = {"forward", "backward"}
 
 def execute_teleop(payload: TeleopRequest) -> TeleopResponse:
     """수동 이동 명령을 기록하고 Movement 수동조작 API로 전달한다."""
-    command = resolve_command(payload.command)
+    command = normalize_teleop_command(payload.command)
     command_id = str(uuid.uuid4())
-    command_type, request_body = build_movement_request(payload.robot_id, command, payload.hold)
+    command_type, request_body = build_teleop_movement_request(payload.robot_id, command, payload.hold)
 
     with transaction() as conn:
-        if not robot_repo.exists(conn, payload.robot_id):
+        if not robots.exists(conn, payload.robot_id):
             raise HTTPException(status_code=404, detail="robot not found")
 
-        response_payload, status_value = call_movement(payload.robot_id, command_type, request_body)
+        response_payload, status_value = invoke_teleop_movement(payload.robot_id, command_type, request_body)
         record_teleop_result(
             conn=conn,
             command_id=command_id,
@@ -67,7 +67,7 @@ def execute_teleop(payload: TeleopRequest) -> TeleopResponse:
     )
 
 
-def resolve_command(command: str) -> str:
+def normalize_teleop_command(command: str) -> str:
     """UI/키보드 입력을 Movement 스펙의 표준 명령명으로 정규화한다."""
     normalized = command.strip().lower()
     if normalized not in COMMAND_MAP:
@@ -75,7 +75,7 @@ def resolve_command(command: str) -> str:
     return COMMAND_MAP[normalized]
 
 
-def build_movement_request(robot_id: str, command: str, hold: bool) -> tuple[str, dict]:
+def build_teleop_movement_request(robot_id: str, command: str, hold: bool) -> tuple[str, dict]:
     """hold 여부와 명령 종류에 따라 호출할 Movement endpoint와 payload를 고른다."""
     if command == "stop":
         return "manual_stop", {"robot_name": robot_id}
@@ -83,7 +83,7 @@ def build_movement_request(robot_id: str, command: str, hold: bool) -> tuple[str
     if hold:
         # 버튼 떼기 이벤트가 유실될 수 있으므로 Movement 서버 timeout_sec을 항상 함께 보낸다.
         body = {
-            **manual_payload(robot_id),
+            **build_manual_movement_payload(robot_id),
             "command": command,
             "linear_x": settings.manual_translate_linear_x,
             "angular_z": settings.manual_rotate_angular_z,
@@ -93,7 +93,7 @@ def build_movement_request(robot_id: str, command: str, hold: bool) -> tuple[str
 
     if command in ROTATE_COMMANDS:
         body = {
-            **manual_payload(robot_id),
+            **build_manual_movement_payload(robot_id),
             "direction": command,
             "duration_sec": settings.manual_rotate_duration_sec,
             "angular_z": settings.manual_rotate_angular_z,
@@ -102,7 +102,7 @@ def build_movement_request(robot_id: str, command: str, hold: bool) -> tuple[str
 
     if command in TRANSLATE_COMMANDS:
         body = {
-            **manual_payload(robot_id),
+            **build_manual_movement_payload(robot_id),
             "direction": command,
             "duration_sec": settings.manual_translate_duration_sec,
             "linear_x": settings.manual_translate_linear_x,
@@ -112,7 +112,7 @@ def build_movement_request(robot_id: str, command: str, hold: bool) -> tuple[str
     raise HTTPException(status_code=400, detail="unsupported teleop command")
 
 
-def manual_payload(robot_id: str) -> dict:
+def build_manual_movement_payload(robot_id: str) -> dict:
     """모든 Movement 수동조작 요청에 공통으로 들어가는 필드."""
     return {
         "robot_name": robot_id,
@@ -120,10 +120,10 @@ def manual_payload(robot_id: str) -> dict:
     }
 
 
-def call_movement(robot_id: str, command_type: str, body: dict) -> tuple[dict, str]:
+def invoke_teleop_movement(robot_id: str, command_type: str, body: dict) -> tuple[dict, str]:
     """Movement 서버 호출 실패를 DB에 남길 수 있도록 예외를 status 값으로 변환한다."""
     try:
-        response_payload = send_movement(robot_id, command_type, body)
+        response_payload = send_teleop_movement_command(robot_id, command_type, body)
         status_value = "ACCEPTED" if response_payload.get("accepted", True) else "REJECTED"
     except MovementClientError as exc:
         response_payload = {"accepted": False, "error": str(exc)}
@@ -131,7 +131,7 @@ def call_movement(robot_id: str, command_type: str, body: dict) -> tuple[dict, s
     return response_payload, status_value
 
 
-def send_movement(robot_id: str, command_type: str, body: dict) -> dict:
+def send_teleop_movement_command(robot_id: str, command_type: str, body: dict) -> dict:
     """Main 명령 타입을 Movement client 메서드로 연결한다."""
     if command_type == "manual_rotate":
         return movement_client.manual_rotate(robot_id, body)
@@ -156,7 +156,7 @@ def record_teleop_result(
     status_value: str,
 ) -> None:
     """수동조작 결과를 명령 이력, 로봇 current 상태, 이벤트 타임라인에 함께 남긴다."""
-    movement_repo.create(
+    robot_command_records.create_robot_command_record(
         conn,
         command_id=command_id,
         robot_id=robot_id,
@@ -169,8 +169,8 @@ def record_teleop_result(
 
     # hold start가 접수된 동안만 current 상태를 MOVING으로 표시한다. 단발 명령과 stop은 IDLE로 둔다.
     robot_status = "MOVING" if status_value == "ACCEPTED" and command_type == "manual_start" else "IDLE"
-    robot_repo.update_last_command(conn, robot_id, command_id, robot_status)
-    event_repo.append(
+    robots.update_last_command(conn, robot_id, command_id, robot_status)
+    operational_events.append(
         conn,
         event_type=f"TELEOP_{command_type.upper()}_{status_value}",
         robot_id=robot_id,

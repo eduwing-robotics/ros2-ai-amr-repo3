@@ -6,10 +6,13 @@ from fastapi import APIRouter, Query
 
 from app.core.api_logs import list_logs as list_api_logs
 from app.db.connection import transaction
-from app.db.postgres import camera_repo, movement_repo, robot_repo
+from app.db.postgres import cameras
+from app.db.postgres import robots as postgres_robots
 from app.domains.movement.health import get_movement_health
+from app.domains.records import movement_commands
 from app.domains.vision.client import fetch_camera_health
-from app.models.schemas import Robot, RobotCommandRecord
+from app.models.movement import RobotCommandRecord
+from app.models.robots import Robot
 
 router = APIRouter(prefix="/comm", tags=["comm"])
 
@@ -22,25 +25,25 @@ def comm_logs(
     """Movement/Camera/Vision 외부 API 통신 로그를 조회한다."""
     cap = min(limit, 100)
     with transaction() as conn:
-        movement_commands = [
+        movement_command_rows = [
             RobotCommandRecord(**{k: v for k, v in c.items() if k in RobotCommandRecord.model_fields})
-            for c in movement_repo.list(conn, limit=cap)
+            for c in movement_commands.list_movement_command_records(conn, limit=cap)
         ]
-        robots = [
+        robot_rows = [
             Robot(**r)
-            for r in robot_repo.list(
+            for r in postgres_robots.list_robots(
                 conn,
             )
         ]
     logs = list_api_logs(service=service, limit=limit)
     return {
         "logs": logs,
-        "movement_commands": movement_commands,
+        "movement_commands": movement_command_rows,
         "counts": {
             "logs": len(logs),
-            "movement_commands": len(movement_commands),
+            "movement_commands": len(movement_command_rows),
         },
-        "robots": robots,
+        "robots": robot_rows,
     }
 
 
@@ -48,13 +51,13 @@ def comm_logs(
 def probe_movement() -> dict:
     """로봇별 Movement health API를 즉시 호출한다. 이동 명령은 보내지 않는다."""
     with transaction() as conn:
-        robots = [
+        robot_rows = [
             Robot(**r)
-            for r in robot_repo.list(
+            for r in postgres_robots.list_robots(
                 conn,
             )
         ]
-    return {"movement_health": get_movement_health([robot.robot_id for robot in robots], force=True)}
+    return {"movement_health": get_movement_health([robot.robot_id for robot in robot_rows], force=True)}
 
 
 @router.post("/probe/camera")
@@ -63,7 +66,7 @@ def probe_camera() -> dict:
     with transaction() as conn:
         camera_sources = [
             c["source_id"]
-            for c in camera_repo.list(
+            for c in cameras.list_cameras(
                 conn,
             )
         ]

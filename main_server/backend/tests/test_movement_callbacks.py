@@ -15,7 +15,8 @@ try:
 except ImportError:
     TestClient = None  # type: ignore[misc, assignment]
 
-from app.domains.movement import router as callbacks
+from app.domains.movement import callbacks
+from app.domains.movement import router as routes
 from app.domains.movement.client import MovementClientError, robot_is_emergency, set_robot_emergency
 from app.main import app
 
@@ -29,11 +30,11 @@ class MovementCallbackServiceTest(unittest.TestCase):
         for robot_id in ("r1", "r2", "r3"):
             set_robot_emergency(robot_id, False)
 
-    @patch("app.domains.movement.router.orchestrator_service.handle_command_event")
-    @patch("app.domains.movement.router.event_repo")
-    def test_ingest_command_event_appends_and_forwards(self, event_repo, handle_event) -> None:
-        event_repo.append = self.event.append
-        event_repo.callback_event_exists = self.event.callback_event_exists
+    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_ingest_command_event_appends_and_forwards(self, operational_events, handle_event) -> None:
+        operational_events.append = self.event.append
+        operational_events.callback_event_exists = self.event.callback_event_exists
         payload = {"command_id": "cmd-1", "robot_name": "r1", "event": "ACCEPTED"}
 
         callbacks.ingest_command_event(self.conn, payload)
@@ -45,11 +46,11 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertEqual(kwargs["command_id"], "cmd-1")
         handle_event.assert_called_once_with(self.conn, payload)
 
-    @patch("app.domains.movement.router.orchestrator_service.handle_command_event")
-    @patch("app.domains.movement.router.event_repo")
-    def test_duplicate_event_id_is_acknowledged_without_reapply(self, event_repo, handle_event) -> None:
-        event_repo.append = self.event.append
-        event_repo.callback_event_exists = self.event.callback_event_exists
+    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_duplicate_event_id_is_acknowledged_without_reapply(self, operational_events, handle_event) -> None:
+        operational_events.append = self.event.append
+        operational_events.callback_event_exists = self.event.callback_event_exists
         self.event.callback_event_exists.return_value = True
         result = callbacks.ingest_command_event(
             self.conn,
@@ -59,12 +60,25 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.event.append.assert_not_called()
         handle_event.assert_not_called()
 
-    @patch("app.domains.movement.router.movement_repo")
-    @patch("app.domains.movement.router.event_repo")
-    def test_ingest_result_records_when_command_id_present(self, event_repo, movement_repo) -> None:
-        event_repo.append = self.event.append
-        event_repo.callback_event_exists = self.event.callback_event_exists
-        movement_repo.record_result = self.movement.record_result
+    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_event_write_failure_does_not_advance_execution(self, operational_events, handle_event) -> None:
+        operational_events.callback_event_exists = self.event.callback_event_exists
+        operational_events.append.side_effect = RuntimeError("event write failed")
+
+        with self.assertRaisesRegex(RuntimeError, "event write failed"):
+            callbacks.ingest_command_event(
+                self.conn, {"command_id": "cmd-1", "robot_name": "r1", "event": "DONE"}
+            )
+
+        handle_event.assert_not_called()
+
+    @patch("app.domains.movement.callbacks.robot_command_records")
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_ingest_result_records_when_command_id_present(self, operational_events, robot_command_records) -> None:
+        operational_events.append = self.event.append
+        operational_events.callback_event_exists = self.event.callback_event_exists
+        robot_command_records.record_result = self.movement.record_result
         payload = {"command_id": "cmd-2", "robot_id": "r2", "result": "SUCCESS", "message": "done"}
 
         callbacks.ingest_result(self.conn, payload)
@@ -73,22 +87,22 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertEqual(self.event.append.call_args.kwargs["event_type"], "MOVEMENT_RESULT_SUCCESS")
         self.movement.record_result.assert_called_once_with(self.conn, "cmd-2", "SUCCESS", "done", payload)
 
-    @patch("app.domains.movement.router.movement_repo")
-    @patch("app.domains.movement.router.event_repo")
-    def test_ingest_result_skips_record_without_command_id(self, event_repo, movement_repo) -> None:
-        event_repo.append = self.event.append
-        event_repo.callback_event_exists = self.event.callback_event_exists
-        movement_repo.record_result = self.movement.record_result
+    @patch("app.domains.movement.callbacks.robot_command_records")
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_ingest_result_skips_record_without_command_id(self, operational_events, robot_command_records) -> None:
+        operational_events.append = self.event.append
+        operational_events.callback_event_exists = self.event.callback_event_exists
+        robot_command_records.record_result = self.movement.record_result
 
         callbacks.ingest_result(self.conn, {"result": "FAILED"})
 
         self.event.append.assert_called_once()
         self.movement.record_result.assert_not_called()
 
-    @patch("app.domains.movement.router.report_pose_for_robot")
-    @patch("app.domains.movement.router.event_repo")
-    def test_ingest_robot_status_updates_pose_when_localized(self, event_repo, report_pose) -> None:
-        event_repo.append = self.event.append
+    @patch("app.domains.movement.callbacks.report_pose_for_robot")
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_ingest_robot_status_updates_pose_when_localized(self, operational_events, report_pose) -> None:
+        operational_events.append = self.event.append
         payload = {
             "localized": True,
             "state": "navigating",
@@ -102,16 +116,40 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.event.append.assert_called_once()
         self.assertEqual(self.event.append.call_args.kwargs["event_type"], "MOVEMENT_ROBOT_STATUS")
 
+    @patch("app.domains.movement.callbacks.report_pose_for_robot")
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_ingest_robot_status_error_appends_latest_failure_cause(self, operational_events, report_pose) -> None:
+        operational_events.append = self.event.append
+        operational_events.latest_failure_message.return_value = "step 0 nav2_pose failed"
+
+        callbacks.ingest_robot_status(self.conn, "r3", {"state": "error"})
+
+        operational_events.latest_failure_message.assert_called_once_with(self.conn, "r3")
+        self.assertEqual(
+            self.event.append.call_args.kwargs["message"],
+            "error — 직전 실패: step 0 nav2_pose failed",
+        )
+
+    @patch("app.domains.movement.callbacks.report_pose_for_robot")
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_ingest_robot_status_error_without_recent_failure_keeps_message(self, operational_events, report_pose) -> None:
+        operational_events.append = self.event.append
+        operational_events.latest_failure_message.return_value = None
+
+        callbacks.ingest_robot_status(self.conn, "r3", {"state": "error"})
+
+        self.assertEqual(self.event.append.call_args.kwargs["message"], "error")
+
     @patch("app.domains.movement.router.movement_client")
-    @patch("app.domains.movement.router.event_repo")
-    @patch("app.domains.movement.router.robot_repo")
-    def test_estop_all_robots_records_success_and_failure(self, robot_repo, event_repo, movement_client) -> None:
-        robot_repo.list = self.robot.list
-        event_repo.append = self.event.append
+    @patch("app.domains.movement.router.operational_events")
+    @patch("app.domains.movement.router.postgres_robots")
+    def test_estop_all_robots_records_success_and_failure(self, robots, operational_events, movement_client) -> None:
+        robots.list_robots = self.robot.list
+        operational_events.append = self.event.append
         self.robot.list.return_value = [{"robot_id": "r1"}, {"robot_id": "r2"}]
         movement_client.estop.side_effect = [{"ok": True}, MovementClientError("down")]
 
-        results = callbacks.estop_all_robots(self.conn)
+        results = routes.estop_all_robots(self.conn)
 
         self.assertEqual(len(results), 2)
         self.assertTrue(results[0]["ok"])
@@ -122,16 +160,16 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertTrue(robot_is_emergency("r2"))
 
     @patch("app.domains.movement.router.movement_client")
-    @patch("app.domains.movement.router.event_repo")
-    @patch("app.domains.movement.router.robot_repo")
-    def test_clear_estop_all_robots_records_event(self, robot_repo, event_repo, movement_client) -> None:
-        robot_repo.list = self.robot.list
-        event_repo.append = self.event.append
+    @patch("app.domains.movement.router.operational_events")
+    @patch("app.domains.movement.router.postgres_robots")
+    def test_clear_estop_all_robots_records_event(self, robots, operational_events, movement_client) -> None:
+        robots.list_robots = self.robot.list
+        operational_events.append = self.event.append
         self.robot.list.return_value = [{"robot_id": "r1"}]
         set_robot_emergency("r1", True)
         movement_client.clear_estop.return_value = {"cleared": True}
 
-        results = callbacks.clear_estop_all_robots(self.conn)
+        results = routes.clear_estop_all_robots(self.conn)
 
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0]["ok"])
@@ -139,16 +177,16 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertFalse(robot_is_emergency("r1"))
 
     @patch("app.domains.movement.router.movement_client")
-    @patch("app.domains.movement.router.event_repo")
-    @patch("app.domains.movement.router.robot_repo")
-    def test_failed_clear_keeps_main_emergency_latch(self, robot_repo, event_repo, movement_client) -> None:
-        robot_repo.list = self.robot.list
-        event_repo.append = self.event.append
+    @patch("app.domains.movement.router.operational_events")
+    @patch("app.domains.movement.router.postgres_robots")
+    def test_failed_clear_keeps_main_emergency_latch(self, robots, operational_events, movement_client) -> None:
+        robots.list_robots = self.robot.list
+        operational_events.append = self.event.append
         self.robot.list.return_value = [{"robot_id": "r1"}]
         set_robot_emergency("r1", True)
         movement_client.clear_estop.side_effect = MovementClientError("still down")
 
-        results = callbacks.clear_estop_all_robots(self.conn)
+        results = routes.clear_estop_all_robots(self.conn)
 
         self.assertEqual(len(results), 1)
         self.assertFalse(results[0]["ok"])
@@ -173,7 +211,7 @@ class MovementCallbackRouteTest(unittest.TestCase):
             p.stop()
 
     @patch("app.domains.movement.router.transaction")
-    @patch("app.domains.movement.router.ingest_command_event")
+    @patch("app.domains.movement.router.callbacks.ingest_command_event")
     def test_command_events_route_shape(self, ingest, transaction_ctx) -> None:
         conn = MagicMock()
         transaction_ctx.return_value.__enter__.return_value = conn
@@ -192,14 +230,14 @@ class MovementCallbackRouteTest(unittest.TestCase):
         self.assertEqual(res.status_code, 422)
 
     @patch("app.domains.movement.router.transaction")
-    @patch("app.domains.movement.router.ingest_command_event")
+    @patch("app.domains.movement.router.callbacks.ingest_command_event")
     def test_callback_token_is_required_when_configured(self, ingest, transaction_ctx) -> None:
         conn = MagicMock()
         transaction_ctx.return_value.__enter__.return_value = conn
         ingest.return_value = {"message": "movement command event saved"}
         payload = {"command_id": "cmd-secure", "robot_name": "r1", "event": "RUNNING"}
         configured = MagicMock(movement_callback_token="shared-secret")
-        with patch.object(callbacks, "settings", configured):
+        with patch.object(routes, "settings", configured):
             denied = self.client.post("/api/v1/movement/command-events", json=payload)
             allowed = self.client.post(
                 "/api/v1/movement/command-events", json=payload, headers={"X-Movement-Callback-Token": "shared-secret"}
@@ -208,7 +246,7 @@ class MovementCallbackRouteTest(unittest.TestCase):
         self.assertEqual(allowed.status_code, 200)
 
     @patch("app.domains.movement.router.transaction")
-    @patch("app.domains.movement.router.ingest_result")
+    @patch("app.domains.movement.router.callbacks.ingest_result")
     def test_results_route_shape(self, ingest, transaction_ctx) -> None:
         conn = MagicMock()
         transaction_ctx.return_value.__enter__.return_value = conn
@@ -224,7 +262,7 @@ class MovementCallbackRouteTest(unittest.TestCase):
         ingest.assert_called_once()
 
     @patch("app.domains.movement.router.transaction")
-    @patch("app.domains.movement.router.ingest_robot_status")
+    @patch("app.domains.movement.router.callbacks.ingest_robot_status")
     def test_robot_status_route_shape(self, ingest, transaction_ctx) -> None:
         conn = MagicMock()
         transaction_ctx.return_value.__enter__.return_value = conn

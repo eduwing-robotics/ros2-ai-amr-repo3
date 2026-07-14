@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Frontend · Operations
-최종 갱신: 2026-07-13 19:23 KST
+최종 갱신: 2026-07-14 18:01 KST
 목적: 현재 AMR 입출고 UX의 인수 조건과 실행 가능한 브라우저 검증을 정의한다.
 
 기준 UX는 [UX](UX.md), API 계약은 [API](API.md), 실서버 실행은
@@ -16,7 +16,7 @@
 - API test support: `frontend/web/tests/support/mainApi.ts`
 - 실행: `bash ./scripts/check.sh ux`
 - 방식: 실제 React 화면과 API client를 사용하고 `/api/v1/*` 응답만 통제한다.
-- 건수: WEB-07 오류 4종을 각각 실행해 WEB-01~15를 총 18건으로 검증한다.
+- 건수: WEB-07 오류 4종을 각각 실행해 WEB-01~17을 총 20건으로 검증한다.
 
 ## 자동화 경계
 
@@ -43,7 +43,9 @@ PostgreSQL transaction과 재고 멱등성은 DB 통합 테스트가 담당한�
 | 주의 | 노랑·상태 문구 | 원인을 확인한 뒤 진행 |
 | 정보 | 무채색 이벤트 | 기록과 진행 상태 확인 |
 
-현재 UI는 알람 확인(acknowledge), 일시 억제(shelving), 알람 빈도 지표를 제공하지 않는다. 소프트웨어 ESTOP은 하드웨어 안전회로를 대체하지 않는다.
+현재 UI는 browser-local 알람 확인(acknowledge)을 제공한다. 확인은 현재 snapshot의 강조·카운트만 해제하며
+서버 event를 수정하거나 능동 위험 경보를 억제하지 않는다. 일시 억제(shelving)와 알람 빈도 지표는 제공하지
+않는다. 소프트웨어 ESTOP은 하드웨어 안전회로를 대체하지 않는다.
 
 ## WEB-01 입고 요청
 
@@ -141,20 +143,50 @@ Movement가 응답하지 않으면 수동 조작과 맵 이동을 차단하고, 
 MJPEG를 표시하면서 WebRTC 연결을 준비할 때 video 요소를 렌더 트리에서 제거하지 않는다.
 WebRTC 첫 프레임 수신 후에만 video를 노출하고, 연결 손실 시 MJPEG로 복귀할 수 있어야 한다.
 
+## WEB-17 알람 확인
+
+알람 KPI는 `MOVEMENT_ROBOT_STATUS` heartbeat를 제외한 위험·주의 event만 미확인 건수로 표시한다.
+타일을 누르면 목록이 펼쳐지고 `모두 확인` 후 카운트와 강조가 사라지며 행에는 확인 상태가 남아야 한다.
+
+
+## 실장비 인수 파이프라인
+
+실로봇이 준비되면 로컬 자동 게이트와 아래 체크리스트를 한 실행으로 연결한다.
+
+```bash
+cd main_server
+bash ./scripts/check.sh robot --dry-run
+bash ./scripts/check.sh robot \
+  --robot-id tb3_2 \
+  --operator "검증자 이름" \
+  --api-base http://smartfactory-main.local:8088/api/v1 \
+  --ui-base http://smartfactory-main.local:8088
+```
+
+파이프라인은 `check.sh all`, Main·Movement·Vision·callback token 사전점검을 먼저 수행한다. 이후 위험 동작은
+자동 호출하지 않고 운영자가 관제 UI와 현장 안전 절차로 수행한다. 각 시나리오 전후의 status, work order,
+task, 재고, event, evidence, Movement command를 `.bootstrap/robot-acceptance/<실행시각>/`에 저장하고
+work order ID·task ID·command ID·최종 task 상태·재고 전후 값·판정·메모를 `results.tsv`와
+`report.txt`로 남긴다.
+
+이미 같은 commit의 로컬 gate가 통과했을 때만 `--skip-local`을 사용한다. 연결만 확인할 때는
+`--preflight-only`를 사용한다. 실장비 전체 판정은 FAIL 또는 `UNVERIFIED`가 하나라도 있으면 실패한다.
 
 ## 실장비 인수 체크리스트
 
-| 시나리오 | 통과 조건 | 상태 |
-| --- | --- | --- |
-| 1·2층 정상 입고 | 도킹 완료 후 재고가 한 번만 증가 | 미검증 |
-| 1·2층 정상 출고 | 하역 완료 후 재고가 한 번만 감소 | 미검증 |
-| 경유→스캔 이동 | 지정 transit을 거쳐 scan 위치에 도착 | 미검증 |
-| Movement 단절 | 이동 조작 차단, 진행 task 원인 보존 | 미검증 |
-| ESTOP | 실제 로봇 정지, UI 조작 차단, 자동 재개 없음 | 미검증 |
-| Callback 정합성 | token·command·robot·event ID/sequence 일치, 중복 업무 반영 없음 | 미검증 |
-| 적재 중 복구 | cargo 확인 후 안전 위치 이동 또는 수동 종료 | 미검증 |
-| Main 재시작 | 진행 task와 명령 상태 재동기화 | 미검증 |
-| Vision stale | 영상 상태 표시, evidence 오류 기록 | 미검증 |
+| ID | 시나리오 | 통과 조건 | 상태 |
+| --- | --- | --- | --- |
+| HW-01 | 1층 정상 입고 | 도킹 완료 후 재고가 한 번만 증가 | 미검증 |
+| HW-02 | 2층 정상 입고 | 도킹 완료 후 재고가 한 번만 증가 | 미검증 |
+| HW-03 | 1층 정상 출고 | 하역 완료 후 재고가 한 번만 감소 | 미검증 |
+| HW-04 | 2층 정상 출고 | 하역 완료 후 재고가 한 번만 감소 | 미검증 |
+| HW-05 | 경유→스캔 이동 | 지정 transit을 거쳐 scan 위치에 도착 | 미검증 |
+| HW-06 | Movement 단절 | 이동 조작 차단, 진행 task 원인 보존 | 미검증 |
+| HW-07 | 물리 ESTOP | 실제 로봇 정지, UI 조작 차단, 자동 재개 없음 | 미검증 |
+| HW-08 | Callback 정합성 | token·command·robot·event ID/sequence 일치, 중복 업무 반영 없음 | 미검증 |
+| HW-09 | 적재 중 복구 | cargo 확인 후 안전 위치 이동 또는 수동 종료 | 미검증 |
+| HW-10 | Main 재시작 | 진행 task와 명령 상태 재동기화 | 미검증 |
+| HW-11 | Vision stale | 영상 상태 표시, evidence 오류 기록 | 미검증 |
 
 실서버 결과에는 work order ID, robot ID, Movement command ID, 최종 task 상태와 재고 전후 값을 남긴다.
 
@@ -176,4 +208,4 @@ WebRTC 첫 프레임 수신 후에만 video를 노출하고, 연결 손실 시 M
 
 ## 완료 기준
 
-브라우저 기준은 WEB-01~16 19건과 PostgreSQL 통합 gate가 모두 통과하는 것이다. 포트폴리오 릴리스는 위 실장비 체크리스트와 운영 환경 설정을 별도로 확인해야 한다.
+브라우저 기준은 WEB-01~17 20건과 PostgreSQL 통합 gate가 모두 통과하는 것이다. 포트폴리오 릴리스는 위 실장비 체크리스트와 운영 환경 설정을 별도로 확인해야 한다.

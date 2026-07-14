@@ -85,7 +85,7 @@ def list_for_task(conn, task_id: int, limit: int = 100) -> list[dict[str, Any]]:
     return [_map_row(conn, r) for r in rows]
 
 
-def list(conn, limit: int = 50) -> list[dict[str, Any]]:
+def list_runtime_records(conn, limit: int = 50) -> list[dict[str, Any]]:
     rows = conn.execute("SELECT * FROM evidence_events ORDER BY observed_at DESC LIMIT %s", (limit,)).fetchall()
     out: list[dict[str, Any]] = []
     for r in rows:

@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from app.domains.maps.assets import find_map_asset, import_map_assets, list_map_asset_records, pgm_to_png
 from app.domains.movement.navigation import get_runtime_map_context, overlay_nav_dims
-from app.models.schemas import MapRecord
+from app.models.maps import MapRecord
 
 router = APIRouter(tags=["maps"])
 

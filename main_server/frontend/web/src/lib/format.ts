@@ -68,8 +68,16 @@ export function agoLabel(ageSec: number | null): string {
   return `${Math.floor(ageSec / 3600)}시간 전`;
 }
 
+// 이벤트 식별 키. id가 있으면 id, 없으면 (시각|타입|메시지) 조합 — 경보 중복 억제·알람 확인 처리 공용.
+export function eventKey(ev: { id?: unknown; created_at?: string; event_type?: string; message?: string }): string {
+  if (ev.id != null) return `id:${String(ev.id)}`;
+  return `${ev.created_at ?? ""}|${ev.event_type ?? ""}|${ev.message ?? ""}`;
+}
+
 // 이벤트 심각도 → 상태 dot 클래스(err/warn/off). 알람 레인 색 표시용.
 export function eventDotClass(ev: { event_type?: string; message?: string }): "err" | "warn" | "off" {
+  // 로봇 상태 하트비트는 알람 아님 — state가 error여도 원인 실패는 MOVEMENT_RESULT_*가 별도 알람으로 뜬다(중복 방지)
+  if (ev.event_type === "MOVEMENT_ROBOT_STATUS") return "off";
   const s = `${ev.event_type ?? ""} ${ev.message ?? ""}`.toLowerCase();
   if (/(error|fail|fault|estop|critical|alarm|reject)/.test(s)) return "err";
   if (/(warn|stale|timeout|retry|degrad|pending)/.test(s)) return "warn";

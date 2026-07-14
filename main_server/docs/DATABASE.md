@@ -2,7 +2,7 @@
 
 상태: Active
 소유: DB
-최종 갱신: 2026-07-13 19:23 KST
+최종 갱신: 2026-07-14 16:32 KST
 목적: PostgreSQL DB **한 문서** — ERD · 설계 요지 · 테이블 역할 · 파일/코드 매핑. DDL 본문은 복제하지 않는다.
 
 DB는 업무·infra 테이블 12개와 migration 이력 테이블 1개로 구성된다. 현재 상태와 영구 이력을 분리한다. `tasks`는 작업 큐, `commands`는 실행 레시피, `evidence_events`는 진행 근거를 저장한다. 완료 결과는 `task_logs`와 `item_change_logs`에 추가 전용으로 남는다.
@@ -22,7 +22,7 @@ DB는 업무·infra 테이블 12개와 migration 이력 테이블 1개로 구성
 | init 순서 | schema snapshot → infra → pending migration → bootstrap → commands |
 
 `schema_migrations`는 적용 버전·체크섬을 기록한다. 배포된 migration SQL은 수정하지 않고 새 번호를 추가한다.
-`records`, `work_orders`, `waypoints`, `maps` 물리 테이블은 없다. 기록 UI는 감사/로그 projection,
+`records`, `work_orders`, `waypoints`, `maps` 물리 테이블은 없다. 기록 UI는 Records domain이 조합하는 감사/로그 projection,
 work order는 `tasks`, waypoint는 `locations`, map metadata는 filesystem YAML을 사용한다.
 
 단일 맵의 릴리즈 기준 데이터는 `database/reference/robot2_map.json`이다. 맵 YAML·PGM 체크섬과

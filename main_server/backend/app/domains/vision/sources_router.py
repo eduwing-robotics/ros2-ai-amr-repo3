@@ -5,8 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.db.connection import transaction
-from app.db.postgres import camera_repo, event_repo
-from app.models.schemas import ApiMessage, CameraSource, CameraSourceUpsert
+from app.db.postgres import cameras, operational_events
+from app.models.common import ApiMessage
+from app.models.records import CameraSource, CameraSourceUpsert
 
 router = APIRouter(tags=["cameras"])
 
@@ -17,7 +18,7 @@ def list_camera_sources() -> list[CameraSource]:
     with transaction() as conn:
         return [
             CameraSource(**c)
-            for c in camera_repo.list(
+            for c in cameras.list_cameras(
                 conn,
             )
         ]
@@ -27,8 +28,8 @@ def list_camera_sources() -> list[CameraSource]:
 def upsert_camera_source(payload: CameraSourceUpsert) -> ApiMessage:
     """DB 관리 화면에서 카메라 source를 생성하거나 수정한다."""
     with transaction() as conn:
-        camera_repo.upsert(conn, payload.model_dump())
-        event_repo.append(
+        cameras.upsert(conn, payload.model_dump())
+        operational_events.append(
             conn,
             event_type="DB_CAMERA_SOURCE_UPSERT",
             robot_id=payload.robot_id,
@@ -42,10 +43,10 @@ def upsert_camera_source(payload: CameraSourceUpsert) -> ApiMessage:
 def delete_camera_source(source_id: str) -> ApiMessage:
     """DB 관리 화면에서 카메라 source를 삭제한다."""
     with transaction() as conn:
-        deleted = camera_repo.delete(conn, source_id)
+        deleted = cameras.delete_camera(conn, source_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="camera source not found")
-        event_repo.append(
+        operational_events.append(
             conn,
             event_type="DB_CAMERA_SOURCE_DELETE",
             message=f"camera source deleted: {source_id}",
