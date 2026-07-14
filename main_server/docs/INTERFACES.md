@@ -4,7 +4,7 @@
 
 상태: Active
 소유: Integration
-최종 갱신: 2026-07-14 10:03 KST
+최종 갱신: 2026-07-14 11:03 KST
 목적: **Main 서버 기준** 외부 HTTP 계약 — Movement/Vision 경계, robot-commands, 콜백, lift-load evidence.
 
 Main 서버와 다른 서버(Movement·Vision) 사이의 HTTP 계약을 정의한다. Main이 호출하는 API, 수신하는 콜백,
@@ -63,6 +63,8 @@ POST /api/v1/vision/streams/{source_id}/webrtc/offer?view={view}
 | work order | `tasks` | `work_orders` 물리 테이블 없음 |
 | 이벤트·이동 이력 | `evidence_events` | `/events`·`/movement-commands`는 projection |
 | 맵·카메라 | `maps/` YAML·PGM · `cameras` | filesystem · infra |
+
+Work Order 내부 read model은 `RobotTaskSummary`와 canonical 필드(`requested_quantity`, `allocated_quantity`, `robot_task_id`, `active_command_id`)를 사용한다. 이는 외부 계약 변경이 아니며 `/api/v1` adapter가 기존 `quantity`, `tasks[]`, `task_id`, `command_id`를 계속 제공한다.
 
 | 항목 | 결정 | 재검토 트리거 |
 | --- | --- | --- |

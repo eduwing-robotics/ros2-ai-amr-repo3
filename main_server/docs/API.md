@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Backend
-최종 갱신: 2026-07-14 10:03 KST
+최종 갱신: 2026-07-14 11:03 KST
 목적: Main `/api/v1` **작성 규칙 + 엔드포인트 카탈로그**. 외부 계약: [INTERFACES](INTERFACES.md).
 
 브라우저가 사용하는 Main REST API의 경로와 역할을 정리한다. 요청·응답 필드는 실행 서버의 OpenAPI가 정본이다. Movement·Vision 서버 간 계약은 [INTERFACES](INTERFACES.md)에서 관리한다.
@@ -207,6 +207,7 @@ Command callback은 `command_id`, robot, event/state가 필수이며 누락 시 
 ## Work orders · recovery · waypoints · maps
 
 - **입출고 요청:** `POST /work-orders/preview`는 DB에 쓰지 않고 계획만 보여준다. `POST /work-orders`는 요청 1건당 robot task 1건을 만들고, 완료 시점에 quantity만큼 재고를 증감한다(1회 상한 50). 가용 수량은 현 재고에서 진행 중 작업이 점유한 몫을 반영해 계산한다.
+- **응답 호환:** 내부 Work Order 조회는 `RobotTaskSummary`의 `requested_quantity`·`allocated_quantity`·`robot_task_id`·`active_command_id`를 사용한다. `/api/v1` 응답은 adapter가 기존 `quantity`·`tasks[]`·`task_id`·`command_id`를 유지한다.
 - **취소·우선순위:** `POST /work-orders/{id}/cancel`은 예약 상태의 요청을 취소하고, `/priority`는 디스패치 순서를 `tasks.priority`에 영속화한다.
 - **실행 중 안전 중단:** `POST /work-orders/{id}/stop`은 현재 Movement command 취소를 즉시 요청한다. 빈 로봇은 취소 callback 후 `CANCELLED`, 적재 상태는 `AWAITING_OPERATOR`, 하역 완료 후 복귀·주차 중단은 물류 `DONE`을 유지하고 `PARK_FAILED`로 기록한다.
 - **완료·복귀:** 목적지 `dock_transfer(unload)`가 `DONE`이면 재고를 한 번만 반영하고 `business_completed=true`가 된다. 이후 HOME 복귀와 `aruco_align(park)`는 후처리이며 `return_status`는 `RETURNING_HOME | PARKING | PARKED | PARK_FAILED`다. 주차 실패는 완료된 입출고를 실패로 되돌리지 않고 `parking_error`에 기록한다.

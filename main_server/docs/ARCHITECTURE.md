@@ -4,7 +4,7 @@
 
 상태: Active
 소유: Docs
-최종 갱신: 2026-07-14 10:03 KST
+최종 갱신: 2026-07-14 11:03 KST
 목적: 관제·이동·인식 경계, 입출고·오케스트레이션, 백엔드 레이어, 핵심 용어·레포 트리를 한 문서에 둔다.
 
 시스템은 Main·Movement·Vision 세 서버로 나뉜다. **Main**은 운영자 UI와 PostgreSQL을 소유하고 실행할 작업을 결정한다. **Movement**는 Nav2 주행·정밀 도킹·리프트를, **Vision**은 카메라 영상과 아루코 인식을 담당한다. Main은 입출고 단계를 계획하고 Movement 콜백과 폴링으로 진행을 추적한 뒤 재고를 반영한다.
@@ -133,6 +133,8 @@ flowchart TD
 - 재고는 목적지 `dock_transfer(unload)`가 완료된 시점에 멱등하게 반영한다. 이후 HOME 복귀·주차 실패는 완료된 물류 결과를 되돌리지 않는다.
 
 용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **robot task**와 이동/도킹 한 번 단위의 **robot task step**으로 분해된다(§6).
+
+Work Order 조회는 `RobotTaskSummaryAssembler`가 task·실행 상태·계획·위치 정보를 읽기 전용 `RobotTaskSummary`로 조립한다. 내부에서는 `requested_quantity`, `allocated_quantity`, `robot_task_id`, `active_command_id`를 사용하고, `/api/v1` compatibility adapter만 기존 `quantity`, `task_id`, `command_id`로 변환한다. 계획 진단 정보는 runtime 상태와 섞지 않고 `RobotTaskPlanSummary`가 소유한다.
 
 ## 6. 작업 실행 흐름
 

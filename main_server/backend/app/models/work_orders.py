@@ -1,12 +1,57 @@
 """Work order schemas."""
 
-from typing import Any, Literal
+from datetime import datetime
+from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.models.tasks import RobotTaskKind, RobotTaskReturnStatus, RobotTaskStatus
+
+
+class WorkOrderOperation(StrEnum):
+    """Business operation requested by a work order."""
+
+    INBOUND = "inbound"
+    OUTBOUND = "outbound"
+
+
+class RobotTaskPlanSummary(BaseModel):
+    """Read-only planning details exposed separately from robot task runtime state."""
+
+    slot_label: str | None = None
+    source_zone_label: str | None = None
+    target_zone_label: str | None = None
+    selection_reason: str | None = None
+    available_quantity_at_plan: int | None = None
+
+
+class RobotTaskSummary(BaseModel):
+    """Canonical read model assembled from task, execution, plan, and location data."""
+
+    robot_task_id: int
+    order_id: int | None = None
+    kind: RobotTaskKind
+    allocated_quantity: int = Field(ge=1)
+    priority: int = 0
+    status: RobotTaskStatus
+    assigned_robot_id: str | None = None
+    active_command_id: str | None = None
+    source_location_id: str | None = None
+    target_location_id: str | None = None
+    slot_id: str | None = None
+    floor: int | None = Field(default=None, ge=1, le=2)
+    business_completed: bool = False
+    return_status: RobotTaskReturnStatus | None = None
+    parking_error: dict[str, Any] | None = None
+    plan: RobotTaskPlanSummary | None = None
+    created_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
 
 class WorkOrderRobotTask(BaseModel):
-    """work order와 실제 task 연결."""
+    """Deprecated /api/v1 work-order task projection."""
 
     order_id: int
     task_id: int
@@ -35,7 +80,7 @@ class WorkOrder(BaseModel):
     """입고/출고 업무 요청."""
 
     order_id: int
-    operation: Literal["inbound", "outbound"] | str
+    operation: WorkOrderOperation
     item_code: str
     quantity: int = Field(ge=1)
     status: str
@@ -52,7 +97,7 @@ class WorkOrder(BaseModel):
 class WorkOrderCreate(BaseModel):
     """품목/수량 기반 입고/출고 요청."""
 
-    operation: Literal["inbound", "outbound"]
+    operation: WorkOrderOperation
     item_code: str
     quantity: int = Field(ge=1, le=50)
     floor: int | None = Field(default=None, ge=1, le=2)
@@ -76,7 +121,7 @@ class WorkOrderPriorityUpdate(BaseModel):
 class WorkOrderPreviewRequest(BaseModel):
     """입출고 계획 미리보기 (무쓰기)."""
 
-    operation: Literal["inbound", "outbound"]
+    operation: WorkOrderOperation
     item_code: str
     quantity: int = Field(ge=1, le=50)
     floor: int | None = Field(default=None, ge=1, le=2)
@@ -104,7 +149,7 @@ class WorkOrderPlannedZone(BaseModel):
 
 
 class WorkOrderPreview(BaseModel):
-    operation: Literal["inbound", "outbound"] | str
+    operation: WorkOrderOperation
     item_code: str
     quantity: int
     slots: list[WorkOrderPlannedSlot] = Field(default_factory=list)

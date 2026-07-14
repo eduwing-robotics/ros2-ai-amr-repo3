@@ -20,6 +20,24 @@ class RobotTaskStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class RobotTaskKind(StrEnum):
+    """Kind of work assigned to one robot."""
+
+    INBOUND = "INBOUND"
+    OUTBOUND = "OUTBOUND"
+    MOVE = "MOVE"
+    CHARGE = "CHARGE"
+
+
+class RobotTaskReturnStatus(StrEnum):
+    """Post-business return and parking status for one robot task."""
+
+    RETURNING_HOME = "RETURNING_HOME"
+    PARKING = "PARKING"
+    PARKED = "PARKED"
+    PARK_FAILED = "PARK_FAILED"
+
+
 class RobotTaskStepStatus(StrEnum):
     """Lifecycle of one planned step within a robot task."""
 

@@ -17,6 +17,8 @@ from app.domains.execution import evidence as evidence_runtime
 from app.domains.execution import state as orch_state
 from app.domains.execution import tasks as task_service
 from app.domains.movement.client import MovementClientError, movement_client
+from app.domains.work_orders.adapters import work_order_response_to_v1
+from app.domains.work_orders.assembler import RobotTaskSummaryAssembler
 from app.domains.work_orders.planner import (
     MAX_WORK_ORDER_QUANTITY as MAX_WORK_ORDER_QUANTITY,
 )
@@ -27,6 +29,7 @@ from app.domains.work_orders.planner import (
 from app.domains.work_orders.planner import (
     preview_work_order as preview_work_order,
 )
+from app.models.work_orders import WorkOrderOperation
 
 
 def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | None = None) -> dict[str, Any]:
@@ -273,38 +276,30 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
     plan_summary = _plan_summary_for_task(conn, order_id)
     source_zone, target_zone = _zones_from_task(conn, task, operation, plan_summary)
     task_floor = int((task.get("to_floor") if operation == "inbound" else task.get("from_floor")) or DEFAULT_FLOOR)
-    wo_task = {
-        "order_id": order_id,
-        "task_id": order_id,
-        "slot_id": task.get("slot_id"),
-        "floor": task_floor,
-        "quantity": int(task.get("quantity") or 1),
-        "priority": int(task.get("priority") or 0),
-        "status": task.get("status"),
-        "assigned_robot_id": task.get("assigned_robot_id"),
-        "command_id": _active_command_id(conn, order_id),
-        "slot_label": (plan_summary or {}).get("slot_label") or task.get("slot_id"),
-        "source_zone": source_zone,
-        "target_zone": target_zone,
-        "selection_reason": (plan_summary or {}).get("selection_reason"),
-        "available_qty_at_plan": (plan_summary or {}).get("available_qty_at_plan"),
-        "business_completed": business_completed,
-        "return_status": return_status,
-        "parking_error": parking_error,
-    }
-    order = {
-        "order_id": order_id,
-        "operation": operation,
-        "item_code": task.get("item_code") or task.get("item_id"),
-        "quantity": int(task.get("quantity") or 1),
-        "status": status,
-        "created_by": "operator",
-        "created_at": task.get("created_at"),
-        "tasks": [wo_task],
-        "business_completed": business_completed,
-        "return_status": return_status,
-        "parking_error": parking_error,
-    }
+    robot_task = RobotTaskSummaryAssembler.assemble(
+        robot_task=task,
+        order_id=order_id,
+        execution=execution,
+        active_command_id=_active_command_id(conn, order_id),
+        floor=task_floor,
+        source_zone_label=source_zone,
+        target_zone_label=target_zone,
+        plan_data=plan_summary,
+        parking_error=parking_error,
+    )
+    order = work_order_response_to_v1(
+        order_id=order_id,
+        operation=WorkOrderOperation(operation),
+        item_code=str(task.get("item_code") or task.get("item_id") or ""),
+        requested_quantity=int(task.get("quantity") or 1),
+        status=status,
+        robot_tasks=[robot_task],
+        created_by="operator",
+        created_at=task.get("created_at"),
+        business_completed=business_completed,
+        return_status=return_status,
+        parking_error=parking_error,
+    )
     if mission_results is not None:
         order["mission_results"] = mission_results
     return order

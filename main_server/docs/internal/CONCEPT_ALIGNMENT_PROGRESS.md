@@ -145,6 +145,13 @@
 | D-09 | phase 취소 상태 | RobotTaskOrchestrationPhase에 CANCEL_REQUESTED와 CANCELLED 포함 | 승인·적용 |
 | D-10 | Step 상태 | 별도 RobotTaskStepStatus 도입 | 승인·적용 |
 | D-11 | Work Order 저장 | 1:N aggregate 저장 / 명시적 FK projection / 공식 1:1 중 선택 | 미검수 |
+| D-12 | Work Order 업무 구분 | WorkOrderOperation 타입 + operation 필드 | 승인·구현 완료 |
+| D-13 | Robot Task 조회 조립 | RobotTaskSummaryAssembler 사용 | 승인·구현 완료 |
+| D-14 | Assembler 출력 DTO 이름 | RobotTaskSummary | 승인·구현 완료 |
+| D-15 | 수량 필드 | Work Order requested_quantity, Robot Task allocated_quantity | 승인·구현 완료 |
+| D-16 | 계획 진단 | RobotTaskPlanSummary로 runtime 상태와 분리 | 승인·구현 완료 |
+| D-17 | 내부 식별자 | robot_task_id canonical, /api/v1 task_id 호환 | 승인·구현 완료 |
+| D-18 | 기존 API 호환 | Assembler 밖 compatibility adapter 사용 | 승인·구현 완료 |
 
 ### 4.1 제안 금지 동의어
 
@@ -254,7 +261,8 @@
 
 | 항목 | 상태 | 다음 결정 |
 | --- | --- | --- |
-| WorkOrderRobotTask와 RobotTask 중복 DTO | 진행 중 | aggregate DTO와 실행 entity의 공통 필드·변환 책임 결정 |
+| WorkOrderOperation 타입 + operation 필드 | 완료 | enum 적용, 기존 operation JSON 유지 |
+| WorkOrderRobotTask와 RobotTask 중복 DTO | 부분 완료 | RobotTaskSummaryAssembler 적용, 기존 /api/v1 DTO는 호환용 유지 |
 | Work Order–Robot Task 1:N 저장 관계 부재 | 진행 중 | 독립 table, order_id FK, 공식 1:1 중 선택 |
 | RobotTaskStep이 runtime steps JSON을 강제하지 못함 | 진행 중 | 저장 adapter에서 typed model 검증 적용 범위 결정 |
 | RobotTaskStep params가 dict[str, Any] | 진행 중 | command kind별 discriminated union 도입 |
