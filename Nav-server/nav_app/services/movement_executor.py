@@ -235,6 +235,8 @@ def execute_movement_command(req: MovementCommandRequest):
         terminal_message = "completed"
         post_align_done = False
         for index, step in enumerate(req.steps):
+            if command.get("cancel_requested") or command.get("state") == "CANCELLED":
+                raise CommandAborted("cancelled", stage=_stage_for_step_action(step.action))
             if runtime.navigator and runtime.navigator.safety.estop and step.action != "estop":
                 raise CommandAborted("estop", stage=_stage_for_step_action(step.action))
             command["current_step_index"] = index
@@ -296,6 +298,8 @@ def execute_movement_command(req: MovementCommandRequest):
             if requested_terminal in ("ARRIVED", "DONE"):
                 terminal_state = requested_terminal
                 terminal_message = "arrived" if requested_terminal == "ARRIVED" else "completed"
+        if command.get("cancel_requested") or command.get("state") == "CANCELLED":
+            return
         command["state"] = terminal_state
         command["message"] = terminal_message
         command["post_align_done"] = post_align_done
@@ -306,6 +310,13 @@ def execute_movement_command(req: MovementCommandRequest):
         _report_command_callback(command, terminal_state, terminal_message)
         _report_movement_robot_status(req.robot_name, None, "idle")
     except CommandAborted as exc:
+        if command.get("cancel_requested") or command.get("state") == "CANCELLED":
+            command["state"] = "CANCELLED"
+            command["reason"] = "cancelled"
+            command["message"] = "cancelled by Main"
+            command["updated_at"] = _utc_now()
+            _report_movement_robot_status(req.robot_name, None, "idle")
+            return
         command["state"] = "ABORTED"
         command["stage"] = exc.stage
         command["reason"] = exc.reason
@@ -317,6 +328,11 @@ def execute_movement_command(req: MovementCommandRequest):
         _report_command_callback(command, "ABORTED", str(exc))
         _report_movement_robot_status(req.robot_name, None, "estop")
     except Exception as exc:
+        if command.get("cancel_requested") or command.get("state") == "CANCELLED":
+            command["state"] = "CANCELLED"
+            command["updated_at"] = _utc_now()
+            _report_movement_robot_status(req.robot_name, None, "idle")
+            return
         failed_step = command.get("current_step_action")
         stage = exc.stage if isinstance(exc, StageError) else _stage_for_step_action(failed_step)
         reason = exc.reason if isinstance(exc, StageError) else str(exc)

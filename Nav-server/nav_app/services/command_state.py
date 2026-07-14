@@ -50,6 +50,10 @@ def report_movement_result(command_id: str, task_id: Optional[int], robot_name: 
 def command_callback_payload(command: Dict[str, Any], event: str, message: Optional[str] = None):
     pose = runtime.navigator.get_current_pose() if runtime.navigator else None
     state = command.get("state")
+    with runtime.command_state_lock:
+        sequence = int(command.get("callback_sequence", -1)) + 1
+        command["callback_sequence"] = sequence
+    event_id = f"{command.get('robot_name')}:{command.get('command_id')}:{sequence}"
     payload = {
         "event": event,
         "command_id": command.get("command_id"),
@@ -74,6 +78,8 @@ def command_callback_payload(command: Dict[str, Any], event: str, message: Optio
         "localized": pose is not None,
         "simulation_mode": is_simulation_mode(),
         "reported_at": _utc_now(),
+        "event_id": event_id,
+        "sequence": sequence,
     }
     return {key: value for key, value in payload.items() if value is not None}
 

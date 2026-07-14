@@ -1,5 +1,6 @@
 """Movement API HTTP routes."""
 import time
+import json
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -54,6 +55,11 @@ def _movement_step_to_dict(step: MovementStep) -> Dict[str, Any]:
 
 def _movement_steps_to_dicts(steps):
     return [_movement_step_to_dict(step) for step in steps]
+
+
+def _command_fingerprint(req: MovementCommandRequest) -> str:
+    data = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+    return json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 @router.get("/movement-api/v1/aruco/latest")
@@ -111,6 +117,8 @@ def movement_accept_command(req: MovementCommandRequest, background_tasks: Backg
 
     existing = runtime.movement_commands.get(req.command_id)
     if existing:
+        if existing.get("request_fingerprint") != _command_fingerprint(req):
+            raise HTTPException(status_code=409, detail="same command_id was already used with a different payload")
         return {
             "accepted": True,
             "command_id": req.command_id,
@@ -177,6 +185,8 @@ def movement_accept_command(req: MovementCommandRequest, background_tasks: Backg
         "simulation_mode": is_simulation_mode(),
         "created_at": _utc_now(),
         "updated_at": _utc_now(),
+        "request_fingerprint": _command_fingerprint(req),
+        "callback_sequence": -1,
     }
     robot_context.report_movement_robot_status(req.robot_name, req.command_id, "busy")
     command_state.report_command_callback(runtime.movement_commands[req.command_id], "ACCEPTED", "accepted")

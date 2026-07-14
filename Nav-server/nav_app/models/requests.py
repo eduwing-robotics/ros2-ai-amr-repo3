@@ -23,6 +23,7 @@ class MovementCommandRequest(BaseModel):
 class RobotCommandRequest(BaseModel):
     command_id: str
     robot_id: str = Field(description="tb3_1 또는 tb3_2 bridge robot name")
+    robot_name: Optional[str] = Field(default=None, description="Main 호환 identity; robot_id와 같아야 함")
     task_id: Optional[int] = None
     kind: str = Field(description="move_to_point, dock_transfer, aruco_align, leave_dock, manual_drive, estop")
     dry_run: bool = False
