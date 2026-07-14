@@ -31,6 +31,16 @@ class LiftClientScaleTests(unittest.TestCase):
         client.position_mm = 30.0
         self.assertFalse(client._at_target_mm(50.0, 2.0))
 
+    def test_stop_fails_closed_without_bridge_subscriber(self):
+        client = self._client()
+        client.enabled = True
+        client._pub_stop = MagicMock()
+        client._pub_stop.get_subscription_count.return_value = 0
+        client.config["ready_timeout_sec"] = 0.0
+        with self.assertRaisesRegex(RuntimeError, "no lift bridge subscriber"):
+            client.stop()
+        client._pub_stop.publish.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

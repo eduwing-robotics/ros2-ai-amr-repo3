@@ -5,7 +5,11 @@ from nav_app.models import RobotCommandRequest
 from nav_app.runtime import runtime
 from nav_app.settings import ACTIVE_ROBOT_ID, is_simulation_mode
 from nav_app.services import robot_commands
-from nav_app.routers.movement_api import movement_accept_command, movement_get_command
+from nav_app.routers.movement_api import (
+    _ensure_synthetic_hil_live_admission,
+    _movement_accept_command,
+    movement_get_command,
+)
 from nav_app.security import require_main_signature
 
 router = APIRouter()
@@ -14,8 +18,17 @@ router = APIRouter()
 @router.post("/robot-commands", dependencies=[Depends(require_main_signature)])
 def accept_robot_command(req: RobotCommandRequest, background_tasks: BackgroundTasks):
     try:
-        movement_req = robot_commands.movement_request_from_robot_command(req)
-        response = movement_accept_command(movement_req, background_tasks)
+        _ensure_synthetic_hil_live_admission(request_dry_run=req.dry_run)
+        movement_req = robot_commands.movement_request_from_robot_command(
+            req,
+            allow_runtime_test_dock_transfer=True,
+        )
+        response = _movement_accept_command(
+            movement_req,
+            background_tasks,
+            allow_runtime_test_dock_transfer=True,
+            request_dry_run=req.dry_run,
+        )
         command = runtime.movement_commands.get(req.command_id)
         if command is not None:
             command["kind"] = req.kind

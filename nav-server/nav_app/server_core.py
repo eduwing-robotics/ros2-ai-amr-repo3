@@ -10,7 +10,7 @@ from nav_app.config import active_robot_profile, ensure_process_domain_matches_p
 from nav_app.runtime import runtime
 from nav_app.settings import ACTIVE_ROBOT_ID
 from nav_app.services import robot_context
-from nav_app.services.lift_client import LiftClient
+from nav_app.services.lift_backends import create_lift_backend
 from nav_app.routers import include_routers
 
 
@@ -53,7 +53,7 @@ def startup_runtime() -> None:
     runtime.ros_executor.add_node(runtime.navigator)
     runtime.mission_manager = MissionManager(runtime.navigator, zone_lock_manager=runtime.zone_lock_manager)
     runtime.mission_manager.set_robot_profile(profile)
-    runtime.lift_client = LiftClient(runtime.navigator, profile.get("lift") or {})
+    runtime.lift_client = create_lift_backend(runtime.navigator, profile)
 
     print(f"Nav Server: 담당 로봇 ID = {ACTIVE_ROBOT_ID}")
     print(

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start one Nav server API process per enabled robot in config/robots.json.
+# Internal worker for sf_nav.sh. Start one API process per selected robot.
 
 set -euo pipefail
 
@@ -11,6 +11,8 @@ RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 ROBOTS_CONFIG_PATH="${ROBOTS_CONFIG_PATH:-$ROOT/config/robots.json}"
 VALIDATOR="${VALIDATOR:-$SCRIPT_DIR/validate_robot_domains.py}"
 PLAN_HELPER="${PLAN_HELPER:-$SCRIPT_DIR/nav_bringup_plan.py}"
+RESOLVED_PROFILE_PATH="${SF_NAV_RESOLVED_PROFILE_PATH:-}"
+CHILD_STATE_PATH="${SF_NAV_CHILD_STATE_PATH:-}"
 HOST="${HOST:-0.0.0.0}"
 PYTHON_BIN="${PYTHON_BIN:-$ROOT/.venv/bin/python}"
 DRY_RUN_MISSION="${DRY_RUN_MISSION:-0}"
@@ -40,6 +42,8 @@ Usage:
 Modes:
   --check       Run all preflight checks and exit without starting processes.
   --print-plan  Print deterministic JSON plan generated from robots.json and exit.
+
+Process start is owned by sf_nav.sh. This file exposes read-only CLI modes only.
 
 Environment:
   ROS_SETUP           ROS setup path. Default: /opt/ros/jazzy/setup.bash
@@ -95,6 +99,18 @@ require_executable() {
 }
 
 build_plan() {
+  if [[ -n "$RESOLVED_PROFILE_PATH" ]]; then
+    if [[ "${1:-}" == "--tsv" ]]; then
+      "$PYTHON_BIN" - "$RESOLVED_PROFILE_PATH" <<'PY'
+import json, sys
+for robot in json.load(open(sys.argv[1], encoding="utf-8"))["robots"]:
+    print("\t".join(str(robot[key]) for key in ("robot_id", "ros_domain_id", "nav_local_domain_id", "api_port", "active_map_yaml")))
+PY
+    else
+      cat "$RESOLVED_PROFILE_PATH"
+    fi
+    return
+  fi
   "$PYTHON_BIN" "$PLAN_HELPER" \
     --config "$ROBOTS_CONFIG_PATH" \
     --host "$HOST" \
@@ -107,8 +123,11 @@ preflight() {
   require_file "$ROBOTS_CONFIG_PATH" "robots config"
   require_file "$VALIDATOR" "robot domain validator"
   require_file "$PLAN_HELPER" "bringup plan helper"
+  [[ -z "$RESOLVED_PROFILE_PATH" ]] || require_file "$RESOLVED_PROFILE_PATH" "resolved runtime profile"
   require_executable "$PYTHON_BIN" "Python"
 
+  # A resolved profile narrows selection; it never replaces validation of the
+  # canonical robots/domain-bridge facts from which it was resolved.
   "$PYTHON_BIN" "$VALIDATOR" --config "$ROBOTS_CONFIG_PATH" --bridge-dir "$ROOT/config/domain_bridge"
   build_plan --print-plan >"$plan_file"
 
@@ -141,6 +160,7 @@ start_nav_server() {
   local local_domain_id="$3"
   local port="$4"
   local map_yaml="$5"
+  local child_pid
 
   echo "[nav_servers] starting ${robot_id}: hardware_domain=${hardware_domain_id}, local_domain=${local_domain_id}, port=${port}, map=${map_yaml}"
   (
@@ -175,55 +195,90 @@ start_nav_server() {
     ARUCO_DOCK_CENTER_TOLERANCE_NORM="$ARUCO_DOCK_CENTER_TOLERANCE_NORM" \
     "$PYTHON_BIN" -m uvicorn nav_app.app:app --host "$HOST" --port "$port"
   ) &
-  pids+=("$!")
+  child_pid=$!
+  pids+=("$child_pid")
+  if [[ -n "$CHILD_STATE_PATH" ]]; then
+    "$PYTHON_BIN" - "$CHILD_STATE_PATH" "$robot_id" "$port" "$child_pid" <<'PY'
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+path = Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+data = {"schema_version": 1, "children": []}
+if path.is_file():
+    data = json.loads(path.read_text(encoding="utf-8"))
+data["children"].append({"robot_id": sys.argv[2], "api_port": int(sys.argv[3]), "pid": int(sys.argv[4])})
+fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        json.dump(data, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+finally:
+    try:
+        os.unlink(temporary)
+    except FileNotFoundError:
+        pass
+PY
+  fi
 }
 
-while (($# > 0)); do
-  case "$1" in
-    --check)
-      mode="check"
-      ;;
-    --print-plan)
-      mode="print-plan"
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "[nav_servers] unknown argument: $1" >&2
-      usage >&2
-      exit 2
-      ;;
-  esac
-  shift
-done
+sf_nav_supervise() {
+  [[ -n "$RESOLVED_PROFILE_PATH" && -n "$CHILD_STATE_PATH" ]] || {
+    echo "[nav_servers] sf_nav supervisor context is incomplete" >&2
+    return 2
+  }
+  trap cleanup EXIT INT TERM
+  plan_file="$(mktemp)"
+  plan_tsv="$(mktemp)"
+  preflight
+  build_plan --tsv >"$plan_tsv"
+  while IFS=$'\t' read -r robot_id hardware_domain_id local_domain_id port map_yaml; do
+    [[ -z "$robot_id" ]] && continue
+    start_nav_server "$robot_id" "$hardware_domain_id" "$local_domain_id" "$port" "$map_yaml"
+  done <"$plan_tsv"
+  echo "[nav_servers] up from $ROBOTS_CONFIG_PATH."
+  wait
+}
 
-trap cleanup EXIT INT TERM
+main() {
+  while (($# > 0)); do
+    case "$1" in
+      --check) mode="check" ;;
+      --print-plan) mode="print-plan" ;;
+      --resolved-profile)
+        RESOLVED_PROFILE_PATH="${2:?--resolved-profile requires a path}"
+        shift
+        ;;
+      -h|--help) usage; return 0 ;;
+      *) echo "[nav_servers] unknown argument: $1" >&2; usage >&2; return 2 ;;
+    esac
+    shift
+  done
 
-require_file "$ROBOTS_CONFIG_PATH" "robots config"
-require_file "$PLAN_HELPER" "bringup plan helper"
-require_executable "$PYTHON_BIN" "Python"
-
-if [[ "$mode" == "print-plan" ]]; then
-  build_plan --print-plan
-  exit 0
-fi
-
-plan_file="$(mktemp)"
-plan_tsv="$(mktemp)"
-preflight
-
-if [[ "$mode" == "check" ]]; then
+  if [[ "$mode" == run ]]; then
+    echo "[nav_servers] process start is owned by sf_nav.sh; use sf_nav.sh up" >&2
+    return 2
+  fi
+  require_file "$ROBOTS_CONFIG_PATH" "robots config"
+  require_file "$PLAN_HELPER" "bringup plan helper"
+  require_executable "$PYTHON_BIN" "Python"
+  if [[ "$mode" == print-plan ]]; then
+    build_plan --print-plan
+    return
+  fi
+  trap cleanup EXIT INT TERM
+  plan_file="$(mktemp)"
+  plan_tsv="$(mktemp)"
+  preflight
   echo "[nav_servers] preflight OK"
-  exit 0
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
 fi
-
-build_plan --tsv >"$plan_tsv"
-while IFS=$'\t' read -r robot_id hardware_domain_id local_domain_id port map_yaml; do
-  [[ -z "$robot_id" ]] && continue
-  start_nav_server "$robot_id" "$hardware_domain_id" "$local_domain_id" "$port" "$map_yaml"
-done <"$plan_tsv"
-
-echo "[nav_servers] up from $ROBOTS_CONFIG_PATH. Ctrl+C to stop."
-wait

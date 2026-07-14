@@ -17,6 +17,7 @@ from nav_app.services.status_helpers import (
     movement_result_from_state as _movement_result_from_state,
     stage_for_step_action as _stage_for_step_action,
 )
+from nav_app.services.lift_backends import lift_provenance
 
 def release_traffic_locks_for_command(command: Dict[str, Any]):
     if not runtime.traffic_manager:
@@ -42,6 +43,7 @@ def report_movement_result(command_id: str, task_id: Optional[int], robot_name: 
             "result": _movement_result_from_state(state),
             "message": message,
             "reported_at": _utc_now(),
+            **lift_provenance(backend=getattr(runtime, "lift_client", None)),
         },
     )
 
@@ -71,6 +73,7 @@ def command_callback_payload(command: Dict[str, Any], event: str, message: Optio
         "pose": pose,
         "localized": pose is not None,
         "simulation_mode": is_simulation_mode(),
+        **lift_provenance(backend=getattr(runtime, "lift_client", None)),
         "reported_at": _utc_now(),
     }
     return {key: value for key, value in payload.items() if value is not None}

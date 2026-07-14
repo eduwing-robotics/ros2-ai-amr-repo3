@@ -36,6 +36,7 @@ from nav_app.services import movement_executor
 from nav_app.services.safety import engage_estop
 from nav_app.services import robot_commands
 from nav_app.services import robot_context
+from nav_app.services.lift_backends import synthetic_hil_admitted
 from nav_app.services.route_helpers import (
     raw_route_preview,
     raw_steps_from_route_request,
@@ -74,6 +75,41 @@ def movement_list_robots():
 
 @router.post("/movement-api/v1/commands", dependencies=[Depends(require_main_signature)])
 def movement_accept_command(req: MovementCommandRequest, background_tasks: BackgroundTasks):
+    return _movement_accept_command(req, background_tasks)
+
+
+def _ensure_synthetic_hil_live_admission(
+    *,
+    request_dry_run: bool = False,
+    steps: list[MovementStep] | None = None,
+) -> None:
+    if not synthetic_hil_admitted():
+        return
+    bypasses = []
+    if request_dry_run or (steps and any(bool(step.payload.get("dry_run")) for step in steps)):
+        bypasses.append("request_dry_run")
+    if is_simulation_mode():
+        bypasses.append("process_simulation")
+    if runtime.mission_manager and runtime.mission_manager.dry_run:
+        bypasses.append("mission_dry_run")
+    if bypasses:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "synthetic_hil_simulation_forbidden",
+                "message": "synthetic HIL virtualizes only lift; navigation and docking must remain live",
+                "bypasses": bypasses,
+            },
+        )
+
+
+def _movement_accept_command(
+    req: MovementCommandRequest,
+    background_tasks: BackgroundTasks,
+    *,
+    allow_runtime_test_dock_transfer: bool = False,
+    request_dry_run: bool = False,
+):
     """Main Server 스펙의 전체 steps command dispatch endpoint입니다."""
     if not runtime.navigator or not runtime.mission_manager:
         raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
@@ -87,8 +123,12 @@ def movement_accept_command(req: MovementCommandRequest, background_tasks: Backg
         )
     if not req.steps:
         raise HTTPException(status_code=400, detail="steps는 비어 있을 수 없습니다.")
-    capabilities.ensure_steps_supported(req.steps)
     request_is_dry_run = all(bool(step.payload.get("dry_run")) for step in req.steps)
+    _ensure_synthetic_hil_live_admission(request_dry_run=request_dry_run, steps=req.steps)
+    capabilities.ensure_steps_supported(
+        req.steps,
+        allow_runtime_test_dock_transfer=allow_runtime_test_dock_transfer,
+    )
     explicit_bypass = bool(is_simulation_mode() or request_is_dry_run or runtime.mission_manager.dry_run)
     localization = robot_context.localization_health()
     if not explicit_bypass and not localization["localized"]:

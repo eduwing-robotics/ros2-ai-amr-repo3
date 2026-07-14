@@ -127,6 +127,21 @@ def test_lift_status_summary_exposes_ready_reason(monkeypatch):
     assert status["reason"] == "lift_client_not_initialized"
 
 
+def test_lift_status_requires_emergency_stop_subscriber(monkeypatch):
+    client = MagicMock(enabled=True, position_mm=10.0, direction="STOP", limit_lower=False)
+    client._pub_move.get_subscription_count.return_value = 1
+    client._pub_home.get_subscription_count.return_value = 1
+    client._pub_stop.get_subscription_count.return_value = 0
+    client.telemetry_health.return_value = {"ready": True, "reason": "ok"}
+    monkeypatch.setattr(runtime, "lift_client", client)
+
+    status = capabilities.active_lift_status(_robot("tb3_burger_02"))
+
+    assert status["ready"] is False
+    assert status["reason"] == "lift_bridge_subscriber_not_ready"
+    assert status["bridge_subscribers"]["cmd_stop"] is False
+
+
 def test_execute_lift_action_disabled_client_fails_instead_of_noop(monkeypatch):
     monkeypatch.delenv("LIFT_UP_COMMAND", raising=False)
     monkeypatch.setattr(runtime, "lift_client", MagicMock(enabled=False))

@@ -1,0 +1,73 @@
+{
+  "profile_id": "tb1-synthetic-hil",
+  "enabled": true,
+  "execution_class": "synthetic_hil",
+  "evidence_class": "nonphysical",
+  "robot_selector": {
+    "robot_ids": [
+      "tb3_burger_01"
+    ]
+  },
+  "components": {
+    "base": {
+      "enabled": true,
+      "required": true,
+      "ownership": "external",
+      "start_script": "",
+      "readiness_probe": "base-heartbeat"
+    },
+    "movement_api": {
+      "enabled": true,
+      "required": true,
+      "ownership": "managed-script",
+      "start_script": "scripts/run_nav_servers.sh",
+      "readiness_probe": "/movement-api/v1/health"
+    },
+    "bridge": {
+      "enabled": true,
+      "required": true,
+      "ownership": "external",
+      "start_script": "",
+      "readiness_probe": "ros-domain-route"
+    },
+    "nav2": {
+      "enabled": true,
+      "required": true,
+      "ownership": "external",
+      "start_script": "",
+      "readiness_probe": "lifecycle-active"
+    },
+    "camera": {
+      "enabled": true,
+      "required": false,
+      "ownership": "external",
+      "start_script": "",
+      "readiness_probe": "camera-topic"
+    },
+    "detector": {
+      "enabled": true,
+      "required": false,
+      "ownership": "external",
+      "start_script": "",
+      "readiness_probe": "aruco-topic"
+    },
+    "rviz": {
+      "enabled": false,
+      "required": false,
+      "ownership": "external",
+      "start_script": "",
+      "readiness_probe": ""
+    },
+    "lift": {
+      "enabled": true,
+      "required": true,
+      "ownership": "managed-script",
+      "start_script": "virtual-lift-backend",
+      "readiness_probe": "virtual-lift-ready"
+    }
+  },
+  "virtual_lift": {
+    "enabled": true,
+    "backend": "deterministic"
+  }
+}

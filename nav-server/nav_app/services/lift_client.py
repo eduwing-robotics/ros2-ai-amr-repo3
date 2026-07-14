@@ -157,7 +157,12 @@ class LiftClient:
         from std_msgs.msg import Bool
 
         if self._pub_stop is None:
-            return
+            raise RuntimeError("lift stop publisher is unavailable")
+        self._wait_for_command_subscriber(
+            self._pub_stop,
+            self.topics["cmd_stop"],
+            self.config.get("ready_timeout_sec", 3.0),
+        )
         msg = Bool()
         msg.data = True
         self._pub_stop.publish(msg)

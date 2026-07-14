@@ -12,6 +12,7 @@ from nav_app.util.time import utc_now as _utc_now
 from nav_app.adapters.callbacks import post_main_callback as _post_main_callback
 from nav_app.services.status_helpers import robot_state_from_mission_status
 from nav_app.services.capabilities import active_lift_status, profile_capabilities
+from nav_app.services.lift_backends import lift_provenance
 from nav_app.services.localization import GLOBAL_SEARCH, LocalizationGate, global_search_config
 from nav_app.services.scan_map_alignment import alignment_config
 
@@ -288,6 +289,7 @@ def movement_robot_status_payload(robot_name=None, command_id=None, state=None):
     if not online:
         state = "offline"
     health = localization_health()
+    provenance = lift_provenance(backend=getattr(runtime, "lift_client", None))
     return {
         "robot_name": robot_name or active_bridge_robot_id(),
         "robot_online": online,
@@ -305,6 +307,7 @@ def movement_robot_status_payload(robot_name=None, command_id=None, state=None):
         "simulation_mode": is_simulation_mode(),
         "capabilities": profile_capabilities(active_robot_profile()),
         "lift": active_lift_status(active_robot_profile()),
+        **provenance,
         "reported_at": _utc_now(),
     }
 
@@ -327,6 +330,7 @@ def movement_robot_summary():
     if not online:
         state = "offline"
     health = localization_health()
+    provenance = lift_provenance(backend=getattr(runtime, "lift_client", None))
     return {
         "robot_name": profile.get("bridge_robot_id"),
         "robot_id": profile.get("robot_id"),
@@ -346,4 +350,5 @@ def movement_robot_summary():
         "namespace": profile.get("namespace"),
         "capabilities": profile_capabilities(profile),
         "lift": active_lift_status(profile),
+        **provenance,
     }

@@ -246,7 +246,7 @@ EOF
 cmd_nav_servers() {
   shell_command cd "$ROOT"
   printf 'exec '
-  shell_command "$SCRIPT_DIR/start_nav_servers.sh" foreground
+  shell_command env SF_NAV_PROFILE=tb2-live "$SCRIPT_DIR/start_nav_servers.sh" foreground
 }
 
 cmd_status() {
@@ -266,19 +266,8 @@ remote_stop_robot() {
 
 stop_local_stack() {
   log "Nav PC 스택 종료 중..."
-  "$SCRIPT_DIR/start_nav_servers.sh" stop 2>/dev/null || true
-  pkill -f "run_nav2_with_initial_pose.sh" 2>/dev/null || true
-  pkill -f "turtlebot3_navigation2" 2>/dev/null || true
-  pkill -f "rviz2" 2>/dev/null || true
-  pkill -f "aruco_detector_node.py" 2>/dev/null || true
-  pkill -f "compressed_image_relay" 2>/dev/null || true
-  pkill -f "run_pi_camera_aruco.sh" 2>/dev/null || true
-  pkill -f "pane_detector2.sh" 2>/dev/null || true
+  env SF_NAV_PROFILE=tb2-live "$SCRIPT_DIR/start_nav_servers.sh" stop 2>/dev/null || true
   rm -f "$LOG_DIR/detector2_window.pid" 2>/dev/null || true
-  pkill -f "component_container_isolated" 2>/dev/null || true
-  pkill -f "nav2_container" 2>/dev/null || true
-  pkill -f "uvicorn nav_server:app" 2>/dev/null || true
-  pkill -f "run_nav_servers.sh" 2>/dev/null || true
   sleep 3
 }
 

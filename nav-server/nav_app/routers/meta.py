@@ -19,6 +19,7 @@ from nav_app.settings import (
 from nav_app.services import robot_context
 from nav_app.services.capabilities import active_lift_status, profile_capabilities
 from nav_app.config import active_robot_profile
+from nav_app.services.lift_backends import lift_provenance
 
 router = APIRouter()
 
@@ -77,6 +78,7 @@ def movement_health():
         "simulation_mode": is_simulation_mode(),
         "capabilities": profile_capabilities(active_robot_profile()),
         "lift": active_lift_status(active_robot_profile()),
+        **lift_provenance(backend=getattr(runtime, "lift_client", None)),
         "aruco_detection_topic": robot_context.aruco_detection_topic(),
         "latest_aruco_detections": runtime.navigator.get_latest_aruco_detection(max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC) if runtime.navigator else [],
     }

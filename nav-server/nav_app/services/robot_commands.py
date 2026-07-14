@@ -418,7 +418,11 @@ def move_to_point_steps(req: RobotCommandRequest, goal: Dict[str, Any], traffic_
     return prepend_leave_dock_if_parked([nav_step, align_step])
 
 
-def movement_request_from_robot_command(req: RobotCommandRequest):
+def movement_request_from_robot_command(
+    req: RobotCommandRequest,
+    *,
+    allow_runtime_test_dock_transfer: bool = False,
+):
     if req.robot_id != _active_bridge_robot_id():
         raise HTTPException(
             status_code=409,
@@ -440,7 +444,9 @@ def movement_request_from_robot_command(req: RobotCommandRequest):
             callback_url=req.callback_url,
         )
     if kind == "dock_transfer":
-        capabilities.ensure_capability("lift")
+        capabilities.ensure_dock_transfer_supported(
+            allow_runtime_test_grant=allow_runtime_test_dock_transfer,
+        )
         gate = _consume_arrived_gate(req.robot_id)
         dock_payload = {**params, "terminal_state": "DONE", "dry_run": req.dry_run, "gate_source_command_id": gate.get("command_id"), "traffic_segments": gate.get("traffic_segments", [])}
         marker_id = params.get("aruco_marker_id")

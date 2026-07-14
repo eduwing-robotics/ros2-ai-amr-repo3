@@ -1,0 +1,249 @@
+"""Physical and synthetic-HIL lift backend selection and provenance."""
+
+from __future__ import annotations
+
+import json
+import os
+from copy import deepcopy
+from pathlib import Path
+from typing import Any, Mapping, MutableMapping, Optional
+
+from nav_app.config.runtime_profiles import (
+    DEFAULT_MANIFEST_PATH,
+    DEFAULT_ROBOTS_PATH,
+    RuntimeProfileError,
+    resolve_runtime_profile,
+)
+from nav_app.services.lift_client import LiftClient
+from nav_app.services.lift_phases import (
+    resolve_carry_height_mm,
+    resolve_post_insert_height_mm,
+    resolve_pre_insert_height_mm,
+)
+
+
+PHYSICAL_LIFT_NOT_VERIFIED = "PHYSICAL_LIFT_NOT_VERIFIED"
+SYNTHETIC_HIL_ALLOW_ENV = "SF_NAV_ALLOW_SYNTHETIC_HIL"
+RESOLVED_PROFILE_ENV = "SF_NAV_RESOLVED_PROFILE_PATH"
+MANIFEST_ENV = "SF_NAV_MANIFEST_PATH"
+ROBOTS_ENV = "SF_NAV_ROBOTS_PATH"
+
+
+def _env_enabled(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def load_resolved_runtime_profile(path: str | Path | None = None) -> Optional[dict[str, Any]]:
+    """Load and canonically revalidate the launcher contract for this process."""
+    selected = path or os.getenv(RESOLVED_PROFILE_ENV)
+    if not selected:
+        return None
+    resolved_path = Path(selected)
+    try:
+        value = json.loads(resolved_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid resolved runtime profile: {resolved_path}") from exc
+    if not isinstance(value, dict) or value.get("schema_version") != 1:
+        raise RuntimeError("invalid resolved runtime profile schema")
+    profile_id = value.get("profile_id")
+    if not isinstance(profile_id, str) or not profile_id:
+        raise RuntimeError("resolved runtime profile must name a registered profile_id")
+    selection_source = value.get("selection_source")
+    if selection_source == "cli":
+        cli_profile, selection_environment = profile_id, {}
+    elif selection_source == "environment":
+        cli_profile, selection_environment = None, {"SF_NAV_PROFILE": profile_id}
+    elif selection_source == "manifest_default":
+        cli_profile, selection_environment = None, {}
+    else:
+        raise RuntimeError("resolved runtime profile has invalid selection_source")
+    try:
+        canonical = resolve_runtime_profile(
+            manifest_path=Path(os.getenv(MANIFEST_ENV, str(DEFAULT_MANIFEST_PATH))),
+            robots_path=Path(os.getenv(ROBOTS_ENV, str(DEFAULT_ROBOTS_PATH))),
+            cli_profile=cli_profile,
+            environment=selection_environment,
+        )
+    except RuntimeProfileError as exc:
+        raise RuntimeError(f"resolved runtime profile is not registered canonically: {exc}") from exc
+    if value != canonical:
+        raise RuntimeError("resolved runtime profile does not match canonical manifest and robots facts")
+    active_robot_id = os.getenv("ROBOT_ID", "tb3_burger_01")
+    selected_robot_ids = {robot.get("robot_id") for robot in canonical["robots"]}
+    if active_robot_id not in selected_robot_ids:
+        raise RuntimeError(f"resolved runtime profile does not select active robot: {active_robot_id}")
+    return value
+
+
+def synthetic_hil_admitted(
+    resolved_profile: Mapping[str, Any] | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> bool:
+    """Return true only when both the validated profile and process gate opt in."""
+    resolved = resolved_profile if resolved_profile is not None else load_resolved_runtime_profile()
+    env = os.environ if environment is None else environment
+    virtual_lift = resolved.get("virtual_lift") if isinstance(resolved, Mapping) else None
+    return bool(
+        isinstance(resolved, Mapping)
+        and resolved.get("execution_class") == "synthetic_hil"
+        and resolved.get("evidence_class") == "nonphysical"
+        and isinstance(virtual_lift, Mapping)
+        and virtual_lift.get("enabled") is True
+        and virtual_lift.get("backend") == "deterministic"
+        and _env_enabled(env.get(SYNTHETIC_HIL_ALLOW_ENV))
+    )
+
+
+def require_synthetic_hil_admission(
+    resolved_profile: Mapping[str, Any] | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> Mapping[str, Any]:
+    resolved = resolved_profile if resolved_profile is not None else load_resolved_runtime_profile()
+    if not isinstance(resolved, Mapping) or resolved.get("execution_class") != "synthetic_hil":
+        raise RuntimeError("synthetic_hil_profile_required")
+    if resolved.get("evidence_class") != "nonphysical":
+        raise RuntimeError("synthetic_hil_requires_nonphysical_evidence")
+    virtual_lift = resolved.get("virtual_lift")
+    if not isinstance(virtual_lift, Mapping) or virtual_lift.get("enabled") is not True:
+        raise RuntimeError("synthetic_hil_virtual_lift_required")
+    if virtual_lift.get("backend") != "deterministic":
+        raise RuntimeError("synthetic_hil_backend_not_supported")
+    env = os.environ if environment is None else environment
+    if not _env_enabled(env.get(SYNTHETIC_HIL_ALLOW_ENV)):
+        raise RuntimeError("synthetic_hil_process_gate_required")
+    return resolved
+
+
+def lift_provenance(
+    resolved_profile: Mapping[str, Any] | None = None,
+    backend: Any = None,
+) -> dict[str, Any]:
+    resolved = resolved_profile if resolved_profile is not None else load_resolved_runtime_profile()
+    execution_class = str(resolved.get("execution_class", "live")) if isinstance(resolved, Mapping) else "live"
+    evidence_class = str(resolved.get("evidence_class", "physical")) if isinstance(resolved, Mapping) else "physical"
+    synthetic = execution_class == "synthetic_hil"
+    backend_name = getattr(backend, "backend_name", "virtual" if synthetic else "physical")
+    return {
+        "execution_class": execution_class,
+        "evidence_class": evidence_class,
+        "lift_backend": backend_name,
+        # Live execution and physical capability describe runtime intent; neither
+        # is evidence that a physical lift was actually verified.
+        "physical_lift_verified": False,
+        "physical_lift_reason": PHYSICAL_LIFT_NOT_VERIFIED,
+        "lift_evidence_reason": PHYSICAL_LIFT_NOT_VERIFIED,
+    }
+
+
+class VirtualLiftBackend:
+    """Deterministic, ROS-free lift backend for lift-only synthetic HIL."""
+
+    backend_name = "virtual"
+    enabled = True
+
+    def __init__(self, config: Mapping[str, Any] | None = None):
+        self.config = deepcopy(dict(config or {}))
+        self.config["enabled"] = True
+        self.position_mm = float(self.config.get("initial_position_mm", 0.0))
+        self.direction = "STOP"
+        self.limit_lower = self.position_mm <= 0.0
+        self.stopped = False
+        self.transitions: list[dict[str, Any]] = []
+
+    def telemetry_health(self, max_age_sec: Optional[float] = None) -> dict[str, Any]:
+        return {
+            "ready": True,
+            "reason": "ok",
+            "backend": self.backend_name,
+            "sequence": len(self.transitions),
+        }
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "enabled": True,
+            "ready": True,
+            "backend": self.backend_name,
+            "position_mm": self.position_mm,
+            "direction": self.direction,
+            "limit_lower": self.limit_lower,
+            "stopped": self.stopped,
+            "transitions": deepcopy(self.transitions),
+            "telemetry": self.telemetry_health(),
+            **lift_provenance(
+                {
+                    "execution_class": "synthetic_hil",
+                    "evidence_class": "nonphysical",
+                },
+                self,
+            ),
+        }
+
+    def _record(self, operation: str, **details: Any) -> dict[str, Any]:
+        transition = {"sequence": len(self.transitions) + 1, "operation": operation, **details}
+        self.transitions.append(transition)
+        return self.status()
+
+    def move_to(self, target_mm: float, **_kwargs: Any) -> dict[str, Any]:
+        self.position_mm = float(target_mm)
+        self.direction = "STOP"
+        self.limit_lower = self.position_mm <= 0.0
+        self.stopped = False
+        return self._record("move_to", target_mm=self.position_mm)
+
+    def move_to_if_needed(self, target_mm: float, **kwargs: Any) -> dict[str, Any]:
+        return self.move_to(target_mm, **kwargs)
+
+    def home(self, **_kwargs: Any) -> dict[str, Any]:
+        self.position_mm = 0.0
+        self.direction = "STOP"
+        self.limit_lower = True
+        self.stopped = False
+        return self._record("home", target_mm=0.0)
+
+    def stop(self) -> None:
+        self.direction = "STOP"
+        self.stopped = True
+        self._record("stop")
+
+    def execute_transfer(self, action: str, level: int, payload: MutableMapping[str, Any]) -> dict[str, Any]:
+        action = str(action).lower()
+        if action not in {"load", "unload"}:
+            raise ValueError(f"unsupported virtual lift action: {action}")
+        if action == "unload" and bool(payload.get("home_on_unload", self.config.get("home_on_unload", False))):
+            result = self.home()
+        else:
+            result = self.move_to(resolve_post_insert_height_mm(action, level, payload, self.config))
+        self.transitions[-1].update({"phase": "transfer", "action": action, "level": int(level)})
+        return result
+
+    def execute_pre_insert(self, action: str, level: int, payload: MutableMapping[str, Any]) -> Optional[dict[str, Any]]:
+        target = resolve_pre_insert_height_mm(action, level, payload, self.config)
+        if target is None:
+            return None
+        result = self.move_to(target)
+        self.transitions[-1].update({"phase": "pre_insert", "action": str(action), "level": int(level)})
+        return result
+
+    def execute_carry_after_load(self, action: str, level: int, payload: MutableMapping[str, Any]) -> Optional[dict[str, Any]]:
+        target = resolve_carry_height_mm(action, level, payload, self.config)
+        if target is None:
+            return None
+        result = self.move_to(target)
+        self.transitions[-1].update({"phase": "carry", "action": str(action), "level": int(level)})
+        return result
+
+
+def create_lift_backend(
+    node: Any,
+    robot_profile: Mapping[str, Any],
+    *,
+    resolved_profile: Mapping[str, Any] | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> LiftClient | VirtualLiftBackend:
+    resolved = resolved_profile if resolved_profile is not None else load_resolved_runtime_profile()
+    if isinstance(resolved, Mapping) and resolved.get("execution_class") == "synthetic_hil":
+        require_synthetic_hil_admission(resolved, environment)
+        config = deepcopy(dict(robot_profile.get("lift") or {}))
+        config.update(dict(resolved.get("virtual_lift") or {}))
+        return VirtualLiftBackend(config)
+    return LiftClient(node, dict(robot_profile.get("lift") or {}))

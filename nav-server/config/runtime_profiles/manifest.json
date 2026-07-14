@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "default_profile": "tb1-live",
+  "profiles": {
+    "tb1-live": "tb1-live.json",
+    "tb2-live": "tb2-live.json",
+    "all-live": "all-live.json",
+    "tb1-synthetic-hil": "tb1-synthetic-hil.json"
+  }
+}
