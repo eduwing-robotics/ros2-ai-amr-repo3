@@ -2,6 +2,14 @@
 
 이 문서는 Main·Nav·AI를 실제 장비로 확인할 때의 **실행 순서와 합격 판정**을 소유한다. 서비스 책임과 인증·evidence 계약은 [E2E 계약](../integration/e2e-contract.md), 기능별 세부 중지 조건은 [기능 체크리스트](feature-checklists.md)를 따른다.
 
+## 빠른 현장 원칙
+
+- 정상 장비는 TB1을 실제 `robot2_map` 시작 위치의 바닥에 놓고 바로 시작한다. 매 세션마다 바퀴를 공중에 띄우거나 별도 motor spin 시험을 하지 않는다.
+- 기본 순서는 `통신 확인 → base·Nav·Main·AI 시작 → localization 확인 → Main 짧은 주행 → 필요한 현장 기능`이다.
+- 전날 localization 성공 기록은 참고한다. 새 세션에서는 map ID, fresh scan/TF, scan과 벽의 대략적 정합, `localized=true`만 짧게 다시 확인한다. 전체 calibration이나 global search를 반복하지 않는다.
+- 상세 covariance·global search·wiggle·개별 topic 진단은 빠른 경로가 실패했을 때만 수행한다.
+- ArUco, camera 단절, 입·출고처럼 오늘 목표가 아닌 단계는 건너뛴다. 건너뜀은 실패가 아니라 `NOT_IN_SCOPE`로 기록한다.
+
 ## 검증 단계를 섞지 않는다
 
 | 단계 | Nav profile | 실제로 합격시킬 범위 | 이 단계에서 합격으로 보지 않는 범위 |
@@ -51,24 +59,25 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 ## 세션 기록
 
-실행 전 아래 값을 한 evidence 폴더 또는 시험 기록에 남긴다.
+빠른 현장 실행에서는 아래 최소값만 남긴다. 단계별 ID와 상세 증거는 그 기능을 실제로 시험할 때만 추가한다.
 
 - [ ] 날짜·운영자·Git branch·commit
 - [ ] robot ID와 Nav profile
-- [ ] `sha256sum nav-server/map/robot2_map.yaml nav-server/map/robot2_map.pgm` 결과
 - [ ] Main·Nav·AI hostname URL과 health 결과
-- [ ] work order ID, task ID, Movement command ID, callback event ID
-- [ ] AI source ID, advisory/evidence event ID, observed time
-- [ ] UI 화면·로그·사진의 경로와 `physical` 또는 `synthetic/HIL` provenance
+- [ ] Main 짧은 주행의 Movement command ID와 terminal 결과
+- [ ] 시험한 기능의 `physical` 또는 `synthetic/HIL` provenance
+
+맵 파일이 바뀌었거나 commissioning을 할 때만 `sha256sum nav-server/map/robot2_map.yaml nav-server/map/robot2_map.pgm`을 추가한다. work order, task, callback, AI event ID도 해당 단계를 실행할 때만 기록한다.
 
 ## 0. 안전·설정 preflight
 
-- [ ] 구동 바퀴를 안전 스탠드로 바닥에서 띄우거나 motor 출력을 차단한 상태에서 base 전원, OpenCR, LDS, PiCam 연결을 먼저 확인한다.
+- [ ] TB1을 실제 맵의 알려진 시작 위치에 놓고 물리 정지 수단과 짧은 주행 공간만 확인한다.
 - [ ] `./scripts/install-smartfactory-hosts.sh --check`가 모든 server의 hostname-first `192.168.30.x` 설정을 통과한다.
-- [ ] `./scripts/operator-preflight.sh --software`가 성공한다.
 - [ ] Movement, Vision, frame gateway HMAC secret pair와 operator token을 확인한다.
 - [ ] 주행 구역의 사람·장애물을 통제하고 정지 담당자를 정한다.
 - [ ] `robot2_map` field dispatch가 아직 차단된 상태임을 확인한다. 이 단계에서 boolean을 임의로 해제하지 않는다.
+
+`./scripts/operator-preflight.sh --software`는 첫 설치, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 실행한다. 정상 반복 운용의 필수 단계가 아니다.
 
 중지: network/secret 불일치, 물리 정지 수단 부재, 맵 identity 불일치.
 
@@ -86,7 +95,7 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 3. 외부 AI laptop에서 AI와 `tb3_1_picam` source를 시작한다.
 4. Main server에서 PostgreSQL과 Main을 시작한다.
-5. [시작과 종료](startup-shutdown.md)의 Main·Nav·AI health와 `./scripts/operator-preflight.sh --hardware-checklist`를 확인한다.
+5. [시작과 종료](startup-shutdown.md)에 따라 선택한 TB1 profile과 Main·AI health만 확인한다. 전체 robot inventory를 검사하는 `--hardware-checklist`는 TB1 단독 빠른 실행에 사용하지 않는다.
 
 `foreground`를 사용하면 `Ctrl+C`가 그 profile의 managed process group을 종료한다. base, bridge, Nav2처럼 `external` 소유인 terminal은 각각 `Ctrl+C`로 종료한다.
 
@@ -94,10 +103,10 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 - [ ] Nav health의 robot ID가 `tb3_burger_01`, profile이 `tb1-live`, active map이 `robot2_map`이다.
 - [ ] `/scan`, odom, `odom -> base_footprint` TF가 fresh다.
-- [ ] RViz에서 실제 벽·고정 구조물과 scan이 겹친다.
-- [ ] 초기 pose가 불확실하면 motion 없는 `observe_only` global search부터 수행한다.
-- [ ] 서로 다른 최신 AMCL sample, 안정 시간, covariance, pose/yaw jitter, scan/TF freshness가 모두 통과한다.
-- [ ] 최종 health가 `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false`다.
+- [ ] RViz에서 실제 벽·고정 구조물과 scan이 대략 겹친다.
+- [ ] health가 `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false`다.
+
+여기까지 통과하면 바로 Main 짧은 주행으로 이동한다. localization이 실패하거나 scan이 어긋날 때만 [기능 체크리스트의 실패 진단](feature-checklists.md#localization-실패-시에만)에서 `observe_only`와 상세 안정성 조건을 확인한다.
 
 중지: scan/TF stale, 맵·scan 불일치, localization 미수렴. 시작 pose를 추측해 주행으로 넘어가지 않는다.
 
@@ -107,7 +116,7 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 2. 장애물이 없는 가까운 목표를 지정하고 맵 이동을 한 번 실행한다.
 3. Main의 command ID와 Nav 수락·실행·terminal callback을 같은 ID로 추적한다.
 4. 로봇의 실제 도착, UI pose 갱신, 기록 화면의 terminal 상태가 일치하는지 확인한다.
-5. 짧은 teleop hold와 release-stop을 확인하되 사람 안전 합격 근거로 사용하지 않는다.
+5. teleop은 오늘 확인 대상일 때만 짧게 실행한다. Main 맵 이동이 성공했다면 기본 E2E를 위해 중복 실행하지 않는다.
 
 기대 흐름: `Main UI → Main robot command → signed Movement 요청 → Nav2 → signed callback → Main 상태/기록/UI`.
 
@@ -115,7 +124,7 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 ## 4. ArUco 주차·충전
 
-현장 marker와 `robot2_map` pose가 commissioned된 항목만 [ArUco docking runbook](../../nav-server/docs/runbook/RUNBOOK_ARUCO_DOCKING.md)으로 검증한다.
+오늘 목표가 localization·Main 주행이면 이 단계를 `NOT_IN_SCOPE`로 건너뛴다. 현장 marker와 `robot2_map` pose가 commissioned된 항목만 [ArUco docking runbook](../../nav-server/docs/runbook/RUNBOOK_ARUCO_DOCKING.md)으로 검증한다.
 
 - [ ] scan approach까지 Nav2로 이동한다.
 - [ ] detector freshness와 marker ID를 확인한다.
@@ -127,9 +136,9 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 ## 5. AI source와 화면 표시
 
 - [ ] [AI live smoke](../../ai-server/docs/live-api-smoke-tests.md)에 따라 health와 stream discovery를 확인한다.
-- [ ] `tb3_1_picam`의 frame·overlay가 fresh이며 사람 피부색과 화면 방향이 실제 영상과 일치한다.
-- [ ] overlay에는 source, 마지막 관찰 시간, 유효 event 수가 표시된다.
-- [ ] 카메라 입력을 끊으면 영상과 **마지막 관찰 시간**이 함께 멈추고 새 event 수가 증가하지 않는다.
+- [ ] `tb3_1_picam`의 현재 frame·overlay가 fresh하고 source, 마지막 관찰 시간, 유효 event 수가 보인다.
+- [ ] 피부색·화면 방향은 camera pipeline 변경 후 한 번만 확인한다.
+- [ ] 카메라 단절 시 영상·마지막 관찰 시간·event 수가 함께 멈추는지는 overlay 관련 변경 후 회귀 시험에서만 확인한다.
 - [ ] `global_cam_01`은 연결된 경우에만 별도 source로 freshness와 ZoneROI를 확인한다.
 
 중지: source 혼동, stale인데 시간이 증가함, overlay와 원본의 색·방향 불일치. stream 표시 성공만으로 AI evidence gate를 합격 처리하지 않는다.

@@ -9,7 +9,7 @@
    ```bash
    ./scripts/install-smartfactory-hosts.sh --check
    ```
-2. read-only [operator preflight](../../scripts/operator-preflight.sh)를 실행한다. 이 명령은 service를 시작하거나 robot motion을 명령하지 않는다.
+2. 첫 설치, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 read-only [operator preflight](../../scripts/operator-preflight.sh)를 실행한다. 정상 반복 운용에서는 이 단계를 건너뛴다. 이 명령은 service를 시작하거나 robot motion을 명령하지 않는다.
 
    ```bash
    ./scripts/operator-preflight.sh --software
@@ -39,14 +39,16 @@
    ./scripts/real.sh --dev
    ```
 
-7. health를 확인하고 read-only hardware checklist를 실행한 뒤 [TB1 우선 실물 E2E 실행 체크리스트](physical-e2e-checklist.md)의 순서로 진행한다.
+7. 선택 profile과 Main·AI health를 확인한 뒤 [TB1 우선 실물 E2E 실행 체크리스트](physical-e2e-checklist.md)의 빠른 순서로 진행한다.
 
    ```bash
    curl "${LMS_VISION_API_BASE_URL}/api/v1/health"
    curl http://localhost:8088/health
    curl http://<nav-host>:8001/movement-api/v1/health
-   ./scripts/operator-preflight.sh --hardware-checklist
+   cd nav-server && scripts/sf_nav.sh --profile tb1-live smoke
    ```
+
+`./scripts/operator-preflight.sh --hardware-checklist`는 `robots.json`의 모든 enabled robot을 확인한다. TB2를 끈 TB1 단독 반복 운용에서는 실행하지 않고, 전체 fleet 현장 점검 때만 사용한다.
 
 ## health 기대값
 

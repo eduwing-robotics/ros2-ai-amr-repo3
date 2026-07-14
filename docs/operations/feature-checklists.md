@@ -4,29 +4,37 @@
 
 한 번의 실물 시험에서 수행할 순서와 TB1·TB2 합격 경계는 [TB1 우선 실물 E2E 실행 체크리스트](physical-e2e-checklist.md)를 따른다. 이 문서는 기능별 공통 gate만 소유한다.
 
+정상 반복 운용은 선택 profile의 통신·health·localization과 한 번의 짧은 Main 주행만 확인한다. 아래 상세 진단은 관련 gate가 실패했거나 해당 기능을 이번 세션에서 검증할 때만 수행한다.
+
 [operator-preflight.sh](../../scripts/operator-preflight.sh)의 모든 mode는 read-only이며 service 시작과 robot motion을 수행하지 않는다. Movement, Vision, frame gateway HMAC의 세 secret이 모두 필요하다.
 
 ## 공통
 
-- [ ] 라이브 프로세스를 `ros2-amr-hardware-test` tmux 세션의 이름 있는 window에서 시작하고 `tmux list-windows -t ros2-amr-hardware-test`로 확인한다.
-- [ ] `./scripts/operator-preflight.sh --software`가 성공한다.
-- [ ] 현장 입력 확인 시 `./scripts/operator-preflight.sh --hardware-checklist`가 성공한다.
+- [ ] 라이브 프로세스를 운영자가 볼 수 있는 terminal 또는 이름 있는 tmux window에서 시작하고 `scripts/sf_nav.sh --profile <profile> status`로 선택 profile을 확인한다.
+- [ ] 첫 설치, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 `./scripts/operator-preflight.sh --software`를 실행한다.
+- [ ] `./scripts/operator-preflight.sh --hardware-checklist`는 config의 모든 enabled robot을 점검하므로 TB1 단독 운용이 아니라 전체 fleet 현장 점검 때만 실행한다.
 - [ ] Main mutation 요청에 역할에 맞는 operator/admin Bearer token을 사용한다.
 - [ ] Main↔Nav와 Main↔AI HMAC secret pair가 각각 일치하고 `VISION_GATEWAY_HMAC_SECRET`이 설정돼 있다.
 - [ ] Main, Nav, AI health가 성공한다.
 - [ ] Nav health의 robot ID, ROS domain, capability, lift 값이 profile과 일치한다.
 - [ ] physical mode에서 `dry_run=false`, `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false`다.
-- [ ] 필요한 LiDAR, TF, odom, camera와 network가 live다.
+- [ ] 현재 단계에 필요한 LiDAR, TF, odom, camera와 network만 live다.
 - [ ] callback base/allowlist와 Main database/service URL이 설정돼 있다.
-- [ ] field binding audit과 warehouse approach map clearance가 통과한다.
+- [ ] INBOUND/OUTBOUND 또는 docking을 실행할 때만 field binding audit과 warehouse approach map clearance를 요구한다.
 - [ ] 결과마다 `physical`, `simulation`, `synthetic/HIL` provenance를 기록하고 서로의 성공 근거로 대체하지 않는다.
 - [ ] 실제 리프트 검증 evidence가 없으면 `PHYSICAL_LIFT_NOT_VERIFIED`를 그대로 기록한다.
 
-## 주행 준비
+## 주행 준비: 정상 빠른 경로
 
+- [ ] 로봇을 실제 맵의 알려진 시작 위치에 놓는다.
 - [ ] Nav2 시작 전 bounded readiness window 안에 `/scan`과 `odom -> base_footprint` TF가 모두 준비된다.
-- [ ] 시작 후 `/lifecycle_manager_navigation/is_active`만 foreground에서 감시하고 `manage_nodes` activation/retry를 호출하지 않는다.
 - [ ] localization admission과 Nav2 readiness가 통과한다.
+- [ ] RViz에서 scan과 실제 벽이 대략 겹치고 health가 `localized=true`, `command_accepting=true`다.
+- [ ] Main UI에서 가까운 목표로 한 번 이동해 command와 callback terminal 결과를 확인한다.
+
+## localization 실패 시에만
+
+- [ ] 시작 후 `/lifecycle_manager_navigation/is_active`만 foreground에서 감시하고 `manage_nodes` activation/retry를 호출하지 않는다.
 - [ ] 시작 pose가 불확실하면 고정 seed 대신 signed global-search의 `observe_only`를 먼저 사용한다.
 - [ ] `observe_only`가 bounded timeout 동안 `/request_nomotion_update`를 반복하고 `/cmd_vel`을 publish하지 않아 commanded motion이 0임을 확인한다.
 - [ ] global-search accepted 응답을 localization 성공으로 해석하지 않고 `GET .../localization`을 반복 조회한다.
@@ -78,7 +86,6 @@
 | --- | --- | --- |
 | nohardware | `./scripts/operator-preflight.sh --nohardware` | root E2E PASS: field binding, signed Main↔Nav/Main↔AI TCP, PostgreSQL concurrency seam |
 | Gazebo | [Gazebo simulation runbook](../../nav-server/docs/runbook/RUNBOOK_GAZEBO_SIMULATION.md) | `NavigateToPose SUCCEEDED`, final error `0.251999 m` ≤ `0.30 m` |
-| 현장 | `./scripts/operator-preflight.sh --hardware-checklist` 후 공통·기능 checklist | 필요한 hardware/network live와 physical health 조건 충족 |
+| 현장 | 선택 profile `status`·`smoke`·health 후 필요한 기능 checklist | 선택 robot의 hardware/network live와 physical health 조건 충족 |
 
-종료 시 각 tmux window의 프로세스를 `Ctrl+C`로 중지하고 evidence/log 수집
-후에만 `ros2-amr-hardware-test` 세션을 종료한다.
+종료 시 사용한 terminal 또는 tmux window에서 `Ctrl+C`로 프로세스를 중지하고, 이번에 시험한 기능의 최소 evidence만 남긴다. 이름 있는 tmux session을 사용했다면 managed process 종료 확인 후 session을 종료한다.
