@@ -1,4 +1,4 @@
-﻿# ADR 002 - No Root Redirect Stub Files
+# ADR 002 - No Root Redirect Stub Files
 
 상태: Accepted
 분류: Engineering

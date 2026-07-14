@@ -1,7 +1,7 @@
-﻿# Runtime Output Policy
+# Runtime Output Policy
 
 상태: Active
-분류: Runbook
+분류: Reference
 작성: 2026-06-27 00:00 KST
 최종 갱신: 2026-06-27 14:43 KST
 목적: `logs/`, `tmp/`, cache, PID 산출물의 위치와 보존 규칙을 정의한다.
@@ -26,7 +26,8 @@
 
 | 분류 | 예시 |
 | --- | --- |
-| start | `scripts/start_nav_servers.sh`, `scripts/run_nav_servers.sh` |
+| start | `scripts/sf_nav.sh`, `scripts/start_nav_servers.sh` |
+| plan/check | `scripts/run_nav_servers.sh --print-plan`, `scripts/run_nav_servers.sh --check` |
 | status | `scripts/nav_server_status.sh`, `scripts/nav_ops.sh status` |
 | smoke | `scripts/smoke_*.sh` |
 | bridge | `scripts/run_domain_bridges.sh`, `scripts/smoke_domain_bridge.sh` |

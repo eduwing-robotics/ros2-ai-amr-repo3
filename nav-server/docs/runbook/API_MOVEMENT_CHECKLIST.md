@@ -1,4 +1,4 @@
-﻿# API Movement Validation Checklist
+# API Movement Validation Checklist
 
 상태: Active
 분류: Runbook

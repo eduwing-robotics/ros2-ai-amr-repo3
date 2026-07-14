@@ -1,0 +1,11 @@
+{
+  "conformance_version": "1",
+  "cases": [
+    {"name":"clean","files":{"docs/README.md":"# Docs\n"},"expected_codes":[]},
+    {"name":"unknown-path","files":{"stray.md":"# Stray\n","docs/README.md":"# Docs\n"},"expected_codes":["UNKNOWN_MARKDOWN_PATH"]},
+    {"name":"missing-title","files":{"docs/README.md":"No heading\n"},"expected_codes":["MISSING_TITLE"]},
+    {"name":"broken-link","files":{"docs/README.md":"# Docs\n\n[missing](missing.md)\n"},"expected_codes":["BROKEN_LINK"]},
+    {"name":"missing-index","files":{"docs/operations/run.md":"# Run\n"},"expected_codes":["MISSING_INDEX"]},
+    {"name":"segment-boundary","files":{"docs/README.md":"# Docs\n","docs/operations/nested/run.md":"# Nested\n"},"expected_codes":["UNKNOWN_MARKDOWN_PATH"]}
+  ]
+}

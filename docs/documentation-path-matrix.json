@@ -1,0 +1,366 @@
+{
+  "schema_version": "1.0",
+  "conformance_version": "1",
+  "rules": [
+    {
+      "rule_id": "root-index",
+      "document_type": "index",
+      "subject": "repository",
+      "path_globs": [
+        "README.md",
+        "AGENTS.md"
+      ],
+      "allowed_index_names": [
+        "README.md",
+        "AGENTS.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Repository routing only."
+    },
+    {
+      "rule_id": "root-policy",
+      "document_type": "index",
+      "subject": "documentation",
+      "path_globs": [
+        "docs/README.md",
+        "docs/DOCUMENTATION_GUIDE.md"
+      ],
+      "allowed_index_names": [
+        "README.md",
+        "DOCUMENTATION_GUIDE.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Shared policy and routing only."
+    },
+    {
+      "rule_id": "root-operations",
+      "document_type": "operations",
+      "subject": "cross-service",
+      "path_globs": [
+        "docs/operations/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": true,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Executable procedures only."
+    },
+    {
+      "rule_id": "root-integration",
+      "document_type": "reference",
+      "subject": "integration",
+      "path_globs": [
+        "docs/integration/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": true,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Current cross-service contracts only."
+    },
+    {
+      "rule_id": "root-history",
+      "document_type": "history",
+      "subject": "repository",
+      "path_globs": [
+        "docs/history/**/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": true,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Past evidence only."
+    },
+    {
+      "rule_id": "nav-index",
+      "document_type": "index",
+      "subject": "navigation",
+      "path_globs": [
+        "nav-server/README.md",
+        "nav-server/docs/README.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Navigation routing only."
+    },
+    {
+      "rule_id": "nav-reference",
+      "document_type": "reference",
+      "subject": "navigation",
+      "path_globs": [
+        "nav-server/docs/reference/*.md",
+        "nav-server/docs/as-built/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Current contracts and as-built behavior only."
+    },
+    {
+      "rule_id": "nav-runbook",
+      "document_type": "operations",
+      "subject": "navigation",
+      "path_globs": [
+        "nav-server/docs/runbook/**/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Executable Nav procedures only."
+    },
+    {
+      "rule_id": "nav-adr",
+      "document_type": "decision",
+      "subject": "navigation",
+      "path_globs": [
+        "nav-server/docs/adr/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Decisions and tradeoffs only."
+    },
+    {
+      "rule_id": "nav-worklog",
+      "document_type": "history",
+      "subject": "navigation",
+      "path_globs": [
+        "nav-server/worklog/**/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": true,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Retained work evidence only."
+    },
+    {
+      "rule_id": "main-index",
+      "document_type": "index",
+      "subject": "main",
+      "path_globs": [
+        "main-server/README.md",
+        "main-server/AGENTS.md",
+        "main-server/docs/README.md",
+        "main-server/docs/DOCUMENTATION_GUIDE.md"
+      ],
+      "allowed_index_names": [
+        "README.md",
+        "AGENTS.md",
+        "DOCUMENTATION_GUIDE.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Main routing and service-local additions only."
+    },
+    {
+      "rule_id": "main-reference",
+      "document_type": "reference",
+      "subject": "main",
+      "path_globs": [
+        "main-server/docs/api/**/*.md",
+        "main-server/docs/interfaces/**/*.md",
+        "main-server/docs/architecture/**/*.md",
+        "main-server/docs/ui-ux/**/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Current Main contracts and behavior only."
+    },
+    {
+      "rule_id": "main-operations",
+      "document_type": "operations",
+      "subject": "main",
+      "path_globs": [
+        "main-server/docs/operations/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": true,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Executable Main procedures only."
+    },
+    {
+      "rule_id": "main-decisions",
+      "document_type": "decision",
+      "subject": "main",
+      "path_globs": [
+        "main-server/docs/decisions/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": true,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Decisions and tradeoffs only."
+    },
+    {
+      "rule_id": "main-support",
+      "document_type": "support",
+      "subject": "main",
+      "path_globs": [
+        "main-server/docs/contributing/**/*.md",
+        "main-server/docs/assets/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Declared templates, contributing policy, and assets only."
+    },
+    {
+      "rule_id": "main-worklog",
+      "document_type": "history",
+      "subject": "main",
+      "path_globs": [
+        "main-server/worklog/**/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": true,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Retained work evidence only."
+    },
+    {
+      "rule_id": "ai-index",
+      "document_type": "index",
+      "subject": "ai",
+      "path_globs": [
+        "ai-server/README.md",
+        "ai-server/ros2/smartfactory_perception_ros/README.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "AI service and ROS package routing only."
+    },
+    {
+      "rule_id": "ai-reference",
+      "document_type": "reference",
+      "subject": "ai",
+      "path_globs": [
+        "ai-server/docs/**/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "AI service contracts and procedures; service taxonomy retained."
+    },
+    {
+      "rule_id": "ai-history",
+      "document_type": "history",
+      "subject": "ai",
+      "path_globs": [
+        "ai-server/history/**/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Past AI evidence only."
+    },
+    {
+      "rule_id": "main-external-ref",
+      "document_type": "support",
+      "subject": "external-reference",
+      "path_globs": [
+        "main-server/ref/**/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Declared external reference exception; not canonical documentation."
+    },
+    {
+      "rule_id": "test-support",
+      "document_type": "support",
+      "subject": "testing",
+      "path_globs": [
+        "tests/nohardware/**/*.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "No-hardware test instructions and fixture notes only."
+    }
+  ],
+  "ignored_generated_globs": [
+    ".omx/**",
+    "**/.pytest_cache/**",
+    "**/node_modules/**",
+    "**/build/**",
+    "**/install/**",
+    "**/log/**"
+  ]
+}

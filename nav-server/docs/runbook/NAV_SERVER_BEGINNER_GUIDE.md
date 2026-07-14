@@ -4,12 +4,11 @@
 
 ## profile
 
-| profile | ROS domain | API port | capabilities | lift |
-| --- | ---: | ---: | --- | --- |
-| `tb3_burger_01` | 2 | 8001 | `navigate,charge` | disabled |
-| `tb3_burger_02` | 5 | 8002 | `navigate,charge,lift,inbound,outbound` | enabled |
+실행 전 [runtime profile contract](../reference/NAV_RUNTIME_PROFILE_CONTRACT.md)를 확인한다.
+기본값은 `tb1-live`이고 `tb2-live`, `all-live`, `tb1-synthetic-hil`은 반드시 명시한다.
+profile이 참조하는 robot domain, API port, capability와 lift hardware fact는 `config/robots.json`이 canonical source다.
 
-`dock_transfer`는 lift capability를 요구한다. lift profile도 fork insert 전에 live lift bridge/telemetry readiness가 필요하다.
+`tb1-synthetic-hil`은 lift만 virtual인 nonphysical test profile이다. 실제 lift 검증이나 physical readiness 근거로 사용할 수 없다.
 
 ## 준비와 preflight
 
@@ -23,11 +22,12 @@
 
 ```bash
 cd nav-server
-scripts/run_nav_servers.sh --print-plan
-ROS_SETUP=/opt/ros/jazzy/setup.bash scripts/run_nav_servers.sh --check
+scripts/sf_nav.sh profiles
+scripts/sf_nav.sh --profile <profile-id> print-config
+ROS_SETUP=/opt/ros/jazzy/setup.bash scripts/sf_nav.sh --profile <profile-id> check
 ```
 
-`--print-plan`은 enabled robot의 ID, domain, port, map, Python executable을 출력한다. `--check`은 ROS setup, `ros2`, config, map file, duplicate port, `uvicorn`, `nav_app.app` import를 확인한다.
+`print-config`는 선택 profile의 robot, domain, port, component ownership을 출력한다. `check`는 ROS setup, `ros2`, config, map file, duplicate port, `uvicorn`, `nav_app.app` import를 확인한다.
 
 ## Nav API 시작
 
@@ -35,15 +35,17 @@ ROS/Nav2와 현장 safety 조건을 준비한 terminal에서 실행한다.
 
 ```bash
 cd nav-server
-scripts/run_nav_servers.sh
+scripts/sf_nav.sh --profile <profile-id> up
 ```
 
-dry-run은 mission을 수락하지만 physical motion을 수행하지 않는다.
+터미널에 붙여 관찰하고 `Ctrl+C` 한 번으로 해당 profile 전체를 끄려면
+`up` 대신 `foreground`를 사용한다.
 
 ```bash
-cd nav-server
-DRY_RUN_MISSION=1 scripts/run_nav_servers.sh
+scripts/sf_nav.sh --profile <profile-id> foreground
 ```
+
+합성 HIL은 명시적 2-key gate가 필요한 별도 시험 절차다. 이 runbook에서는 합성 또는 dry-run 실행을 physical 검증으로 취급하지 않는다.
 
 ## health 확인
 
@@ -58,11 +60,13 @@ physical operation에서는 `active_robot_id`, `ros_domain_id`, `capabilities`, 
 
 ## 종료
 
-launcher terminal에서 `Ctrl+C`를 누르면 child Nav process를 정리한다. 별도 terminal에서 상태를 확인하려면 다음을 실행한다.
+`foreground` terminal에서는 `Ctrl+C`가 child Nav process group을 정리한다.
+백그라운드 `up`은 다음 `down` 명령으로 종료한다. 상태 확인은 `status`다.
 
 ```bash
 cd nav-server
-scripts/nav_server_status.sh
+scripts/sf_nav.sh --profile <profile-id> status
+scripts/sf_nav.sh --profile <profile-id> down
 ```
 
 Gazebo 결과는 [Gazebo 검증 기록](../../../docs/history/verification/ros-simulation-verification.md), nohardware contract는 [Nav no-hardware test](NO_HARDWARE_TESTS.md)를 따른다.

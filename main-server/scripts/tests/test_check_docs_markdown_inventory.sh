@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Regression checks for the docs gate's Git-backed Markdown inventory.
+# Regression checks for the Main compatibility shim.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-GATE="$ROOT/scripts/check_docs.sh"
-ignored_markdown="$ROOT/.pytest_cache/check_docs_ignored_cache.md"
-misplaced_markdown="$ROOT/check_docs_misplaced_markdown.md"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+GATE="$ROOT/main-server/scripts/check_docs.sh"
+ignored_markdown="$ROOT/main-server/.pytest_cache/check_docs_ignored_cache.md"
+misplaced_markdown="$ROOT/main-server/check_docs_misplaced_markdown.md"
 
 if [[ -e "$ignored_markdown" || -e "$misplaced_markdown" ]]; then
   echo 'docs gate regression fixture path already exists' >&2
@@ -19,7 +19,7 @@ trap cleanup EXIT
 
 mkdir -p "$(dirname "$ignored_markdown")"
 printf '# ignored cache markdown\n' >"$ignored_markdown"
-git check-ignore -q -- .pytest_cache/check_docs_ignored_cache.md
+git -C "$ROOT" check-ignore -q -- main-server/.pytest_cache/check_docs_ignored_cache.md
 
 if ! output="$("$GATE" 2>&1)"; then
   printf '%s\n' "$output" >&2
@@ -34,6 +34,6 @@ if output="$("$GATE" 2>&1)"; then
   echo 'docs gate accepted unignored Markdown outside allowed roots' >&2
   exit 1
 fi
-[[ "$output" == *'Markdown file outside allowed roots: check_docs_misplaced_markdown.md'* ]]
+[[ "$output" == *'UNKNOWN_MARKDOWN_PATH: main-server/check_docs_misplaced_markdown.md'* ]]
 
 echo '[check_docs_markdown_inventory] PASS'

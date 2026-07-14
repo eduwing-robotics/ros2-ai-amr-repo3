@@ -651,4 +651,4 @@ scripts/smoke_nav_servers.sh
 scripts/smoke_movement_api.sh
 ```
 
-`smoke_movement_api.sh`는 최신 `robot-commands` 경로와 기존 호환 경로를 모두 검증한다.
+`smoke_movement_api.sh`는 repository의 서명된 Main↔Nav↔AI no-hardware TCP E2E를 호출하는 호환 진입점이다.

@@ -1,4 +1,4 @@
-﻿# ADR 001 - Scripts-Compatible Package Layout
+# ADR 001 - Scripts-Compatible Package Layout
 
 상태: Accepted
 분류: Engineering

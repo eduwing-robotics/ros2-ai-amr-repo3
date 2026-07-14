@@ -247,11 +247,11 @@ scripts/nav_ops.sh start
 scripts/nav_ops.sh status
 ```
 
-직접 foreground로 띄울 때만 기존 명령을 사용한다.
+터미널에 붙여 실행하고 `Ctrl+C`로 전체를 정리하려면 profile foreground를 사용한다.
 
 ```bash
 cd "$NAV_SERVER_ROOT"
-scripts/run_nav_servers.sh
+scripts/sf_nav.sh foreground
 ```
 
 기본 포트:

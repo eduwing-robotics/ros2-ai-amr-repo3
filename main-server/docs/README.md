@@ -6,7 +6,8 @@
 최종 갱신: 2026-07-09 17:55 KST
 목적: 권장 읽기 순서로 정본에 들어가게 한다. 폴더 분리 없이 같은 트리에서 상세·명세로 이어진다.
 
-규칙: [DOCUMENTATION_GUIDE](DOCUMENTATION_GUIDE.md). 용어: [architecture/GLOSSARY](architecture/GLOSSARY.md).
+공통 규칙: [repository documentation governance](../../docs/DOCUMENTATION_GUIDE.md).
+Main 추가 안내: [DOCUMENTATION_GUIDE](DOCUMENTATION_GUIDE.md). 용어: [architecture/GLOSSARY](architecture/GLOSSARY.md).
 
 ## 권장 읽기 순서 (먼저)
 

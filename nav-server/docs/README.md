@@ -2,6 +2,8 @@
 
 This index lists documents that describe the current navigation-server system.
 Historical material is intentionally separated into the [worklog index](../worklog/README.md).
+Repository-wide placement and ownership rules live in the
+[documentation governance guide](../../docs/DOCUMENTATION_GUIDE.md).
 
 ## System reference
 
@@ -15,6 +17,7 @@ Historical material is intentionally separated into the [worklog index](../workl
 - [Main Server integration contract](reference/MAIN_SERVER_CONTRACT.md)
 - [LMS movement algorithm](reference/LMS_MOVEMENT_ALGORITHM.md)
 - [ROS robot interface specification](reference/ROS_ROBOT_INTERFACE_SPECIFICATION.md)
+- [Nav runtime profile contract](reference/NAV_RUNTIME_PROFILE_CONTRACT.md)
 
 ## Operations
 
@@ -27,4 +30,5 @@ Historical material is intentionally separated into the [worklog index](../workl
 - [Gazebo acceptance](runbook/RUNBOOK_GAZEBO_SIMULATION.md)
 - [No-hardware tests](runbook/NO_HARDWARE_TESTS.md)
 - [Development verification](runbook/DEVELOPMENT_VERIFICATION.md)
-- [Runtime output policy](runbook/RUNTIME_OUTPUT_POLICY.md)
+- [Movement API validation checklist](runbook/API_MOVEMENT_CHECKLIST.md)
+- [Runtime output policy](reference/RUNTIME_OUTPUT_POLICY.md)

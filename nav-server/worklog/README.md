@@ -6,8 +6,7 @@ not in these dated records.
 
 ## Commissioning evidence
 
-- [Movement API checklist](commissioning/API_MOVEMENT_CHECKLIST.md) — manual API validation points
-- [Lift manual validation](commissioning/LIFT_MANUAL_VALIDATION.md) — tb3_2 lift setup and safety observations
+- - [Lift manual validation](commissioning/LIFT_MANUAL_VALIDATION.md) — tb3_2 lift setup and safety observations
 - [Task 206 inbound scenario](commissioning/SCENARIO_TASK206_INBOUND2_TB3_2.md) — recovered command sequence
 - [tb3_2 validation status](commissioning/TB3_2_VALIDATION_STATUS_2026-07-03.md) — dated navigation, camera, and docking findings
 

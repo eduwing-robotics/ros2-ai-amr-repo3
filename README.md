@@ -1,6 +1,7 @@
 # ros2-ai-amr-repo3
 
 ROS 2 AMR 통합 작업 공간의 저장소 지도다. 현재 서비스 간 동작은 [E2E 계약](docs/integration/e2e-contract.md)이 소유한다.
+문서 유형과 정본 위치는 [문서 거버넌스](docs/DOCUMENTATION_GUIDE.md)가 소유한다.
 
 ## 저장소 구조
 
