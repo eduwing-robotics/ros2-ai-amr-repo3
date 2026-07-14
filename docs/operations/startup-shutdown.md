@@ -3,6 +3,12 @@
 ## 시작 순서
 
 1. local environment와 Movement, Vision, frame gateway HMAC의 세 secret을 [운영 역할과 준비](operator-overview.md)에 맞게 설정한다.
+   모든 서버에서 [운영 네트워크와 호스트명](network-hostnames.md)의 공통
+   `192.168.30.x` 매핑을 먼저 확인한다.
+
+   ```bash
+   ./scripts/install-smartfactory-hosts.sh --check
+   ```
 2. read-only [operator preflight](../../scripts/operator-preflight.sh)를 실행한다. 이 명령은 service를 시작하거나 robot motion을 명령하지 않는다.
 
    ```bash

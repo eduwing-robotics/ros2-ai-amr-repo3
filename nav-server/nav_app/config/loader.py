@@ -84,12 +84,12 @@ def load_main_server_routes() -> Dict[str, Any]:
     if not MAIN_SERVER_ROUTES_PATH.exists():
         return {
             "nav_pc_host": "smartfactory-nav.local",
-            "main_public_base_url": "https://smartfactory-main.local:8088",
-            "main_api_base": "https://smartfactory-main.local:8088/api/v1",
-            "command_events_endpoint": "https://smartfactory-main.local:8088/api/v1/movement/command-events",
-            "movement_results_endpoint": "https://smartfactory-main.local:8088/api/v1/movement/results",
-            "robot_status_endpoint_template": "https://smartfactory-main.local:8088/api/v1/movement/robots/{robot_name}/status",
-            "webhook_endpoint": "https://smartfactory-main.local:8088/api/v1/movement/command-events",
+            "main_public_base_url": "http://smartfactory-main.local:8088",
+            "main_api_base": "http://smartfactory-main.local:8088/api/v1",
+            "command_events_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
+            "movement_results_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/results",
+            "robot_status_endpoint_template": "http://smartfactory-main.local:8088/api/v1/movement/robots/{robot_name}/status",
+            "webhook_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
             "robots": [],
         }
     return json.loads(MAIN_SERVER_ROUTES_PATH.read_text(encoding="utf-8"))

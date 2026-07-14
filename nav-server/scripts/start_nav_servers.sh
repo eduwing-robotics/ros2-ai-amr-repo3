@@ -38,7 +38,7 @@ Environment overrides:
   TB3_1_PORT=8001
   TB3_2_PORT=8002
   HOST=0.0.0.0
-  MAIN_API_BASE=https://smartfactory-main.local:8088/api/v1
+  MAIN_API_BASE=http://smartfactory-main.local:8088/api/v1
   LOG_DIR=logs
   DRY_RUN_MISSION=1
 

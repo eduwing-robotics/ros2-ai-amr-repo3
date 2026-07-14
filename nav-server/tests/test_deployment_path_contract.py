@@ -73,6 +73,9 @@ def test_main_routes_are_hostname_based_without_automatic_fallbacks():
     assert "localhost" not in serialized
     assert "192.168." not in serialized
     assert all("smartfactory-nav.local" in robot["nav_api_url"] for robot in routes["robots"])
+    assert routes["main_public_base_url"] == "http://smartfactory-main.local:8088"
+    assert routes["main_api_base"] == "http://smartfactory-main.local:8088/api/v1"
+    assert routes["webhook_endpoint"].startswith("http://smartfactory-main.local:8088/")
 
 
 def test_explicit_nohardware_robot_configuration_is_preserved():

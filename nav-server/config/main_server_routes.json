@@ -1,11 +1,11 @@
 {
   "nav_pc_host": "smartfactory-nav.local",
-  "main_public_base_url": "https://smartfactory-main.local:8088",
-  "main_api_base": "https://smartfactory-main.local:8088/api/v1",
-  "webhook_endpoint": "https://smartfactory-main.local:8088/api/v1/movement/command-events",
-  "command_events_endpoint": "https://smartfactory-main.local:8088/api/v1/movement/command-events",
-  "movement_results_endpoint": "https://smartfactory-main.local:8088/api/v1/movement/results",
-  "robot_status_endpoint_template": "https://smartfactory-main.local:8088/api/v1/movement/robots/{robot_name}/status",
+  "main_public_base_url": "http://smartfactory-main.local:8088",
+  "main_api_base": "http://smartfactory-main.local:8088/api/v1",
+  "webhook_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
+  "command_events_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
+  "movement_results_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/results",
+  "robot_status_endpoint_template": "http://smartfactory-main.local:8088/api/v1/movement/robots/{robot_name}/status",
   "robots": [
     {
       "robot_id": "tb3_burger_01",

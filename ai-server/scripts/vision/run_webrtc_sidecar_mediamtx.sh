@@ -564,7 +564,26 @@ mediamtx_webrtc_additional_hosts_csv() {
   esac
 }
 
+validate_site_network_hosts() {
+  local additional_hosts prefix host
+  prefix="${SMARTFACTORY_LAN_IPV4_PREFIX:-192.168.30.}"
+  additional_hosts="$(mediamtx_webrtc_additional_hosts_csv)"
+  if [[ "${WEBRTC_SIDECAR_PUBLIC_HOST}" == *.local && -z "${additional_hosts}" ]]; then
+    echo "ERROR: no WebRTC address found on SmartFactory site prefix ${prefix}" >&2
+    return 1
+  fi
+  local IFS=','
+  for host in ${additional_hosts}; do
+    host="${host//[[:space:]]/}"
+    if [[ "${host}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && [[ "${host}" != "${prefix}"* ]]; then
+      echo "ERROR: WebRTC address ${host} is outside SmartFactory site prefix ${prefix}" >&2
+      return 1
+    fi
+  done
+}
+
 print_config() {
+  validate_site_network_hosts
   local specs=() spec source view path input_url input_priority candidates first_transport first_format first_url mediamtx_source transport_origin
   read_stream_specs specs
   local additional_hosts
@@ -780,6 +799,7 @@ check_direct_mediamtx_source_ports_free() {
 
 run_check() {
   local ok=0
+  validate_site_network_hosts || ok=1
   validate_specs || ok=1
   if ! is_executable_cmd "${MEDIAMTX_BIN}"; then
     echo "ERROR: mediamtx executable not found: ${MEDIAMTX_BIN}" >&2

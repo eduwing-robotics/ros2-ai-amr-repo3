@@ -23,11 +23,10 @@ sf_default_model_extra_pythonpath() {
   printf '%s\n' ''
 }
 
-sf_is_private_ipv4() {
+sf_is_site_lan_ipv4() {
   local ip="${1:-}"
-  [[ "${ip}" =~ ^10\. ]] ||
-    [[ "${ip}" =~ ^192\.168\. ]] ||
-    [[ "${ip}" =~ ^172\.(1[6-9]|2[0-9]|3[0-1])\. ]]
+  local prefix="${SMARTFACTORY_LAN_IPV4_PREFIX:-192.168.30.}"
+  [[ -n "${ip}" && "${ip}" == "${prefix}"* ]]
 }
 
 sf_route_source_ip() {
@@ -50,15 +49,15 @@ sf_lan_ip() {
   local routed=""
   if [ -n "${route_target}" ]; then
     routed="$(sf_route_source_ip "${route_target}" || true)"
-    if sf_is_private_ipv4 "${routed}"; then
+    if sf_is_site_lan_ipv4 "${routed}"; then
       printf '%s\n' "${routed}"
       return 0
     fi
   fi
-  hostname -I 2> /dev/null | tr ' ' '\n' |
-    grep -E '^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)' |
-    grep -v '^172\.17\.' |
-    head -n1 || true
+  local candidate
+  candidate="$(hostname -I 2> /dev/null | tr ' ' '\n' | grep -F "${SMARTFACTORY_LAN_IPV4_PREFIX:-192.168.30.}" | head -n1 || true)"
+  [ -n "${candidate}" ] || return 1
+  printf '%s\n' "${candidate}"
 }
 
 sf_ros_double() {

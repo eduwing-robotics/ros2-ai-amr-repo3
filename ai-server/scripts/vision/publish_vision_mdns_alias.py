@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import os
 import signal
 import socket
 import subprocess
@@ -29,20 +30,23 @@ DEFAULT_NAME = "smartfactory-vision.local"
 
 
 def _default_lan_ip() -> str:
-    """Return the first non-loopback IPv4 from hostname -I."""
+    """Return the local IPv4 on the configured SmartFactory site subnet."""
 
     try:
         output = subprocess.check_output(["hostname", "-I"], text=True, timeout=2)
     except Exception as exc:  # noqa: BLE001 - CLI should report environment failures simply
         raise SystemExit(f"failed to detect LAN IP with hostname -I: {exc}") from exc
+    prefix = os.environ.get("SMARTFACTORY_LAN_IPV4_PREFIX", "192.168.30.").strip()
     for token in output.split():
         try:
             address = ipaddress.ip_address(token)
         except ValueError:
             continue
-        if address.version == 4 and not address.is_loopback:
+        if address.version == 4 and str(address).startswith(prefix):
             return str(address)
-    raise SystemExit("no non-loopback IPv4 address found; pass --address explicitly")
+    raise SystemExit(
+        f"no IPv4 address found on site prefix {prefix}; pass --address explicitly"
+    )
 
 
 def _parser() -> argparse.ArgumentParser:

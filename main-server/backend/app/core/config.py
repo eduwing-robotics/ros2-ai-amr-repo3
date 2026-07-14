@@ -62,7 +62,7 @@ def _movement_host_urls(host: str) -> dict[str, str]:
 _DEFAULT_BASE_URLS = _movement_host_urls(_DEFAULT_MOVEMENT_HOST)
 # Camera 서버도 IP가 바뀌는 현장 운용을 고려해 host 하나로 기본 endpoint를 만든다.
 # 실제 stream 경로가 다르면 LMS_CAMERA_STREAM_URL_TEMPLATE만 덮어쓴다.
-_DEFAULT_CAMERA_HOST = os.getenv("LMS_CAMERA_HOST", "192.168.10.51")
+_DEFAULT_CAMERA_HOST = os.getenv("LMS_CAMERA_HOST", "smartfactory-nav.local")
 _DEFAULT_CAMERA_API_PORT = os.getenv("LMS_CAMERA_API_PORT", "8080")
 _DEFAULT_CAMERA_STREAM_PORT = os.getenv("LMS_CAMERA_STREAM_PORT", "9090")
 _DEFAULT_CAMERA_API_BASE_URL = f"http://{_DEFAULT_CAMERA_HOST}:{_DEFAULT_CAMERA_API_PORT}"

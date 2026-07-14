@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import importlib.util
 import hashlib
 import hmac
+import importlib.util
 import os
 import subprocess
 import sys
@@ -652,12 +652,12 @@ def test_webrtc_sidecar_print_config_exposes_media_only_urls() -> None:
             "PATH": "/usr/bin:/bin",
             "WEBRTC_SIDECAR_STREAMS": "global_cam_01/full,global_cam_01/lift_roi",
             "VISION_PUBLIC_HOST": "smartfactory-vision.local",
-            "MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS": "192.168.10.59",
+            "MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS": "192.168.30.3",
         },
     )
 
     assert "path=global_cam_01_full" in result.stdout
-    assert "webrtc_additional_hosts: 192.168.10.59" in result.stdout
+    assert "webrtc_additional_hosts: 192.168.30.3" in result.stdout
     assert "gop: 15" in result.stdout
     assert "input_probesize: 2048" in result.stdout
     assert "input_analyzeduration: 0" in result.stdout
@@ -666,6 +666,25 @@ def test_webrtc_sidecar_print_config_exposes_media_only_urls() -> None:
     assert "browser=http://smartfactory-vision.local:8889/global_cam_01_full/" in result.stdout
     assert "whep=http://smartfactory-vision.local:8889/global_cam_01_full/whep" in result.stdout
     assert "rtsp://127.0.0.1:18554/global_cam_01_lift_roi" in result.stdout
+
+
+def test_webrtc_sidecar_rejects_non_site_ipv4_advertisement() -> None:
+    result = subprocess.run(
+        [str(SIDECAR_SCRIPT), "--print-config"],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        capture_output=True,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "WEBRTC_SIDECAR_STREAMS": "global_cam_01/full",
+            "VISION_PUBLIC_HOST": "smartfactory-vision.local",
+            "MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS": "192.168.10.59",
+        },
+    )
+
+    assert result.returncode != 0
+    assert "outside SmartFactory site prefix 192.168.30." in result.stderr
 
 
 def test_lab_gopro_tb3_webrtc_profile_exports_latency_knobs_to_sidecar_child() -> None:
@@ -711,7 +730,7 @@ def test_webrtc_sidecar_print_config_prefers_direct_camera_then_mjpeg_fallback()
             "WEBRTC_SIDECAR_CAMERA_INPUT_URL_TEMPLATE": "/dev/video0",
             "WEBRTC_SIDECAR_INPUT_URL_TEMPLATE": "http://127.0.0.1:8090/fallback?source={source}&view={view}&path={path}&max_fps={max_fps}",
             "VISION_PUBLIC_HOST": "smartfactory-vision.local",
-            "MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS": "192.168.10.59",
+            "MEDIAMTX_WEBRTC_ADDITIONAL_HOSTS": "192.168.30.3",
         },
     )
 
