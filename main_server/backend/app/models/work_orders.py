@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-class WorkOrderTask(BaseModel):
+class WorkOrderRobotTask(BaseModel):
     """work order와 실제 task 연결."""
 
     order_id: int
@@ -27,6 +27,10 @@ class WorkOrderTask(BaseModel):
     parking_error: dict[str, Any] | None = None
 
 
+# Deprecated compatibility alias. Do not use in new code.
+WorkOrderTask = WorkOrderRobotTask
+
+
 class WorkOrder(BaseModel):
     """입고/출고 업무 요청."""
 
@@ -38,7 +42,7 @@ class WorkOrder(BaseModel):
     created_by: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
-    tasks: list[WorkOrderTask] = Field(default_factory=list)
+    tasks: list[WorkOrderRobotTask] = Field(default_factory=list)
     mission_results: list[dict[str, Any]] = Field(default_factory=list)
     business_completed: bool = False
     return_status: str | None = None

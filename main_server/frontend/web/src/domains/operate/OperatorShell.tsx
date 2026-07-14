@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { Resizer } from "../../components/Resizer";
@@ -13,7 +13,7 @@ import { LiveCamera } from "../vision/LiveCamera";
 import { Teleop } from "../movement/Teleop";
 import { MapGotoOperate } from "../movement/MapGotoOperate";
 import { WorkOrderForm } from "./WorkOrderForm";
-import { TaskQueue } from "./TaskQueue";
+import { WorkOrderQueue } from "./WorkOrderQueue";
 import { TaskRecoveryBanner, useRecoveryAttentionTasks } from "./TaskRecoveryPanel";
 import { InventoryView } from "./InventoryView";
 import { Records } from "../records/Records";
@@ -42,20 +42,90 @@ function EventFeed({ events, limit = 6 }: { events: AppEvent[]; limit?: number }
   );
 }
 
-type DrawerKey = "inout" | "records" | "inventory" | null;
-type TrayPanelKey = "tasks" | "control";
+/* 상단 KPI 글랜스 스트립 (ISA-101 L1: 2초 스캔) — 평상시 무채색, 이상 시에만 좌보더+배경 강조.
+   상태는 색+텍스트 병기(색 단독 금지). 값은 비례 숫자(스탯 타일 규격). */
+function OperatorKpiStrip({
+  robotsTotal,
+  onlineCount,
+  emergencyCount,
+  activeTaskCount,
+  queuedTaskCount,
+  runningTaskCount,
+  recoveryCount,
+  errCount,
+  warnCount,
+  tasksOpen,
+  onToggleTasks,
+}: {
+  robotsTotal: number;
+  onlineCount: number;
+  emergencyCount: number;
+  activeTaskCount: number;
+  queuedTaskCount: number;
+  runningTaskCount: number;
+  recoveryCount: number;
+  errCount: number;
+  warnCount: number;
+  tasksOpen: boolean;
+  onToggleTasks: () => void;
+}) {
+  const robotState = robotsTotal > 0 && onlineCount === 0 ? " err" : onlineCount < robotsTotal ? " warn" : "";
+  const alarmState = errCount ? " err" : warnCount ? " warn" : "";
+  return (
+    <div className="operator-kpi-strip" role="group" aria-label="현황 요약">
+      <div className={`kpi-tile${robotState}`}>
+        <span className="kpi-label">로봇 연결</span>
+        <span className="kpi-value">
+          {onlineCount}
+          <span className="kpi-value-sub"> / {robotsTotal}</span>
+        </span>
+        <span className="kpi-hint">
+          {robotsTotal === 0 ? "등록된 로봇 없음" : onlineCount < robotsTotal ? `${robotsTotal - onlineCount}대 오프라인` : "전체 온라인"}
+        </span>
+      </div>
+      <button
+        type="button"
+        className={`kpi-tile kpi-tile-btn${recoveryCount ? " warn" : ""}`}
+        onClick={onToggleTasks}
+        aria-expanded={tasksOpen}
+        aria-controls="operator-tasks-workspace"
+      >
+        <span className="kpi-label">작업</span>
+        <span className="kpi-value">{activeTaskCount}</span>
+        <span className="kpi-hint">
+          예약 {queuedTaskCount} · 진행 {runningTaskCount}
+          {recoveryCount ? ` · 복구 ${recoveryCount}` : ""}
+        </span>
+      </button>
+      <div className={`kpi-tile${alarmState}`}>
+        <span className="kpi-label">알람</span>
+        <span className="kpi-value">{errCount + warnCount}</span>
+        <span className="kpi-hint">{errCount || warnCount ? `위험 ${errCount} · 주의 ${warnCount}` : "이상 없음"}</span>
+      </div>
+      <div className={`kpi-tile${emergencyCount ? " err" : ""}`}>
+        <span className="kpi-label">E-STOP</span>
+        <span className="kpi-value">{emergencyCount ? `${emergencyCount}대` : "정상"}</span>
+        <span className="kpi-hint">{emergencyCount ? "비상 정지 발동" : "비상 정지 없음"}</span>
+      </div>
+    </div>
+  );
+}
+
+/* 역할 규칙: 드로어(좌) = 실행(폼·컨트롤 — 입출고·수동조작), 하단 탭 = 조회(테이블·이력 — 작업·재고·기록) */
+type DrawerKey = "inout" | "control" | null;
+type TrayPanelKey = "tasks" | "inventory" | "records";
 
 function resolveDrawer(section: string | undefined, drawerParam: string | null): DrawerKey {
   if (section === "inout") return "inout";
   if (drawerParam === "inout") return "inout";
-  if (drawerParam === "records") return "records";
-  if (drawerParam === "inventory") return "inventory";
+  if (drawerParam === "control") return "control";
   return null;
 }
 
 function resolveTrayPanel(section: string | undefined, panelParam: string | null): TrayPanelKey | null {
   if (panelParam === "tasks" || section === "tasks") return "tasks";
-  if (panelParam === "control") return "control";
+  if (panelParam === "inventory") return "inventory";
+  if (panelParam === "records") return "records";
   return null;
 }
 
@@ -81,11 +151,13 @@ function OperatorNavIcon({ label }: { label: string }) {
     ? "M3 13h4v8H3z M10 3h4v18h-4z M17 8h4v13h-4z"
     : label === "입출고"
       ? "M4 7h12 M12 3l4 4-4 4 M20 17H8 M12 13l-4 4 4 4"
-      : label === "작업"
-        ? "M5 4h14v16H5z M8 8h8 M8 12h8 M8 16h5"
-        : label === "재고"
-          ? "M4 7l8-4 8 4v10l-8 4-8-4z M4 7l8 4 8-4 M12 11v10"
-          : "M6 3h12v18H6z M9 8h6 M9 12h6 M9 16h4";
+      : label === "조작"
+        ? "M9 3h6v6h6v6h-6v6H9v-6H3V9h6z M12 7v0 M12 17v0 M7 12h0 M17 12h0"
+        : label === "작업"
+          ? "M5 4h14v16H5z M8 8h8 M8 12h8 M8 16h5"
+          : label === "재고"
+            ? "M4 7l8-4 8 4v10l-8 4-8-4z M4 7l8 4 8-4 M12 11v10"
+            : "M6 3h12v18H6z M9 8h6 M9 12h6 M9 16h4";
   return (
     <svg className="slim-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
       <path d={path} />
@@ -111,36 +183,63 @@ export function OperatorShell() {
   const robots = data?.robots ?? [];
   const cameras = data?.camera_sources ?? [];
   const tasks = data?.tasks ?? [];
-  const events = data?.events ?? [];
+  const events = useMemo(() => data?.events ?? [], [data?.events]);
   const globalCams = globalCameras(cameras);
   const cameraOnline = Boolean(((data?.system ?? {}) as { camera_health?: CameraHealth }).camera_health?.ok);
   const { onlineCount } = useRobotConnectivity(robots);
 
+  // 드로어(실행)와 하단 탭(조회)은 독립 축 — 서로 열림 상태를 보존한다.
   const toggleTrayPanel = useCallback((key: TrayPanelKey) => {
     if (key === "tasks" && trayPanel !== "tasks") taskFocusRequestedRef.current = true;
-    navigate(trayPanel === key ? "/operate/control" : `/operate/control?panel=${key}`);
-  }, [navigate, trayPanel]);
+    const drawerParam = searchParams.get("drawer");
+    const keepDrawer = drawerParam ? `drawer=${drawerParam}` : "";
+    if (trayPanel === key) {
+      navigate(keepDrawer ? `/operate/control?${keepDrawer}` : "/operate/control");
+    } else {
+      navigate(`/operate/control?${keepDrawer ? `${keepDrawer}&` : ""}panel=${key}`);
+    }
+  }, [navigate, trayPanel, searchParams]);
+
+  // 드로어도 토글 — 다시 누르면 닫히고, 하단 탭(panel) 상태는 건드리지 않는다.
+  const toggleDrawer = useCallback((key: Exclude<DrawerKey, null>) => {
+    const panel = searchParams.get("panel");
+    const keepPanel = panel ? `panel=${panel}` : "";
+    if (drawer === key) {
+      navigate(keepPanel ? `/operate/control?${keepPanel}` : "/operate/control");
+    } else {
+      navigate(`/operate/control?drawer=${key}${keepPanel ? `&${keepPanel}` : ""}`);
+    }
+  }, [navigate, drawer, searchParams]);
 
   const goNav = (route: string) => {
-    if (route.includes("panel=tasks")) {
-      toggleTrayPanel("tasks");
+    const panelMatch = route.match(/panel=(\w+)/);
+    if (panelMatch) {
+      toggleTrayPanel(panelMatch[1] as TrayPanelKey);
+      return;
+    }
+    const drawerMatch = route.match(/drawer=(\w+)/);
+    if (drawerMatch) {
+      toggleDrawer(drawerMatch[1] as Exclude<DrawerKey, null>);
       return;
     }
     navigate(routePath(route));
   };
 
-  const closeDrawer = useCallback(() => navigate("/operate/control"), [navigate]);
+  const closeDrawer = useCallback(() => {
+    const panel = searchParams.get("panel");
+    navigate(panel ? `/operate/control?panel=${panel}` : "/operate/control");
+  }, [navigate, searchParams]);
 
-  const drawerTitle = drawer === "inout" ? "입출고" : drawer === "records" ? "기록" : drawer === "inventory" ? "재고" : "";
+  const drawerTitle = drawer === "inout" ? "입출고" : drawer === "control" ? "수동 조작 · 맵 이동" : "";
 
   const isActiveNav = (route: string) => {
     const base = route.split("?")[0];
     const current = section === "control" || !section ? "control" : section;
-    if (route.includes("panel=tasks")) return taskPanelOpen;
+    const panelMatch = route.match(/panel=(\w+)/);
+    if (panelMatch) return trayPanel === panelMatch[1];
     if (route.includes("drawer=inout")) return drawer === "inout";
-    if (route.includes("drawer=records")) return drawer === "records";
-    if (route.includes("drawer=inventory")) return drawer === "inventory";
-    if (route === "operate/control") return current === "control" && drawer === null && !taskPanelOpen;
+    if (route.includes("drawer=control")) return drawer === "control";
+    if (route === "operate/control") return current === "control" && drawer === null && trayPanel === null;
     return `operate/${current}` === base;
   };
 
@@ -162,13 +261,35 @@ export function OperatorShell() {
   ).length;
   const runningTaskCount = Math.max(0, activeTaskCount - queuedTaskCount);
 
+  const alarmCounts = useMemo(() => {
+    let err = 0;
+    let warn = 0;
+    for (const ev of events) {
+      const cls = eventDotClass(ev);
+      if (cls === "err") err += 1;
+      else if (cls === "warn") warn += 1;
+    }
+    return { err, warn };
+  }, [events]);
+
   useEffect(() => {
     if (section === "inout") {
       navigate("/operate/control?drawer=inout", { replace: true });
-    } else if (section === "tasks") {
-      navigate("/operate/control?panel=tasks", { replace: true });
+      return;
     }
-  }, [navigate, section]);
+    if (section === "tasks") {
+      navigate("/operate/control?panel=tasks", { replace: true });
+      return;
+    }
+    // 레거시 URL: 재고·기록은 드로어→하단 탭으로, 수동 조작은 하단 탭→드로어로 이동했다.
+    const drawerParam = searchParams.get("drawer");
+    const panelParam = searchParams.get("panel");
+    if (drawerParam === "records" || drawerParam === "inventory") {
+      navigate(`/operate/control?panel=${drawerParam}`, { replace: true });
+    } else if (panelParam === "control") {
+      navigate("/operate/control?drawer=control", { replace: true });
+    }
+  }, [navigate, section, searchParams]);
 
   useEffect(() => {
     if (!taskPanelOpen || !taskFocusRequestedRef.current) return;
@@ -187,27 +308,40 @@ export function OperatorShell() {
           {OPERATE_SLIM_NAV.map((it) => {
             const active = isActiveNav(it.route);
             const opensDrawer = it.route.includes("drawer=");
+            const panelKey = it.route.match(/panel=(\w+)/)?.[1] ?? null;
             const badge = it.label === "작업" ? activeTaskCount : 0;
-            const controlsTaskPanel = it.route.includes("panel=tasks");
+            const controlsTaskPanel = panelKey === "tasks";
             const navLabel = controlsTaskPanel
               ? `작업, 진행 중 ${badge}건, ${taskPanelOpen ? "펼쳐짐" : "접힘"}`
-              : it.label;
+              : it.label === "조작"
+                ? `수동 조작 · 맵 이동${movementAvailable ? "" : ", Movement 오프라인"}`
+                : it.label;
+            const ariaControls = controlsTaskPanel
+              ? "operator-tasks-workspace"
+              : panelKey
+                ? `operator-${panelKey}-content`
+                : opensDrawer
+                  ? "operator-context-drawer"
+                  : undefined;
             return (
-              <button
-                key={it.key}
-                type="button"
-                className={active ? "active" : ""}
-                title={navLabel}
-                aria-label={navLabel}
-                aria-current={active && !controlsTaskPanel ? "page" : undefined}
-                aria-controls={controlsTaskPanel ? "operator-tasks-workspace" : opensDrawer ? "operator-context-drawer" : undefined}
-                aria-expanded={controlsTaskPanel ? taskPanelOpen : opensDrawer ? active : undefined}
-                onClick={() => goNav(it.route)}
-              >
-                <OperatorNavIcon label={it.label} />
-                <span className="slim-nav-label">{it.label}</span>
-                {badge > 0 ? <span className="slim-nav-badge" aria-hidden="true">{badge > 99 ? "99+" : badge}</span> : null}
-              </button>
+              <Fragment key={it.key}>
+                {/* 실행(드로어) ↔ 조회(하단 탭) 그룹 경계 */}
+                {it.label === "입출고" || it.label === "작업" ? <span className="slim-nav-sep" aria-hidden="true" /> : null}
+                <button
+                  type="button"
+                  className={active ? "active" : ""}
+                  title={navLabel}
+                  aria-label={navLabel}
+                  aria-current={active && !panelKey ? "page" : undefined}
+                  aria-controls={ariaControls}
+                  aria-expanded={panelKey ? trayPanel === panelKey : opensDrawer ? active : undefined}
+                  onClick={() => goNav(it.route)}
+                >
+                  <OperatorNavIcon label={it.label} />
+                  <span className="slim-nav-label">{it.label}</span>
+                  {badge > 0 ? <span className="slim-nav-badge" aria-hidden="true">{badge > 99 ? "99+" : badge}</span> : null}
+                </button>
+              </Fragment>
             );
           })}
         </nav>
@@ -225,10 +359,34 @@ export function OperatorShell() {
               modal={isNarrowLayout}
             >
               {drawer === "inout" ? (
-                <WorkOrderForm onClose={closeDrawer} disabled={allRobotsEmergency} emergencyRobots={emergencyRobots} />
+                <WorkOrderForm
+                  onClose={closeDrawer}
+                  disabled={allRobotsEmergency}
+                  emergencyRobots={emergencyRobots}
+                  onSubmitted={() => {
+                    // 실행(드로어) 결과가 조회(하단 작업 큐)에 나타나는 피드백 루프
+                    if (trayPanel !== "tasks") navigate("/operate/control?drawer=inout&panel=tasks", { replace: true });
+                  }}
+                />
               ) : null}
-              {drawer === "inventory" ? <InventoryView /> : null}
-              {drawer === "records" ? <Records variant="operate" /> : null}
+              {drawer === "control" ? (
+                <>
+                  {!movementAvailable ? (
+                    <div className="inline-alert warn operator-movement-warning" role="status">
+                      Movement 서버에 연결할 수 없습니다. 수동 조작과 맵 이동을 사용할 수 없습니다.
+                    </div>
+                  ) : null}
+                  <div className="operator-control-bar-inner">
+                    <Teleop
+                      robots={robots}
+                      disabled={!movementAvailable}
+                      isRobotEmergency={isRobotEmergency}
+                      keyboardEnabled={drawer === "control"}
+                    />
+                    <MapGotoOperate robots={robots} disabled={!movementAvailable} isRobotEmergency={isRobotEmergency} />
+                  </div>
+                </>
+              ) : null}
             </Drawer>
           ) : null}
           {drawer && !isNarrowLayout ? (
@@ -259,6 +417,19 @@ export function OperatorShell() {
               </div>
             ) : null}
             {isLoading && !data ? <div className="panel operator-map-loading">맵 불러오는 중…</div> : null}
+            <OperatorKpiStrip
+              robotsTotal={robots.length}
+              onlineCount={onlineCount}
+              emergencyCount={emergencyRobots.length}
+              activeTaskCount={activeTaskCount}
+              queuedTaskCount={queuedTaskCount}
+              runningTaskCount={runningTaskCount}
+              recoveryCount={recoveryTasks.length}
+              errCount={alarmCounts.err}
+              warnCount={alarmCounts.warn}
+              tasksOpen={taskPanelOpen}
+              onToggleTasks={() => toggleTrayPanel("tasks")}
+            />
             <div className="operator-map-column" ref={mapColumnRef}>
               <div className="operator-map-wrap" ref={mapWrapRef}>
                 <div className="operator-map-stage-wrap">
@@ -274,7 +445,7 @@ export function OperatorShell() {
                       containerRef={mapWrapRef}
                       defaultSize={280}
                       min={200}
-                      max={560}
+                      max={1600}
                       adjacent="trailing"
                     />
                     <div className="operator-map-camrail" aria-label="전역 카메라">
@@ -289,20 +460,34 @@ export function OperatorShell() {
                   key={trayPanel}
                   className="layout-resizer--band"
                   orientation="vertical"
-                  storageKey={trayPanel === "control" ? "lms.layout.operator-band-control" : "lms.layout.operator-band"}
+                  storageKey="lms.layout.operator-band"
                   cssVar="--operator-band-h"
                   containerRef={mapColumnRef}
-                  defaultSize={trayPanel === "control" ? 480 : 300}
+                  defaultSize={300}
                   min={160}
                   max={560}
                   adjacent="trailing"
                 />
-              ) : null}
+              ) : (
+                /* 트레이 접힘 시엔 같은 경계로 맵 높이 상한(--map-cap 소스)을 조절 — 사용자별 지속 */
+                <Resizer
+                  key="map-height"
+                  className="layout-resizer--band"
+                  orientation="vertical"
+                  storageKey="lms.layout.operator-map-h"
+                  cssVar="--operator-map-h"
+                  containerRef={mapColumnRef}
+                  defaultSize={Math.round(Math.min(820, Math.max(360, (typeof window !== "undefined" ? window.innerHeight : 1080) * 0.62)))}
+                  min={280}
+                  max={900}
+                  adjacent="leading"
+                />
+              )}
               <div
                 className={`operator-insight-band ${trayOpen ? "open" : "collapsed"}`}
                 id="operator-tasks-workspace"
                 ref={insightBandRef}
-                aria-label="작업 · 수동 조작 워크스페이스"
+                aria-label="작업 · 재고 · 기록 워크스페이스"
               >
                 <div className="task-tray-bar">
                   <button
@@ -324,14 +509,23 @@ export function OperatorShell() {
                   </button>
                   <button
                     type="button"
-                    className={`task-tray-tab${trayPanel === "control" ? " active" : ""}`}
-                    aria-expanded={trayPanel === "control"}
-                    aria-controls="operator-control-content"
-                    aria-label={`수동 조작 · 맵 이동${movementAvailable ? "" : ", Movement 오프라인"}, ${trayPanel === "control" ? "펼쳐짐" : "접힘"}`}
-                    onClick={() => toggleTrayPanel("control")}
+                    className={`task-tray-tab${trayPanel === "inventory" ? " active" : ""}`}
+                    aria-expanded={trayPanel === "inventory"}
+                    aria-controls="operator-inventory-content"
+                    aria-label={`재고, ${trayPanel === "inventory" ? "펼쳐짐" : "접힘"}`}
+                    onClick={() => toggleTrayPanel("inventory")}
                   >
-                    <span className="task-workspace-title">수동 조작 · 맵 이동</span>
-                    {!movementAvailable ? <span className="tray-tab-dot" aria-hidden="true" /> : null}
+                    <span className="task-workspace-title">재고</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`task-tray-tab${trayPanel === "records" ? " active" : ""}`}
+                    aria-expanded={trayPanel === "records"}
+                    aria-controls="operator-records-content"
+                    aria-label={`기록, ${trayPanel === "records" ? "펼쳐짐" : "접힘"}`}
+                    onClick={() => toggleTrayPanel("records")}
+                  >
+                    <span className="task-workspace-title">기록</span>
                   </button>
                   <span className="task-workspace-action" aria-hidden="true">
                     {trayOpen ? "⌄ 접기" : "⌃ 펼치기"}
@@ -343,27 +537,21 @@ export function OperatorShell() {
                   hidden={trayPanel !== "tasks"}
                 >
                   <TaskRecoveryBanner />
-                  <TaskQueue />
+                  <WorkOrderQueue />
                 </div>
                 <div
-                  id="operator-control-content"
-                  className="task-workspace-content control-workspace"
-                  hidden={trayPanel !== "control"}
+                  id="operator-inventory-content"
+                  className="task-workspace-content"
+                  hidden={trayPanel !== "inventory"}
                 >
-                  {!movementAvailable ? (
-                    <div className="inline-alert warn operator-movement-warning" role="status">
-                      Movement 서버에 연결할 수 없습니다. 수동 조작과 맵 이동을 사용할 수 없습니다.
-                    </div>
-                  ) : null}
-                  <div className="operator-control-bar-inner">
-                    <Teleop
-                      robots={robots}
-                      disabled={!movementAvailable}
-                      isRobotEmergency={isRobotEmergency}
-                      keyboardEnabled={trayPanel === "control"}
-                    />
-                    <MapGotoOperate robots={robots} disabled={!movementAvailable} isRobotEmergency={isRobotEmergency} />
-                  </div>
+                  {trayPanel === "inventory" ? <InventoryView /> : null}
+                </div>
+                <div
+                  id="operator-records-content"
+                  className="task-workspace-content"
+                  hidden={trayPanel !== "records"}
+                >
+                  {trayPanel === "records" ? <Records variant="operate" /> : null}
                 </div>
               </div>
             </div>
@@ -419,7 +607,7 @@ export function OperatorShell() {
                   defaultOpen
                   className="robot-monitor-events"
                 >
-                  <EventFeed events={events} />
+                  <EventFeed events={events} limit={30} />
                 </CollapsiblePanel>
               </div>
             </div>

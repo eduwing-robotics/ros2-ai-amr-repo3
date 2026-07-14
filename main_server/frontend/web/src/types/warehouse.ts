@@ -94,7 +94,7 @@ export interface ItemChangeLogRecord {
 // --- 입출고 work order ---
 export type Operation = "inbound" | "outbound";
 
-export interface WorkOrderTask {
+export interface WorkOrderRobotTask {
   order_id: number;
   task_id: number;
   slot_id?: string | null;
@@ -114,6 +114,9 @@ export interface WorkOrderTask {
   parking_error?: JsonObject | null;
 }
 
+/** @deprecated Use WorkOrderRobotTask. */
+export type WorkOrderTask = WorkOrderRobotTask;
+
 export interface WorkOrder {
   order_id: number;
   operation: Operation | string;
@@ -123,7 +126,7 @@ export interface WorkOrder {
   created_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
-  tasks: WorkOrderTask[];
+  tasks: WorkOrderRobotTask[];
   mission_results?: JsonObject[];
   start_failed?: Array<{ task_id: number; detail: string | unknown }>;
   business_completed?: boolean;

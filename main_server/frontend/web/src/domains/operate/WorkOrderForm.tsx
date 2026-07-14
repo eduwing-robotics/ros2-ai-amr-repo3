@@ -181,10 +181,13 @@ export function WorkOrderForm({
   onClose,
   disabled,
   emergencyRobots = [],
+  onSubmitted,
 }: {
   onClose?: () => void;
   disabled?: boolean;
   emergencyRobots?: string[];
+  /** 생성 성공 시 호출 — 셸이 작업 큐 탭을 열어 피드백 루프를 잇는다. */
+  onSubmitted?: (order: WorkOrder) => void;
 }) {
   const { data: items = [], isLoading: itemsLoading, isError: itemsError } = useItems();
   const { data: inventory = [] } = useInventory();
@@ -312,6 +315,7 @@ export function WorkOrderForm({
         robotId,
       }));
       setResult(order);
+      onSubmitted?.(order);
       const reset = resetFormFields();
       setItemCode(reset.itemCode);
       setQuantity(reset.quantity);

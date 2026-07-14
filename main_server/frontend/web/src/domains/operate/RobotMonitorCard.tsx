@@ -3,7 +3,7 @@ import { Pill } from "../../components/Pill";
 import { CameraTile } from "../vision/LiveCamera";
 import { defaultView, viewsForSource } from "../vision/transport";
 import { RobotStatusDetails } from "./RobotStatusCard";
-import type { CameraSource, MovementHealth, Robot, Task } from "../../types";
+import type { CameraSource, MovementHealth, Robot, RobotTask } from "../../types";
 
 type Kind = "overlay" | "frame";
 
@@ -25,7 +25,7 @@ export function RobotMonitorCard({
   robot: Robot;
   cameras: CameraSource[];
   health?: MovementHealth;
-  tasks: Task[];
+  tasks: RobotTask[];
   emergency?: boolean;
   cameraOnline?: boolean;
 }) {

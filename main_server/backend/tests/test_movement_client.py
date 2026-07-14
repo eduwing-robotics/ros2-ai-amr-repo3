@@ -47,6 +47,7 @@ class HttpMovementClientTest(unittest.TestCase):
         body = json.loads(req.data.decode())
         self.assertEqual(body["robot_id"], "tb3_1")
         self.assertEqual(body["robot_name"], "tb3_1")
+        self.assertEqual(req.get_header("Idempotency-key"), "cmd-1")
 
     def test_robot_command_retries_on_unreachable(self) -> None:
         envelope = {"command_id": "cmd-2", "kind": "dock_transfer", "params": {}}

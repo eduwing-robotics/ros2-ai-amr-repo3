@@ -4,12 +4,12 @@
 
 상태: Active
 소유: Docs
-최종 갱신: 2026-07-13 13:59 KST
+최종 갱신: 2026-07-14 10:03 KST
 목적: 관제·이동·인식 경계, 입출고·오케스트레이션, 백엔드 레이어, 핵심 용어·레포 트리를 한 문서에 둔다.
 
 시스템은 Main·Movement·Vision 세 서버로 나뉜다. **Main**은 운영자 UI와 PostgreSQL을 소유하고 실행할 작업을 결정한다. **Movement**는 Nav2 주행·정밀 도킹·리프트를, **Vision**은 카메라 영상과 아루코 인식을 담당한다. Main은 입출고 단계를 계획하고 Movement 콜백과 폴링으로 진행을 추적한 뒤 재고를 반영한다.
 
-DB SoT·ERD: [DATABASE](DATABASE.md). API: [API](API.md). 연동: [INTERFACES](INTERFACES.md).
+DB SoT·ERD: [DATABASE](DATABASE.md). API: [API](API.md). 연동: [INTERFACES](INTERFACES.md). Movement 전달 요구: [MOVEMENT_SERVER_REQUIREMENTS](MOVEMENT_SERVER_REQUIREMENTS.md).
 
 ## 1. 토폴로지
 
@@ -107,8 +107,8 @@ sequenceDiagram
 flowchart LR
   Req[품목_수량] --> Plan[슬롯_존_계획]
   Plan --> WO[입출고_요청]
-  WO --> Tasks[작업]
-  Tasks --> Steps[작업_단계]
+  WO --> RobotTasks[로봇_작업]
+  RobotTasks --> Steps[로봇_작업_단계]
   Steps --> Mov[이동_서버]
 ```
 
@@ -132,7 +132,7 @@ flowchart TD
 - 슬롯·존은 기본적으로 자동 계획하되, 운영자가 직접 지정하면 그 값을 우선한다.
 - 재고는 목적지 `dock_transfer(unload)`가 완료된 시점에 멱등하게 반영한다. 이후 HOME 복귀·주차 실패는 완료된 물류 결과를 되돌리지 않는다.
 
-용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **task**와 이동/도킹 한 번 단위의 **step**으로 분해된다(§6).
+용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **robot task**와 이동/도킹 한 번 단위의 **robot task step**으로 분해된다(§6).
 
 ## 6. 작업 실행 흐름
 
@@ -243,8 +243,8 @@ flowchart TD
 | 이동 서버 | Movement | 로봇별 Nav2·도킹·리프트 |
 | 인식 서버 | Vision | 영상·아루코·위험 advisory |
 | 입출고 요청 | work order | 품목+수량 상위 요청 |
-| 작업 | task | work order에서 분해된 실행 단위 |
-| 작업 단계 | `steps[]` | 한 번의 이동/도킹 명령 단위 |
+| 로봇 작업 | `RobotTask` | work order에서 분해되어 한 로봇에 배정되는 실행 단위 |
+| 로봇 작업 단계 | `RobotTaskStep` / `steps[]` | robot task 안의 계획된 이동/도킹 단위 |
 | 단계 번호 | `step_index` | 현재 진행 중인 step 인덱스 |
 | 접근 대기 → 도킹 | gate | approach 도착(ARRIVED) 후 `dock_transfer` |
 | 대기점 / 작업점 | approach / dock | 도킹 전 멈추는 지점 vs 마커 앞 작업 지점 |
@@ -287,10 +287,10 @@ maps/            ROS map asset
 | 품질 속성 | 현재 설계 근거 | 남은 경계 |
 | --- | --- | --- |
 | 안전성 | 전역 ESTOP, 명령 차단, 자동 재개 금지, cargo 확인 복구 | 하드웨어 안전회로와 실장비 검증이 최종 기준 |
-| 일관성 | PostgreSQL transaction, command/step 멱등 처리, advisory lock | 외부 서버와의 분산 transaction은 없으며 폴링으로 수렴 |
+| 일관성 | transaction, command·robot·step 검증, callback event ID/sequence, advisory lock | 외부 서버와의 분산 transaction은 없으며 폴링으로 수렴 |
 | 회복성 | callback + 상태 폴링, 재시작 후 진행 task 재동기화 | Movement/Vision 장기 장애의 자동 복구 목표는 미정 |
 | 관측성 | health/ready/status, command trace, evidence·task·inventory logs | 중앙 로그·metric·alert와 SLO는 아직 없음 |
-| 보안 | 외부 주소·비밀값을 `.env`로 분리, 브라우저는 Main만 호출 | 애플리케이션 인증/RBAC와 TLS 종단은 아직 제공하지 않음 |
+| 보안 | 외부 주소·비밀값 분리, Movement callback shared token | 운영자 API 인증/RBAC와 TLS 종단은 아직 제공하지 않음 |
 | 성능 | health cache와 제한된 목록 조회 | 부하 시험과 응답시간·처리량 목표는 아직 없음 |
 
 따라서 현재 릴리스 범위는 신뢰된 개발·현장 네트워크의 포트폴리오 검증이다. 외부망 또는 다사용자 운영으로

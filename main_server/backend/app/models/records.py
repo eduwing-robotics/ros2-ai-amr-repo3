@@ -4,9 +4,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models.movement import MovementCommand
+from app.models.movement import RobotCommandRecord
 from app.models.robots import Robot
-from app.models.tasks import Task
+from app.models.tasks import RobotTask
 
 
 class CameraSource(BaseModel):
@@ -91,13 +91,16 @@ class EvidenceEventRecord(BaseModel):
     observed_at: str | None = None
 
 
-class StatusSnapshot(BaseModel):
+class ControlSystemStatusSnapshot(BaseModel):
     """LMS 관제 화면 snapshot."""
 
     system: dict[str, Any]
     movement_health: dict[str, dict[str, Any]] = Field(default_factory=dict)
     robots: list[Robot]
     camera_sources: list[CameraSource]
-    movement_commands: list[MovementCommand]
+    movement_commands: list[RobotCommandRecord]
     events: list[dict[str, Any]]
-    tasks: list[Task] = Field(default_factory=list)
+    tasks: list[RobotTask] = Field(default_factory=list)
+
+# Deprecated compatibility alias. Do not use in new code.
+StatusSnapshot = ControlSystemStatusSnapshot

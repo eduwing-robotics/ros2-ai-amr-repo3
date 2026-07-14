@@ -341,6 +341,12 @@
     /* 레터박스는 어두운 표면 토큰 — 다크에서 흰 사각형 금지 (Material dark) */
     .map-stage img { object-fit: contain; background: var(--map-letterbox); }
     .map-empty { height: 100%; display: flex; align-items: center; justify-content: center; color: var(--text-dim); }
+    /* 줌/팬 레이어 — img+svg 를 함께 변환. origin 0 0 기준 translate→scale (DashboardMap) */
+    .map-zoom-layer { position: absolute; inset: 0; transform-origin: 0 0; will-change: transform; }
+    .map-zoom-controls { position: absolute; right: 8px; bottom: 8px; z-index: 6; display: flex; flex-direction: column; gap: 4px; }
+    .map-zoom-controls button { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; padding: 0; font-size: 15px; font-weight: 700; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow); cursor: pointer; }
+    .map-zoom-controls button:hover:not(:disabled) { border-color: var(--border-strong); }
+    .map-zoom-controls button:disabled { opacity: .45; cursor: default; }
     .map-robot { fill: var(--blue); stroke: #fff; stroke-width: 2; transition: fill .3s, opacity .3s; }
     /* pose 신선도(ROS_POSE_BRIDGE.md): live 초록 / stale 주황 / lost 빨강+반투명 */
     .map-robot.live { fill: #16a34a; }
@@ -367,6 +373,8 @@
     .pose-chip.lost .pose-dot { background: var(--red); }
     .pose-chip.none { opacity: .7; }
     .pose-chip.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn-fg); }
+    .pose-legend-toggle { margin-right: 0; background: transparent; color: var(--text-muted); }
+    .pose-legend-toggle:hover { background: var(--btn-secondary-bg); }
     .runtime-badge { font-weight: 700; color: var(--accent, #2563eb); }
     .map-path { fill: none; stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; opacity: .8; vector-effect: non-scaling-stroke; }
     .map-path.mismatch, .nav-planned-path.mismatch .map-path { stroke: var(--amber); stroke-dasharray: 3 5; opacity: .95; }

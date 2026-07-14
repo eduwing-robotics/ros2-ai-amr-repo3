@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Ops
-최종 갱신: 2026-07-13 13:59 KST
+최종 갱신: 2026-07-13 19:23 KST
 목적: 실서버 실행·검증·ESTOP 복구와 추가 개발 정책의 단일 정본.
 
 Main은 PostgreSQL과 실제 Movement·Vision 서버만 사용한다. fake/mock 서버 실행 경로는 제공하지 않는다.
@@ -14,6 +14,10 @@ Main은 PostgreSQL과 실제 Movement·Vision 서버만 사용한다. fake/mock 
 IP·hostname·timeout은 코드에 넣지 않고 `main_server/.env`에서 관리한다.
 현재 개발 정책은 호스트에 설치한 PostgreSQL 16을 `localhost:5432`에서 사용한다. 컨테이너 기반
 개발·배포 환경은 브랜치 통합 후 별도 릴리스 작업에서 구성한다.
+
+실장비 릴리즈에서는 Main과 Movement의 `LMS_MOVEMENT_CALLBACK_TOKEN`을 같은 비어 있지 않은 값으로 설정한다.
+Movement는 callback마다 `X-Movement-Callback-Token`을 보내며, 활성 여부는
+`GET /api/v1/system/external-config`의 `movement.callback_auth_required`로 확인한다.
 
 ```bash
 cd main_server
@@ -142,7 +146,8 @@ Main 진단 표면은 `/movement/map-state`, `/movement/sync-status`, `/movement
 
 DB migration은 이전 SQL을 수정해 되돌리지 않고 forward fix를 우선한다. snapshot 복원은 이후 데이터를 잃을 수 있어
 현장 책임자 승인과 영향 확인 후 `scripts/db.sh`의 `restore`로 수행한다. `.env`와 DB dump는 Git에 올리지 않는다.
-현재 앱 자체 인증/RBAC·TLS·중앙 alert는 제공하지 않으므로 외부망 공개 배포 전 반드시 별도 구성한다.
+Movement callback에는 선택적 shared token 검증이 있다. 운영자 API의 인증/RBAC·TLS·중앙 alert는 제공하지 않으므로
+외부망 공개 배포 전 별도 구성하고, callback token도 비어 있지 않은지 확인한다.
 
 ## 7. 변경 규칙
 

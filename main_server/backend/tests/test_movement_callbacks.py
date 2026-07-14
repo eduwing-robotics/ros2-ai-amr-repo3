@@ -44,6 +44,19 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertEqual(kwargs["command_id"], "cmd-1")
         handle_event.assert_called_once_with(self.conn, payload)
 
+    @patch("app.domains.movement.router.orchestrator_service.handle_command_event")
+    @patch("app.domains.movement.router.event_repo")
+    def test_duplicate_event_id_is_acknowledged_without_reapply(self, event_repo, handle_event) -> None:
+        event_repo.return_value = self.event
+        self.event.callback_event_exists.return_value = True
+        result = callbacks.ingest_command_event(
+            self.conn,
+            {"command_id": "cmd-1", "robot_name": "r1", "event": "DONE", "event_id": "evt-1"},
+        )
+        self.assertTrue(result["duplicate"])
+        self.event.append.assert_not_called()
+        handle_event.assert_not_called()
+
     @patch("app.domains.movement.router.movement_repo")
     @patch("app.domains.movement.router.event_repo")
     def test_ingest_result_records_when_command_id_present(self, event_repo, movement_repo) -> None:
@@ -161,6 +174,7 @@ class MovementCallbackRouteTest(unittest.TestCase):
         conn = MagicMock()
         transaction_ctx.return_value.__enter__.return_value = conn
         payload = {"command_id": "cmd-x", "robot_name": "r1", "event": "DONE"}
+        ingest.return_value = {"message": "movement command event saved"}
 
         res = self.client.post("/api/v1/movement/command-events", json=payload)
 
@@ -169,13 +183,36 @@ class MovementCallbackRouteTest(unittest.TestCase):
         self.assertEqual(body["message"], "movement command event saved")
         ingest.assert_called_once_with(conn, payload)
 
+    def test_command_event_requires_command_robot_and_state(self) -> None:
+        res = self.client.post("/api/v1/movement/command-events", json={"task_id": 42, "event": "DONE"})
+        self.assertEqual(res.status_code, 422)
+
+    @patch("app.domains.movement.router.transaction")
+    @patch("app.domains.movement.router.ingest_command_event")
+    def test_callback_token_is_required_when_configured(self, ingest, transaction_ctx) -> None:
+        conn = MagicMock()
+        transaction_ctx.return_value.__enter__.return_value = conn
+        ingest.return_value = {"message": "movement command event saved"}
+        payload = {"command_id": "cmd-secure", "robot_name": "r1", "event": "RUNNING"}
+        configured = MagicMock(movement_callback_token="shared-secret")
+        with patch.object(callbacks, "settings", configured):
+            denied = self.client.post("/api/v1/movement/command-events", json=payload)
+            allowed = self.client.post(
+                "/api/v1/movement/command-events", json=payload, headers={"X-Movement-Callback-Token": "shared-secret"}
+            )
+        self.assertEqual(denied.status_code, 401)
+        self.assertEqual(allowed.status_code, 200)
+
     @patch("app.domains.movement.router.transaction")
     @patch("app.domains.movement.router.ingest_result")
     def test_results_route_shape(self, ingest, transaction_ctx) -> None:
         conn = MagicMock()
         transaction_ctx.return_value.__enter__.return_value = conn
+        ingest.return_value = {"message": "movement result saved"}
 
-        res = self.client.post("/api/v1/movement/results", json={"command_id": "c1", "result": "OK"})
+        res = self.client.post(
+            "/api/v1/movement/results", json={"command_id": "c1", "robot_name": "r1", "result": "OK"}
+        )
 
         self.assertEqual(res.status_code, 200)
         body = res.json()
@@ -222,7 +259,6 @@ class MovementCallbackRouteTest(unittest.TestCase):
         body = res.json()
         self.assertTrue(body["ok"])
         self.assertEqual(body["robots"][0]["robot_id"], "r1")
-
 
     @patch("app.domains.movement.router.transaction")
     @patch("app.domains.movement.router.clear_estop_all_robots")

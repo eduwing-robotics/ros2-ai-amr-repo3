@@ -1,7 +1,7 @@
 import { Pill } from "../../components/Pill";
 import { cell } from "../../lib/format";
 import { taskStatusLabel } from "./workOrderLabels";
-import type { MovementHealth, Robot, Task } from "../../types";
+import type { MovementHealth, Robot, RobotTask } from "../../types";
 
 const healthState = (h: MovementHealth) => (h.ok ? (h.dry_run ? "dry_run" : "online") : "offline");
 
@@ -17,7 +17,7 @@ function batteryClass(battery: number | null | undefined) {
   return "";
 }
 
-function taskForRobot(tasks: Task[], robotId: string, currentTaskId?: number | null) {
+function taskForRobot(tasks: RobotTask[], robotId: string, currentTaskId?: number | null) {
   if (currentTaskId) {
     const cur = tasks.find((t) => t.task_id === currentTaskId);
     if (cur) return cur;
@@ -35,7 +35,7 @@ export function RobotStatusDetails({
 }: {
   robot: Robot;
   health?: MovementHealth;
-  tasks: Task[];
+  tasks: RobotTask[];
   showBattery?: boolean;
 }) {
   const task = taskForRobot(tasks, robot.robot_id, robot.current_task_id);
@@ -74,7 +74,7 @@ export function RobotStatusCard({
 }: {
   robot: Robot;
   health?: MovementHealth;
-  tasks: Task[];
+  tasks: RobotTask[];
   emergency?: boolean;
 }) {
   return (

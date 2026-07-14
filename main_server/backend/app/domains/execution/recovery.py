@@ -56,10 +56,12 @@ def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
         "task_id": task_id,
         "status": task.get("status"),
         "orchestration_phase": phase,
-        "awaiting_operator": phase in {
+        "awaiting_operator": phase
+        in {
             orch_state.PHASE_AWAITING_OPERATOR,
             orch_state.PHASE_RECOVERY_RUNNING,
-        } or str(orch.get("phase") or "") in ACTIVE_RECOVERY_PHASES,
+        }
+        or str(orch.get("phase") or "") in ACTIVE_RECOVERY_PHASES,
         "assigned_robot_id": task.get("assigned_robot_id"),
         "last_command_id": active_recovery_cmd or (current_step or {}).get("command_id"),
         "last_leg_kind": (current_step or {}).get("kind"),
@@ -73,7 +75,10 @@ def list_awaiting_operator_tasks(conn, limit: int = 20) -> list[dict[str, Any]]:
     for task in evidence_runtime.list_orchestrated_running(conn, limit=limit):
         orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
         phase = orch_state.normalize_phase(str(orch.get("phase") or ""))
-        if phase in {orch_state.PHASE_AWAITING_OPERATOR, orch_state.PHASE_RECOVERY_RUNNING} or str(orch.get("phase") or "") in ACTIVE_RECOVERY_PHASES:
+        if (
+            phase in {orch_state.PHASE_AWAITING_OPERATOR, orch_state.PHASE_RECOVERY_RUNNING}
+            or str(orch.get("phase") or "") in ACTIVE_RECOVERY_PHASES
+        ):
             out.append(get_recovery_context(conn, int(task["task_id"])))
     return out
 
@@ -110,16 +115,18 @@ def preview_recovery_plan(
 
     steps: list[dict[str, Any]] = []
     safe = _safe_zone_location(conn)
-    steps.append({
-        "kind": "move_to_point",
-        "label": f"safe:{safe.get('slot_id') or safe.get('location_id')}",
-        "params": {
-            "map_id": settings.movement_active_map_id,
-            "x": float(safe["x"]),
-            "y": float(safe["y"]),
-            "yaw": float(safe.get("yaw") or 0.0),
-        },
-    })
+    steps.append(
+        {
+            "kind": "move_to_point",
+            "label": f"safe:{safe.get('slot_id') or safe.get('location_id')}",
+            "params": {
+                "map_id": settings.movement_active_map_id,
+                "x": float(safe["x"]),
+                "y": float(safe["y"]),
+                "yaw": float(safe.get("yaw") or 0.0),
+            },
+        }
+    )
     return {
         "task_id": task_id,
         "strategy": strategy,
@@ -221,7 +228,7 @@ def execute_recovery(
     recovery["active_command_id"] = result.command_id
     recovery["active_command_kind"] = "move_to_point"
     orch["recovery"] = recovery
-    orch["phase"] = "RECOVERY_RUNNING"
+    orch_state.set_phase(orch, orch_state.PHASE_RECOVERY_RUNNING)
     evidence_runtime.save_orchestration(conn, task_id, orch)
     return {"task_id": task_id, "command_id": result.command_id, "accepted": result.accepted, "plan": plan}
 
@@ -238,12 +245,12 @@ def handle_recovery_command_event(
     if not task or task.get("status") != "RUNNING":
         return None
     orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
-    if str(orch.get("phase") or "") != "RECOVERY_RUNNING":
+    if orch_state.normalize_phase(orch.get("phase")) != orch_state.PHASE_RECOVERY_RUNNING:
         return None
     recovery = dict(orch.get("recovery") or {})
     active_command_id = recovery.get("active_command_id")
     event_command_id = event.get("command_id")
-    if active_command_id and event_command_id and str(event_command_id) != str(active_command_id):
+    if not active_command_id or not event_command_id or str(event_command_id) != str(active_command_id):
         return None
     event_name = str(event.get("event") or event.get("state") or event.get("status") or "").upper()
     if event_name not in RECOVERY_TERMINAL_EVENTS:
@@ -271,7 +278,7 @@ def poll_recovery_tasks(conn) -> int:
     advanced = 0
     for task in evidence_runtime.list_orchestrated_running(conn):
         orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
-        if str(orch.get("phase") or "") != "RECOVERY_RUNNING":
+        if orch_state.normalize_phase(orch.get("phase")) != orch_state.PHASE_RECOVERY_RUNNING:
             continue
         recovery = orch.get("recovery") or {}
         command_id = recovery.get("active_command_id")
@@ -341,6 +348,7 @@ def _abort_recovery_task(
     task_repo(conn).set_status(task_id, "CANCELLED", clear_robot=True)
     if robot_id:
         from app.db.mvp import robot_repo
+
         robot_repo(conn).set_task(str(robot_id), "IDLE", None)
         person_hazard.on_robot_task_terminal(str(robot_id))
     orch = evidence_repo(conn).get_orchestration(task_id) or {}

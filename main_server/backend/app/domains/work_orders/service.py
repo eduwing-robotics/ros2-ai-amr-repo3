@@ -123,12 +123,12 @@ def stop_work_order(conn, order_id: int) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="work_order_stop_requires_running")
     robot_id = task.get("assigned_robot_id")
     orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
-    execution = orch_state.ExecutionState.wrap(orch)
+    execution = orch_state.RobotTaskExecutionState.wrap(orch)
     steps = orch_state.get_steps(orch)
     step_index = orch_state.get_step_index(orch)
     step = steps[step_index] if 0 <= step_index < len(steps) else {}
     command_id = step.get("command_id")
-    if not robot_id or not command_id or str(step.get("status") or "") != "dispatched":
+    if not robot_id or not command_id or not orch_state.is_dispatched_robot_task_step(step):
         raise HTTPException(status_code=409, detail="work_order_has_no_active_command")
 
     try:
@@ -139,7 +139,7 @@ def stop_work_order(conn, order_id: int) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     cargo_state = "EMPTY" if execution.business_completed else _cargo_state(steps)
-    execution.phase = "CANCEL_REQUESTED"
+    execution.phase = orch_state.PHASE_CANCEL_REQUESTED
     orch["stop_request"] = {
         "command_id": str(command_id),
         "robot_id": str(robot_id),
@@ -245,15 +245,15 @@ def _active_command_id(conn, task_id: int) -> str | None:
     if not task:
         return None
     orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
-    execution = orch_state.ExecutionState.wrap(orch)
+    execution = orch_state.RobotTaskExecutionState.wrap(orch)
     recovery = execution.recovery
-    if execution.phase == "RECOVERY_RUNNING" and recovery.get("active_command_id"):
+    if execution.phase == orch_state.PHASE_RECOVERY_RUNNING and recovery.get("active_command_id"):
         return str(recovery["active_command_id"])
     steps = orch_state.get_steps(orch)
     step_index = orch_state.get_step_index(orch)
     if 0 <= step_index < len(steps):
         step = steps[step_index]
-        if step.get("status") == "dispatched" and step.get("command_id"):
+        if orch_state.is_dispatched_robot_task_step(step) and step.get("command_id"):
             return str(step["command_id"])
     return None
 
@@ -265,7 +265,7 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
     operation = task["task_type"].lower()
     enriched = evidence_runtime.attach_orchestration(task, conn) or task
     orchestration = (enriched.get("preset_snapshot") or {}).get("_orchestration") or {}
-    execution = orch_state.ExecutionState.wrap(orchestration)
+    execution = orch_state.RobotTaskExecutionState.wrap(orchestration)
     business_completed = execution.business_completed
     return_status = execution.return_status
     parking_error = orchestration.get("parking_error")

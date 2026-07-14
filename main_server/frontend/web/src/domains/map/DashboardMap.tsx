@@ -55,17 +55,110 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
   const map = maps[0] ?? null;
   const runtimeMismatch = isMapRuntimeMismatch(map);
   const renderMap = map;
-  const { stageRef, overlayReady, u } = useMapStageOverlay(renderMap?.width, renderMap?.height);
+  const { stageRef, overlayReady, u: baseU } = useMapStageOverlay(renderMap?.width, renderMap?.height);
+
+  // 줌/팬 — img+svg 를 감싼 레이어에 translate→scale(origin 0 0). z≥1 이므로 팬은 스테이지가 항상 덮이게 클램프.
+  const zoomLayerRef = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState({ z: 1, x: 0, y: 0 });
+  const viewRef = useRef(view);
+  useEffect(() => { viewRef.current = view; }, [view]);
+  const panRef = useRef<null | { sx: number; sy: number; ox: number; oy: number }>(null);
+
+  const clampPan = (z: number, x: number, y: number, rect: { width: number; height: number }) => ({
+    x: Math.min(0, Math.max(rect.width * (1 - z), x)),
+    y: Math.min(0, Math.max(rect.height * (1 - z), y)),
+  });
+
+  // 커서(또는 지정점) 기준 줌 — 줌 후에도 기준점 아래 지도가 유지되게 역보정.
+  const zoomAt = (factor: number, cx?: number, cy?: number) => {
+    const el = stageRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const px = cx ?? rect.width / 2;
+    const py = cy ?? rect.height / 2;
+    setView((v) => {
+      const nz = Math.min(8, Math.max(1, v.z * factor));
+      if (nz === v.z) return v;
+      const k = nz / v.z;
+      const { x, y } = clampPan(nz, px - (px - v.x) * k, py - (py - v.y) * k, rect);
+      return { z: nz, x, y };
+    });
+  };
+  const resetView = () => setView({ z: 1, x: 0, y: 0 });
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    // React onWheel 은 preventDefault 를 보장하지 않으므로 non-passive 로 직접 부착.
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX - rect.left, e.clientY - rect.top);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const pan = panRef.current;
+      const el = stageRef.current;
+      if (!pan || !el) return;
+      const rect = el.getBoundingClientRect();
+      setView((v) => ({ ...v, ...clampPan(v.z, pan.ox + (e.clientX - pan.sx), pan.oy + (e.clientY - pan.sy), rect) }));
+    };
+    const onUp = () => { panRef.current = null; };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    return () => { document.removeEventListener("pointermove", onMove); document.removeEventListener("pointerup", onUp); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 맵 전환 시 저장된 뷰 복원(없으면 fit) — 줌/팬 상태 지속은 Foxglove Map 패널 패턴.
+  useEffect(() => {
+    if (!map?.map_id) return;
+    let next = { z: 1, x: 0, y: 0 };
+    try {
+      const raw = localStorage.getItem(`dash.mapView.${map.map_id}`);
+      if (raw) {
+        const v = JSON.parse(raw);
+        if (Number.isFinite(v?.z) && Number.isFinite(v?.x) && Number.isFinite(v?.y) && v.z >= 1 && v.z <= 8) {
+          next = { z: v.z, x: v.x, y: v.y };
+          const el = stageRef.current;
+          if (el) next = { z: next.z, ...clampPan(next.z, next.x, next.y, el.getBoundingClientRect()) };
+        }
+      }
+    } catch { /* storage 불가 시 fit */ }
+    setView(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map?.map_id]);
+
+  useEffect(() => {
+    if (!map?.map_id) return;
+    try { localStorage.setItem(`dash.mapView.${map.map_id}`, JSON.stringify(view)); } catch { /* ignore */ }
+  }, [view, map?.map_id]);
+
+  // 마커를 화면 px 고정으로 유지 — 줌 배율만큼 svg 단위를 되돌린다.
+  const u = baseU / view.z;
 
   useEffect(() => {
     if (!gotoMode || !gotoCtx || !map?.map_id) return;
     gotoCtx.setMapId(map.map_id);
   }, [gotoMode, gotoCtx, map?.map_id]);
 
-  const onGotoStageDown = (e: React.PointerEvent) => {
-    if (!gotoMode || !gotoCtx || !renderMap || !stageRef.current) return;
+  const onStagePointerDown = (e: React.PointerEvent) => {
     if ((e.target as Element).closest("[data-goto-target], [data-map-overlay]")) return;
-    const px = clientToPixel(stageRef.current, renderMap, e.clientX, e.clientY);
+    // 미들버튼(goto 불가 상태에선 좌클릭도) 드래그 = 팬.
+    if (e.button === 1 || (e.button === 0 && !gotoMode)) {
+      e.preventDefault();
+      panRef.current = { sx: e.clientX, sy: e.clientY, ox: viewRef.current.x, oy: viewRef.current.y };
+      return;
+    }
+    if (e.button !== 0) return;
+    if (!gotoMode || !gotoCtx || !renderMap || !zoomLayerRef.current) return;
+    // 좌표 변환은 줌/팬이 반영된 레이어 rect 기준 (contain 수식은 균등 스케일에 불변).
+    const px = clientToPixel(zoomLayerRef.current, renderMap, e.clientX, e.clientY);
     if (!px) return;
     const w = pixelToWorld(renderMap, px.x, px.y);
     // 새 지점을 찍어도 기존 방향은 유지하고, 바로 위치 드래그를 시작한다.
@@ -77,7 +170,7 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
   useEffect(() => {
     if (!gotoMode || !setGotoTarget || !renderMap) return;
     const onMove = (e: PointerEvent) => {
-      const stage = stageRef.current;
+      const stage = zoomLayerRef.current;
       if (!stage || !dragKind.current) return;
       const px = clientToPixel(stage, renderMap, e.clientX, e.clientY);
       if (!px) return;
@@ -148,6 +241,20 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
   const posedIds = useMemo(() => new Set(poses.map((p) => p.robot_id)), [poses]);
   const missing = robots.filter((r) => !posedIds.has(r.robot_id));
 
+  // 레전드는 기본 이상 상태만 노출(점진적 노출) — 좌표 등 상세는 '상세 보기'에서.
+  const [showAllPoses, setShowAllPoses] = useState(false);
+  const legendRows = poses.map((p) => {
+    const { state, ageSec } = poseFreshness(p.received_at, nowMs, p.age_sec);
+    const sync = syncByRobot.get(p.robot_id);
+    const localized = sync?.localized === false ? "not localized" : sync?.localized ? "localized" : null;
+    const reason = sync?.reason && sync.reason !== "ok" ? sync.reason : null;
+    const oob = poseOutOfBounds(p) ? "지도 범위 밖" : null;
+    const mismatchHint = runtimeMismatch ? "좌표계 불일치" : null;
+    const abnormal = state !== "live" || sync?.localized === false || Boolean(oob || mismatchHint || reason);
+    return { p, state, ageSec, localized, reason, oob, mismatchHint, abnormal };
+  });
+  const normalPoseCount = legendRows.filter((r) => !r.abnormal).length;
+
   return (
     <CollapsiblePanel title="맵 / 로봇 위치">
       <div className="toolbar">
@@ -162,9 +269,18 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
           {map ? `로봇 ${poses.length}` : "맵 없음"}
         </span>
       </div>
-      <div className={`map-stage map-stage-lg${gotoMode ? " goto-mode" : ""}${runtimeMismatch ? " mismatch" : ""}`} ref={stageRef} onPointerDown={gotoMode ? onGotoStageDown : undefined}>
+      <div
+        className={`map-stage map-stage-lg${gotoMode ? " goto-mode" : ""}${runtimeMismatch ? " mismatch" : ""}`}
+        ref={stageRef}
+        onPointerDown={onStagePointerDown}
+      >
         {!renderMap ? <div className="map-empty">맵 데이터 없음</div> : (
           <>
+            <div
+              className="map-zoom-layer"
+              ref={zoomLayerRef}
+              style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}
+            >
             {renderMap.image_url ? <img src={renderMap.image_url} alt={renderMap.name} /> : null}
             <svg viewBox={`0 0 ${renderMap.width || 1000} ${renderMap.height || 800}`} preserveAspectRatio="xMidYMid meet">
               {overlayReady && layers.showArrows ? <ApproachRouteOverlay map={renderMap} zones={zones} /> : null}
@@ -262,6 +378,7 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
                 </g>
               ) : null}
             </svg>
+            </div>
             <MapLayersPopover
               layers={layers}
               colors={ZONE_COLOR}
@@ -269,6 +386,11 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
               visibleCount={visibleZones.length}
               totalCount={zones.length}
             />
+            <div className="map-zoom-controls" data-map-overlay>
+              <button type="button" onClick={() => zoomAt(1.4)} title="확대" aria-label="맵 확대">＋</button>
+              <button type="button" onClick={() => zoomAt(1 / 1.4)} title="축소" aria-label="맵 축소" disabled={view.z <= 1}>−</button>
+              <button type="button" onClick={resetView} title="화면 맞춤(줌 초기화)" aria-label="화면 맞춤" disabled={view.z <= 1}>⤢</button>
+            </div>
           </>
         )}
       </div>
@@ -278,24 +400,24 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
         {!map.image_url && !assetWarning ? <div className="inline-alert">맵 배경 이미지 없음 — pose만 runtime 좌표로 표시됩니다.</div> : null}
         {zones.length === 0 ? <div className="inline-alert">선택한 맵에는 등록된 마커가 없습니다. 맵 선택에서 marker 수가 있는 맵을 선택하세요.</div> : null}
         <div className="pose-legend">
-          {poses.map((p) => {
-            const { state, ageSec } = poseFreshness(p.received_at, nowMs, p.age_sec);
-            const sync = syncByRobot.get(p.robot_id);
-            const localized = sync?.localized === false ? "not localized" : sync?.localized ? "localized" : null;
-            const reason = sync?.reason && sync.reason !== "ok" ? sync.reason : null;
-            const oob = poseOutOfBounds(p) ? "지도 범위 밖" : null;
-            const mismatchHint = runtimeMismatch ? "좌표계 불일치" : null;
-            return (
+          {legendRows
+            .filter((row) => showAllPoses || row.abnormal)
+            .map(({ p, state, ageSec, localized, reason, oob, mismatchHint }) => (
               <span key={p.robot_id} className={`pose-chip ${state}${oob || mismatchHint ? " warn" : ""}`} title={p.received_at ?? ""}>
                 <i className="pose-dot" /> {p.robot_id}
                 {mismatchHint ? ` · ${mismatchHint}` : ""}
                 {oob ? ` · pose 수신됨 · ${oob}` : ""}
                 {localized ? ` · ${localized}` : ""}
                 {reason ? ` · ${reason}` : ""}
-                {" · "}x {p.x.toFixed(2)} · y {p.y.toFixed(2)} · yaw {(((p.yaw || 0) * 180) / Math.PI).toFixed(1)}° · {agoLabel(ageSec)}
+                {showAllPoses ? ` · x ${p.x.toFixed(2)} · y ${p.y.toFixed(2)} · yaw ${(((p.yaw || 0) * 180) / Math.PI).toFixed(1)}°` : ""}
+                {` · ${agoLabel(ageSec)}`}
               </span>
-            );
-          })}
+            ))}
+          {!showAllPoses && normalPoseCount > 0 ? (
+            <span className="pose-chip live" title="pose 정상 수신 중 — 좌표는 상세 보기에서">
+              <i className="pose-dot" /> 정상 {normalPoseCount}대
+            </span>
+          ) : null}
           {missing.map((r) => {
             const sync = syncByRobot.get(r.robot_id);
             const hint = sync?.reason && sync.reason !== "ok" ? sync.reason : "pose 없음";
@@ -306,7 +428,14 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
             </span>
             );
           })}
-          {poses.length === 0 && missing.length === 0 ? <span className="rowcount">로봇 없음</span> : null}
+          {/* 주의: 전역 .ghost 는 Teleop 자리채움(visibility:hidden)이라 토글엔 쓰지 않는다 */}
+          {poses.length + missing.length > 0 ? (
+            <button type="button" className="rowbtn pose-legend-toggle" onClick={() => setShowAllPoses((v) => !v)}>
+              {showAllPoses ? "간단히" : "상세 보기"}
+            </button>
+          ) : (
+            <span className="rowcount">로봇 없음</span>
+          )}
         </div>
         </>
       ) : null}

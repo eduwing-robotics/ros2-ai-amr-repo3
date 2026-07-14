@@ -35,11 +35,13 @@ class OrchestratorUnfoldLegsTest(unittest.TestCase):
         conn = MagicMock()
         scenario = {
             "map_id": "map1",
-            "steps": [{
-                "seq": 1,
-                "action_type": "dock_transfer",
-                "params": {"aruco_marker_id": 7, "action": "load", "level": 1},
-            }],
+            "steps": [
+                {
+                    "seq": 1,
+                    "action_type": "dock_transfer",
+                    "params": {"aruco_marker_id": 7, "action": "load", "level": 1},
+                }
+            ],
         }
         with patch.object(evidence_runtime, "waypoint_repo"):
             steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
@@ -92,6 +94,52 @@ class SeedCursorTest(unittest.TestCase):
         self.assertEqual(orchestrator._seed_cursor(self.LEGS, 2), 1)
         self.assertEqual(orchestrator._seed_cursor(self.LEGS, 5), 4)
         self.assertEqual(orchestrator._seed_cursor(self.LEGS, 6), 5)
+
+
+class CallbackConsistencyTest(unittest.TestCase):
+    def test_wrong_robot_callback_does_not_reach_state_machine(self) -> None:
+        conn = MagicMock()
+        task = {"task_id": 1, "status": "RUNNING", "assigned_robot_id": "r1"}
+        with (
+            patch.object(orchestrator, "_task", return_value=task),
+            patch.object(orchestrator, "advance_on_command_event") as advance,
+        ):
+            result = orchestrator.handle_command_event(
+                conn, {"task_id": 1, "command_id": "cmd-1", "robot_name": "r2", "event": "DONE"}
+            )
+        self.assertIsNone(result)
+        advance.assert_not_called()
+
+    def test_older_sequence_does_not_reapply_command_event(self) -> None:
+        conn = MagicMock()
+        task = {
+            "task_id": 1,
+            "status": "RUNNING",
+            "assigned_robot_id": "r1",
+            "preset_snapshot": {
+                "_orchestration": {
+                    "phase": "RUNNING",
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "kind": "move_to_point",
+                            "status": "dispatched",
+                            "command_id": "cmd-1",
+                            "last_event_sequence": 2,
+                        }
+                    ],
+                }
+            },
+        }
+        with (
+            patch.object(orchestrator, "_task", return_value=task),
+            patch.object(orchestrator, "evidence_runtime") as evidence,
+        ):
+            result = orchestrator.advance_on_command_event(
+                conn, 1, {"command_id": "cmd-1", "event": "RUNNING", "sequence": 1}
+            )
+        self.assertIsNone(result)
+        evidence.record_movement_evidence.assert_not_called()
 
 
 if __name__ == "__main__":

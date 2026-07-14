@@ -134,7 +134,7 @@ export interface RobotNavState {
 }
 
 // --- 이동 명령 기록 ---
-export interface MovementCommand {
+export interface RobotCommandRecord {
   command_id: string;
   robot_id: string;
   command_type: string;
@@ -145,8 +145,11 @@ export interface MovementCommand {
   created_at: string;
 }
 
-// --- 작업(task) ---
-export interface Task {
+/** @deprecated Use RobotCommandRecord. */
+export type MovementCommand = RobotCommandRecord;
+
+// --- 로봇 작업 ---
+export interface RobotTask {
   task_id: number;
   task_type: string;
   preset_name?: string | null;
@@ -160,7 +163,7 @@ export interface Task {
   updated_at?: string | null;
 }
 
-export interface TaskCreate {
+export interface RobotTaskCreate {
   task_type?: string;
   preset_id?: string | null;
   preset_name?: string | null;
@@ -169,6 +172,11 @@ export interface TaskCreate {
   to_location?: string | null;
   created_by?: string | null;
 }
+
+/** @deprecated Use RobotTask. */
+export type Task = RobotTask;
+/** @deprecated Use RobotTaskCreate. */
+export type TaskCreate = RobotTaskCreate;
 
 // --- 수동 이동(teleop) ---
 export type TeleopCommand =
@@ -194,7 +202,7 @@ export interface MovementCommandTrace {
   command_id: string;
   robot_id?: string | null;
   state?: string | null;
-  command?: MovementCommand | null;
+  command?: RobotCommandRecord | null;
   callbacks: JsonObject[];
   callback_count: number;
   last_callback_at?: string | null;

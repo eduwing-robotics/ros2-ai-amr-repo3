@@ -5,7 +5,7 @@ import { FilterableTable } from "../../components/FilterableTable";
 import { Pill } from "../../components/Pill";
 import { cell, eventDotClass, eventTypeLabel, formatServerTime, shortId } from "../../lib/format";
 import { useEvents, useItemChangeLogs, useMovementCommandRecords, useTaskLogs } from "./useEvents";
-import type { ItemChangeLogRecord, MovementCommand, TaskLogRecord } from "../../types";
+import type { ItemChangeLogRecord, RobotCommandRecord, TaskLogRecord } from "../../types";
 import type { TimelineEvent } from "./useEvents";
 
 const PAGE_SIZE = 25;
@@ -100,11 +100,11 @@ function TasksTab() {
   );
 }
 
-function MovementTab({ rows }: { rows: MovementCommand[] }) {
+function MovementTab({ rows }: { rows: RobotCommandRecord[] }) {
   const [page, setPage] = useState(1);
   const pageRows = paginate(rows, page);
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const columns: Column<MovementCommand>[] = [
+  const columns: Column<RobotCommandRecord>[] = [
     { header: "시각", className: "mono", cell: (r) => <span title={r.created_at}>{formatServerTime(r.created_at)}</span> },
     { header: "로봇", cell: (r) => r.robot_id },
     { header: "명령", cell: (r) => r.command },

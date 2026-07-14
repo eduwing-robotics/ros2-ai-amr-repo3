@@ -18,20 +18,24 @@ export interface ModeDef {
 const item = (route: string, label: string): NavItem => ({ key: route, label, route });
 
 const RECORDS = item("records/events", "기록");
-/** 운영 입출고 — 관제 맵 위 문맥 패널로 진입. */
+/** 운영 입출고 — 실행 계열: 좌측 문맥 드로어(세로 폼). */
 const INOUT = item("operate/control?drawer=inout", "입출고");
-/** 운영 작업 — 관제 맵 아래 전폭 워크스페이스를 펼친다. */
+/** 운영 수동 조작·맵 이동 — 실행 계열: 좌측 드로어(맵 가시성 보존). */
+const CONTROL = item("operate/control?drawer=control", "조작");
+/** 운영 작업 — 조회 계열: 맵 아래 전폭 워크스페이스 탭. */
 const TASKS = item("operate/control?panel=tasks", "작업");
-/** 운영 재고(읽기전용) — 기록처럼 드로어로 진입. */
-const INVENTORY = item("operate/control?drawer=inventory", "재고");
+/** 운영 재고(읽기전용) — 조회 계열: 하단 전폭 탭(와이드 테이블). */
+const INVENTORY = item("operate/control?panel=inventory", "재고");
 
-/** 운영 슬림 네비 (OperatorShell). 입출고·재고·기록은 관제 문맥 드로어로 진입. */
+/** 운영 슬림 네비 (OperatorShell).
+    역할 규칙 — 드로어(좌) = 실행(폼·컨트롤), 하단 탭 = 조회(테이블·이력). */
 export const OPERATE_SLIM_NAV: NavItem[] = [
   item("operate/control", "관제"),
   INOUT,
+  CONTROL,
   TASKS,
   INVENTORY,
-  item("operate/control?drawer=records", "기록"),
+  item("operate/control?panel=records", "기록"),
 ];
 
 export const MODES: ModeDef[] = [

@@ -4,7 +4,7 @@
 
 상태: Active
 소유: Integration
-최종 갱신: 2026-07-13 13:59 KST
+최종 갱신: 2026-07-14 10:03 KST
 목적: **Main 서버 기준** 외부 HTTP 계약 — Movement/Vision 경계, robot-commands, 콜백, lift-load evidence.
 
 Main 서버와 다른 서버(Movement·Vision) 사이의 HTTP 계약을 정의한다. Main이 호출하는 API, 수신하는 콜백,
@@ -194,7 +194,9 @@ POST http://<main>:8088/api/v1/movement/command-events
   "state": "RUNNING",
   "message": "navigation started",
   "pose": {"frame_id": "map", "x": 0.1, "y": 0.2, "yaw": 0.0, "age_sec": 0.2},
-  "reported_at": "2026-06-18T10:40:00Z"
+  "reported_at": "2026-06-18T10:40:00Z",
+  "event_id": "tb3_1:coord-…:2",
+  "sequence": 2
 }
 ```
 
@@ -206,12 +208,23 @@ POST http://<main>:8088/api/v1/movement/command-events
 | `robot_name` 또는 `robot_id` | string | 예 | Main registry의 로봇 식별자 |
 | `event` 또는 `state` | enum string | 예 | `ACCEPTED`, `RUNNING`, `DONE`, `FAILED` 등 |
 | `message` | string | 아니요 | 운영자·진단용 설명 |
+| `event_id` | string | 권장 | callback 재전송 중복 제거 키 |
+| `sequence` | integer ≥ 0 | 권장 | command별 단조 증가 순서. 작거나 같은 값은 상태 적용에서 무시 |
 | `pose` | object | 아니요 | `frame_id`, `x`, `y`, `yaw`, 선택 `age_sec` |
 | `reported_at` | RFC 3339 UTC datetime | 아니요 | Movement 발생 시각 |
 
-추가 필드는 원본 payload에 보존한다. Main은 `command_id`와 현재 step 상태를 기준으로 업무 전진을 멱등 처리한다.
+추가 필드는 원본 payload에 보존한다. Main은 `command_id`·배정 robot·현재 step을 모두 대조하고, `event_id` 중복과
+`sequence` 역행을 상태 적용에서 제외한다. 필수 필드 누락은 `422`, 설정된 callback token 불일치는 `401`이다.
+
+
+릴리즈 환경에서는 Main과 Movement에 같은 `LMS_MOVEMENT_CALLBACK_TOKEN`을 설정하고 Movement가 모든 callback에
+`X-Movement-Callback-Token` 헤더를 보낸다. Main token이 비어 있으면 로컬 개발 호환 모드로 인증을 강제하지 않는다.
+성공 ACK는 `ok`, `message`, `duplicate`, `task_advanced`를 반환한다. 중복 callback도 `200 duplicate=true`로 응답해
+Movement의 불필요한 재전송을 끝낸다.
 
 Main은 callback 누락을 가정하고 `GET /robot-commands/{id}`로 보정한다.
+
+상세 구현 요구는 [MOVEMENT_SERVER_REQUIREMENTS](MOVEMENT_SERVER_REQUIREMENTS.md)를 따른다.
 
 추가 inbound: `POST /api/v1/movement/results` · `/movement/robots/{name}/status` · pose report (`/robot-poses/report`, `/robots/{id}/pose`, `/movement/missions/{id}/pose`).
 
@@ -227,6 +240,10 @@ Main 진단 API: `GET /api/v1/movement/map-state` · `/sync-status` · `/robots/
 
 Main `POST /api/v1/robot-commands`는 `domains/movement/commands.py`가 소유한다. Movement 네이티브 envelope가
 없으면 legacy route로 조용히 대체하지 않고 `501 movement_robot_commands_api_missing`으로 드러낸다.
+
+요청 헤더 `Idempotency-Key`는 body의 `command_id`와 같다. Movement는 같은 key와 같은 payload의 재전송에는 기존
+명령 상태를 반환하고 새 동작을 시작하지 않아야 하며, 같은 key에 다른 payload가 오면 `409`를 반환해야 한다.
+이 계약이 없으면 Main의 primary→fallback 전환 중 응답 유실이 중복 주행으로 이어질 수 있다.
 
 실행 중 command 취소는 `POST /robot-commands/{command_id}/cancel`을 사용한다. Main은 운영자의 안전 중단 요청에
 이 endpoint를 즉시 호출하고 `202 CANCEL_REQUESTED`를 반환한다. Movement는 실제 정지 후
@@ -307,14 +324,14 @@ ESTOP callback을 정규화한다. Movement가 지원하지 않는 kind는 Main�
 
 상태: Draft (record-only MVP).
 
-`dock_transfer` DONE 후 Vision evaluate를 1회 실행해 `evidence_events`에 저장한다. Vision 평가 결과는 기록용이며 task 전진을 차단하지 않는다.
+`dock_transfer` DONE 후 Vision evaluate를 1회 실행해 `evidence_events`에 저장한다. Vision 평가 결과는 기록용이며 robot task 전진을 차단하지 않는다.
 
 ```http
 POST {LMS_VISION_API_BASE_URL}/api/v1/vision/evidence/lift-load/evaluate
 ```
 
 요청 핵심: `source`, `robot_id`, `operation`(`PICK_UP`\|`DROP_OFF`), `expected_item_id`, `expected_marker_id`(20..49), `expected_item_count`, `vision_zone_id`.
-응답: `result`(`PASS`/`FAIL`/`UNCERTAIN`/`NO_DECISION`) + `event`. HTTP 오류 → `LIFT_LOAD_EVIDENCE_ERROR` 기록, task 계속.
+응답: `result`(`PASS`/`FAIL`/`UNCERTAIN`/`NO_DECISION`) + `event`. HTTP 오류 → `LIFT_LOAD_EVIDENCE_ERROR` 기록, robot task 계속.
 
 Zone 예: `inbound_static_item_zone` · `outbound_static_item_zone` · `storage_upper_static_item_zone` · `storage_lower_static_item_zone`.
 
