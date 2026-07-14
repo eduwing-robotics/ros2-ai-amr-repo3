@@ -17,7 +17,7 @@ from app.domains.movement.client import movement_client
 from app.domains.movement.health import battery_from_health, get_movement_health
 from app.domains.vision.cameras import apply_camera_stream_defaults, camera_system_config
 from app.domains.vision.client import fetch_camera_health
-from app.models.schemas import CameraSource, MovementCommand, Robot, StatusSnapshot, Task
+from app.models.schemas import CameraSource, ControlSystemStatusSnapshot, Robot, RobotCommandRecord, RobotTask
 
 router = APIRouter(tags=["system"])
 
@@ -30,8 +30,7 @@ def _sync_battery_from_health(robots: list[Robot], health: dict) -> None:
     updates = {
         robot.robot_id: pct
         for robot in robots
-        if (pct := battery_from_health(health.get(robot.robot_id) or {})) is not None
-        and pct != robot.battery
+        if (pct := battery_from_health(health.get(robot.robot_id) or {})) is not None and pct != robot.battery
     }
     if not updates:
         return
@@ -55,6 +54,8 @@ def external_config(request: Request) -> dict:
             "fallback_base_url": settings.movement_base_url,
             "base_urls": settings.movement_base_urls,
             "active_map_id": settings.movement_active_map_id,
+            "callback_auth_required": bool(settings.movement_callback_token),
+            "callback_auth_header": "X-Movement-Callback-Token",
         },
         "camera": {
             "host": settings.camera_host,
@@ -71,20 +72,20 @@ def external_config(request: Request) -> dict:
     }
 
 
-@router.get("/status", response_model=StatusSnapshot)
-def status() -> StatusSnapshot:
+@router.get("/status", response_model=ControlSystemStatusSnapshot)
+def status() -> ControlSystemStatusSnapshot:
     """LMS 첫 화면용 snapshot."""
     with transaction() as conn:
         robots = [Robot(**r) for r in robot_repo(conn).list()]
         cameras = apply_camera_stream_defaults([CameraSource(**c) for c in camera_repo(conn).list()])
-        commands = [MovementCommand(**c) for c in movement_repo(conn).list(limit=20)]
+        commands = [RobotCommandRecord(**c) for c in movement_repo(conn).list(limit=20)]
         events = event_repo(conn).list(limit=30)
-        tasks = [Task(**t) for t in task_repo(conn).list(limit=30)]
+        tasks = [RobotTask(**t) for t in task_repo(conn).list(limit=30)]
 
     movement_health = get_movement_health([robot.robot_id for robot in robots])
     _sync_battery_from_health(robots, movement_health)
 
-    return StatusSnapshot(
+    return ControlSystemStatusSnapshot(
         system={
             "mode": "MANUAL",
             "movement_mode": movement_client.mode,

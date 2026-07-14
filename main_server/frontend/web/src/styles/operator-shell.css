@@ -38,6 +38,9 @@
 .slim-nav button:hover { background: rgba(255,255,255,.12); color: #fff; }
 .slim-nav button.active { background: var(--operator); color: #fff; }
 
+/* 실행(드로어) ↔ 조회(하단 탭) 그룹 구분선 */
+.slim-nav-sep { height: 1px; margin: 4px 10px; background: rgba(255, 255, 255, .16); }
+
 .slim-nav-label { display: block; text-align: center; word-break: keep-all; overflow-wrap: anywhere; hyphens: auto; }
 .slim-nav button {
   position: relative;
@@ -116,6 +119,39 @@
   overflow: auto;
 }
 
+/* KPI 글랜스 스트립 — 평상시 저채도, 이상 시에만 좌보더 3px 강조(ISA-101 알람 위계, event-feed-row와 동일 문법) */
+.operator-kpi-strip {
+  flex: none;
+  display: grid;
+  /* KPI 카드 폭 170~240px 상한 + 좌측 정렬 (대시보드 그리드 관례: 카드 200~280px) */
+  grid-template-columns: repeat(auto-fill, minmax(170px, 240px));
+  justify-content: start;
+  gap: 8px;
+}
+.kpi-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  min-width: 0;
+  text-align: left;
+}
+.kpi-tile-btn { cursor: pointer; font: inherit; color: inherit; }
+.kpi-tile-btn:hover { background: var(--surface-2); }
+.kpi-tile-btn:focus-visible { outline: 2px solid var(--operator); outline-offset: -2px; }
+.kpi-label { font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--text-muted); }
+.kpi-value { font-size: 22px; font-weight: 600; line-height: 1.1; color: var(--text); }
+.kpi-value-sub { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.kpi-hint { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi-tile.warn { border-left-color: var(--amber); background: var(--warn-bg); }
+.kpi-tile.warn .kpi-hint { color: var(--warn-fg); }
+.kpi-tile.err { border-left-color: var(--red); background: var(--err-bg); }
+.kpi-tile.err .kpi-hint { color: var(--err-fg); }
+
 .operator-map-column {
   display: flex;
   flex-direction: column;
@@ -127,7 +163,9 @@
 
 /* : 맵 옆 전역 카메라 컬럼 — object-fit:contain 좌우 레터박스(거터)에 카메라를 붙여 죽은 공간 활용. */
 .operator-map-wrap {
-  flex: 1;
+  /* 맵 스테이지 높이 상한 — 리사이저(--operator-map-h)가 있으면 사용자 값 우선 */
+  --map-cap: var(--operator-map-h, clamp(360px, 62vh, 820px));
+  flex: 0 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: row;
@@ -136,13 +174,14 @@
 }
 .operator-map-stage-wrap {
   flex: 1;
-  min-width: 0;
+  /* 카메라 레일을 넓게 끌어도 맵 뷰포트 최소폭은 지킨다 (camrail 은 flex-shrink 로 양보) */
+  min-width: min(360px, 100%);
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 .operator-map-camrail {
-  flex: 0 0 var(--operator-cam-w, 280px);
+  flex: 0 1 var(--operator-cam-w, 280px);
   min-width: 0;
   min-height: 0;
   overflow: auto;
@@ -181,10 +220,25 @@
   .layout-resizer--cam { display: none; }
 }
 
-/* 운영 코크핏: 맵 패널을 flex로 채워 고정 58vh가 아래 밴드를 침범하지 않게 한다. */
-.operator-map-wrap .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.operator-map-wrap .panel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; min-width: 0; }
-.operator-map-wrap .map-stage { flex: 1; height: auto; min-height: 200px; max-height: none; }
+/* 운영 코크핏: 스테이지 = 뷰포트(Foxglove Map 패널 패턴) — 가로는 항상 전폭, 높이만 --map-cap.
+   지도는 캔버스 위에 떠 있고(레터박스 = 캔버스 톤) 부족분은 줌/팬으로 본다. */
+.operator-map-wrap .panel { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.operator-map-wrap .panel-body { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; min-width: 0; }
+.operator-map-wrap .map-stage {
+  flex: 0 1 var(--map-cap);
+  width: 100%;
+  height: auto;
+  min-height: 200px;
+  max-height: var(--map-cap);
+  /* 격자 대신 이미지 레터박스와 같은 톤 — 단일 캔버스로 읽히게 */
+  background-image: none;
+  background-color: var(--map-letterbox);
+}
+/* 카메라 레일이 맵 패널보다 길어져 행을 늘리지 않게 상한 동기화(+패널 크롬 여유).
+   ≤1100px 스택 모드의 max-height:260px 규칙을 덮지 않도록 넓은 화면에만 적용. */
+@media (min-width: 1101px) {
+  .operator-map-camrail { max-height: calc(var(--map-cap) + 80px); }
+}
 
 /* 맵 아래 작업 워크스페이스 — 접힌 요약 바와 전폭 데이터 테이블을 한 영역에서 전환한다. */
 .operator-insight-band {
@@ -200,9 +254,16 @@
   border-radius: var(--radius);
   background: var(--surface);
 }
+/* 열림 = 남는 세로를 페이지 하단 끝까지 채운다(기준 높이는 리사이저 var, 공간이 더 있으면 성장) */
+.operator-insight-band.open {
+  flex: 1 1 var(--operator-band-h, 300px);
+  height: auto;
+}
+/* 접힘 = VS Code 하단 패널처럼 바를 페이지 하단에 고정 */
 .operator-insight-band.collapsed {
   height: 48px;
   min-height: 48px;
+  margin-top: auto;
 }
 /* 트레이 바: VS Code 하단 패널처럼 작업/수동조작 탭을 한 48px 바에 담는다 */
 .task-tray-bar {
@@ -279,7 +340,6 @@
 }
 .task-workspace-content[hidden] { display: none; }
 .task-workspace-content > .panel { flex: 1; min-width: 0; min-height: 0; margin: 0; overflow: auto; }
-.task-workspace-content.control-workspace { padding: 8px 10px 10px; }
 .layout-resizer--band { flex: none; }
 @media (max-width: 900px) {
   .operator-insight-band.open { height: auto; min-height: 320px; }
@@ -353,10 +413,10 @@
 .rowbtn.ghost { background: transparent; color: var(--text-muted); padding: 4px 7px; }
 .rowbtn.ghost:hover { background: rgba(0, 0, 0, 0.07); }
 
-/* 수동 조작 탭 내부 2컬럼(Teleop | 맵 이동) */
+/* 수동 조작 — 드로어(세로 폼 존)에선 Teleop 위·맵 이동 아래로 쌓는다 */
 .operator-control-bar-inner {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 10px;
   align-items: start;
 }
@@ -478,7 +538,8 @@
 .robot-monitor-camera-toggle { align-self: flex-end; margin-top: 4px; }
 .robot-monitor-details { font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
 .cam-tile-foot { display: flex; justify-content: flex-end; font-size: 11px; }
-.robot-monitor-events .event-feed { max-height: 32vh; min-height: 80px; }
+/* 알람 피드는 rail-region--alarm 이 주는 잔여 세로를 그대로 채운다 (고정 vh 캡 없음) */
+.robot-monitor-events .event-feed { max-height: none; min-height: 80px; resize: none; }
 
 .emergency-banner { font-weight: 600; }
 
@@ -505,14 +566,15 @@
   min-height: 0;
 }
 .rail-region { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+/* 모니터=내용만큼(부족 시 내부 스크롤), 알람=잔여 세로 전부 — 알람 서머리 상시 가시(ISA-101) */
 .rail-region--monitor {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   gap: 12px;
   overflow: auto;
 }
 .rail-region--alarm {
-  flex: 0 0 auto;
-  max-height: 38%;
+  flex: 1 1 auto;
+  max-height: none;
   min-height: 130px;
   overflow: hidden;
 }

@@ -7,7 +7,7 @@ import { useItems } from "../warehouse/useWarehouseData";
 import { useRobots } from "../../hooks/useScenarioData";
 import type { WorkOrder } from "../../types";
 import { useQueuedOrderReorder, QueueEditCommitBar } from "./WorkOrderQueueControls";
-import { TaskQueueOrderRow } from "./TaskQueueOrderRow";
+import { WorkOrderQueueRow } from "./WorkOrderQueueRow";
 import {
   byPriorityDesc,
   cancelOrderConfirmMessage,
@@ -17,9 +17,9 @@ import {
   segmentCounts,
   segmentOf,
   type Segment,
-} from "./taskQueueModel";
+} from "./workOrderQueueModel";
 
-export function TaskQueueToolbar({
+export function WorkOrderQueueToolbar({
   segment,
   counts,
   reorderDirty,
@@ -91,11 +91,11 @@ export function TaskQueueToolbar({
 
 
 
-export function TaskQueue() {
+export function WorkOrderQueue() {
   const { data: orders = [] } = useWorkOrders(50);
   const { data: items = [] } = useItems();
   const { data: robots = [] } = useRobots();
-  const { cancelTask, assignTask, autoAssignTasks, autoAssignAndStartTasks, startTaskMission } = useAdminMutations();
+  const { cancelTask, assignTask, autoAssignTasks, autoAssignAndStartTasks, startRobotTask } = useAdminMutations();
   const cancelWorkOrder = useCancelWorkOrder();
   const stopWorkOrder = useStopWorkOrder();
   const setPriority = useSetWorkOrderPriority();
@@ -151,7 +151,7 @@ export function TaskQueue() {
 
   return (
     <Panel title={`작업 (${orders.length})`}>
-      <TaskQueueToolbar
+      <WorkOrderQueueToolbar
         segment={segment}
         counts={counts}
         reorderDirty={reorder.dirty}
@@ -192,7 +192,7 @@ export function TaskQueue() {
               </tr>
             ) : (
               displayOrders.map((o) => (
-                <TaskQueueOrderRow
+                <WorkOrderQueueRow
                   key={o.order_id}
                   order={o}
                   itemName={items.find((it) => it.item_code === o.item_code)?.item_name}
@@ -203,9 +203,9 @@ export function TaskQueue() {
                   robotPick={robotPick[o.order_id] ?? idleRobots[0]?.robot_id ?? ""}
                   onRobotPick={(robotId) => setRobotPick((cur) => ({ ...cur, [o.order_id]: robotId }))}
                   onAssign={(taskId, robotId) => void assignTask.mutateAsync({ taskId, robotId })}
-                  onStartMission={(taskId) => void startTaskMission.mutateAsync(taskId)}
+                  onStartMission={(taskId) => void startRobotTask.mutateAsync(taskId)}
                   assignPending={assignTask.isPending}
-                  startPending={startTaskMission.isPending}
+                  startPending={startRobotTask.isPending}
                   cancelPending={cancelWorkOrder.isPending || cancelTask.isPending || stopWorkOrder.isPending}
                   onToggle={() => setExpanded((cur) => (cur === o.order_id ? null : o.order_id))}
                   onCancelOrder={() => void cancelOrder(o)}

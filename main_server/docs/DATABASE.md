@@ -2,7 +2,7 @@
 
 상태: Active
 소유: DB
-최종 갱신: 2026-07-13 13:59 KST
+최종 갱신: 2026-07-13 19:23 KST
 목적: PostgreSQL DB **한 문서** — ERD · 설계 요지 · 테이블 역할 · 파일/코드 매핑. DDL 본문은 복제하지 않는다.
 
 DB는 업무·infra 테이블 12개와 migration 이력 테이블 1개로 구성된다. 현재 상태와 영구 이력을 분리한다. `tasks`는 작업 큐, `commands`는 실행 레시피, `evidence_events`는 진행 근거를 저장한다. 완료 결과는 `task_logs`와 `item_change_logs`에 추가 전용으로 남는다.
@@ -157,6 +157,8 @@ erDiagram
 | `tasks` | `id` · `task_type` · `status` · from/to + floor | 입출고/이동 큐 (`work_orders` 물리 테이블 없음) |
 | `commands` | `id` · unique`(task_type, sequence_no)` | task_type별 **정적** 레시피 |
 | `evidence_events` | `id` · `task_id`(FK 없음) · `command_id`→commands | runtime proof + 감사/이동 타임라인 |
+
+Movement callback `event_id`는 `data_json.callback_event_id`에 보존하고 애플리케이션에서 중복 확인한다. 현재 DB unique constraint는 없으며 task 상태의 최종 멱등성은 command·step·advisory lock이 담당한다.
 | `safety_stops` | `id` · `detected_evidence_id`→evidence | critical HOLD latch |
 | `item_change_logs` | `id` (FK 없음) | append-only 재고 감사 |
 | `task_logs` | `id` (FK 없음) · `snapshot_json` | append-only 완료 스냅샷 |

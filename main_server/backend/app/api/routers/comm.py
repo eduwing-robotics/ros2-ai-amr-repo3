@@ -9,7 +9,7 @@ from app.db.connection import transaction
 from app.db.mvp import camera_repo, movement_repo, robot_repo
 from app.domains.movement.health import get_movement_health
 from app.domains.vision.client import fetch_camera_health
-from app.models.schemas import MovementCommand, Robot
+from app.models.schemas import Robot, RobotCommandRecord
 
 router = APIRouter(prefix="/comm", tags=["comm"])
 
@@ -23,7 +23,7 @@ def comm_logs(
     cap = min(limit, 100)
     with transaction() as conn:
         movement_commands = [
-            MovementCommand(**{k: v for k, v in c.items() if k in MovementCommand.model_fields})
+            RobotCommandRecord(**{k: v for k, v in c.items() if k in RobotCommandRecord.model_fields})
             for c in movement_repo(conn).list(limit=cap)
         ]
         robots = [Robot(**r) for r in robot_repo(conn).list()]

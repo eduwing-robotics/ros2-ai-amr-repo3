@@ -83,7 +83,9 @@ class MovementClient:
         last_error: MovementClientError | None = None
         for base in self._bases_for(robot_id):
             try:
-                return self._get_json(f"{self._api_origin(base)}/robot-commands/{command_id}", robot_id, kind="command_status")
+                return self._get_json(
+                    f"{self._api_origin(base)}/robot-commands/{command_id}", robot_id, kind="command_status"
+                )
             except MovementClientError as exc:
                 if exc.status_code is not None:
                     raise
@@ -94,7 +96,9 @@ class MovementClient:
         last_error: MovementClientError | None = None
         for base in self._bases_for(robot_id):
             try:
-                return self._post_json(f"{self._api_origin(base)}/robot-commands/{command_id}/cancel", {}, kind="command_cancel")
+                return self._post_json(
+                    f"{self._api_origin(base)}/robot-commands/{command_id}/cancel", {}, kind="command_cancel"
+                )
             except MovementClientError as exc:
                 if exc.status_code is not None:
                     raise
@@ -258,7 +262,12 @@ class HttpMovementClient(MovementClient):
         for base in self._bases_for(robot_id):
             url = f"{self._api_origin(base)}/robot-commands"
             try:
-                return self._post_json(url, body, kind="robot_command")
+                return self._post_json(
+                    url,
+                    body,
+                    kind="robot_command",
+                    headers={"Idempotency-Key": str(body.get("command_id") or "")},
+                )
             except MovementClientError as exc:
                 if exc.status_code is not None:
                     raise
@@ -289,7 +298,14 @@ class HttpMovementClient(MovementClient):
                 last_error = exc
         raise last_error or MovementClientError("movement unreachable")
 
-    def _post_json(self, url: str, payload: dict[str, Any], *, kind: str) -> dict[str, Any]:
+    def _post_json(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        *,
+        kind: str,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         return self._request_json(
             url,
             method="POST",
@@ -297,6 +313,7 @@ class HttpMovementClient(MovementClient):
             source=payload.get("robot_name"),
             payload=payload,
             success_message="accepted",
+            extra_headers=headers,
         )
 
     def _get_json(self, url: str, robot_id: str, *, kind: str) -> dict[str, Any]:
@@ -311,11 +328,13 @@ class HttpMovementClient(MovementClient):
         source: str | None,
         payload: dict[str, Any] | None = None,
         success_message: str,
+        extra_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {"Accept": "application/json"}
         if body is not None:
             headers["Content-Type"] = "application/json"
+        headers.update(extra_headers or {})
         req = Request(url, data=body, headers=headers, method=method)
         ctx = begin_call("movement", kind, method, url, source=source)
         try:

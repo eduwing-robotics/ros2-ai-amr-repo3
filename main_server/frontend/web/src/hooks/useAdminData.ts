@@ -6,8 +6,8 @@ import { useFeedback } from "../components/FeedbackProvider";
 import type {
   CameraSourceUpsert,
   RobotUpsert,
-  Task,
-  TaskCreate,
+  RobotTask,
+  RobotTaskCreate,
   TeleopRequest,
 } from "../types";
 
@@ -39,8 +39,8 @@ export const useDbRows = (table: string | undefined, limit: number) =>
     enabled: !!table,
   });
 
-export interface TaskMissionStartResult {
-  task: Task;
+export interface RobotTaskStartResult {
+  task: RobotTask;
   mission: {
     robot_id: string;
     command_id?: string | null;
@@ -77,7 +77,7 @@ export function useAdminMutations() {
     onSuccess: refresh,
   });
   const createTask = useMutation({
-    mutationFn: (body: TaskCreate) => apiSend<Task>("/tasks", "POST", body),
+    mutationFn: (body: RobotTaskCreate) => apiSend<RobotTask>("/tasks", "POST", body),
     onSuccess: refresh,
   });
   const assignTask = useMutation({
@@ -126,17 +126,17 @@ export function useAdminMutations() {
     },
     onError: onMutError("자동 배정 후 시작"),
   });
-  const startTaskMission = useMutation({
-    mutationFn: (taskId: number) => apiSend<TaskMissionStartResult>(`/tasks/${taskId}/start-mission`, "POST"),
+  const startRobotTask = useMutation({
+    mutationFn: (taskId: number) => apiSend<RobotTaskStartResult>(`/tasks/${taskId}/start-mission`, "POST"),
     onSuccess: () => {
       void Promise.all([
         refresh(),
         qc.invalidateQueries({ queryKey: ["work-orders"] }),
         qc.invalidateQueries({ queryKey: ["tasks"] }),
       ]);
-      onMutOk("미션 시작")();
+      onMutOk("로봇 작업 시작")();
     },
-    onError: onMutError("미션 시작"),
+    onError: onMutError("로봇 작업 시작"),
   });
   const completeTask = useMutation({
     mutationFn: (taskId: number) => apiSend(`/tasks/${taskId}/complete`, "POST"),
@@ -152,5 +152,5 @@ export function useAdminMutations() {
     onSuccess: refresh,
   });
 
-  return { saveRobot, deleteRobot, saveCamera, deleteCamera, createTask, assignTask, autoAssignTasks, autoAssignAndStartTasks, startTaskMission, completeTask, cancelTask, teleop };
+  return { saveRobot, deleteRobot, saveCamera, deleteCamera, createTask, assignTask, autoAssignTasks, autoAssignAndStartTasks, startRobotTask, completeTask, cancelTask, teleop };
 }

@@ -108,7 +108,7 @@ def reconcile_active_monitors(conn, *, force: bool = False) -> int:
         if step_index >= len(steps):
             continue
         step = steps[step_index]
-        if step.get("kind") != "move_to_point" or step.get("status") != "dispatched":
+        if step.get("kind") != "move_to_point" or not orch_state.is_dispatched_robot_task_step(step):
             continue
         enable_monitor(robot_id, int(task["task_id"]), command_id=str(step.get("command_id") or "") or None)
         if get_runtime(robot_id):
@@ -180,7 +180,7 @@ def mark_task_awaiting_operator(conn, task_id: int, *, reason: str, robot_id: st
     if not orch:
         return
     orch = dict(orch)
-    execution = orch_state.ExecutionState.wrap(orch)
+    execution = orch_state.RobotTaskExecutionState.wrap(orch)
     execution.phase = orch_state.PHASE_AWAITING_OPERATOR
     execution.recovery = {
         "reason": reason,
@@ -195,7 +195,7 @@ def mark_running_tasks_awaiting_operator(conn, *, reason: str) -> int:
     for task in evidence_runtime.list_orchestrated_running(conn):
         task_id = int(task["task_id"])
         orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
-        if orch_state.ExecutionState.wrap(orch).phase == orch_state.PHASE_AWAITING_OPERATOR:
+        if orch_state.RobotTaskExecutionState.wrap(orch).phase == orch_state.PHASE_AWAITING_OPERATOR:
             continue
         mark_task_awaiting_operator(conn, task_id, reason=reason, robot_id=task.get("assigned_robot_id"))
         robot_id = task.get("assigned_robot_id")

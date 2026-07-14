@@ -15,7 +15,7 @@ from app.db.mvp import (
 from app.models.schemas import (
     EvidenceEventRecord,
     ItemChangeLogRecord,
-    MovementCommand,
+    RobotCommandRecord,
     TaskLogRecord,
     TimelineEvent,
 )
@@ -65,9 +65,9 @@ def list_evidence_events(limit: int = Query(default=50, ge=1, le=200)) -> list[E
         return [EvidenceEventRecord(**r) for r in evidence_repo(conn).list(limit=limit)]
 
 
-@router.get("/movement-commands", response_model=list[MovementCommand])
-def list_movement_commands(limit: int = Query(default=50, ge=1, le=200)) -> list[MovementCommand]:
+@router.get("/movement-commands", response_model=list[RobotCommandRecord])
+def list_movement_commands(limit: int = Query(default=50, ge=1, le=200)) -> list[RobotCommandRecord]:
     """이동 명령 — evidence_events derived."""
     with transaction() as conn:
         rows = movement_repo(conn).list(limit=limit)
-        return [MovementCommand(**{k: v for k, v in c.items() if k in MovementCommand.model_fields}) for c in rows]
+        return [RobotCommandRecord(**{k: v for k, v in c.items() if k in RobotCommandRecord.model_fields}) for c in rows]

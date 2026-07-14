@@ -13,9 +13,9 @@ import {
   taskIsRunning,
   taskPlanLabel,
   taskRobotLabel,
-} from "./taskQueueModel";
+} from "./workOrderQueueModel";
 
-export function TaskQueueOrderRow({
+export function WorkOrderQueueRow({
   order,
   itemName,
   open,

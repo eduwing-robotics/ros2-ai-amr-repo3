@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Frontend · Operations
-최종 갱신: 2026-07-13 15:11 KST
+최종 갱신: 2026-07-13 19:23 KST
 목적: 현재 AMR 입출고 UX의 인수 조건과 실행 가능한 브라우저 검증을 정의한다.
 
 기준 UX는 [UX](UX.md), API 계약은 [API](API.md), 실서버 실행은
@@ -151,6 +151,7 @@ WebRTC 첫 프레임 수신 후에만 video를 노출하고, 연결 손실 시 M
 | 경유→스캔 이동 | 지정 transit을 거쳐 scan 위치에 도착 | 미검증 |
 | Movement 단절 | 이동 조작 차단, 진행 task 원인 보존 | 미검증 |
 | ESTOP | 실제 로봇 정지, UI 조작 차단, 자동 재개 없음 | 미검증 |
+| Callback 정합성 | token·command·robot·event ID/sequence 일치, 중복 업무 반영 없음 | 미검증 |
 | 적재 중 복구 | cargo 확인 후 안전 위치 이동 또는 수동 종료 | 미검증 |
 | Main 재시작 | 진행 task와 명령 상태 재동기화 | 미검증 |
 | Vision stale | 영상 상태 표시, evidence 오류 기록 | 미검증 |
@@ -166,6 +167,7 @@ WebRTC 첫 프레임 수신 후에만 video를 노출하고, 연결 손실 시 M
 | 중복 요청·재고 오반영 | Backend·PostgreSQL integration | 정상 입출고 실장비 | order/task/command ID, 재고 전후 |
 | 운영자 오조작 | Playwright 버튼 상태·확인 절차 | 현장 운영자 시나리오 | 화면 결과, API status |
 | ESTOP·자동 재개 | Backend 상태 전이 + Playwright 차단 | 하드웨어 정지·해제·복구 | event timeline, task 상태, 현장 기록 |
+| Callback 위조·중복·역순 | schema·token·event ID·sequence 단위 테스트 | Movement 공동 인수 | callback ACK, task/재고 1회 반영 |
 | 외부 서버 단절 | client/backend 실패 경로 + UI 차단 | 케이블/프로세스 단절 시험 | timeout, command trace, 복구 시각 |
 | 맵·좌표 불일치 | reference·docs gate와 API 진단 | 실제 주행 경계·도킹 | map ID/checksum, pose, marker 결과 |
 
@@ -174,4 +176,4 @@ WebRTC 첫 프레임 수신 후에만 video를 노출하고, 연결 손실 시 M
 
 ## 완료 기준
 
-브라우저 기준은 WEB-01~15 18건과 PostgreSQL 통합 186건이 모두 통과하는 것이다. 포트폴리오 릴리스는 위 실장비 체크리스트와 운영 환경 설정을 별도로 확인해야 한다.
+브라우저 기준은 WEB-01~16 19건과 PostgreSQL 통합 gate가 모두 통과하는 것이다. 포트폴리오 릴리스는 위 실장비 체크리스트와 운영 환경 설정을 별도로 확인해야 한다.

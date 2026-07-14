@@ -57,7 +57,6 @@ _DEFAULT_FALLBACK_BASE_URLS = (
 )
 
 
-
 # Camera 서버도 IP가 바뀌는 현장 운용을 고려해 host 하나로 기본 endpoint를 만든다.
 # 실제 stream 경로가 다르면 LMS_CAMERA_STREAM_URL_TEMPLATE만 덮어쓴다.
 _DEFAULT_CAMERA_HOST = os.getenv("LMS_CAMERA_HOST", "192.168.10.51")
@@ -69,6 +68,7 @@ _DEFAULT_CAMERA_STREAM_URL_TEMPLATE = os.getenv(
     "LMS_CAMERA_STREAM_URL_TEMPLATE",
     _DEFAULT_CAMERA_ROSBRIDGE_URL,
 )
+
 
 def _parse_base_urls(raw: str) -> dict[str, str]:
     out: dict[str, str] = {}
@@ -143,6 +143,8 @@ class Settings:
     movement_robot_keys: dict[str, str] = field(default_factory=_movement_robot_keys)
     movement_timeout_sec: float = float(os.getenv("LMS_MOVEMENT_TIMEOUT_SEC", "3.0"))
     movement_health_timeout_sec: float = float(os.getenv("LMS_MOVEMENT_HEALTH_TIMEOUT_SEC", "0.8"))
+    # Shared token for Movement -> Main callbacks. Empty keeps local development compatible.
+    movement_callback_token: str = os.getenv("LMS_MOVEMENT_CALLBACK_TOKEN", "").strip()
     movement_active_map_id: str = os.getenv("LMS_MOVEMENT_ACTIVE_MAP_ID", "robot2_map")
     # Camera 서버 기본 endpoint. stream URL은 DB의 camera_sources.stream_url이 있으면 DB 값을 우선한다.
     camera_host: str = os.getenv("LMS_CAMERA_HOST", _DEFAULT_CAMERA_HOST)
@@ -156,11 +158,18 @@ class Settings:
     vision_api_fallback_base_url: str = os.getenv("LMS_VISION_API_FALLBACK_BASE_URL", "").rstrip("/")
     vision_timeout_sec: float = float(os.getenv("LMS_VISION_TIMEOUT_SEC", "2.0"))
     # Vision stream bridge(MJPEG). Main/GUI PC는 ROS/DDS를 몰라도 이 HTTP gateway만 보면 된다.
-    vision_stream_base_url: str = os.getenv("LMS_VISION_STREAM_BASE_URL", "http://smartfactory-vision.local:8090").rstrip("/")
+    vision_stream_base_url: str = os.getenv(
+        "LMS_VISION_STREAM_BASE_URL", "http://smartfactory-vision.local:8090"
+    ).rstrip("/")
     vision_stream_fallback_base_url: str = os.getenv("LMS_VISION_STREAM_FALLBACK_BASE_URL", "").rstrip("/")
     vision_stream_timeout_sec: float = float(os.getenv("LMS_VISION_STREAM_TIMEOUT_SEC", "3.0"))
     # Lift/load evidence (Main record-only MVP). Disabled by default.
-    lift_load_evidence_enabled: bool = os.getenv("LMS_LIFT_LOAD_EVIDENCE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+    lift_load_evidence_enabled: bool = os.getenv("LMS_LIFT_LOAD_EVIDENCE_ENABLED", "false").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     lift_load_evidence_mode: str = os.getenv("LMS_LIFT_LOAD_EVIDENCE_MODE", "record").strip().lower()
     lift_load_evidence_source: str = os.getenv("LMS_LIFT_LOAD_EVIDENCE_SOURCE", "global_cam_01").strip()
     lift_load_marker_map: dict[str, str] = field(default_factory=_lift_load_marker_map)
@@ -185,7 +194,6 @@ class Settings:
     person_hazard_timeout_sec: float = min(float(os.getenv("LMS_PERSON_HAZARD_TIMEOUT_SEC", "0.5")), 1.0)
     # Operator recovery target; must resolve to an active home location.
     recovery_safe_location_id: str = os.getenv("LMS_RECOVERY_SAFE_LOCATION_ID", "HOME_01").strip()
-
 
     def api_callback_base_url(self, request_base_url: str | None = None) -> str:
         base = self.public_base_url or _clean_base_url(request_base_url or "")

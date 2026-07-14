@@ -3,13 +3,31 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
-PHASE_RUNNING = "RUNNING"
-PHASE_DONE = "DONE"
-PHASE_FAILED = "FAILED"
-PHASE_AWAITING_OPERATOR = "AWAITING_OPERATOR"
-PHASE_RECOVERY_RUNNING = "RECOVERY_RUNNING"
+from app.models.tasks import RobotTaskStepStatus
+
+
+class RobotTaskOrchestrationPhase(StrEnum):
+    """Main-owned orchestration phase for one robot task."""
+
+    RUNNING = "RUNNING"
+    CANCEL_REQUESTED = "CANCEL_REQUESTED"
+    AWAITING_OPERATOR = "AWAITING_OPERATOR"
+    RECOVERY_RUNNING = "RECOVERY_RUNNING"
+    DONE = "DONE"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+PHASE_RUNNING = RobotTaskOrchestrationPhase.RUNNING
+PHASE_CANCEL_REQUESTED = RobotTaskOrchestrationPhase.CANCEL_REQUESTED
+PHASE_DONE = RobotTaskOrchestrationPhase.DONE
+PHASE_FAILED = RobotTaskOrchestrationPhase.FAILED
+PHASE_CANCELLED = RobotTaskOrchestrationPhase.CANCELLED
+PHASE_AWAITING_OPERATOR = RobotTaskOrchestrationPhase.AWAITING_OPERATOR
+PHASE_RECOVERY_RUNNING = RobotTaskOrchestrationPhase.RECOVERY_RUNNING
 
 HOLD_PHASES = {PHASE_AWAITING_OPERATOR, PHASE_RECOVERY_RUNNING}
 
@@ -17,13 +35,13 @@ EVENT_AWAITING_OPERATOR = "TASK_AWAITING_OPERATOR"
 
 
 @dataclass(slots=True)
-class ExecutionState:
+class RobotTaskExecutionState:
     """Typed view over the persisted orchestration JSON without changing its schema."""
 
     data: dict[str, Any]
 
     @classmethod
-    def wrap(cls, value: dict[str, Any] | None) -> "ExecutionState":
+    def wrap(cls, value: dict[str, Any] | None) -> "RobotTaskExecutionState":
         return cls(value if isinstance(value, dict) else {})
 
     @property
@@ -83,27 +101,37 @@ class ExecutionState:
 
 
 def normalize_phase(phase: str | None) -> str:
-    return str(phase or "")
+    return str(phase or "").upper()
+
+
+def normalize_robot_task_step_status(status: object) -> str:
+    """Normalize persisted legacy lowercase step states at the execution boundary."""
+
+    return str(status or "").upper()
+
+
+def is_dispatched_robot_task_step(step: dict[str, Any]) -> bool:
+    return normalize_robot_task_step_status(step.get("status")) == RobotTaskStepStatus.DISPATCHED
 
 
 def get_steps(orch: dict[str, Any]) -> list[dict[str, Any]]:
-    return ExecutionState.wrap(orch).steps
+    return RobotTaskExecutionState.wrap(orch).steps
 
 
 def get_step_index(orch: dict[str, Any]) -> int:
-    return ExecutionState.wrap(orch).step_index
+    return RobotTaskExecutionState.wrap(orch).step_index
 
 
 def set_steps(orch: dict[str, Any], steps: list[dict[str, Any]]) -> None:
-    ExecutionState.wrap(orch).steps = steps
+    RobotTaskExecutionState.wrap(orch).steps = steps
 
 
 def set_step_index(orch: dict[str, Any], index: int) -> None:
-    ExecutionState.wrap(orch).step_index = index
+    RobotTaskExecutionState.wrap(orch).step_index = index
 
 
 def set_phase(orch: dict[str, Any], phase: str) -> None:
-    ExecutionState.wrap(orch).phase = phase
+    RobotTaskExecutionState.wrap(orch).phase = phase
 
 
 def is_hold_phase(phase: str | None) -> bool:
@@ -119,3 +147,7 @@ def new_orchestration(steps: list[dict[str, Any]], *, callback_base_url: str | N
         "phase": PHASE_RUNNING,
         "callback_base_url": callback_base_url,
     }
+
+
+# Deprecated compatibility alias. Do not use in new code.
+ExecutionState = RobotTaskExecutionState

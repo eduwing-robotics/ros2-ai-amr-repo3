@@ -27,7 +27,8 @@ test("WEB-03 ESTOP은 운영 명령을 차단하고 해제 확인을 요구한�
   await mockMainApi(page, { emergency: true });
   await page.goto("/operate/control?drawer=inout");
   await expect(page.getByRole("button", { name: "실행", exact: true })).toBeDisabled();
-  await expect(page.getByText(/비상 정지 중/).first()).toBeAttached();
+  // 수동 조작이 밴드→드로어로 이동해 숨은 텍스트가 사라졌으므로, 가시적인 비상 배너로 확인한다.
+  await expect(page.getByText(/비상 정지 활성/).first()).toBeVisible();
   await page.getByRole("button", { name: "ESTOP 활성" }).click();
   await expect(page.getByRole("alertdialog")).toBeVisible();
 });

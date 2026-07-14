@@ -16,16 +16,18 @@ from app.domains.execution import evidence as evidence_runtime
 from app.domains.execution import recovery as recovery_service
 from app.domains.execution import state as orch_state
 from app.domains.movement import commands as command_service
-from app.domains.movement.client import MovementClientError, movement_client
+from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
 from app.domains.safety import hazard as person_hazard
 from app.domains.vision import evidence as lift_load_evidence
 from app.domains.warehouse import inventory as inventory_ops
 from app.models.schemas import RobotCommandRequest
+from app.models.tasks import RobotTaskStepStatus
 
 logger = logging.getLogger(__name__)
 
 TERMINAL_STEP_STATES = {"DONE", "FAILED", "ABORTED", "CANCELLED"}
 ORCHESTRATION_HOLD_PHASES = orch_state.HOLD_PHASES
+
 
 def _orchestration_phase(conn, task_id: int) -> str | None:
     task = evidence_runtime.attach_orchestration(task_repo(conn).get(task_id), conn)
@@ -71,8 +73,11 @@ def _finish_task(conn, task_id: int, to_status: str, source: str) -> dict[str, A
         robot_repo(conn).set_task(robot_id, "IDLE", None)
     tasks.add_history(task_id, task["status"], to_status, to_status.lower(), source)
     event_repo(conn).append(
-        event_type=f"TASK_{to_status}", task_id=task_id, robot_id=robot_id,
-        message=f"task {task_id} {to_status.lower()}", payload={"task_id": task_id, "robot_id": robot_id},
+        event_type=f"TASK_{to_status}",
+        task_id=task_id,
+        robot_id=robot_id,
+        message=f"task {task_id} {to_status.lower()}",
+        payload={"task_id": task_id, "robot_id": robot_id},
     )
     db_result = "COMPLETED" if to_status == "DONE" else to_status
     if not (to_status == "DONE" and str(task.get("task_type") or "").upper() in {"INBOUND", "OUTBOUND"}):
@@ -96,6 +101,7 @@ def _task(conn, task_id: int) -> dict[str, Any] | None:
 plan_command_steps = evidence_runtime.plan_command_steps
 unfold_legs = plan_command_steps
 
+
 def _orch(task: dict[str, Any]) -> dict[str, Any]:
     snap = task.get("preset_snapshot") or {}
     orch = snap.get("_orchestration")
@@ -117,7 +123,9 @@ def _seed_step_index(steps: list[dict[str, Any]], step_index: int) -> int:
 _seed_cursor = _seed_step_index
 
 
-def start_task_orchestration(conn, task_id: int, callback_base_url: str | None = None, source: str = "operator") -> dict[str, Any]:
+def start_task_orchestration(
+    conn, task_id: int, callback_base_url: str | None = None, source: str = "operator"
+) -> dict[str, Any]:
     advisory_xact_lock_for_key(conn, TASK_EVENT_LOCK_NAMESPACE, task_id)
     tasks = task_repo(conn)
     task = _task(conn, task_id)
@@ -172,7 +180,10 @@ def dispatch_current_step(conn, task_id: int) -> str:
     step = steps[step_index]
     task = _task(conn, task_id) or {}
     command_def_id = evidence_runtime.resolve_command_def_id(
-        conn, task, _seed_step_index(steps, step_index), str(step.get("kind") or "move_to_point"),
+        conn,
+        task,
+        _seed_step_index(steps, step_index),
+        str(step.get("kind") or "move_to_point"),
     )
     command_id = command_service.default_command_id(task_id, robot_id, str(step.get("kind")))
     callback_url = ""
@@ -200,7 +211,7 @@ def dispatch_current_step(conn, task_id: int) -> str:
         person_hazard.on_robot_task_terminal(robot_id)
         raise HTTPException(status_code=502, detail="step dispatch rejected")
 
-    step["status"] = "dispatched"
+    step["status"] = RobotTaskStepStatus.DISPATCHED
     step["command_id"] = result.command_id
     orch_state.set_steps(orch, steps)
     evidence_runtime.save_orchestration(conn, task_id, orch)
@@ -209,7 +220,12 @@ def dispatch_current_step(conn, task_id: int) -> str:
         task_id=task_id,
         command_def_id=command_def_id,
         event_type="DISPATCHED",
-        data_json={"command_id": result.command_id, "robot_id": robot_id, "kind": step["kind"], "commands_id": command_def_id},
+        data_json={
+            "command_id": result.command_id,
+            "robot_id": robot_id,
+            "kind": step["kind"],
+            "commands_id": command_def_id,
+        },
     )
     if step["kind"] == "move_to_point":
         person_hazard.on_move_to_point_dispatched(conn, task_id, robot_id, result.command_id)
@@ -219,7 +235,9 @@ def dispatch_current_step(conn, task_id: int) -> str:
 dispatch_current_leg = dispatch_current_step
 
 
-def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: str = "callback") -> dict[str, Any] | None:
+def advance_on_command_event(
+    conn, task_id: int, event: dict[str, Any], source: str = "callback"
+) -> dict[str, Any] | None:
     advisory_xact_lock_for_key(conn, TASK_EVENT_LOCK_NAMESPACE, task_id)
     tasks = task_repo(conn)
     task = _task(conn, task_id)
@@ -237,12 +255,19 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
     step = steps[step_index]
     event_name = str(event.get("event") or event.get("state") or event.get("status") or "").upper()
     event_command_id = event.get("command_id")
-    if event_command_id and step.get("command_id") and event_command_id != step.get("command_id"):
+    if not event_command_id or str(event_command_id) != str(step.get("command_id") or ""):
         return None
     if step.get("status") in TERMINAL_STEP_STATES:
         return None
+    sequence = event.get("sequence")
+    if sequence is not None:
+        sequence = int(sequence)
+        last_sequence = step.get("last_event_sequence")
+        if last_sequence is not None and sequence <= int(last_sequence):
+            return None
+        step["last_event_sequence"] = sequence
 
-    if str(orch.get("phase") or "") == "CANCEL_REQUESTED":
+    if orch_state.normalize_phase(orch.get("phase")) == orch_state.PHASE_CANCEL_REQUESTED:
         stop_request = orch.get("stop_request") or {}
         if event_name in {"CANCELLED", "CANCELED", "STOPPED", "ABORTED"}:
             step["status"] = "CANCELLED"
@@ -266,7 +291,7 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
                 evidence_runtime.save_orchestration(conn, task_id, orch)
                 result = _task(conn, task_id)
             else:
-                orch["phase"] = "CANCELLED"
+                orch_state.set_phase(orch, orch_state.PHASE_CANCELLED)
                 evidence_runtime.save_orchestration(conn, task_id, orch)
                 tasks.set_status(task_id, "CANCELLED", clear_robot=True)
                 if robot_id:
@@ -290,7 +315,10 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
 
     task = _task(conn, task_id) or {}
     command_def_id = evidence_runtime.resolve_command_def_id(
-        conn, task, _seed_step_index(steps, step_index), str(step.get("kind") or "move_to_point"),
+        conn,
+        task,
+        _seed_step_index(steps, step_index),
+        str(step.get("kind") or "move_to_point"),
     )
     evidence_runtime.record_movement_evidence(
         conn,
@@ -358,6 +386,9 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
         return _task(conn, task_id)
 
     if event_name not in _step_done_events(str(step.get("kind") or "move_to_point")):
+        if sequence is not None:
+            orch_state.set_steps(orch, steps)
+            evidence_runtime.save_orchestration(conn, task_id, orch)
         return None
 
     if str(step.get("kind")) == "dock_transfer":
@@ -426,13 +457,18 @@ def handle_command_event(conn, payload: dict[str, Any]) -> dict[str, Any] | None
         if task_id is None:
             return None
     task = _task(conn, int(task_id))
-    if task:
-        orch = _orch(task)
-        recovery = orch.get("recovery") or {}
-        if str(orch.get("phase") or "") == orch_state.PHASE_RECOVERY_RUNNING and recovery.get("active_command_id"):
-            result = recovery_service.handle_recovery_command_event(conn, int(task_id), payload)
-            if result is not None:
-                return result
+    if not task:
+        return None
+    assigned_robot = str(task.get("assigned_robot_id") or "")
+    event_robot = str(payload.get("robot_name") or payload.get("robot_id") or "")
+    if event_robot and assigned_robot and event_robot not in {assigned_robot, movement_robot_key(assigned_robot)}:
+        return None
+    orch = _orch(task)
+    recovery = orch.get("recovery") or {}
+    if str(orch.get("phase") or "") == orch_state.PHASE_RECOVERY_RUNNING and recovery.get("active_command_id"):
+        result = recovery_service.handle_recovery_command_event(conn, int(task_id), payload)
+        if result is not None:
+            return result
     return advance_on_command_event(conn, int(task_id), payload)
 
 
@@ -447,7 +483,7 @@ def poll_running_tasks(conn) -> int:
         if step_index >= len(steps):
             continue
         step = steps[step_index]
-        if step.get("status") != "dispatched" or not step.get("command_id"):
+        if not orch_state.is_dispatched_robot_task_step(step) or not step.get("command_id"):
             continue
         robot_id = task.get("assigned_robot_id")
         if not robot_id:

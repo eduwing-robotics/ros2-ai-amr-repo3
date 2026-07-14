@@ -1,4 +1,4 @@
-"""Task queue and assignment routes."""
+"""Robot task queue and assignment routes."""
 
 from __future__ import annotations
 
@@ -9,30 +9,30 @@ from app.db.connection import transaction
 from app.db.mvp import task_repo
 from app.domains.execution import recovery as recovery_service
 from app.domains.execution import tasks as task_service
-from app.models.schemas import MissionStatusResponse, Task, TaskAssign, TaskCreate
+from app.models.schemas import MissionStatusResponse, RobotTask, RobotTaskAssign, RobotTaskCreate
 
 router = APIRouter(tags=["tasks"])
 
 
-@router.get("/tasks", response_model=list[Task])
-def list_tasks(status: str | None = Query(default=None), limit: int = Query(default=50, ge=1, le=200)) -> list[Task]:
+@router.get("/tasks", response_model=list[RobotTask])
+def list_tasks(status: str | None = Query(default=None), limit: int = Query(default=50, ge=1, le=200)) -> list[RobotTask]:
     """작업 목록(최근순). status로 필터 가능."""
     with transaction() as conn:
-        return [Task(**t) for t in task_repo(conn).list(limit=limit, status=status)]
+        return [RobotTask(**t) for t in task_repo(conn).list(limit=limit, status=status)]
 
 
-@router.post("/tasks", response_model=Task)
-def create_task(payload: TaskCreate) -> Task:
+@router.post("/tasks", response_model=RobotTask)
+def create_task(payload: RobotTaskCreate) -> RobotTask:
     """작업을 생성한다(QUEUED)."""
     with transaction() as conn:
-        return Task(**task_service.create_task(conn, payload.model_dump()))
+        return RobotTask(**task_service.create_task(conn, payload.model_dump()))
 
 
-@router.post("/tasks/{task_id}/assign", response_model=Task)
-def assign_task(task_id: int, payload: TaskAssign) -> Task:
+@router.post("/tasks/{task_id}/assign", response_model=RobotTask)
+def assign_task(task_id: int, payload: RobotTaskAssign) -> RobotTask:
     """작업을 특정 로봇에 수동 배정한다(유휴 로봇만)."""
     with transaction() as conn:
-        return Task(**task_service.assign_task(conn, task_id, payload.robot_id))
+        return RobotTask(**task_service.assign_task(conn, task_id, payload.robot_id))
 
 
 @router.post("/tasks/{task_id}/start-mission")
@@ -42,7 +42,7 @@ def start_task_mission(task_id: int, request: Request) -> dict:
     with transaction() as conn:
         result = task_service.start_task_mission(conn, task_id, callback_base_url=resolved_callback)
     return {
-        "task": Task(**result["task"]),
+        "task": RobotTask(**result["task"]),
         "mission": MissionStatusResponse(
             robot_id=result["robot_id"],
             command_id=result.get("command_id"),
@@ -54,18 +54,18 @@ def start_task_mission(task_id: int, request: Request) -> dict:
     }
 
 
-@router.post("/tasks/{task_id}/complete", response_model=Task)
-def complete_task(task_id: int) -> Task:
+@router.post("/tasks/{task_id}/complete", response_model=RobotTask)
+def complete_task(task_id: int) -> RobotTask:
     """작업을 완료 처리하고 로봇을 IDLE로 되돌린다."""
     with transaction() as conn:
-        return Task(**task_service.complete_task(conn, task_id))
+        return RobotTask(**task_service.complete_task(conn, task_id))
 
 
-@router.post("/tasks/{task_id}/cancel", response_model=Task)
-def cancel_task(task_id: int) -> Task:
+@router.post("/tasks/{task_id}/cancel", response_model=RobotTask)
+def cancel_task(task_id: int) -> RobotTask:
     """작업을 취소 처리하고 로봇을 IDLE로 되돌린다."""
     with transaction() as conn:
-        return Task(**task_service.cancel_task(conn, task_id))
+        return RobotTask(**task_service.cancel_task(conn, task_id))
 
 
 @router.post("/tasks/auto-assign")

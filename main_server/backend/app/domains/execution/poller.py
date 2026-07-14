@@ -1,4 +1,4 @@
-"""Task progress poller — recover missed callbacks and auto-assign."""
+"""Robot task progress poller — recover missed callbacks and auto-assign."""
 
 from __future__ import annotations
 

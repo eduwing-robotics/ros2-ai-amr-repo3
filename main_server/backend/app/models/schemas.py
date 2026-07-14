@@ -2,17 +2,33 @@
 
 from app.models.common import ApiMessage, TeleopCommand
 from app.models.maps import MapRecord, MarkerUsage, Waypoint, WaypointRouteUpsert, WaypointUpsert
-from app.models.movement import MissionStatusResponse, MovementCommand
+from app.models.movement import (
+    MissionStatusResponse,
+    MovementCallbackAck,
+    MovementCommand,
+    MovementCommandEvent,
+    MovementCommandResult,
+    MovementRobotStatusCallback,
+    RobotCommandEvent,
+    RobotCommandRecord,
+    RobotCommandResult,
+)
 from app.models.records import (
     CameraSource,
     CameraSourceUpsert,
+    ControlSystemStatusSnapshot,
     EvidenceEventRecord,
     ItemChangeLogRecord,
     StatusSnapshot,
     TaskLogRecord,
     TimelineEvent,
 )
-from app.models.robot_commands import RobotCommandRequest, RobotCommandResponse
+from app.models.robot_commands import (
+    RobotCommandKind,
+    RobotCommandRequest,
+    RobotCommandResponse,
+    RobotCommandState,
+)
 from app.models.robots import (
     InitialPoseRequest,
     Robot,
@@ -23,7 +39,19 @@ from app.models.robots import (
     TeleopRequest,
     TeleopResponse,
 )
-from app.models.tasks import Task, TaskAssign, TaskCreate
+from app.models.tasks import (
+    RobotTask,
+    RobotTaskAssign,
+    RobotTaskCreate,
+    RobotTaskKind,
+    RobotTaskReturnStatus,
+    RobotTaskStatus,
+    RobotTaskStep,
+    RobotTaskStepStatus,
+    Task,
+    TaskAssign,
+    TaskCreate,
+)
 from app.models.warehouse import (
     InventoryRecord,
     InventoryUpsert,
@@ -33,13 +61,17 @@ from app.models.warehouse import (
     StorageSlotUpsert,
 )
 from app.models.work_orders import (
+    RobotTaskPlanSummary,
+    RobotTaskSummary,
     WorkOrder,
     WorkOrderCreate,
+    WorkOrderOperation,
     WorkOrderPlannedSlot,
     WorkOrderPlannedZone,
     WorkOrderPreview,
     WorkOrderPreviewRequest,
     WorkOrderPriorityUpdate,
+    WorkOrderRobotTask,
     WorkOrderTask,
 )
 
@@ -57,17 +89,37 @@ __all__ = [
     "MapRecord",
     "MarkerUsage",
     "MissionStatusResponse",
+    "MovementCallbackAck",
     "MovementCommand",
+    "MovementCommandEvent",
+    "MovementCommandResult",
+    "MovementRobotStatusCallback",
+    "RobotCommandEvent",
+    "RobotCommandRecord",
+    "RobotCommandResult",
     "Robot",
+    "RobotCommandKind",
     "RobotCommandRequest",
     "RobotCommandResponse",
+    "RobotCommandState",
     "RobotPose",
     "RobotPoseReport",
     "RobotPoseUpdate",
     "RobotUpsert",
+    "ControlSystemStatusSnapshot",
     "StatusSnapshot",
     "StorageSlot",
     "StorageSlotUpsert",
+    "RobotTask",
+    "RobotTaskAssign",
+    "RobotTaskCreate",
+    "RobotTaskKind",
+    "RobotTaskPlanSummary",
+    "RobotTaskReturnStatus",
+    "RobotTaskSummary",
+    "RobotTaskStatus",
+    "RobotTaskStep",
+    "RobotTaskStepStatus",
     "Task",
     "TaskAssign",
     "TaskCreate",
@@ -80,7 +132,9 @@ __all__ = [
     "WaypointRouteUpsert",
     "WaypointUpsert",
     "WorkOrder",
+    "WorkOrderRobotTask",
     "WorkOrderCreate",
+    "WorkOrderOperation",
     "WorkOrderPriorityUpdate",
     "WorkOrderPlannedSlot",
     "WorkOrderPlannedZone",

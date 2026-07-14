@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Backend
-최종 갱신: 2026-07-13 13:59 KST
+최종 갱신: 2026-07-14 11:03 KST
 목적: Main `/api/v1` **작성 규칙 + 엔드포인트 카탈로그**. 외부 계약: [INTERFACES](INTERFACES.md).
 
 브라우저가 사용하는 Main REST API의 경로와 역할을 정리한다. 요청·응답 필드는 실행 서버의 OpenAPI가 정본이다. Movement·Vision 서버 간 계약은 [INTERFACES](INTERFACES.md)에서 관리한다.
@@ -77,7 +77,7 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | Browser → Main | 운영·관리 UI | `/status`, `/robots`, `/tasks`, `/work-orders` | OpenAPI request schema → response schema |
 | Browser → Main | 운영 UI | `/teleop`, `/robot-commands`, ESTOP | `TeleopRequest` / `RobotCommandRequest` → 해당 response |
 | Browser → Main | 관리 UI | `/maps`, `/waypoints`, warehouse, devices | 각 Upsert schema → record 또는 `ApiMessage` |
-| Movement → Main | Movement | `/movement/command-events`, results, status, mission pose | 계약 payload → `ApiMessage` |
+| Movement → Main | Movement | `/movement/command-events`, results, status, mission pose | typed callback → `MovementCallbackAck`/`ApiMessage` |
 | ROS bridge → Main | `tools/ros_pose_bridge` | `/robots/{id}/pose` | `RobotPoseUpdate → ApiMessage` |
 | Main → Movement/Vision | Main 내부 서비스 | 외부 upstream | [INTERFACES](INTERFACES.md)의 계약 |
 
@@ -91,7 +91,7 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | 호출자 | Method | Path | 데이터 형식 | 설명 |
 | --- | --- | --- | --- | --- |
 | Browser | GET | `/system/external-config` | `— → JSON · object` | 외부 서버 연동 설정 조회 |
-| Browser | GET | `/status` | `— → JSON · StatusSnapshot` | 로봇·비상·작업 종합 스냅샷 |
+| Browser | GET | `/status` | `— → JSON · ControlSystemStatusSnapshot` | 로봇·비상·작업 종합 스냅샷 |
 
 ### Robots · 수동 조작
 
@@ -111,21 +111,21 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | --- | --- | --- | --- | --- |
 | Browser / Main | POST/GET | `/robot-commands` | `RobotCommandRequest → RobotCommandResponse` | 로봇 명령 envelope 생성·조회 |
 | Browser | POST | `/robot/estop` · `/robot/clear_estop` | `— → JSON · object` | 전 로봇 일괄 비상정지·해제 |
-| Movement | POST | `/movement/command-events` | `MovementCommandEvent → ApiMessage` | 상태 콜백 수신 → orchestrator |
-| Movement | POST | `/movement/results` · `/movement/robots/{name}/status` | `MovementResult/RobotStatus → ApiMessage` | 결과·상태 콜백 수신 |
+| Movement | POST | `/movement/command-events` | `RobotCommandEvent → MovementCallbackAck` | 검증·중복 제거 후 orchestrator |
+| Movement | POST | `/movement/results` · `/movement/robots/{name}/status` | typed result/status → ACK | 결과 상태 정규화·실시간 상태 수신 |
 | Movement | POST | `/movement/missions/{id}/pose` | `RobotPoseReport → ApiMessage` | mission pose 콜백 수신 |
 | Browser / Main | GET | `/movement/map-state` · `/movement/runtime-map-context` | `— → JSON · object` | 활성 맵·runtime 컨텍스트 |
 | Browser | GET | `/movement/sync-status` | `— → JSON · object` | 맵·pose 동기화 진단 (+`planned_paths[]`) |
 | Browser | GET | `/movement/commands/{id}/trace` | `— → JSON · object` | 명령 실행 추적 |
 | Browser | GET | `/aruco/latest` | `— → JSON · object` | 아루코 인식 최신값 readout |
-| Browser | GET | `/movement-commands` | `— → MovementCommand[]` | 이동 이력 projection |
+| Browser | GET | `/movement-commands` | `— → RobotCommandRecord[]` | 이동 이력 projection |
 
-### Tasks · Work orders
+### Robot tasks · Work orders
 
 | 호출자 | Method | Path | 데이터 형식 | 설명 |
 | --- | --- | --- | --- | --- |
-| Browser / Main | GET/POST | `/tasks` | `— → Task[]` / `TaskCreate → Task` | 작업 조회·생성 |
-| Browser / Main | POST | `/tasks/{id}/assign\|start-mission\|complete\|cancel` | `TaskAssign/— → Task/JSON object` | 작업 상태 전이 |
+| Browser / Main | GET/POST | `/tasks` | `— → RobotTask[]` / `RobotTaskCreate → RobotTask` | 작업 조회·생성 |
+| Browser / Main | POST | `/tasks/{id}/assign\|start-mission\|complete\|cancel` | `RobotTaskAssign/— → RobotTask/JSON object` | 작업 상태 전이 |
 | Main / Browser | POST | `/tasks/auto-assign` · `/tasks/auto-assign-and-start` | `— → JSON · object` | 자동 배정 (+mission 시작 일괄) |
 | Browser | GET | `/tasks/recovery/awaiting-operator` | `— → JSON · object[]` | 운영자 복구 대상 목록 |
 | Browser | GET | `/tasks/{id}/recovery/context` | `— → JSON · object` | 복구 컨텍스트 조회 |
@@ -200,9 +200,14 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 
 명령 상태는 `GET /robot-commands/{id}?robot_id=`로 조회한다. Movement의 진행 콜백은 `POST /movement/command-events`로 들어와 orchestrator에 전달된다.
 
+Command callback은 `command_id`, robot, event/state가 필수이며 누락 시 `422`다. 릴리즈에서
+`LMS_MOVEMENT_CALLBACK_TOKEN`을 설정하면 `X-Movement-Callback-Token`이 필수다. `event_id` 중복은
+`200 duplicate=true`, 작은/equal `sequence`는 task 상태에 재적용하지 않는다. 상세 계약은 [Movement 요구서](MOVEMENT_SERVER_REQUIREMENTS.md)를 따른다.
+
 ## Work orders · recovery · waypoints · maps
 
-- **입출고 요청:** `POST /work-orders/preview`는 DB에 쓰지 않고 계획만 보여준다. `POST /work-orders`는 요청 1건당 task 1건을 만들고, 완료 시점에 quantity만큼 재고를 증감한다(1회 상한 50). 가용 수량은 현 재고에서 진행 중 작업이 점유한 몫을 반영해 계산한다.
+- **입출고 요청:** `POST /work-orders/preview`는 DB에 쓰지 않고 계획만 보여준다. `POST /work-orders`는 요청 1건당 robot task 1건을 만들고, 완료 시점에 quantity만큼 재고를 증감한다(1회 상한 50). 가용 수량은 현 재고에서 진행 중 작업이 점유한 몫을 반영해 계산한다.
+- **응답 호환:** 내부 Work Order 조회는 `RobotTaskSummary`의 `requested_quantity`·`allocated_quantity`·`robot_task_id`·`active_command_id`를 사용한다. `/api/v1` 응답은 adapter가 기존 `quantity`·`tasks[]`·`task_id`·`command_id`를 유지한다.
 - **취소·우선순위:** `POST /work-orders/{id}/cancel`은 예약 상태의 요청을 취소하고, `/priority`는 디스패치 순서를 `tasks.priority`에 영속화한다.
 - **실행 중 안전 중단:** `POST /work-orders/{id}/stop`은 현재 Movement command 취소를 즉시 요청한다. 빈 로봇은 취소 callback 후 `CANCELLED`, 적재 상태는 `AWAITING_OPERATOR`, 하역 완료 후 복귀·주차 중단은 물류 `DONE`을 유지하고 `PARK_FAILED`로 기록한다.
 - **완료·복귀:** 목적지 `dock_transfer(unload)`가 `DONE`이면 재고를 한 번만 반영하고 `business_completed=true`가 된다. 이후 HOME 복귀와 `aruco_align(park)`는 후처리이며 `return_status`는 `RETURNING_HOME | PARKING | PARKED | PARK_FAILED`다. 주차 실패는 완료된 입출고를 실패로 되돌리지 않고 `parking_error`에 기록한다.

@@ -89,6 +89,7 @@ class MvpEvidenceRepository:
             data = row.get("data_json") or {}
             if isinstance(data, str):
                 import json
+
                 data = json.loads(data)
             steps = data.get("steps") if isinstance(data.get("steps"), list) else data.get("legs") or []
             for leg in steps:
@@ -169,6 +170,18 @@ class MvpEventRepository:
             data_json=data,
         )
 
+    def callback_event_exists(self, event_id: str) -> bool:
+        """Return whether a Movement callback event_id was already recorded."""
+        row = self.conn.execute(
+            """
+            SELECT 1 FROM evidence_events
+            WHERE source = 'runtime' AND data_json ->> 'callback_event_id' = %s
+            LIMIT 1
+            """,
+            (event_id,),
+        ).fetchone()
+        return row is not None
+
     def list(self, limit: int = 50) -> list[dict[str, Any]]:
         import json
 
@@ -185,16 +198,18 @@ class MvpEventRepository:
             data = r.get("data_json") or {}
             if isinstance(data, str):
                 data = json.loads(data)
-            out.append({
-                "event_id": r["id"],
-                "event_type": r["event_type"],
-                "task_id": r.get("task_id"),
-                "robot_id": data.get("robot_id"),
-                "command_id": data.get("movement_command_id"),
-                "message": data.get("message", ""),
-                "payload_json": data,
-                "created_at": _row_ts(r.get("observed_at")),
-            })
+            out.append(
+                {
+                    "event_id": r["id"],
+                    "event_type": r["event_type"],
+                    "task_id": r.get("task_id"),
+                    "robot_id": data.get("robot_id"),
+                    "command_id": data.get("movement_command_id"),
+                    "message": data.get("message", ""),
+                    "payload_json": data,
+                    "created_at": _row_ts(r.get("observed_at")),
+                }
+            )
         return out
 
 
@@ -305,19 +320,18 @@ class MvpCommandRepository:
             cid = int(cmd["id"])
             evs = evidence_by_cmd.get(cid, [])
             latest = evs[-1]["event_type"] if evs else "PENDING"
-            satisfied = any(
-                e["event_type"] == cmd["required_evidence_type"] and e.get("trusted", True)
-                for e in evs
+            satisfied = any(e["event_type"] == cmd["required_evidence_type"] and e.get("trusted", True) for e in evs)
+            out.append(
+                {
+                    "command_id": cid,
+                    "sequence_no": cmd["sequence_no"],
+                    "command_type": cmd["command_type"],
+                    "target_system": cmd["target_system"],
+                    "required_evidence_type": cmd["required_evidence_type"],
+                    "status": "DONE" if satisfied else latest,
+                    "evidence_count": len(evs),
+                }
             )
-            out.append({
-                "command_id": cid,
-                "sequence_no": cmd["sequence_no"],
-                "command_type": cmd["command_type"],
-                "target_system": cmd["target_system"],
-                "required_evidence_type": cmd["required_evidence_type"],
-                "status": "DONE" if satisfied else latest,
-                "evidence_count": len(evs),
-            })
         return out
 
 

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.core.api_logs import list_logs as list_api_logs
+from app.core.config import settings
 from app.core.health_cache import clear_cache
 from app.db.connection import transaction
 from app.db.mvp import event_repo, movement_repo, robot_repo
@@ -29,8 +31,12 @@ from app.domains.movement.teleop import execute_teleop
 from app.models.schemas import (
     ApiMessage,
     InitialPoseRequest,
+    MovementCallbackAck,
+    MovementRobotStatusCallback,
+    RobotCommandEvent,
     RobotCommandRequest,
     RobotCommandResponse,
+    RobotCommandResult,
     RobotPose,
     RobotPoseReport,
     RobotPoseUpdate,
@@ -39,6 +45,16 @@ from app.models.schemas import (
 )
 
 router = APIRouter(tags=["movement"])
+
+
+def require_callback_token(request: Request) -> None:
+    """Require the shared Movement callback token when configured."""
+    expected = settings.movement_callback_token
+    if not expected:
+        return
+    supplied = request.headers.get("X-Movement-Callback-Token", "")
+    if not secrets.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="invalid movement callback token")
 
 
 @router.get("/robots/{robot_id}/localization")
@@ -93,7 +109,7 @@ def movement_map_state_route() -> dict:
 
 @router.get("/movement/runtime-map-context")
 def movement_runtime_map_context_route() -> dict:
-    """ — Nav2 runtime map context (수동 명령·pose overlay 기준)."""
+    """— Nav2 runtime map context (수동 명령·pose overlay 기준)."""
     return runtime_map_context_route()
 
 
@@ -108,25 +124,29 @@ def movement_sync_status() -> dict:
     rows = []
     for robot_id in robots:
         snapshot = localization_snapshot(robot_id)
-        robot_events = [e for e in events if e.get("robot_id") == robot_id and str(e.get("event_type", "")).startswith("MOVEMENT_")]
+        robot_events = [
+            e for e in events if e.get("robot_id") == robot_id and str(e.get("event_type", "")).startswith("MOVEMENT_")
+        ]
         robot_logs = [log for log in logs if log.get("source") == robot_id]
         last_callback = robot_events[0].get("created_at") if robot_events else None
         last_poll = robot_logs[0].get("finished_at") if robot_logs else None
-        rows.append({
-            "robot_id": robot_id,
-            "base_url": snapshot.get("base_url"),
-            "api_ok": snapshot.get("ok"),
-            "robot_online": snapshot.get("robot_online"),
-            "command_accepting": snapshot.get("command_accepting"),
-            "localized": snapshot.get("localized"),
-            "pose_state": snapshot.get("pose_state"),
-            "reason": snapshot.get("reason"),
-            "action_required": snapshot.get("action_required"),
-            "current_command_id": snapshot.get("health", {}).get("current_command_id"),
-            "last_callback_at": last_callback,
-            "last_poll_at": last_poll,
-            "health_checked_at": snapshot.get("health", {}).get("checked_at"),
-        })
+        rows.append(
+            {
+                "robot_id": robot_id,
+                "base_url": snapshot.get("base_url"),
+                "api_ok": snapshot.get("ok"),
+                "robot_online": snapshot.get("robot_online"),
+                "command_accepting": snapshot.get("command_accepting"),
+                "localized": snapshot.get("localized"),
+                "pose_state": snapshot.get("pose_state"),
+                "reason": snapshot.get("reason"),
+                "action_required": snapshot.get("action_required"),
+                "current_command_id": snapshot.get("health", {}).get("current_command_id"),
+                "last_callback_at": last_callback,
+                "last_poll_at": last_poll,
+                "health_checked_at": snapshot.get("health", {}).get("checked_at"),
+            }
+        )
     return {"robots": rows, "map_state": map_state, "movement_logs": logs[:20]}
 
 
@@ -170,7 +190,9 @@ def set_robot_initial_pose(robot_id: str, payload: InitialPoseRequest) -> dict:
         error = "movement_initial_pose_failed"
         if "404" in detail or "405" in detail:
             error = "movement_initial_pose_api_missing"
-        raise HTTPException(status_code=status, detail={"error": error, "message": detail, "robot_id": robot_id}) from exc
+        raise HTTPException(
+            status_code=status, detail={"error": error, "message": detail, "robot_id": robot_id}
+        ) from exc
     with transaction() as conn:
         event_repo(conn).append(
             event_type="MOVEMENT_INITIAL_POSE",
@@ -218,27 +240,28 @@ def movement_command_trace(command_id: str, robot_id: str | None = Query(default
     }
 
 
-@router.post("/movement/command-events", response_model=ApiMessage)
-def movement_command_event(payload: dict) -> ApiMessage:
+@router.post("/movement/command-events", response_model=MovementCallbackAck)
+def movement_command_event(payload: RobotCommandEvent, request: Request) -> MovementCallbackAck:
     """Movement callback_url 이벤트를 수신해 이벤트 타임라인에 기록한다."""
+    require_callback_token(request)
     with transaction() as conn:
-        ingest_command_event(conn, payload)
-    return ApiMessage(message="movement command event saved")
+        return MovementCallbackAck(**ingest_command_event(conn, payload.to_payload()))
 
 
-@router.post("/movement/results", response_model=ApiMessage)
-def movement_result(payload: dict) -> ApiMessage:
-    """Movement result callback을 수신해 이벤트 타임라인에 기록한다."""
+@router.post("/movement/results", response_model=MovementCallbackAck)
+def movement_result(payload: RobotCommandResult, request: Request) -> MovementCallbackAck:
+    """Legacy result callback을 기록하고 command lifecycle에 반영한다."""
+    require_callback_token(request)
     with transaction() as conn:
-        ingest_result(conn, payload)
-    return ApiMessage(message="movement result saved")
+        return MovementCallbackAck(**ingest_result(conn, payload.to_payload()))
 
 
 @router.post("/movement/robots/{robot_name}/status", response_model=ApiMessage)
-def movement_robot_status(robot_name: str, payload: dict) -> ApiMessage:
+def movement_robot_status(robot_name: str, payload: MovementRobotStatusCallback, request: Request) -> ApiMessage:
     """Movement robot status callback을 current robot/pose에 반영한다."""
+    require_callback_token(request)
     with transaction() as conn:
-        ingest_robot_status(conn, robot_name, payload)
+        ingest_robot_status(conn, robot_name, payload.to_payload())
     return ApiMessage(message="movement robot status saved")
 
 
@@ -353,40 +376,78 @@ def teleop(payload: TeleopRequest) -> TeleopResponse:
     """수동조작 요청을 서비스 계층으로 위임한다."""
     return execute_teleop(payload)
 
-def ingest_command_event(conn, payload: dict[str, Any]) -> None:
+
+RESULT_EVENT_MAP = {
+    "OK": "DONE",
+    "SUCCESS": "DONE",
+    "SUCCEEDED": "DONE",
+    "COMPLETED": "DONE",
+    "CANCELED": "CANCELED",
+    "CANCELLED": "CANCELLED",
+    "STOPPED": "STOPPED",
+    "ABORTED": "ABORTED",
+    "FAILED": "FAILED",
+    "REJECTED": "REJECTED",
+}
+
+
+def _is_duplicate_callback(repo, payload: dict[str, Any]) -> bool:
+    event_id = str(payload.get("event_id") or "")
+    return bool(event_id and repo.callback_event_exists(event_id))
+
+
+def _event_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    out = dict(payload)
+    if payload.get("event_id"):
+        out["callback_event_id"] = payload["event_id"]
+    return out
+
+
+def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist Movement command callback and advance orchestration when applicable."""
+    repo = event_repo(conn)
+    if _is_duplicate_callback(repo, payload):
+        return {"message": "duplicate movement callback ignored", "duplicate": True, "task_advanced": False}
     command_id = payload.get("command_id")
     robot_id = payload.get("robot_name") or payload.get("robot_id")
     event = payload.get("event") or payload.get("state") or "UNKNOWN"
-    event_repo(conn).append(
+    repo.append(
         event_type=f"MOVEMENT_COMMAND_{event}",
         robot_id=robot_id,
         command_id=command_id,
         message=payload.get("message") or str(event),
-        payload=payload,
+        payload=_event_payload(payload),
     )
-    orchestrator_service.handle_command_event(conn, payload)
+    advanced = orchestrator_service.handle_command_event(conn, payload) is not None
+    return {"message": "movement command event saved", "duplicate": False, "task_advanced": advanced}
 
 
-def ingest_result(conn, payload: dict[str, Any]) -> None:
+def ingest_result(conn, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist Movement result callback and update movement command record."""
+    repo = event_repo(conn)
+    if _is_duplicate_callback(repo, payload):
+        return {"message": "duplicate movement result ignored", "duplicate": True, "task_advanced": False}
     command_id = payload.get("command_id")
     robot_id = payload.get("robot_name") or payload.get("robot_id")
-    result = payload.get("result") or "UNKNOWN"
-    event_repo(conn).append(
+    result = str(payload.get("result") or "UNKNOWN").upper()
+    repo.append(
         event_type=f"MOVEMENT_RESULT_{result}",
         robot_id=robot_id,
         command_id=command_id,
         message=payload.get("message") or str(result),
-        payload=payload,
+        payload=_event_payload(payload),
     )
-    if command_id:
-        movement_repo(conn).record_result(
-            command_id,
-            str(result),
-            payload.get("message") or str(result),
-            payload,
-        )
+    if not command_id:
+        return {"message": "movement result saved without command", "duplicate": False, "task_advanced": False}
+    movement_repo(conn).record_result(
+        command_id,
+        str(result),
+        payload.get("message") or str(result),
+        payload,
+    )
+    normalized = {**payload, "event": RESULT_EVENT_MAP.get(result, result)}
+    advanced = orchestrator_service.handle_command_event(conn, normalized) is not None
+    return {"message": "movement result saved", "duplicate": False, "task_advanced": advanced}
 
 
 def ingest_robot_status(conn, robot_name: str, payload: dict[str, Any]) -> None:

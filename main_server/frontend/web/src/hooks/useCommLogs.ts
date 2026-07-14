@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiGet, apiSend } from "../lib/api";
-import type { MovementCommand } from "../types";
+import type { RobotCommandRecord } from "../types";
 
 export interface CommLog {
   service?: string;
@@ -18,7 +18,7 @@ export interface CommLog {
 
 interface CommLogsResponse {
   logs: CommLog[];
-  movement_commands: MovementCommand[];
+  movement_commands: RobotCommandRecord[];
 }
 
 export const useCommLogs = (service: string, limit: number) =>
