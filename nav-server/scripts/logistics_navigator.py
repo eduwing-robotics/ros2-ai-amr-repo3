@@ -162,6 +162,8 @@ class LogisticsNavigator(Node):
         self.external_spin = False
         self.nav2_ready = False
         self.nav2_ready_lock = threading.Lock()
+        self.nav2_readiness_start_lock = threading.Lock()
+        self.nav2_readiness_thread = None
         self.last_nav_failure = None
         self.controller_param_clients = {}
         self.global_localization_lock = threading.Lock()
@@ -180,6 +182,11 @@ class LogisticsNavigator(Node):
             "attempts": 0,
             "confirmation_count": 0,
         }
+        # FastAPI serves synchronous status handlers from a thread pool.  Keep
+        # the stateful scan-map admission check single-owner so concurrent
+        # health/localization polls cannot duplicate the expensive matcher or
+        # overwrite one another's confirmation window.
+        self.scan_map_alignment_lock = threading.RLock()
         self.localization_heartbeat_future = None
         self.localization_heartbeat_timer = self.create_timer(
             1.0, self._maintain_converged_localization
@@ -271,6 +278,21 @@ class LogisticsNavigator(Node):
         else:
             print("[Nav2] warning: failed to restore controller params after position-only approach")
 
+    def start_nav2_readiness_monitor(self):
+        """Start one daemon check so API health becomes ready before the first command."""
+        with self.nav2_readiness_start_lock:
+            current = self.nav2_readiness_thread
+            if self.nav2_ready or (current is not None and current.is_alive()):
+                return current
+            current = threading.Thread(
+                target=self.ensure_nav2_ready,
+                daemon=True,
+                name="nav2-readiness-monitor",
+            )
+            self.nav2_readiness_thread = current
+            current.start()
+            return current
+
     def ensure_nav2_ready(self):
         """Wait once for Nav2 action servers/lifecycle nodes before sending a goal."""
         if self.nav2_ready:
@@ -286,7 +308,14 @@ class LogisticsNavigator(Node):
 
             self.get_logger().info("Nav2 active state 확인 중...")
             try:
-                self.nav.waitUntilNav2Active(localizer=os.getenv("NAV2_LOCALIZER", "amcl"))
+                # BasicNavigator's AMCL readiness branch publishes its own
+                # default initial pose before it spins for /amcl_pose.  This
+                # process deliberately owns localization through map-wide scan
+                # matching or an explicit operator seed, so readiness only
+                # checks Nav2 lifecycle and never injects a fixed (0, 0) pose.
+                # Fresh AMCL/scan/TF state is enforced separately by
+                # LocalizationGate before any physical command is admitted.
+                self.nav.waitUntilNav2Active(localizer="robot_localization")
                 self.nav2_ready = True
                 self.get_logger().info("Nav2 active state 확인 완료.")
                 return True
@@ -910,13 +939,17 @@ class LogisticsNavigator(Node):
                     "velocity_loop_latency_sec": self.last_velocity_loop_latency_sec}
 
     def reset_scan_map_alignment(self):
-        self.scan_map_alignment_status = {
-            "accepted": False,
-            "refinement_required": False,
-            "reason": "not_checked",
-            "attempts": 0,
-            "confirmation_count": 0,
-        }
+        lock = getattr(self, "scan_map_alignment_lock", None)
+        if lock is None:
+            lock = self.scan_map_alignment_lock = threading.RLock()
+        with lock:
+            self.scan_map_alignment_status = {
+                "accepted": False,
+                "refinement_required": False,
+                "reason": "not_checked",
+                "attempts": 0,
+                "confirmation_count": 0,
+            }
 
     def _reset_global_localization_observations(self):
         """Discard pose evidence from a previous Nav2/localization generation."""
@@ -944,6 +977,13 @@ class LogisticsNavigator(Node):
 
     def localization_alignment_observation(self, profile):
         """Compare the live LiDAR walls/corners with the active occupancy map."""
+        lock = getattr(self, "scan_map_alignment_lock", None)
+        if lock is None:
+            lock = self.scan_map_alignment_lock = threading.RLock()
+        with lock:
+            return self._localization_alignment_observation_locked(profile)
+
+    def _localization_alignment_observation_locked(self, profile):
         config = alignment_config(profile)
         if not config["enabled"]:
             return {"accepted": True, "refinement_required": False, "reason": "disabled", "attempts": 0}
@@ -956,8 +996,7 @@ class LogisticsNavigator(Node):
         prior_token = self.scan_map_alignment_status.get("last_confirmation_scan_token")
         check_interval = max(0.0, float(config.get("continuous_check_interval_sec", 1.0)))
         if (
-            self.scan_map_alignment_status.get("accepted")
-            and prior_token is not None
+            prior_token is not None
             and scan_token - float(prior_token) < check_interval
         ):
             return dict(self.scan_map_alignment_status)
@@ -1000,6 +1039,23 @@ class LogisticsNavigator(Node):
             }
         except (LookupException, ConnectivityException, ExtrapolationException):
             return dict(config.get("scan_mount_fallback") or {"x": -0.032, "y": 0.0, "yaw": 0.0})
+
+    def claim_scan_map_refinement(self, alignment):
+        """Atomically grant one poller ownership of a proposed refinement."""
+        lock = getattr(self, "scan_map_alignment_lock", None)
+        if lock is None:
+            lock = self.scan_map_alignment_lock = threading.RLock()
+        with lock:
+            current = dict(self.scan_map_alignment_status)
+            if current.get("refinement_claimed") or not current.get("refinement_required"):
+                return None
+            expected_token = alignment.get("last_confirmation_scan_token")
+            current_token = current.get("last_confirmation_scan_token")
+            if expected_token is not None and current_token != expected_token:
+                return None
+            claimed = {**current, "refinement_claimed": True}
+            self.scan_map_alignment_status = claimed
+            return dict(claimed)
 
     def apply_scan_map_refinement(self, alignment, search):
         """Publish one virtual pose correction and request fine no-motion AMCL updates."""
@@ -1182,6 +1238,7 @@ class LogisticsNavigator(Node):
                 **search,
                 "start_stage": "fine",
                 "allow_global_reinitialization": False,
+                "_overall_deadline_monotonic": deadline,
             })
             return
         reason = "cancelled" if self.global_localization_stop_event.is_set() else "map_wide_scan_search_timeout"
@@ -1266,6 +1323,15 @@ class LogisticsNavigator(Node):
         ))))
         timeout = max(coarse_interval, min(180.0, float(search.get("nomotion_update_timeout_sec", 120.0))))
         deadline = time.monotonic() + timeout
+        try:
+            overall_deadline = float(search.get("_overall_deadline_monotonic"))
+        except (TypeError, ValueError):
+            overall_deadline = None
+        if overall_deadline is not None and math.isfinite(overall_deadline):
+            # Map-wide matching and AMCL fine convergence are one automatic
+            # localization attempt. Do not restart the full timeout when the
+            # search advances from the map-wide stage to fine.
+            deadline = min(deadline, overall_deadline)
         retry_at = time.monotonic() + timeout / 2.0
         stage = str(search.get("start_stage", "coarse"))
         if stage not in ("coarse", "fine"):

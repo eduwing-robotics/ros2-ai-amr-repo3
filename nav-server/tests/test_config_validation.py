@@ -108,6 +108,28 @@ def test_global_search_rejects_rotation_and_unsafe_linear_limits():
     assert any("linear_speed_mps" in error for error in errors)
 
 
+def test_map_wide_search_requires_outer_localization_admission_margin():
+    localization = _localization()
+    localization["convergence_timeout_sec"] = 120.0
+    localization["global_search"] = {
+        **localization["global_search"],
+        "map_wide_scan_matching": True,
+        "nomotion_update_timeout_sec": 120.0,
+    }
+    profile = {
+        "robot_id": "tb3_burger_01", "bridge_robot_id": "tb3_1",
+        "ros_domain_id": 2, "center_domain_id": 1,
+        "namespace": "/tb3_burger_01", "teleop_command_topic": "/mission/tb3_1/teleop_cmd",
+        "camera_topic": "/mission/tb3_1/camera/compressed", "api_port": 8001,
+        "active_map_yaml": "map/robot2_map.yaml", "localization": localization,
+        "field_dispatch": {"inbound": False, "outbound": False, "status": "BLOCKED"},
+    }
+
+    errors = validate_robot_profile(profile)
+
+    assert any("convergence_timeout_sec" in error and "map-wide search" in error for error in errors)
+
+
 def test_global_search_rejects_malformed_strategy_container_without_raising():
     localization = _localization()
     localization["global_search"]["allowed_strategies"] = None
@@ -273,6 +295,9 @@ def test_robot1_uses_confirmed_map_without_changing_robot_ownership():
     assert robot1["active_map_yaml"] == "map/robot2_map.yaml"
     assert robot1["localization"]["map_id"] == "robot2_map"
     assert robot1["localization"]["map_metadata_identity"] == "map/robot2_map.yaml"
+    assert robot1["localization"]["convergence_timeout_sec"] >= (
+        robot1["localization"]["global_search"]["nomotion_update_timeout_sec"] + 30.0
+    )
     assert robot1["field_dispatch"] == blocked
     assert (robot2["bridge_robot_id"], robot2["ros_domain_id"], robot2["api_port"]) == ("tb3_2", 5, 8002)
     assert robot2["lift"]["enabled"] is True and "lift" in robot2["capabilities"]

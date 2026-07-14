@@ -1,5 +1,6 @@
 from collections import deque
 import math
+import time
 from threading import Event, Lock, Thread as RealThread
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -23,6 +24,7 @@ def navigator_stub():
     navigator.request_nomotion_update_client.call_async.return_value = future
     navigator.last_nav_failure = None
     navigator.global_localization_lock = __import__("threading").Lock()
+    navigator.scan_map_alignment_lock = __import__("threading").RLock()
     navigator.global_localization_stop_event = Event()
     navigator.global_localization_thread = None
     navigator.global_localization_status = {}
@@ -158,6 +160,24 @@ def test_map_wide_worker_seeds_only_repeated_top_k_hypothesis(monkeypatch):
     assert seeded["y"] == pytest.approx(correct["y"], abs=0.01)
     assert seeded["yaw"] == pytest.approx(correct["yaw"], abs=math.radians(0.5))
     navigator._observe_only_localization_search.assert_called_once()
+    fine_search = navigator._observe_only_localization_search.call_args.args[0]
+    assert fine_search["_overall_deadline_monotonic"] > time.monotonic()
+
+
+def test_fine_search_honors_map_wide_overall_deadline():
+    navigator = navigator_stub()
+
+    navigator._observe_only_localization_search({
+        "coarse_nomotion_interval_sec": 0.01,
+        "fine_nomotion_interval_sec": 0.01,
+        "nomotion_update_timeout_sec": 0.1,
+        "_overall_deadline_monotonic": time.monotonic() - 0.01,
+        "start_stage": "fine",
+    })
+
+    navigator.request_nomotion_update_client.call_async.assert_not_called()
+    assert navigator.global_localization_status["reason"] == "nomotion_update_timeout"
+    assert navigator.last_nav_failure == "LOCALIZATION_FAILED"
 
 
 def test_new_global_search_discards_previous_pose_and_tf_generation():

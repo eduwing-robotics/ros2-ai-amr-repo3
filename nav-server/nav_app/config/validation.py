@@ -209,6 +209,22 @@ def validate_localization_config(robot_id: str, localization: Any) -> List[str]:
                 )
         except (TypeError, ValueError):
             errors.append(f"{robot_id}: localization.global_search.{field} must be numeric")
+    if search.get("map_wide_scan_matching", False) is True:
+        try:
+            convergence_timeout = float(localization.get("convergence_timeout_sec"))
+            search_timeout = float(adaptive.get("nomotion_update_timeout_sec"))
+            required_timeout = search_timeout + 30.0
+            if (
+                math.isfinite(convergence_timeout)
+                and math.isfinite(search_timeout)
+                and convergence_timeout < required_timeout
+            ):
+                errors.append(
+                    f"{robot_id}: localization.convergence_timeout_sec must be at least "
+                    f"{required_timeout:g} for map-wide search plus admission"
+                )
+        except (TypeError, ValueError):
+            pass
     for field, minimum, maximum in (
         ("coarse_consecutive_samples", 3, 100),
         ("fine_consecutive_samples", 3, 100),

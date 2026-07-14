@@ -6,6 +6,7 @@ import importlib.util
 import sys
 import threading
 import time
+from unittest.mock import Mock
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -177,3 +178,162 @@ def test_one_transient_tf_lookup_miss_keeps_recent_success_continuous(navigator_
     navigator.latest_tf_monotonic = time.monotonic() - 3.0
     assert navigator._pose_from_transform() is None
     assert navigator.latest_tf_continuous is False
+
+
+def _alignment_profile(*, interval_sec=1.0):
+    return {
+        "active_map_yaml": "/tmp/test-map.yaml",
+        "localization": {
+            "scan_map_alignment": {
+                "enabled": True,
+                "continuous_check_interval_sec": interval_sec,
+            }
+        },
+    }
+
+
+def _alignment_navigator(cls, *, scan_token=10.0):
+    navigator = cls.__new__(cls)
+    navigator.scan_lock = threading.Lock()
+    navigator.scan_map_alignment_lock = threading.RLock()
+    navigator.latest_scan = SimpleNamespace(
+        ranges=[1.0],
+        angle_min=0.0,
+        angle_increment=1.0,
+        range_min=0.1,
+        range_max=3.0,
+    )
+    navigator.latest_scan_monotonic = scan_token
+    navigator.scan_map_alignment_status = {
+        "accepted": False,
+        "refinement_required": False,
+        "reason": "not_checked",
+        "attempts": 0,
+        "confirmation_count": 0,
+    }
+    navigator._pose_from_transform = lambda: {"x": 0.0, "y": 0.0, "yaw": 0.0}
+    navigator._scan_mount = lambda *_args: {"x": 0.0, "y": 0.0, "yaw": 0.0}
+    return navigator
+
+
+def test_pending_scan_map_alignment_is_throttled_between_intervals(navigator_class, monkeypatch):
+    navigator = _alignment_navigator(navigator_class, scan_token=10.5)
+    navigator.scan_map_alignment_status = {
+        "accepted": False,
+        "refinement_required": False,
+        "reason": "confirmation_pending",
+        "attempts": 0,
+        "confirmation_count": 2,
+        "last_confirmation_scan_token": 10.0,
+    }
+    module_globals = navigator_class.localization_alignment_observation.__globals__
+    matcher = Mock(side_effect=AssertionError("matcher must remain cached inside the interval"))
+    monkeypatch.setitem(module_globals, "align_scan_to_map", matcher)
+
+    status = navigator.localization_alignment_observation(_alignment_profile(interval_sec=1.0))
+
+    assert status["reason"] == "confirmation_pending"
+    assert status["confirmation_count"] == 2
+    matcher.assert_not_called()
+
+
+def test_concurrent_alignment_queries_compute_one_scan_once(navigator_class, monkeypatch):
+    navigator = _alignment_navigator(navigator_class, scan_token=20.0)
+    module_globals = navigator_class.localization_alignment_observation.__globals__
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def align_once(**_kwargs):
+        calls.append(time.monotonic())
+        entered.set()
+        assert release.wait(2.0)
+        return {
+            "accepted": True,
+            "refinement_required": False,
+            "reason": "aligned",
+            "attempts": 0,
+            "correction": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+            "corrected_pose": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+        }
+
+    monkeypatch.setitem(module_globals, "align_scan_to_map", align_once)
+    results = []
+    first = threading.Thread(
+        target=lambda: results.append(
+            navigator.localization_alignment_observation(_alignment_profile())
+        )
+    )
+    second = threading.Thread(
+        target=lambda: results.append(
+            navigator.localization_alignment_observation(_alignment_profile())
+        )
+    )
+
+    first.start()
+    assert entered.wait(1.0)
+    second.start()
+    time.sleep(0.05)
+    assert len(calls) == 1
+    release.set()
+    first.join(timeout=2.0)
+    second.join(timeout=2.0)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert len(calls) == 1
+    assert len(results) == 2
+    assert all(result["confirmation_count"] == 1 for result in results)
+
+
+def test_nav2_readiness_monitor_starts_only_one_background_check(navigator_class):
+    navigator = navigator_class.__new__(navigator_class)
+    navigator.nav2_ready = False
+    navigator.nav2_readiness_start_lock = threading.Lock()
+    navigator.nav2_readiness_thread = None
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    def ensure_ready():
+        calls.append(time.monotonic())
+        entered.set()
+        assert release.wait(2.0)
+        navigator.nav2_ready = True
+        return True
+
+    navigator.ensure_nav2_ready = ensure_ready
+
+    first = navigator.start_nav2_readiness_monitor()
+    assert entered.wait(1.0)
+    second = navigator.start_nav2_readiness_monitor()
+    assert first is second
+    assert len(calls) == 1
+
+    release.set()
+    first.join(timeout=2.0)
+    assert not first.is_alive()
+    assert navigator.nav2_ready is True
+
+
+def test_nav2_readiness_does_not_publish_a_default_amcl_initial_pose(
+    navigator_class, monkeypatch
+):
+    """Lifecycle readiness must not seed AMCL with BasicNavigator's zero pose."""
+    navigator = navigator_class.__new__(navigator_class)
+    navigator.nav2_ready = False
+    navigator.nav2_ready_lock = threading.Lock()
+    navigator.last_nav_failure = None
+    navigator.nav = SimpleNamespace(waitUntilNav2Active=Mock())
+    navigator.get_logger = lambda: SimpleNamespace(info=Mock(), error=Mock())
+    monkeypatch.setenv("SIMULATION_MODE", "0")
+    monkeypatch.delenv("NAV2_SKIP_ACTIVE_WAIT", raising=False)
+    monkeypatch.setenv("NAV2_LOCALIZER", "amcl")
+
+    assert navigator.ensure_nav2_ready() is True
+
+    # Jazzy BasicNavigator publishes its own default (0, 0) /initialpose when
+    # localizer="amcl".  The application owns localization, so readiness uses
+    # the non-seeding branch and leaves arbitrary-start search untouched.
+    navigator.nav.waitUntilNav2Active.assert_called_once_with(
+        localizer="robot_localization"
+    )

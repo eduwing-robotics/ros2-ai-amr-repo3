@@ -640,3 +640,129 @@ def test_accepted_alignment_rechecks_new_scans_and_debounces_one_dynamic_failure
 
     recovered = confirm_alignment(aligned, first, scan_token=5.0, config=config)
     assert recovered["recheck_failure_count"] == 0
+
+
+def test_pending_confirmation_survives_transient_unreliable_scan():
+    config = {
+        "confirmation_scans": 3,
+        "confirmation_window_scans": 5,
+        "failure_confirmation_scans": 3,
+    }
+    aligned = {
+        "accepted": True,
+        "refinement_required": False,
+        "reason": "aligned",
+        "correction": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+        "corrected_pose": {"x": 1.0, "y": 2.0, "yaw": 0.0},
+    }
+    status = confirm_alignment(aligned, {}, scan_token=1.0, config=config)
+    status = confirm_alignment(aligned, status, scan_token=2.0, config=config)
+    assert status["confirmation_count"] == 2
+
+    transient = confirm_alignment(
+        {
+            "accepted": False,
+            "refinement_required": False,
+            "reason": "alignment_unreliable",
+        },
+        status,
+        scan_token=3.0,
+        config=config,
+    )
+
+    assert transient["reason"] == "confirmation_pending"
+    assert transient["confirmation_count"] == 2
+    assert transient["recheck_failure_count"] == 1
+
+    confirmed = confirm_alignment(aligned, transient, scan_token=4.0, config=config)
+    assert confirmed["accepted"] is True
+    assert confirmed["reason"] == "aligned"
+    assert confirmed["confirmation_count"] == 3
+
+
+def test_confirmation_window_expires_successes_separated_by_unreliable_scans():
+    config = {
+        "confirmation_scans": 3,
+        "confirmation_window_scans": 5,
+        "failure_confirmation_scans": 3,
+    }
+    aligned = {
+        "accepted": True,
+        "refinement_required": False,
+        "reason": "aligned",
+        "correction": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+        "corrected_pose": {"x": 1.0, "y": 2.0, "yaw": 0.0},
+    }
+    unreliable = {
+        "accepted": False,
+        "refinement_required": False,
+        "reason": "alignment_unreliable",
+    }
+    status = {}
+    for token, result in enumerate(
+        (aligned, unreliable, unreliable, aligned, unreliable, unreliable, aligned),
+        start=1,
+    ):
+        status = confirm_alignment(result, status, scan_token=float(token), config=config)
+
+    assert status["accepted"] is False
+    assert status["reason"] == "confirmation_pending"
+    assert status["confirmation_count"] == 2
+    assert status["confirmation_window_count"] == 5
+
+
+def test_confirmation_accepts_three_successes_inside_scan_window():
+    config = {
+        "confirmation_scans": 3,
+        "confirmation_window_scans": 5,
+        "failure_confirmation_scans": 3,
+    }
+    aligned = {
+        "accepted": True,
+        "refinement_required": False,
+        "reason": "aligned",
+        "correction": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+        "corrected_pose": {"x": 1.0, "y": 2.0, "yaw": 0.0},
+    }
+    unreliable = {
+        "accepted": False,
+        "refinement_required": False,
+        "reason": "alignment_unreliable",
+    }
+    status = {}
+    for token, result in enumerate((aligned, aligned, unreliable, aligned), start=1):
+        status = confirm_alignment(result, status, scan_token=float(token), config=config)
+
+    assert status["accepted"] is True
+    assert status["reason"] == "aligned"
+    assert status["confirmation_count"] == 3
+    assert status["confirmation_window_count"] == 4
+
+
+def test_three_consecutive_unreliable_scans_clear_pending_evidence():
+    config = {
+        "confirmation_scans": 3,
+        "confirmation_window_scans": 5,
+        "failure_confirmation_scans": 3,
+    }
+    aligned = {
+        "accepted": True,
+        "refinement_required": False,
+        "reason": "aligned",
+        "correction": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+    }
+    unreliable = {
+        "accepted": False,
+        "refinement_required": False,
+        "reason": "alignment_unreliable",
+    }
+    status = confirm_alignment(aligned, {}, scan_token=1.0, config=config)
+    status = confirm_alignment(aligned, status, scan_token=2.0, config=config)
+    status = confirm_alignment(unreliable, status, scan_token=3.0, config=config)
+    status = confirm_alignment(unreliable, status, scan_token=4.0, config=config)
+    status = confirm_alignment(unreliable, status, scan_token=5.0, config=config)
+
+    assert status["accepted"] is False
+    assert status["confirmation_count"] == 0
+    assert status["recheck_failure_count"] == 3
+    assert status.get("confirmation_observations", []) == []

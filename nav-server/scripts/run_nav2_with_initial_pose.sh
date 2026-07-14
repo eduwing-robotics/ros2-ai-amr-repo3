@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 #
-# Launch Nav2 for one robot and optionally seed AMCL with an initial pose.
+# Launch Nav2 for one robot and localize it from an arbitrary start pose.
 #
-# This helper mirrors the manual workflow:
+# The default workflow is:
 #   1) start the robot bringup
 #   2) launch navigation2.launch.py
-#   3) publish an approximate 2D initial pose
+#   3) run observe-only map-wide localization
 #
-# It does not replace RViz map checking, but it removes the repetitive
-# launch + initial-pose steps when the start pose is already known.
+# Explicit coordinates remain available only as a manual recovery path.
 
 set -euo pipefail
 
@@ -27,9 +26,9 @@ NAV2_STARTUP_RETRY_SEC="${NAV2_STARTUP_RETRY_SEC:-180}"
 ROBOT_READINESS_TIMEOUT_SEC="${ROBOT_READINESS_TIMEOUT_SEC:-30}"
 ROBOT_SCAN_MAX_AGE_SEC="${ROBOT_SCAN_MAX_AGE_SEC:-1.0}"
 ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-0}"
-AUTOMATIC_LOCALIZATION_TIMEOUT_SEC="${AUTOMATIC_LOCALIZATION_TIMEOUT_SEC:-120}"
+AUTOMATIC_LOCALIZATION_TIMEOUT_SEC="${AUTOMATIC_LOCALIZATION_TIMEOUT_SEC:-}"
 AUTOMATIC_LOCALIZATION_API_TIMEOUT_SEC="${AUTOMATIC_LOCALIZATION_API_TIMEOUT_SEC:-30}"
-AUTOMATIC_LOCALIZATION_REFINEMENT_GRACE_SEC="${AUTOMATIC_LOCALIZATION_REFINEMENT_GRACE_SEC:-45}"
+AUTOMATIC_LOCALIZATION_REFINEMENT_GRACE_SEC="${AUTOMATIC_LOCALIZATION_REFINEMENT_GRACE_SEC:-}"
 AUTOMATIC_LOCALIZATION_MAX_REFINEMENT_EXTENSIONS="${AUTOMATIC_LOCALIZATION_MAX_REFINEMENT_EXTENSIONS:-3}"
 NAV2_USE_RVIZ="${NAV2_USE_RVIZ:-1}"
 RVIZ_CONFIG_FILE="${RVIZ_CONFIG_FILE:-$ROOT/config/rviz/agv_map_debug.rviz}"
@@ -66,7 +65,7 @@ Options:
   --no-rviz           Start Nav2 without RViz (diagnostics/headless operation)
 
 Examples:
-  scripts/run_nav2_with_initial_pose.sh --robot tb3_2 --x 0.0 --y 0.0 --yaw 0.0
+  scripts/run_nav2_with_initial_pose.sh --robot tb3_1 --domain 2 --local-domain 42
   scripts/run_nav2_with_initial_pose.sh --robot tb3_2 --domain 5 --x 1.2 --y 0.5 --yaw 1.57
 
 If --x/--y/--yaw are omitted, the script starts observe-only global localization.
@@ -96,6 +95,28 @@ for robot in robots:
     if robot.get("bridge_robot_id") == robot_name:
         print(robot.get("nav_local_domain_id", robot["ros_domain_id"]))
         raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+localization_wait_budgets_for_robot() {
+  python3 - "$ROBOTS_CONFIG_PATH" "$1" <<'PY'
+import json
+import math
+import sys
+
+config_path, robot_name = sys.argv[1:]
+with open(config_path, encoding="utf-8") as handle:
+    robots = json.load(handle).get("robots", [])
+for robot in robots:
+    if robot.get("bridge_robot_id") != robot_name:
+        continue
+    localization = robot.get("localization") or {}
+    search = localization.get("global_search") or {}
+    convergence = float(localization.get("convergence_timeout_sec", 30.0))
+    refinement = float(search.get("nomotion_update_timeout_sec", 120.0))
+    print(math.ceil(convergence + 30.0), math.ceil(refinement + 15.0))
+    raise SystemExit(0)
 raise SystemExit(1)
 PY
 }
@@ -540,6 +561,26 @@ if [[ ! "$NAV_LOCAL_ROS_DOMAIN_ID_VALUE" =~ ^[0-9]+$ ]] || (( NAV_LOCAL_ROS_DOMA
   echo "[nav2_helper] invalid local ROS domain: ${NAV_LOCAL_ROS_DOMAIN_ID_VALUE}" >&2
   exit 2
 fi
+
+read -r profile_localization_timeout profile_refinement_grace < <(
+  localization_wait_budgets_for_robot "$ROBOT_NAME"
+)
+if [[ -z "$AUTOMATIC_LOCALIZATION_TIMEOUT_SEC" ]]; then
+  AUTOMATIC_LOCALIZATION_TIMEOUT_SEC="$profile_localization_timeout"
+fi
+if [[ -z "$AUTOMATIC_LOCALIZATION_REFINEMENT_GRACE_SEC" ]]; then
+  AUTOMATIC_LOCALIZATION_REFINEMENT_GRACE_SEC="$profile_refinement_grace"
+fi
+for timeout_value in \
+  "$AUTOMATIC_LOCALIZATION_TIMEOUT_SEC" \
+  "$AUTOMATIC_LOCALIZATION_REFINEMENT_GRACE_SEC" \
+  "$AUTOMATIC_LOCALIZATION_MAX_REFINEMENT_EXTENSIONS"; do
+  if [[ ! "$timeout_value" =~ ^[1-9][0-9]*$ ]]; then
+    echo "[nav2_helper] localization timeout budgets must be positive integers" >&2
+    exit 2
+  fi
+done
+echo "[nav2_helper] localization wait budget: base=${AUTOMATIC_LOCALIZATION_TIMEOUT_SEC}s refinement=${AUTOMATIC_LOCALIZATION_REFINEMENT_GRACE_SEC}s"
 
 pose_arg_count=0
 [[ -n "$INITIAL_X" ]] && ((pose_arg_count += 1))

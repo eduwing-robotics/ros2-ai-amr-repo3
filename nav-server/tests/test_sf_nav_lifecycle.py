@@ -389,10 +389,11 @@ def test_failure_immediately_after_spawn_rolls_back_without_state_file(tmp_path)
         pytest.fail("spawned process survived pre-state rollback")
 
 
-def _fake_ros2(tmp_path: Path, *, include_lift: bool) -> Path:
+def _fake_ros2(tmp_path: Path, *, include_lift: bool, base_node: str = "turtlebot3_node") -> Path:
     fake_bin = tmp_path / ("ros-ok" if include_lift else "ros-missing-lift")
     fake_bin.mkdir()
     topics = [
+        "/odom", "/scan",
         "/lift/cmd_move", "/lift/cmd_home", "/lift/cmd_stop",
         "/lift/position", "/lift/direction", "/lift/limit_lower",
     ]
@@ -401,7 +402,7 @@ def _fake_ros2(tmp_path: Path, *, include_lift: bool) -> Path:
     script = fake_bin / "ros2"
     script.write_text(
         "#!/usr/bin/env bash\n"
-        "if [[ \"$1 $2 $3\" == 'topic info /cmd_vel' ]]; then printf '%s\\n' 'Subscription count: 1' 'Node name: turtlebot3_node'; exit 0; fi\n"
+        f"if [[ \"$1 $2 $3\" == 'topic info /cmd_vel' ]]; then printf '%s\\n' 'Subscription count: 1' 'Node name: {base_node}'; exit 0; fi\n"
         "if [[ \"$1 $2\" == 'lifecycle get' ]]; then echo active; exit 0; fi\n"
         "if [[ \"$1 $2\" == 'topic list' ]]; then printf '%s\\n' "
         + " ".join(f"'{topic}'" for topic in topics)
@@ -409,6 +410,46 @@ def _fake_ros2(tmp_path: Path, *, include_lift: bool) -> Path:
     )
     script.chmod(0o755)
     return fake_bin
+
+
+@pytest.mark.parametrize(
+    "base_node, succeeds",
+    [("tb3_1_hardware_nav_42", True), ("tb3_2_hardware_nav_42", False)],
+)
+def test_tb1_full_readiness_matches_selected_hardware_bridge(tmp_path, base_node, succeeds):
+    port = _free_port()
+    robots = json.loads((ROOT / "config/robots.json").read_text())
+    robots["robots"] = [robots["robots"][0]]
+    robots["robots"][0]["api_port"] = port
+    robots_path = tmp_path / "robots.json"
+    robots_path.write_text(json.dumps(robots))
+    fake_run = _health_server_script(tmp_path / "fake-run.sh")
+    env = {
+        **os.environ,
+        "PATH": f"{_fake_ros2(tmp_path, include_lift=True, base_node=base_node)}:{os.environ['PATH']}",
+        "ROBOTS_CONFIG_PATH": str(robots_path),
+        "SF_NAV_STATE_DIR": str(tmp_path / "state"),
+        "SF_NAV_RUN_SCRIPT": str(fake_run),
+        "SF_NAV_START_SETTLE_SEC": "0.02",
+        "SF_NAV_READINESS_MODE": "full",
+        "SF_NAV_READINESS_TIMEOUT_SEC": "1",
+    }
+    result = subprocess.run(
+        [str(SCRIPT), "--profile", "tb1-live", "up"], cwd=ROOT, env=env, capture_output=True, text=True
+    )
+    assert (result.returncode == 0) is succeeds, result.stderr
+    if succeeds:
+        subprocess.run(
+            [str(SCRIPT), "--profile", "tb1-live", "down"],
+            cwd=ROOT,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    else:
+        latest = Path((tmp_path / "state" / "tb1-live" / "latest").read_text().strip())
+        assert json.loads((latest / "runtime-state.json").read_text())["status"] == "failed"
 
 
 @pytest.mark.parametrize("include_lift, succeeds", [(True, True), (False, False)])

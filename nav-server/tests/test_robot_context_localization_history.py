@@ -1,5 +1,6 @@
 """Regression coverage for localization history replay at the API boundary."""
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -8,6 +9,7 @@ import pytest
 from nav_app.runtime import runtime
 from nav_app.services import robot_context
 from nav_app.services.localization import LocalizationGate
+from logistics_navigator import LogisticsNavigator
 
 
 PROFILE = {
@@ -123,6 +125,42 @@ def test_scan_alignment_confirmation_is_fail_closed_without_resetting_amcl_gate(
     assert health["scan_map_alignment"]["confirmation_count"] == 1
 
 
+@pytest.mark.parametrize(
+    ("gate_state", "gate_reason"),
+    [
+        ("DEGRADED", "tf_missing_or_stale"),
+        ("FAILED", "convergence_timeout"),
+    ],
+)
+@pytest.mark.parametrize(
+    "alignment_reason",
+    ["confirmation_pending", "global_localization_search_active"],
+)
+def test_stale_scan_alignment_status_does_not_mask_nonlocalized_gate(
+    localization_runtime, monkeypatch, gate_state, gate_reason, alignment_reason
+):
+    gate, navigator = localization_runtime
+    gate.state = gate_state
+    gate.reason = gate_reason
+    navigator.scan_map_alignment_status = {
+        "accepted": False,
+        "refinement_required": False,
+        "reason": alignment_reason,
+        "confirmation_count": 2,
+        "confirmation_required": 3,
+    }
+    navigator.localization_alignment_observation = MagicMock()
+    monkeypatch.setattr(robot_context, "alignment_config", lambda _profile: {"enabled": True})
+
+    health = robot_context.localization_health()
+
+    assert health["localized"] is False
+    assert health["state"] == gate_state
+    assert health["reason"] == gate_reason
+    assert health["scan_map_alignment"]["reason"] == alignment_reason
+    navigator.localization_alignment_observation.assert_not_called()
+
+
 def test_scan_alignment_does_not_start_refinement_while_global_search_owns_localization(
     localization_runtime, monkeypatch
 ):
@@ -145,6 +183,76 @@ def test_scan_alignment_does_not_start_refinement_while_global_search_owns_local
     assert health["state"] == "CONVERGING"
     assert health["reason"] == "global_localization_search_active"
     navigator.localization_alignment_observation.assert_not_called()
+
+
+def test_concurrent_alignment_admission_claims_one_refinement(localization_runtime, monkeypatch):
+    gate, _ = localization_runtime
+    gate.state = "LOCALIZED"
+    gate.reason = "converged"
+    alignment = {
+        "accepted": False,
+        "refinement_required": True,
+        "reason": "correction_available",
+        "attempts": 0,
+        "last_confirmation_scan_token": 20.0,
+        "corrected_pose": {"x": 1.0, "y": 2.0, "yaw": 0.1},
+    }
+    navigator = LogisticsNavigator.__new__(LogisticsNavigator)
+    navigator.scan_map_alignment_lock = threading.RLock()
+    navigator.scan_map_alignment_status = dict(alignment)
+    navigator.global_localization_search_active = lambda: False
+    both_observed = threading.Barrier(2)
+
+    def observe(_profile):
+        both_observed.wait(timeout=2.0)
+        return dict(alignment)
+
+    navigator.localization_alignment_observation = observe
+    apply_calls = []
+    apply_lock = threading.Lock()
+
+    def apply(claimed, _search):
+        with apply_lock:
+            apply_calls.append(dict(claimed))
+        return dict(claimed["corrected_pose"])
+
+    navigator.apply_scan_map_refinement = apply
+    monkeypatch.setattr(runtime, "navigator", navigator)
+    monkeypatch.setattr(robot_context, "alignment_config", lambda _profile: {
+        "enabled": True,
+        "max_refinement_passes": 3,
+        "initial_covariance": {"x": 0.02, "y": 0.02, "yaw": 0.01},
+    })
+    results = []
+    threads = [
+        threading.Thread(target=lambda: results.append(robot_context._scan_map_alignment_admission(gate)))
+        for _ in range(2)
+    ]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3.0)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(apply_calls) == 1
+    assert apply_calls[0]["refinement_claimed"] is True
+    assert len(results) == 2
+
+
+def test_live_command_acceptance_requires_background_nav2_readiness(monkeypatch):
+    navigator = SimpleNamespace(nav2_ready=False)
+    mission_manager = SimpleNamespace(dry_run=False)
+    monkeypatch.setattr(runtime, "navigator", navigator)
+    monkeypatch.setattr(runtime, "mission_manager", mission_manager)
+    monkeypatch.setattr(robot_context, "active_robot_online", lambda: True)
+    monkeypatch.setattr(robot_context, "localization_health", lambda: {"localized": True})
+    monkeypatch.setattr(robot_context, "is_simulation_mode", lambda: False)
+
+    assert robot_context.command_accepting() is False
+
+    navigator.nav2_ready = True
+    assert robot_context.command_accepting() is True
 
 
 @pytest.mark.parametrize(

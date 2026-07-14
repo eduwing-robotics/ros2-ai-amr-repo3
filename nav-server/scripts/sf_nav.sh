@@ -182,8 +182,8 @@ PY
   done
 }
 wait_external_readiness() {
-  local config="$1"
-  "$PYTHON_BIN" - "$config" <<'PY' | while IFS=$'\t' read -r component probe domain port; do
+  local config="$1" base_info base_node_pattern expected_bridge_node
+  "$PYTHON_BIN" - "$config" <<'PY' | while IFS=$'\t' read -r component probe domain port bridge_robot_id; do
 import json,sys
 cfg=json.load(open(sys.argv[1],encoding='utf-8'))
 for name,spec in cfg['components'].items():
@@ -191,13 +191,15 @@ for name,spec in cfg['components'].items():
         selected=set(spec.get('robot_ids') or [robot['robot_id'] for robot in cfg['robots']])
         for robot in cfg['robots']:
             if robot['robot_id'] in selected:
-                print(f"{name}\t{spec['readiness_probe']}\t{robot['nav_local_domain_id']}\t{robot['api_port']}")
+                print(f"{name}\t{spec['readiness_probe']}\t{robot['nav_local_domain_id']}\t{robot['api_port']}\t{robot.get('bridge_robot_id', '')}")
 PY
     case "$probe" in
       base-heartbeat)
         base_info="$(ROS_DOMAIN_ID="$domain" timeout 3 ros2 topic info /cmd_vel --verbose 2>/dev/null)"
+        base_node_pattern="${SF_NAV_BASE_NODE_PATTERN:-turtlebot3_node|diff_drive_controller|base_controller}"
+        expected_bridge_node="${bridge_robot_id}_hardware_nav_${domain}"
         grep -Eq 'Subscription count: [1-9][0-9]*' <<<"$base_info" &&
-          grep -Eiq "Node name: (${SF_NAV_BASE_NODE_PATTERN:-turtlebot3_node|diff_drive_controller|base_controller})" <<<"$base_info"
+          grep -Eiq "Node name: (${base_node_pattern}|${expected_bridge_node})[[:space:]]*$" <<<"$base_info"
         ;;
       ros-domain-route) ROS_DOMAIN_ID="$domain" timeout 2 ros2 topic list 2>/dev/null | grep -Eq '^/(scan|odom)$' ;;
       lifecycle-active) ROS_DOMAIN_ID="$domain" timeout 3 ros2 lifecycle get /bt_navigator 2>/dev/null | grep -qi active ;;

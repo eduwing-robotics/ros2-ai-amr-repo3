@@ -133,8 +133,17 @@ def _movement_accept_command(
     localization = robot_context.localization_health()
     if not explicit_bypass and not localization["localized"]:
         raise HTTPException(status_code=409, detail={"message": "movement requires localized AMCL/scan/TF state", "localization": localization})
+    if not explicit_bypass and not getattr(runtime.navigator, "nav2_ready", False):
+        runtime.navigator.start_nav2_readiness_monitor()
+        raise HTTPException(
+            status_code=503,
+            detail={"message": "Nav2 lifecycle/action is not ready", "nav2_ready": False},
+        )
     if not explicit_bypass and not runtime.navigator.ensure_nav2_ready():
-        raise HTTPException(status_code=503, detail={"message": "Nav2 lifecycle/action is not ready", "nav2_ready": False})
+        raise HTTPException(
+            status_code=503,
+            detail={"message": "Nav2 lifecycle/action is not ready", "nav2_ready": False},
+        )
     if not is_simulation_mode() and not request_is_dry_run and not runtime.mission_manager.dry_run and not robot_context.active_robot_online():
         raise HTTPException(
             status_code=503,

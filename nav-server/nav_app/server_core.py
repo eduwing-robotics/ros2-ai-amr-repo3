@@ -64,6 +64,7 @@ def startup_runtime() -> None:
 
     runtime.ros_thread = threading.Thread(target=ros_spin_thread, daemon=True)
     runtime.ros_thread.start()
+    runtime.navigator.start_nav2_readiness_monitor()
     print("Nav Server: ROS 2 통신 스레드 시작됨.")
 
 

@@ -71,6 +71,7 @@ def _mock_startup():
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("SIMULATION_MODE", "1")
+    monkeypatch.setenv("NAV_MAIN_HMAC_SECRET", "test-main-nav-secret")
     app = FastAPI(title="test")
     register_app(app)
     _mock_startup()
@@ -113,8 +114,6 @@ def test_endpoints_contract_shape(client):
 def test_route_preview_coordinates(client):
     body = b'{"command_id":"preview-1","robot_name":"tb3_1","x":1.0,"y":2.0,"yaw":0.0}'
     # TestClient serializes this compact JSON identically; explicit data keeps the signed raw body exact.
-    import os
-    os.environ["NAV_MAIN_HMAC_SECRET"] = "test-main-nav-secret"
     response = client.post(
         "/movement-api/v1/routes/preview",
         content=body,
@@ -132,6 +131,31 @@ def test_real_command_rejected_until_localized(client, monkeypatch):
     body = b'{"command_id":"localization-required","robot_name":"tb3_1","steps":[{"action":"move_to_point","payload":{"x":1,"y":2}}]}'
     response = client.post("/movement-api/v1/commands", content=body, headers={"content-type": "application/json", **sign_headers("test-main-nav-secret", "POST", "/movement-api/v1/commands", body)})
     assert response.status_code == 409
+
+
+def test_real_command_returns_fast_503_while_background_nav2_readiness_is_pending(client, monkeypatch):
+    monkeypatch.setenv("SIMULATION_MODE", "0")
+    runtime.mission_manager.dry_run = False
+    runtime.navigator.nav2_ready = False
+    runtime.navigator.ensure_nav2_ready.reset_mock()
+    runtime.navigator.start_nav2_readiness_monitor.reset_mock()
+    monkeypatch.setattr(robot_context, "localization_health", lambda: {"localized": True})
+    monkeypatch.setattr(robot_context, "active_robot_online", lambda: True)
+    body = b'{"command_id":"nav2-pending","robot_name":"tb3_1","steps":[{"action":"move_to_point","payload":{"x":1,"y":2}}]}'
+
+    response = client.post(
+        "/movement-api/v1/commands",
+        content=body,
+        headers={
+            "content-type": "application/json",
+            **sign_headers("test-main-nav-secret", "POST", "/movement-api/v1/commands", body),
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["nav2_ready"] is False
+    runtime.navigator.start_nav2_readiness_monitor.assert_called_once_with()
+    runtime.navigator.ensure_nav2_ready.assert_not_called()
 
 
 def test_explicit_dry_run_bypasses_localization(client):

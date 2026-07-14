@@ -282,6 +282,20 @@ def test_alignment_refinement_progress_extends_localization_wait_without_motion(
     assert not any("/cmd_vel" in event for event in events)
 
 
+def test_default_localization_wait_budgets_follow_selected_robot_profile(tmp_path: Path) -> None:
+    result, events = _run_startup(
+        tmp_path,
+        env_overrides={
+            "AUTOMATIC_LOCALIZATION_TIMEOUT_SEC": "",
+            "AUTOMATIC_LOCALIZATION_REFINEMENT_GRACE_SEC": "",
+        },
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "localization wait budget: base=210s refinement=135s" in result.stdout
+    assert not any("/cmd_vel" in event for event in events)
+
+
 @pytest.mark.parametrize(
     ("mode", "failure"),
     [

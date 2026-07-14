@@ -52,7 +52,18 @@ def active_robot_online():
 def command_accepting(is_emergency: bool = False):
     if not runtime.navigator:
         return False
-    return bool(not is_emergency and active_robot_online() and localization_health()["localized"])
+    dry_run = bool(runtime.mission_manager and runtime.mission_manager.dry_run)
+    nav2_ready = bool(
+        dry_run
+        or is_simulation_mode()
+        or getattr(runtime.navigator, "nav2_ready", False)
+    )
+    return bool(
+        not is_emergency
+        and nav2_ready
+        and active_robot_online()
+        and localization_health()["localized"]
+    )
 
 
 def localization_gate():
@@ -122,12 +133,16 @@ def localization_health():
         config = alignment_config(gate.profile)
         if config.get("enabled") and not alignment.get("accepted"):
             health["localized"] = False
-            if alignment.get("reason") == "confirmation_pending":
-                health["state"] = "CONVERGING"
-                health["reason"] = "scan_map_alignment_confirmation_pending"
-            elif alignment.get("reason") == "global_localization_search_active":
-                health["state"] = "CONVERGING"
-                health["reason"] = "global_localization_search_active"
+            if health.get("state") == "LOCALIZED":
+                if alignment.get("reason") == "confirmation_pending":
+                    health["state"] = "CONVERGING"
+                    health["reason"] = "scan_map_alignment_confirmation_pending"
+                elif alignment.get("reason") == "global_localization_search_active":
+                    health["state"] = "CONVERGING"
+                    health["reason"] = "global_localization_search_active"
+                elif alignment.get("refinement_required"):
+                    health["state"] = "CONVERGING"
+                    health["reason"] = "scan_map_alignment_refinement_pending"
     return health
 
 
@@ -163,7 +178,14 @@ def _scan_map_alignment_admission(gate):
     if int(alignment.get("attempts", 0)) >= int(config["max_refinement_passes"]):
         gate.reject("scan_map_alignment_refinement_pass_limit")
         return {**alignment, "reason": "refinement_pass_limit"}
-    corrected_pose = alignment.get("corrected_pose") or {}
+    if not hasattr(navigator, "claim_scan_map_refinement"):
+        gate.reject("scan_map_alignment_refinement_claim_unavailable")
+        return {**alignment, "reason": "refinement_claim_unavailable"}
+    claimed_alignment = navigator.claim_scan_map_refinement(alignment)
+    if claimed_alignment is None:
+        status = getattr(navigator, "scan_map_alignment_status", alignment)
+        return dict(status)
+    corrected_pose = claimed_alignment.get("corrected_pose") or {}
     seed = {
         "map_id": gate.config["map_id"],
         "map_metadata_identity": gate.config["map_metadata_identity"],
@@ -185,10 +207,10 @@ def _scan_map_alignment_admission(gate):
             "yaw": 0.01,
         },
     }
-    requested = navigator.apply_scan_map_refinement(alignment, search)
+    requested = navigator.apply_scan_map_refinement(claimed_alignment, search)
     if requested is None:
         gate.reject("scan_map_alignment_refinement_unavailable")
-    return dict(getattr(navigator, "scan_map_alignment_status", alignment))
+    return dict(getattr(navigator, "scan_map_alignment_status", claimed_alignment))
 
 
 def start_localization(seed=None):

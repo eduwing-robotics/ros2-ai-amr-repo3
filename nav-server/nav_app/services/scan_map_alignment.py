@@ -99,6 +99,8 @@ def confirm_alignment(
     if prior_token is not None and float(prior_token) == float(scan_token):
         return prior
 
+    required = max(1, int(cfg["confirmation_scans"]))
+    window_size = max(required, int(cfg["confirmation_window_scans"]))
     outcome = (
         "aligned" if current.get("accepted")
         else "correction_available" if current.get("refinement_required")
@@ -106,10 +108,49 @@ def confirm_alignment(
     )
     if outcome is None:
         failure_count = int(prior.get("recheck_failure_count", 0)) + 1
-        if prior.get("accepted") and failure_count < int(cfg["failure_confirmation_scans"]):
+        observations = list(prior.get("confirmation_observations") or [])
+        observations.append({"scan_token": float(scan_token), "outcome": None})
+        observations = observations[-window_size:]
+        pending_confirmation = (
+            prior.get("reason") == "confirmation_pending"
+            and int(prior.get("confirmation_count", 0)) > 0
+        )
+        clusterable = [item for item in observations if item.get("correction") is not None]
+        if (
+            (prior.get("accepted") or pending_confirmation)
+            and failure_count < int(cfg["failure_confirmation_scans"])
+            and clusterable
+        ):
+            candidate_outcome = str(prior.get("candidate_outcome") or "aligned")
+            translation_tolerance = float(
+                cfg["correction_confirmation_translation_tolerance_m"]
+                if candidate_outcome == "correction_available"
+                and cfg.get("correction_confirmation_translation_tolerance_m") is not None
+                else cfg["confirmation_translation_tolerance_m"]
+            )
+            yaw_tolerance = float(
+                cfg["correction_confirmation_yaw_tolerance_rad"]
+                if candidate_outcome == "correction_available"
+                and cfg.get("correction_confirmation_yaw_tolerance_rad") is not None
+                else cfg["confirmation_yaw_tolerance_rad"]
+            )
+            inliers, candidate = _largest_consistent_cluster(
+                clusterable,
+                translation_tolerance=translation_tolerance,
+                yaw_tolerance=yaw_tolerance,
+            )
             retained = dict(prior)
             retained.update({
-                "reason": "alignment_recheck_pending",
+                "reason": (
+                    "alignment_recheck_pending"
+                    if prior.get("accepted")
+                    else "confirmation_pending"
+                ),
+                "confirmation_count": len(inliers),
+                "confirmation_window_count": len(observations),
+                "confirmation_outlier_count": len(observations) - len(inliers),
+                "confirmation_candidate": candidate,
+                "confirmation_observations": observations,
                 "recheck_failure_count": failure_count,
                 "last_confirmation_scan_token": float(scan_token),
                 "last_recheck_failure": current,
@@ -117,13 +158,14 @@ def confirm_alignment(
             return retained
         current.update({
             "confirmation_count": 0,
-            "confirmation_required": int(cfg["confirmation_scans"]),
+            "confirmation_required": required,
+            "confirmation_window_count": 0,
+            "confirmation_observations": [],
             "recheck_failure_count": failure_count,
             "last_confirmation_scan_token": float(scan_token),
         })
         return current
 
-    required = max(1, int(cfg["confirmation_scans"]))
     correction = _finite_correction(current.get("correction"))
     if correction is None:
         current.update({
@@ -139,10 +181,10 @@ def confirm_alignment(
     observations = [] if prior.get("candidate_outcome") != outcome else list(prior.get("confirmation_observations") or [])
     observations.append({
         "scan_token": float(scan_token),
+        "outcome": outcome,
         "correction": correction,
         "corrected_pose": _finite_pose(current.get("corrected_pose")),
     })
-    window_size = max(required, int(cfg["confirmation_window_scans"]))
     observations = observations[-window_size:]
     translation_tolerance = float(
         cfg["correction_confirmation_translation_tolerance_m"]
@@ -154,8 +196,9 @@ def confirm_alignment(
         if outcome == "correction_available" and cfg.get("correction_confirmation_yaw_tolerance_rad") is not None
         else cfg["confirmation_yaw_tolerance_rad"]
     )
+    clusterable = [item for item in observations if item.get("correction") is not None]
     inliers, candidate = _largest_consistent_cluster(
-        observations,
+        clusterable,
         translation_tolerance=translation_tolerance,
         yaw_tolerance=yaw_tolerance,
     )

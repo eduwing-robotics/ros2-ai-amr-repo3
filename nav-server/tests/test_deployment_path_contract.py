@@ -44,6 +44,29 @@ def test_nav2_cli_uses_the_guarded_readiness_path():
     assert "navigator.nav.waitUntilNav2Active(localizer=\"amcl\")" not in source
 
 
+def test_nav2_readiness_cannot_reenable_basic_navigator_amcl_seeding():
+    path = ROOT / "scripts" / "logistics_navigator.py"
+    source = path.read_text(encoding="utf-8")
+    module = ast.parse(source)
+    method = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.ClassDef) and node.name == "LogisticsNavigator"
+        for node in node.body
+        if isinstance(node, ast.FunctionDef) and node.name == "ensure_nav2_ready"
+    )
+    method_source = ast.get_source_segment(source, method)
+
+    assert 'waitUntilNav2Active(localizer="robot_localization")' in method_source
+    assert "NAV2_LOCALIZER" not in method_source
+
+
+def test_api_runtime_starts_nonblocking_nav2_readiness_monitor():
+    source = (ROOT / "nav_app" / "server_core.py").read_text(encoding="utf-8")
+
+    assert "runtime.navigator.start_nav2_readiness_monitor()" in source
+
+
 def test_deployment_scripts_do_not_embed_operator_home_paths():
     paths = [*ROOT.joinpath("scripts").rglob("*.sh"), ROOT / "map" / "generate_factory_map.py"]
     offenders = [str(path.relative_to(ROOT)) for path in paths if "/home/lucas" in path.read_text() or "/home/musk" in path.read_text()]

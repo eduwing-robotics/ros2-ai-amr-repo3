@@ -56,7 +56,7 @@
         "max_covariance_y": 0.25,
         "max_covariance_yaw": 0.35,
         "consecutive_samples": 10,
-        "convergence_timeout_sec": 120.0,
+        "convergence_timeout_sec": 180.0,
         "persisted_seed_max_age_sec": 3600.0,
         "kidnapped_jump_distance_m": 1.5,
         "global_search": {
