@@ -20,10 +20,12 @@ HOST=""
 PORT="${LMS_API_PORT:-8088}"
 VITE_PORT="${LMS_VITE_PORT:-5173}"
 
-# Site hostnames are configuration only; this script never fills in field IP fallbacks.
-SITE_MOVEMENT_HOST="${SITE_MOVEMENT_HOST:-smartfactory-nav.local}"
-SITE_CAMERA_HOST="${SITE_CAMERA_HOST:-smartfactory-nav.local}"
-SITE_VISION_HOST="${SITE_VISION_HOST:-smartfactory-vision.local}"
+# Production service identities are fixed by config/network/smartfactory-hosts.
+# Operators may change ports, but not replace these names with direct IPs or aliases.
+SITE_MOVEMENT_HOST="smartfactory-nav.local"
+SITE_CAMERA_HOST="smartfactory-nav.local"
+SITE_VISION_HOST="smartfactory-vision.local"
+SITE_MAIN_HOST="smartfactory-main.local"
 SITE_MOVEMENT_MAP_ID="${SITE_MOVEMENT_MAP_ID:-robot2_map}"
 
 BUILD=0
@@ -100,6 +102,10 @@ fi
 
 read_env_var() {
   local key="$1" default="${2:-}"
+  if [[ -v "$key" ]]; then
+    printf '%s\n' "${!key}"
+    return
+  fi
   if [[ -f "$ROOT/.env" ]]; then
     local line
     line="$(grep -E "^${key}=" "$ROOT/.env" | tail -n1 || true)"
@@ -109,6 +115,46 @@ read_env_var() {
     fi
   fi
   echo "$default"
+}
+
+require_canonical_host() {
+  local label="$1" value="$2" expected="$3"
+  if [[ "$value" != "$expected" ]]; then
+    echo "[real] $label must use canonical hostname $expected, got: ${value:-<empty>}" >&2
+    exit 1
+  fi
+}
+
+require_canonical_url() {
+  local label="$1" value="$2" expected_host="$3"
+  local escaped_host="${expected_host//./\\.}"
+  local pattern="^(https?|wss?)://${escaped_host}(:[0-9]+)?(/[^[:space:]]*)?$"
+  if [[ ! "$value" =~ $pattern ]]; then
+    echo "[real] $label must use canonical hostname $expected_host, got: ${value:-<empty>}" >&2
+    exit 1
+  fi
+}
+
+require_canonical_url_list() {
+  local label="$1" value="$2" expected_host="$3" format="$4"
+  local entry url
+  local -a entries
+  [[ -z "$value" ]] && return
+  IFS=',' read -r -a entries <<< "$value"
+  for entry in "${entries[@]}"; do
+    entry="${entry#"${entry%%[![:space:]]*}"}"
+    entry="${entry%"${entry##*[![:space:]]}"}"
+    if [[ "$format" == "keyed" ]]; then
+      if [[ "$entry" != *=* ]] || [[ -z "${entry%%=*}" ]]; then
+        echo "[real] $label contains an invalid keyed URL: ${entry:-<empty>}" >&2
+        exit 1
+      fi
+      url="${entry#*=}"
+    else
+      url="$entry"
+    fi
+    require_canonical_url "$label" "$url" "$expected_host"
+  done
 }
 
 is_placeholder() {
@@ -148,6 +194,7 @@ MOVEMENT_MODE="http"
 
 MOVEMENT_HOST="$(resolve_host "$(read_env_var LMS_MOVEMENT_HOST)" "$SITE_MOVEMENT_HOST")"
 CAMERA_HOST="$(resolve_host "$(read_env_var LMS_CAMERA_HOST)" "$SITE_CAMERA_HOST")"
+MOVEMENT_BASE_URLS="$(read_env_var LMS_MOVEMENT_BASE_URLS)"
 VISION_STREAM="$(read_env_var LMS_VISION_STREAM_BASE_URL "http://${SITE_VISION_HOST}:8090")"
 if [[ "$VISION_STREAM" == *"<"* ]]; then
   VISION_STREAM="http://${SITE_VISION_HOST}:8090"
@@ -159,9 +206,25 @@ VISION_API="$(read_env_var LMS_VISION_API_BASE_URL "http://${SITE_VISION_HOST}:8
 if is_placeholder "$VISION_API" || [[ "$VISION_API" == *"<vision"* ]]; then
   VISION_API="http://${SITE_VISION_HOST}:8100"
 fi
-if [[ "$VISION_STREAM" == *"<"* ]]; then
-  VISION_STREAM="http://${SITE_VISION_HOST}:8090"
-fi
+PUBLIC_BASE="$(read_env_var LMS_PUBLIC_BASE_URL "http://${SITE_MAIN_HOST}:8088")"
+CALLBACK_BASE="$(read_env_var LMS_CALLBACK_BASE_URL "$PUBLIC_BASE")"
+CALLBACK_ALLOWLIST="$(read_env_var LMS_CALLBACK_ALLOWLIST)"
+CAMERA_API_BASE="$(read_env_var LMS_CAMERA_API_BASE_URL "http://${CAMERA_HOST}:$(read_env_var LMS_CAMERA_API_PORT 8080)")"
+CAMERA_ROSBRIDGE="$(read_env_var LMS_CAMERA_ROSBRIDGE_URL "ws://${CAMERA_HOST}:$(read_env_var LMS_CAMERA_STREAM_PORT 9090)")"
+CAMERA_STREAM_TEMPLATE="$(read_env_var LMS_CAMERA_STREAM_URL_TEMPLATE "$CAMERA_ROSBRIDGE")"
+CAMERA_STREAM_CHECK="${CAMERA_STREAM_TEMPLATE//\{host\}/$SITE_CAMERA_HOST}"
+
+require_canonical_host "LMS_MOVEMENT_HOST" "$MOVEMENT_HOST" "$SITE_MOVEMENT_HOST"
+require_canonical_host "LMS_CAMERA_HOST" "$CAMERA_HOST" "$SITE_CAMERA_HOST"
+require_canonical_url "LMS_VISION_API_BASE_URL" "$VISION_API" "$SITE_VISION_HOST"
+require_canonical_url "LMS_VISION_STREAM_BASE_URL" "$VISION_STREAM" "$SITE_VISION_HOST"
+require_canonical_url "LMS_PUBLIC_BASE_URL" "$PUBLIC_BASE" "$SITE_MAIN_HOST"
+require_canonical_url "LMS_CALLBACK_BASE_URL" "$CALLBACK_BASE" "$SITE_MAIN_HOST"
+require_canonical_url "LMS_CAMERA_API_BASE_URL" "$CAMERA_API_BASE" "$SITE_CAMERA_HOST"
+require_canonical_url "LMS_CAMERA_ROSBRIDGE_URL" "$CAMERA_ROSBRIDGE" "$SITE_CAMERA_HOST"
+require_canonical_url "LMS_CAMERA_STREAM_URL_TEMPLATE" "$CAMERA_STREAM_CHECK" "$SITE_CAMERA_HOST"
+require_canonical_url_list "LMS_MOVEMENT_BASE_URLS" "$MOVEMENT_BASE_URLS" "$SITE_MOVEMENT_HOST" "keyed"
+require_canonical_url_list "LMS_CALLBACK_ALLOWLIST" "$CALLBACK_ALLOWLIST" "$SITE_MAIN_HOST" "plain"
 
 export LMS_MOVEMENT_CLIENT_MODE="$MOVEMENT_MODE"
 export LMS_MOVEMENT_HOST="$MOVEMENT_HOST"
@@ -169,9 +232,10 @@ export LMS_CAMERA_HOST="$CAMERA_HOST"
 export LMS_MOVEMENT_ACTIVE_MAP_ID="$MAP_ID"
 export LMS_VISION_API_BASE_URL="$VISION_API"
 export LMS_VISION_STREAM_BASE_URL="$VISION_STREAM"
-
-PUBLIC_BASE="$(read_env_var LMS_PUBLIC_BASE_URL "http://smartfactory-main.local:8088")"
 export LMS_PUBLIC_BASE_URL="$PUBLIC_BASE"
+export LMS_CALLBACK_BASE_URL="$CALLBACK_BASE"
+[[ -n "$MOVEMENT_BASE_URLS" ]] && export LMS_MOVEMENT_BASE_URLS="$MOVEMENT_BASE_URLS"
+[[ -n "$CALLBACK_ALLOWLIST" ]] && export LMS_CALLBACK_ALLOWLIST="$CALLBACK_ALLOWLIST"
 
 # shellcheck source=/dev/null
 source "$ROOT/scripts/lib/pg_bootstrap.sh"

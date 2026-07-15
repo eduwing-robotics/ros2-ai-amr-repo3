@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -84,6 +85,64 @@ def test_production_service_identity_has_no_endpoint_fallback_mode() -> None:
         "vision_stream_fallback_base_url",
     ):
         assert obsolete not in source
+
+
+def test_production_launcher_rejects_noncanonical_service_hosts() -> None:
+    source = _source(REAL_LAUNCHER)
+
+    assert 'SITE_MOVEMENT_HOST="smartfactory-nav.local"' in source
+    assert 'SITE_CAMERA_HOST="smartfactory-nav.local"' in source
+    assert 'SITE_VISION_HOST="smartfactory-vision.local"' in source
+    assert 'SITE_MAIN_HOST="smartfactory-main.local"' in source
+    assert 'if [[ -v "$key" ]]; then' in source
+
+    required_guards = {
+        'require_canonical_host "LMS_MOVEMENT_HOST" "$MOVEMENT_HOST" "$SITE_MOVEMENT_HOST"',
+        'require_canonical_host "LMS_CAMERA_HOST" "$CAMERA_HOST" "$SITE_CAMERA_HOST"',
+        'require_canonical_url "LMS_VISION_API_BASE_URL" "$VISION_API" "$SITE_VISION_HOST"',
+        'require_canonical_url "LMS_VISION_STREAM_BASE_URL" "$VISION_STREAM" "$SITE_VISION_HOST"',
+        'require_canonical_url "LMS_PUBLIC_BASE_URL" "$PUBLIC_BASE" "$SITE_MAIN_HOST"',
+        'require_canonical_url_list "LMS_MOVEMENT_BASE_URLS" "$MOVEMENT_BASE_URLS" "$SITE_MOVEMENT_HOST" "keyed"',
+        'require_canonical_url_list "LMS_CALLBACK_ALLOWLIST" "$CALLBACK_ALLOWLIST" "$SITE_MAIN_HOST" "plain"',
+    }
+    missing = sorted(marker for marker in required_guards if marker not in source)
+    assert not missing, "production endpoint guards missing: " + ", ".join(missing)
+
+
+def test_production_endpoint_guards_accept_names_and_reject_direct_ips() -> None:
+    source = _source(REAL_LAUNCHER)
+    start = source.index("require_canonical_host()")
+    end = source.index("\nis_placeholder()", start)
+    guards = source[start:end]
+
+    accepted = subprocess.run(
+        [
+            "bash",
+            "-c",
+            guards
+            + "\nrequire_canonical_host movement smartfactory-nav.local smartfactory-nav.local"
+            + "\nrequire_canonical_url vision http://smartfactory-vision.local:8100 smartfactory-vision.local"
+            + "\nrequire_canonical_url_list movement-urls 'tb3_1=http://smartfactory-nav.local:8001/movement-api/v1,tb3_2=http://smartfactory-nav.local:8002/movement-api/v1' smartfactory-nav.local keyed",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert accepted.returncode == 0, accepted.stderr
+
+    for command in (
+        "require_canonical_host movement 192.168.30.12 smartfactory-nav.local",
+        "require_canonical_url vision http://192.168.30.3:8100 smartfactory-vision.local",
+        "require_canonical_url_list movement-urls 'tb3_1=http://192.168.30.12:8001/movement-api/v1' smartfactory-nav.local keyed",
+    ):
+        rejected = subprocess.run(
+            ["bash", "-c", guards + "\n" + command],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert rejected.returncode != 0
+        assert "must use canonical hostname" in rejected.stderr
 
 
 def test_dev_launcher_owns_and_reaps_vite_and_api_children() -> None:
