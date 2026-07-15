@@ -20,13 +20,20 @@ from app.services.movement_health import get_movement_health
 logger = logging.getLogger(__name__)
 
 
+def _rollback_best_effort(conn) -> None:
+    try:
+        conn.rollback()
+    except Exception:
+        logger.exception("failed to roll back after fleet E-stop database error")
+
+
 def _record_fleet_estop_result(conn, events, **event: Any) -> None:
     """Keep an audit write failure from blocking later physical E-stops."""
     try:
         events.append(**event)
         conn.commit()
     except Exception:
-        conn.rollback()
+        _rollback_best_effort(conn)
         logger.exception("failed to record fleet E-stop result")
 
 
@@ -151,7 +158,7 @@ def estop_all_robots(conn) -> list[dict[str, Any]]:
         conn.commit()
     except Exception as exc:
         hold_error = exc
-        conn.rollback()
+        _rollback_best_effort(conn)
     events = event_repo(conn)
     results: list[dict[str, Any]] = []
     stopped_robot_ids: list[str] = []
@@ -193,7 +200,7 @@ def estop_all_robots(conn) -> list[dict[str, Any]]:
         try:
             on_robot_task_terminal(robot_id, conn=conn)
         except Exception:
-            conn.rollback()
+            _rollback_best_effort(conn)
             logger.exception("failed to close person monitor after fleet E-stop robot=%s", robot_id)
     clear_cache()
     if hold_error is not None:

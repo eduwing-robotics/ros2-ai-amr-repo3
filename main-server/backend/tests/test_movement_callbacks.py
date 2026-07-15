@@ -240,6 +240,7 @@ class MovementCallbackServiceTest(unittest.TestCase):
         event_repo.return_value = self.event
         self.robot.list.return_value = [{"robot_id": "r1"}, {"robot_id": "r2"}]
         movement_client.estop.return_value = {"message": "stopped"}
+        self.conn.rollback.side_effect = RuntimeError("rollback unavailable")
         self.event.append.side_effect = [RuntimeError("audit unavailable"), None]
 
         with patch(
@@ -265,6 +266,7 @@ class MovementCallbackServiceTest(unittest.TestCase):
         event_repo.return_value = self.event
         self.robot.list.return_value = [{"robot_id": "r1"}, {"robot_id": "r2"}]
         movement_client.estop.return_value = {"message": "stopped"}
+        self.conn.rollback.side_effect = RuntimeError("rollback unavailable")
 
         with (
             patch(
