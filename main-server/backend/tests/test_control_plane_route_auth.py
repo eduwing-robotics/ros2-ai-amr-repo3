@@ -1,8 +1,7 @@
-"""Real FastAPI route coverage for Main control-plane authentication."""
+"""Assembled mutation-ingress contract for trusted-site operation."""
 
 from __future__ import annotations
 
-import json
 import sys
 import unittest
 from dataclasses import replace
@@ -15,22 +14,60 @@ from fastapi.testclient import TestClient
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.api.routers.movement import require_nav_callback_signature
 from app.core.config import settings as runtime_settings
 from app.main import app
-from app.security import require_admin, require_operator, sign_headers
+
+
+MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+HUMAN_BEARER_DEPENDENCIES = {"require_operator", "require_admin", "require_role"}
+MACHINE_INGRESS_DEPENDENCIES = {"require_nav_callback_signature"}
+
+
+def _assembled_mutation_routes():
+    def walk(routes, prefix=""):
+        for route in routes:
+            if isinstance(route, APIRoute):
+                yield prefix + route.path, route
+            elif hasattr(route, "original_router"):
+                yield from walk(
+                    route.original_router.routes,
+                    prefix + route.include_context.prefix,
+                )
+
+    yield from (
+        (path, route)
+        for path, route in walk(app.routes)
+        if route.methods & MUTATION_METHODS
+    )
+
+
+def _human_bearer_boundaries(route: APIRoute) -> set[str]:
+    boundaries: set[str] = set()
+    for dependency in route.dependant.dependencies:
+        call = dependency.call
+        call_name = getattr(call, "__name__", "")
+        call_qualname = getattr(call, "__qualname__", "")
+        for boundary in HUMAN_BEARER_DEPENDENCIES:
+            if call_name == boundary or call_qualname == boundary or call_qualname.startswith(
+                f"{boundary}.<locals>."
+            ):
+                boundaries.add(boundary)
+    return boundaries
+
+
+def _exact_machine_boundaries(route: APIRoute) -> set[str]:
+    dependency_names = {
+        getattr(dependency.call, "__name__", "")
+        for dependency in route.dependant.dependencies
+    }
+    return dependency_names & MACHINE_INGRESS_DEPENDENCIES
 
 
 class ControlPlaneRouteAuthTest(unittest.TestCase):
-    """Exercise the assembled app, rather than isolated dependency stubs."""
+    """Exercise the mounted app rather than isolated dependency stubs."""
 
     def setUp(self) -> None:
-        configured = replace(
-            runtime_settings,
-            operator_token="route-operator",
-            admin_token="route-admin",
-            movement_hmac_secret="route-nav-secret",
-        )
+        configured = replace(runtime_settings, movement_hmac_secret="route-nav-secret")
         self._patches = [
             patch("app.core.config.settings", configured),
             patch("app.api.routers.movement.settings", configured),
@@ -47,59 +84,51 @@ class ControlPlaneRouteAuthTest(unittest.TestCase):
         for item in reversed(self._patches):
             item.stop()
 
-    def test_all_assembled_mutation_routes_have_the_right_auth_boundary(self) -> None:
-        """Route coverage follows the mounted FastAPI app, not a hand-kept list."""
-        mutation_methods = {"POST", "PUT", "PATCH", "DELETE"}
-
-        def walk(routes, prefix=""):
-            for route in routes:
-                if isinstance(route, APIRoute):
-                    yield prefix + route.path, route
-                elif hasattr(route, "original_router"):
-                    yield from walk(
-                        route.original_router.routes,
-                        prefix + route.include_context.prefix,
-                    )
-
-        assembled = [
-            (path, route) for path, route in walk(app.routes)
-            if route.methods & mutation_methods
-        ]
+    def test_all_mutations_have_one_trusted_human_or_machine_boundary(self) -> None:
+        """Human writes are open on the trusted LAN; callbacks retain HMAC."""
         documented = {
             (path, method.upper())
             for path, operations in app.openapi()["paths"].items()
             for method in operations
-            if method.upper() in mutation_methods
+            if method.upper() in MUTATION_METHODS
         }
+        assembled = list(_assembled_mutation_routes())
         self.assertTrue(assembled, "assembled app has no mutation routes")
 
         for path, route in assembled:
-            dependencies = {dependency.call for dependency in route.dependant.dependencies}
-            methods = route.methods & mutation_methods
-            for method in methods:
+            machine_boundaries = _exact_machine_boundaries(route)
+            bearer_boundaries = _human_bearer_boundaries(route)
+            for method in route.methods & MUTATION_METHODS:
                 with self.subTest(method=method, path=path):
                     self.assertIn((path, method), documented)
-                    if require_nav_callback_signature in dependencies:
-                        self.assertNotIn(require_operator, dependencies)
-                        self.assertNotIn(require_admin, dependencies)
-                        response = self.client.request(method, path)
-                        self.assertEqual(response.status_code, 401)
-                    else:
-                        self.assertTrue(
-                            {require_operator, require_admin} & dependencies,
-                            "non-callback mutation must require operator or admin",
-                        )
+                    self.assertLessEqual(
+                        len(machine_boundaries),
+                        1,
+                        "a mutation must not have multiple machine-integrity owners",
+                    )
+                    self.assertFalse(
+                        bearer_boundaries,
+                        f"trusted-site human mutation still has Bearer dependencies: {bearer_boundaries}",
+                    )
+                    if machine_boundaries:
                         response = self.client.request(method, path)
                         self.assertEqual(response.status_code, 401)
 
-    def test_admin_routes_reject_operator_token(self) -> None:
-        response = self.client.post("/api/v1/items", headers={"Authorization": "Bearer route-operator"})
-        self.assertEqual(response.status_code, 401)
+    def test_representative_human_mutations_reach_domain_validation_without_auth(self) -> None:
+        cases = (
+            ("POST", "/api/v1/items", {}),
+            ("POST", "/api/v1/work-orders", {}),
+            ("POST", "/api/v1/robot/estop", None),
+            ("POST", "/api/v1/maps", {}),
+        )
+        for method, path, payload in cases:
+            with self.subTest(method=method, path=path):
+                response = self.client.request(method, path, json=payload)
+                self.assertNotIn(response.status_code, {401, 403, 503})
 
     def test_robot_command_rejects_external_callback_url_before_dispatch(self) -> None:
         response = self.client.post(
             "/api/v1/robot-commands",
-            headers={"Authorization": "Bearer route-operator"},
             json={
                 "robot_id": "tb3_1",
                 "kind": "move_to_point",
@@ -110,16 +139,32 @@ class ControlPlaneRouteAuthTest(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("callback_url", response.text)
 
-    @patch("app.api.routers.robot_poses.transaction")
-    @patch("app.api.routers.robot_poses.report_pose_for_robot")
-    def test_pose_callback_is_hmac_authenticated_not_bearer_authenticated(self, report_pose, transaction_ctx) -> None:
-        conn = MagicMock()
-        transaction_ctx.return_value.__enter__.return_value = conn
-        payload = {"robot_id": "tb3_1", "map_id": "map", "x": 1.0, "y": 2.0}
-        body = json.dumps(payload, separators=(",", ":")).encode()
-        path = "/api/v1/robot-poses/report"
+    def test_pose_has_one_signed_canonical_machine_ingress(self) -> None:
+        canonical_path = "/api/v1/robots/{robot_id}/pose"
+        legacy_paths = {
+            "/api/v1/robot-poses/report",
+            "/api/v1/movement/missions/{command_id}/pose",
+        }
+        post_routes = [
+            (path, route)
+            for path, route in _assembled_mutation_routes()
+            if "POST" in route.methods
+        ]
 
-        self.assertEqual(self.client.post(path, content=body, headers={"content-type": "application/json"}).status_code, 401)
-        headers = {"content-type": "application/json", **sign_headers("route-nav-secret", "POST", path, body)}
-        self.assertEqual(self.client.post(path, content=body, headers=headers).status_code, 200)
-        report_pose.assert_called_once()
+        canonical_routes = [route for path, route in post_routes if path == canonical_path]
+        self.assertEqual(
+            len(canonical_routes),
+            1,
+            "the assembled app must expose exactly one canonical pose ingress",
+        )
+        assembled_paths = {path for path, _route in post_routes}
+        self.assertTrue(
+            legacy_paths.isdisjoint(assembled_paths),
+            f"legacy pose ingresses remain assembled: {legacy_paths & assembled_paths}",
+        )
+
+        self.assertEqual(
+            _exact_machine_boundaries(canonical_routes[0]),
+            {"require_nav_callback_signature"},
+            "the canonical pose ingress must retain the Nav callback signature boundary",
+        )

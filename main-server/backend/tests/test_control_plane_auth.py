@@ -1,41 +1,37 @@
+"""Static contract for trusted-site human ingress.
+
+Human browser mutations intentionally have no application Bearer mode. Service
+credentials remain separate and are covered by the callback/HMAC tests.
+"""
+
 from __future__ import annotations
 
-import sys
-from dataclasses import replace
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
-from fastapi.testclient import TestClient
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from app.core import config
-from app.security import require_admin, require_operator
-
-
-def _app(dependency):
-    app = FastAPI()
-
-    @app.post("/mutation", dependencies=[Depends(dependency)])
-    def mutation():
-        return {"ok": True}
-
-    @app.get("/health")
-    def health():
-        return {"ok": True}
-
-    return app
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+ACTIVE_SOURCE_ROOTS = (
+    BACKEND_ROOT / "app",
+    BACKEND_ROOT.parent / "frontend" / "web" / "src",
+)
+FORBIDDEN_HUMAN_AUTH_SYMBOLS = (
+    "LMS_OPERATOR_TOKEN",
+    "LMS_ADMIN_TOKEN",
+    "require_role",
+    "require_operator",
+    "require_admin",
+)
 
 
-def test_control_mutation_fails_closed_when_token_is_unconfigured(monkeypatch):
-    monkeypatch.setattr(config, "settings", replace(config.settings, operator_token=""))
-    client = TestClient(_app(require_operator))
-    assert client.get("/health").status_code == 200
-    assert client.post("/mutation").status_code == 503
+def test_active_runtime_has_no_human_bearer_auth_symbols() -> None:
+    offenders: list[str] = []
+    for root in ACTIVE_SOURCE_ROOTS:
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix not in {".py", ".ts", ".tsx"}:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for symbol in FORBIDDEN_HUMAN_AUTH_SYMBOLS:
+                if symbol in text:
+                    offenders.append(f"{path.relative_to(BACKEND_ROOT.parent)}: {symbol}")
 
-
-def test_operator_token_is_required_and_admin_is_distinct(monkeypatch):
-    monkeypatch.setattr(config, "settings", replace(config.settings, operator_token="operator", admin_token="admin"))
-    assert TestClient(_app(require_operator)).post("/mutation", headers={"Authorization": "Bearer operator"}).status_code == 200
-    assert TestClient(_app(require_admin)).post("/mutation", headers={"Authorization": "Bearer operator"}).status_code == 401
-    assert TestClient(_app(require_admin)).post("/mutation", headers={"Authorization": "Bearer admin"}).status_code == 200
+    assert offenders == [], "human Bearer auth remains active:\n" + "\n".join(offenders)
