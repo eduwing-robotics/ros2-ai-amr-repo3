@@ -26,8 +26,8 @@ Main sees only one base URL:
 
 Recommended endpoint contract:
   - hostname first: VISION_PUBLIC_HOST=smartfactory-vision.local
-  - explicit fallback only: use the detected LAN IP printed by --print-config
-    only when Main/operator config sets a fallback URL.
+  - the detected LAN IP from --print-config is read-only diagnosis; never save
+    it as a service endpoint or fallback URL.
 
 No robot motion, Nav2, teleop, /cmd_vel, robot-side persistent services, or
 whole-graph bridge are started.
@@ -213,11 +213,8 @@ Vision -> Main callback settings:
   Raw ${VISION_GLOBAL_SOURCE_ID}:     http://${public_host}:${VISION_STREAM_GATEWAY_PORT}/api/v1/vision/frame/stream?source=${VISION_GLOBAL_SOURCE_ID}&max_fps=${VISION_STREAM_MAX_FPS}
   Status:            http://${public_host}:${VISION_STREAM_GATEWAY_PORT}/api/v1/vision/bridge/status
 
-Detected LAN fallback evidence (configure explicitly only if hostname resolution fails):
+Detected LAN address (read-only hostname diagnosis; do not save as a service endpoint):
   detected_lan_ip=${ip}
-  VISION_API_FALLBACK_BASE_URL=http://${ip}:${AI_SERVER_PORT}
-  VISION_STREAM_FALLBACK_BASE_URL=http://${ip}:${VISION_STREAM_GATEWAY_PORT}
-  LMS_VISION_STREAM_FALLBACK_BASE_URL=http://${ip}:${VISION_STREAM_GATEWAY_PORT}
 CONFIG
 }
 

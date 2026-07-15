@@ -97,8 +97,6 @@ async def require_vision_gateway_hmac(request: Request) -> None:
     from .config import get_settings
 
     settings = get_settings()
-    if settings.ai_debug_mutations_enabled:
-        return
     await _require_hmac(
         request,
         secret=settings.vision_gateway_hmac_secret,
@@ -106,16 +104,3 @@ async def require_vision_gateway_hmac(request: Request) -> None:
         credential_name="vision gateway",
         replay_scope="vision-gateway",
     )
-
-
-async def require_protected_debug_mutation(request: Request) -> None:
-    """Protect debug ingress unless an explicitly isolated debug mode is enabled.
-
-    Debug frame sources share the latest-frame cache with production evidence
-    evaluation. They must therefore never be publicly writable in production.
-    """
-    from .config import get_settings
-
-    if get_settings().ai_debug_mutations_enabled:
-        return
-    await require_main_hmac(request)

@@ -1,4 +1,9 @@
+import hashlib
+import hmac
+import time
+
 import cv2
+import httpx
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -9,7 +14,94 @@ from app.config import get_settings
 from app.main import app
 from app.vision_interfaces import DetectionBox, InstanceMask
 
-client = TestClient(app)
+_TEST_MAIN_HMAC_SECRET = "test-main-hmac-secret"
+_TEST_GATEWAY_HMAC_SECRET = "test-vision-gateway-hmac-secret"
+
+
+class SignedTestClient(TestClient):
+    """Sign ordinary mutation fixtures without weakening production ingress."""
+
+    def request(
+        self,
+        method,
+        url,
+        *,
+        content=None,
+        data=None,
+        files=None,
+        json=None,
+        params=None,
+        headers=None,
+        cookies=None,
+        auth=httpx.USE_CLIENT_DEFAULT,
+        follow_redirects=httpx.USE_CLIENT_DEFAULT,
+        timeout=httpx.USE_CLIENT_DEFAULT,
+        extensions=None,
+    ):
+        request = self.build_request(
+            method,
+            url,
+            content=content,
+            data=data,
+            files=files,
+            json=json,
+            params=params,
+            headers=headers,
+            cookies=cookies,
+            timeout=timeout,
+            extensions=extensions,
+        )
+        settings = None
+        secret_attribute = None
+        original_secret = None
+        if method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+            settings = get_settings()
+            gateway_ingress = request.url.path in {
+                "/api/v1/vision/frame",
+                "/api/v1/vision/frame/process",
+            }
+            if gateway_ingress:
+                secret_attribute = "vision_gateway_hmac_secret"
+                secret = _TEST_GATEWAY_HMAC_SECRET
+                signature_header = "X-SF-Gateway-Signature"
+            else:
+                secret_attribute = "main_hmac_secret"
+                secret = _TEST_MAIN_HMAC_SECRET
+                signature_header = "X-SF-Signature"
+            original_secret = getattr(settings, secret_attribute)
+            setattr(settings, secret_attribute, secret)
+            if signature_header not in request.headers:
+                body = request.read()
+                timestamp = str(int(time.time()))
+                nonce = f"test-{time.time_ns()}"
+                payload = "\n".join(
+                    (
+                        method.upper(),
+                        request.url.raw_path.decode(),
+                        timestamp,
+                        nonce,
+                        hashlib.sha256(body).hexdigest(),
+                    )
+                ).encode()
+                request.headers.update(
+                    {
+                        "X-SF-Timestamp": timestamp,
+                        "X-SF-Nonce": nonce,
+                        signature_header: hmac.new(
+                            secret.encode(),
+                            payload,
+                            hashlib.sha256,
+                        ).hexdigest(),
+                    }
+                )
+        try:
+            return self.send(request, auth=auth, follow_redirects=follow_redirects)
+        finally:
+            if settings is not None and secret_attribute is not None:
+                setattr(settings, secret_attribute, original_secret)
+
+
+client = SignedTestClient(app)
 
 # Test-only contract oracle for endpoint-focused API tests. Keep this module
 # limited to fixtures and expected read-model/policy dictionaries; production

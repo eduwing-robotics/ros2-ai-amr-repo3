@@ -210,6 +210,20 @@ def test_vision_bundle_scripts_preserve_operator_model_class_map_json():
         assert "export VISION_MODEL_CLASS_MAP_JSON\n" in script_source
 
 
+def test_multi_source_bundle_does_not_advertise_runtime_ip_fallback() -> None:
+    script_source = (
+        ROOT / "scripts" / "vision" / "run_d1_vision_multi_source_gateway_bundle.sh"
+    ).read_text(encoding="utf-8")
+
+    for forbidden in (
+        "VISION_API_FALLBACK_BASE_URL",
+        "VISION_STREAM_FALLBACK_BASE_URL",
+        "LMS_VISION_STREAM_FALLBACK_BASE_URL",
+        "configure explicitly only if hostname resolution fails",
+    ):
+        assert forbidden not in script_source
+
+
 def test_health_model_status_reports_invalid_class_map_as_error():
     from app.api.health import _vision_model_status
     from app.config import Settings

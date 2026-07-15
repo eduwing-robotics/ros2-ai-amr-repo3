@@ -1,5 +1,5 @@
 import pytest
-from fastapi.testclient import TestClient
+from api_test_helpers import client
 from generated_fixtures import (
     aruco_png_bytes,
     blank_png_bytes,
@@ -7,9 +7,6 @@ from generated_fixtures import (
 )
 
 from app.contracts import validate_vision_event
-from app.main import app
-
-client = TestClient(app)
 
 
 @pytest.mark.parametrize(

@@ -3,13 +3,10 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi.testclient import TestClient
+from api_test_helpers import client
 from generated_fixtures import aruco_png_bytes, blank_png_bytes
 
 from app import runtime_routes as main_module
-from app.main import app
-
-client = TestClient(app)
 
 
 def test_request_id_is_echoed_and_written_to_structured_log(caplog):

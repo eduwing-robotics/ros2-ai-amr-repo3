@@ -23,7 +23,6 @@ def _headers(
 
 def test_production_mutations_fail_closed_and_reject_replays(monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "ai_debug_mutations_enabled", False)
     monkeypatch.setattr(settings, "main_hmac_secret", "")
     client = TestClient(create_app())
     monitor_path = "/api/v1/vision/monitors/person_drive/state"
@@ -56,9 +55,9 @@ def test_production_mutations_fail_closed_and_reject_replays(monkeypatch):
     )
 
 
-def test_explicit_debug_flag_is_the_only_unauthenticated_fixture_exception(monkeypatch):
+def test_debug_mutations_have_no_unauthenticated_fixture_exception(monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "ai_debug_mutations_enabled", True)
+    assert not hasattr(settings, "ai_debug_mutations_enabled")
     monkeypatch.setattr(settings, "main_hmac_secret", "")
     client = TestClient(create_app())
 
@@ -67,7 +66,7 @@ def test_explicit_debug_flag_is_the_only_unauthenticated_fixture_exception(monke
         json={"source": "tb3_2_picam", "marker_id": 7},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 503
 
 
 @pytest.mark.parametrize(
@@ -94,7 +93,6 @@ def test_all_debug_evidence_ingress_routes_require_hmac_in_production(
     monkeypatch, path, request_kwargs
 ):
     settings = get_settings()
-    monkeypatch.setattr(settings, "ai_debug_mutations_enabled", False)
     monkeypatch.setattr(settings, "main_hmac_secret", "shared-secret")
 
     response = TestClient(create_app()).post(path, **request_kwargs)
@@ -107,7 +105,6 @@ def test_all_debug_evidence_ingress_routes_require_hmac_in_production(
 
 def test_signed_evidence_cannot_consume_an_unauthenticated_injected_frame(monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "ai_debug_mutations_enabled", False)
     monkeypatch.setattr(settings, "main_hmac_secret", "shared-secret")
     context = create_runtime_context()
     client = TestClient(create_app(runtime_context=context))
