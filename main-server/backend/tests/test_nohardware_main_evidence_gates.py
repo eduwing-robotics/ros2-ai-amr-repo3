@@ -465,7 +465,7 @@ class PersonHazardTrustedDecisionNoHardwareTest(unittest.TestCase):
             patch.object(person_hazard, "safety_stop_repo", return_value=stop_repo),
             patch.object(person_hazard, "movement_client") as movement_client,
             patch.object(person_hazard, "mark_task_needs_attention") as mark_attention,
-            patch.object(person_hazard, "settings", SimpleNamespace(person_hazard_action="estop", person_hazard_cooldown_sec=30.0, person_hazard_stale_sec=5.0)),
+            patch.object(person_hazard, "settings", SimpleNamespace(person_hazard_cooldown_sec=30.0, person_hazard_stale_sec=5.0)),
         ):
             movement_client.estop.return_value = {"ok": True}
             ok = person_hazard.process_advisory(conn, runtime, payload)

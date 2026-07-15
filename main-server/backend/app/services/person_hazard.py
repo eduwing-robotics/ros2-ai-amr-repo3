@@ -481,12 +481,11 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
 
     estop_ok = False
     estop_error: str | None = None
-    if settings.person_hazard_action == "estop":
-        try:
-            movement_client.estop(runtime.robot_id)
-            estop_ok = True
-        except MovementClientError as exc:
-            estop_error = str(exc)
+    try:
+        movement_client.estop(runtime.robot_id)
+        estop_ok = True
+    except MovementClientError as exc:
+        estop_error = str(exc)
 
     decision_id = evidence_repo(conn).append(
         task_id=runtime.task_id,

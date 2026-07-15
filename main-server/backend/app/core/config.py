@@ -209,7 +209,6 @@ class Settings:
     manual_hold_timeout_sec: float = float(os.getenv("LMS_MANUAL_HOLD_TIMEOUT_SEC", "2.0"))
     # Person hazard (PHASE_77) — AI advisory polling + Main-owned E-stop policy.
     person_hazard_enabled: bool = os.getenv("LMS_PERSON_HAZARD_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
-    person_hazard_action: str = os.getenv("LMS_PERSON_HAZARD_ACTION", "estop").strip().lower()
     person_hazard_target_fps: int = int(os.getenv("LMS_PERSON_HAZARD_TARGET_FPS", "3"))
     person_hazard_poll_hz: float = float(os.getenv("LMS_PERSON_HAZARD_POLL_HZ", "3"))
     person_hazard_stale_sec: float = float(os.getenv("LMS_PERSON_HAZARD_STALE_SEC", "2.0"))

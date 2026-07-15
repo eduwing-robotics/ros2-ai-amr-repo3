@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import unittest
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
@@ -47,6 +48,9 @@ class PersonHazardPolicyTest(unittest.TestCase):
         ph._runtime.clear()
         ph._cooldown_until.clear()
 
+    def test_settings_expose_no_alternate_person_hazard_action(self) -> None:
+        self.assertNotIn("person_hazard_action", type(ph.settings).__dataclass_fields__)
+
     def test_rejects_raw_detection_fields(self) -> None:
         payload = _fresh_advisory()
         payload["event"]["bbox"] = [1, 2, 3, 4]
@@ -86,6 +90,32 @@ class PersonHazardPolicyTest(unittest.TestCase):
         stop_repo.open_from_evidence.assert_called_once_with(22)
         self.assertEqual(repo.append.call_count, 2)
         self.assertFalse(repo.append.call_args_list[0].kwargs.get("trusted", True))
+
+    def test_legacy_alternate_action_cannot_suppress_estop(self) -> None:
+        runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        conn = MagicMock()
+        repo = MagicMock()
+        repo.append.side_effect = [11, 22]
+        stop_repo = MagicMock()
+        with (
+            patch("app.services.person_hazard.evidence_repo", return_value=repo),
+            patch("app.services.person_hazard.safety_stop_repo", return_value=stop_repo),
+            patch("app.services.person_hazard.movement_client.estop", return_value={"ok": True}) as estop,
+            patch("app.services.person_hazard.mark_task_needs_attention"),
+            patch.object(
+                ph,
+                "settings",
+                SimpleNamespace(
+                    person_hazard_action="advisory",
+                    person_hazard_cooldown_sec=2.0,
+                    person_hazard_stale_sec=2.0,
+                ),
+            ),
+        ):
+            ok = ph.process_advisory(conn, runtime, _fresh_advisory())
+        self.assertTrue(ok)
+        estop.assert_called_once_with("tb3_1")
+        stop_repo.open_from_evidence.assert_called_once_with(22)
 
     def test_duplicate_advisory_respects_cooldown(self) -> None:
         runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)

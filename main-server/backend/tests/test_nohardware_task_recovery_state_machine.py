@@ -234,7 +234,7 @@ class NoHardwareTaskRecoveryStateMachineTest(unittest.TestCase):
             stack.enter_context(patch.object(person_hazard, "safety_stop_repo", return_value=self.h.safety_stop_repo))
             hazard_movement = stack.enter_context(patch.object(person_hazard, "movement_client"))
             stack.enter_context(patch.object(person_hazard, "enable_monitor", return_value=True))
-            stack.enter_context(patch.object(person_hazard, "settings", SimpleNamespace(person_hazard_action="estop", person_hazard_cooldown_sec=30.0, person_hazard_stale_sec=5.0)))
+            stack.enter_context(patch.object(person_hazard, "settings", SimpleNamespace(person_hazard_cooldown_sec=30.0, person_hazard_stale_sec=5.0)))
             stack.enter_context(patch.object(task_recovery, "evidence_repo", return_value=self.h.evidence_repo))
             stack.enter_context(patch.object(task_recovery, "task_repo", return_value=self.h.task_repo))
             stack.enter_context(patch.object(task_recovery, "location_repo", return_value=self.h.location_repo))
