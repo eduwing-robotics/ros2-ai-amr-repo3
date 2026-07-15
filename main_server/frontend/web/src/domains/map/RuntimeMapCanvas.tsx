@@ -63,6 +63,8 @@ interface RobotPoseMarkersProps {
   runtimeMismatch?: boolean;
   showFootprint?: boolean;
   showLabel?: boolean;
+  selectedRobotId?: string;
+  onRobotSelect?: (robotId: string) => void;
 }
 
 /** One robot marker implementation for operator and administrator maps. */
@@ -73,6 +75,8 @@ export function RobotPoseMarkers({
   runtimeMismatch = false,
   showFootprint = false,
   showLabel = false,
+  selectedRobotId,
+  onRobotSelect,
 }: RobotPoseMarkersProps) {
   return poses.map((pose) => {
     const point = worldToPixel(map, pose.x, pose.y);
@@ -84,7 +88,22 @@ export function RobotPoseMarkers({
     const mismatchClass = runtimeMismatch ? " mismatch" : "";
 
     return (
-      <g key={pose.robot_id} className={`map-pose${mismatchClass}`}>
+      <g
+        key={pose.robot_id}
+        className={`map-pose${mismatchClass}${selectedRobotId === pose.robot_id ? " selected" : ""}${onRobotSelect ? " selectable" : ""}`}
+        data-map-overlay={onRobotSelect ? true : undefined}
+        role={onRobotSelect ? "button" : undefined}
+        tabIndex={onRobotSelect ? 0 : undefined}
+        aria-label={onRobotSelect ? `${pose.robot_id} 선택` : undefined}
+        onPointerDown={onRobotSelect ? (event) => event.stopPropagation() : undefined}
+        onClick={onRobotSelect ? () => onRobotSelect(pose.robot_id) : undefined}
+        onKeyDown={onRobotSelect ? (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onRobotSelect(pose.robot_id);
+          }
+        } : undefined}
+      >
         {footprintR ? (
           <circle
             className={`map-robot-footprint ${state}${mismatchClass}`}

@@ -21,6 +21,7 @@ type State = {
   cameraOnline?: boolean;
   events?: unknown[];
   robotBattery?: number | null;
+  robots?: Array<typeof robot>;
 };
 
 function json(route: Route, body: unknown, status = 200) {
@@ -32,18 +33,23 @@ export async function mockMainApi(page: Page, state: State = {}) {
     const req = route.request();
     const path = new URL(req.url()).pathname.replace("/api/v1", "");
     const responseRobot = { ...robot, battery: state.robotBattery === undefined ? robot.battery : state.robotBattery };
+    const responseRobots = state.robots ?? [responseRobot];
+    const movementHealth = Object.fromEntries(responseRobots.map((entry) => [
+      entry.robot_id,
+      { ok: state.movementOk ?? true, is_emergency: Boolean(state.emergency) },
+    ]));
     if (path === "/status") return json(route, {
       system: {
         ...(state.cameraOnline ? { camera_health: { ok: true } } : {}),
         ...(state.estopUnknown ? { estop_summary: { state: "unknown", active_robots: [], unknown_robots: [responseRobot.robot_id] } } : {}),
       },
-      robots: [responseRobot],
+      robots: responseRobots,
       camera_sources: state.cameraSources ?? [],
       tasks: state.tasks ?? [],
       events: state.events ?? [],
-      movement_health: { tb3_1: { ok: state.movementOk ?? true, is_emergency: Boolean(state.emergency) } },
+      movement_health: movementHealth,
     });
-    if (path === "/robots") return json(route, [responseRobot]);
+    if (path === "/robots") return json(route, responseRobots);
     if (path === "/items") return json(route, [item]);
     if (path === "/storage-slots") return json(route, [slot]);
     if (path.startsWith("/inventory")) return json(route, state.inventory ?? []);
@@ -64,7 +70,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
     if (path.startsWith("/maps")) return json(route, [map]);
     if (path.startsWith("/robot-poses")) return json(route, []);
     if (path === "/movement/sync-status") return json(route, {
-      robots: [{ robot_id: robot.robot_id, localized: true, pose_state: "fresh" }],
+      robots: responseRobots.map((entry) => ({ robot_id: entry.robot_id, localized: true, pose_state: "fresh" })),
       map_state: { ok: true, active_map_id: map.map_id },
       movement_logs: [],
       planned_paths: [],
@@ -103,7 +109,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
       limitations: ["자동 하역 및 기존 작업 재개는 수행하지 않습니다."],
     });
     if (path.startsWith("/comm/logs")) return json(route, { logs: [], movement_commands: [] });
-    if (path.startsWith("/events") || path.startsWith("/api-logs")) return json(route, []);
+    if (path.startsWith("/events") || path.startsWith("/api-logs") || path.startsWith("/movement-commands") || path.startsWith("/task-logs") || path.startsWith("/item-change-logs")) return json(route, []);
     if (path.startsWith("/cameras") || path.startsWith("/camera-sources")) return json(route, []);
     throw new Error(`Unhandled Main API mock: ${req.method()} ${path}`);
   });

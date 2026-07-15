@@ -20,7 +20,15 @@ import { ApproachRouteOverlay } from "./ApproachRouteOverlay";
 import { GotoTargetMarker, RobotPoseMarkers, RuntimeMapCanvas } from "./RuntimeMapCanvas";
 import { useGotoTargetOptional } from "../operate/GotoTargetContext";
 
-export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
+export function DashboardMap({
+  gotoMode = false,
+  selectedRobotId,
+  onRobotSelect,
+}: {
+  gotoMode?: boolean;
+  selectedRobotId?: string;
+  onRobotSelect?: (robotId: string) => void;
+}) {
   const { data: maps = [] } = useMaps();
   const { data: robots = [] } = useRobots();
   const layers = useMarkerLayers("dash.markerLayers");
@@ -314,6 +322,8 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
                 runtimeMismatch={runtimeMismatch}
                 showFootprint
                 showLabel
+                selectedRobotId={selectedRobotId}
+                onRobotSelect={onRobotSelect}
               /> : null}
               {overlayReady ? <GotoTargetMarker
                 map={renderMap}
