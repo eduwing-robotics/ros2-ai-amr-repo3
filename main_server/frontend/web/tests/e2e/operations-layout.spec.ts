@@ -145,6 +145,8 @@ test("맵·카메라·작업 큐는 크기 조절되고 Grid와 이벤트 등급
     cameraSources: [
       globalCamera,
       { source_id: "CAM_ROBOT_1", label: "AMR 1 전방", robot_id: "tb3_1", status: "ONLINE" },
+      { source_id: "CAM_AISLE_2", label: "2번 통로", robot_id: null, status: "ONLINE" },
+      { source_id: "CAM_DOCK_1", label: "입출고장", robot_id: null, status: "ONLINE" },
     ],
     workOrders: [runningOrder],
     events: [
@@ -159,6 +161,10 @@ test("맵·카메라·작업 큐는 크기 조절되고 Grid와 이벤트 등급
   await expect(page.locator(".cam-name-overlay", { hasText: "창고 전역" })).toBeVisible();
   await expect(page.locator(".cam-name-overlay", { hasText: "AMR 1 전방" })).toBeVisible();
   await expect(page.locator(".operator-selected-camera")).toHaveCount(0);
+  await expect(page.locator(".camera-video-wall > .cam-tile")).toHaveCount(4);
+  await expect(page.locator(".camera-wall-divider--column")).toHaveCount(1);
+  await expect(page.locator(".camera-wall-divider--row")).toHaveCount(1);
+  await expect(page.locator(".camera-video-wall .cam-tile-head, .camera-video-wall .cam-tile-foot")).toHaveCount(0);
 
   await page.getByRole("navigation", { name: "운영 메뉴" }).getByRole("button", { name: "이벤트", exact: true }).click();
   await expect(page.locator(".event-severity--err").getByText("위험")).toBeVisible();
