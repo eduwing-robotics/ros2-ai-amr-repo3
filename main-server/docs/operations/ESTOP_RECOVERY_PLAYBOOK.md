@@ -36,6 +36,14 @@ Pose fallback은 연결성·관측 진단일 뿐 E-stop clear 또는 physical re
 `safe_move`는 Movement 명령을 보내기 전에 person monitor를 먼저 활성화한다. Monitor를
 활성화하지 못하면 Nav 명령을 보내지 않고 task를 `AWAITING_OPERATOR`에 유지한다.
 
+복구 명령 전송 중 operator stop이 들어오면 Main은 같은 command ID의 cancel을 즉시 다시
+확인하고, 확인할 수 없으면 E-stop과 operator hold로 닫는다. 전송 도중 Main이 재시작한
+경우 명령을 자동 재전송하지 않는다.
+
+`manual_abort`는 robot stop 응답이 `accepted=true, stopped=true`일 때만 task를
+`CANCELLED`로 바꾼다. 응답이 없거나 불명확하면 task는 종료하지 않고
+`AWAITING_OPERATOR`, cargo `UNKNOWN`으로 남긴다.
+
 `UNKNOWN`은 실행을 차단한다. TB1 무화물 person 시험은 `EMPTY`를 선택한다. 안전지점 이동이 필요한 경우 `safe_move` 완료 뒤 `AWAITING_OPERATOR`를 확인하고, 작업을 끝낼 때는 별도 `manual_abort`를 실행한다.
 
 API: `POST /tasks/{id}/recovery/preview` · `POST /tasks/{id}/recovery/execute`.
