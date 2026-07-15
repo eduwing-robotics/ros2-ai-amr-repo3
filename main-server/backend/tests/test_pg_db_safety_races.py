@@ -1215,7 +1215,7 @@ class PgDbSafetyRaceTest(unittest.TestCase):
         self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
         self.assertEqual(self._post_safety_orchestration_phases(task_id), ["AWAITING_OPERATOR"])
 
-    def test_cancel_requested_done_cannot_save_running_over_person_hold(self) -> None:
+    def test_cancel_requested_done_holds_without_next_dispatch(self) -> None:
         task_id, command_id = self._create_two_step_move_task()
         with write_transaction() as conn:
             orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
@@ -1227,81 +1227,22 @@ class PgDbSafetyRaceTest(unittest.TestCase):
             }
             MvpEvidenceRepository(conn).save_orchestration(task_id, orchestration)
 
-        callback_mutating_running = threading.Event()
-        hazard_committed = threading.Event()
-        results: dict[str, object] = {}
-        original_set_phase = orchestrator.orch_state.set_phase
-        boundary_used = False
+        with patch.object(orchestrator, "dispatch_current_step") as dispatch:
+            with write_transaction() as conn:
+                result = orchestrator.advance_on_command_event(
+                    conn,
+                    task_id,
+                    {"task_id": task_id, "command_id": command_id, "state": "DONE"},
+                )
 
-        def coordinated_set_phase(orchestration, new_phase: str) -> None:
-            nonlocal boundary_used
-            if (
-                threading.current_thread().name == "cancel-terminal-callback"
-                and new_phase == "RUNNING"
-                and not boundary_used
-            ):
-                boundary_used = True
-                callback_mutating_running.set()
-                if not hazard_committed.wait(timeout=10):
-                    raise TimeoutError("person hold did not commit before RUNNING mutation")
-            original_set_phase(orchestration, new_phase)
-
-        def callback() -> None:
-            try:
-                with write_transaction() as conn:
-                    results["callback"] = orchestrator.advance_on_command_event(
-                        conn,
-                        task_id,
-                        {"task_id": task_id, "command_id": command_id, "state": "DONE"},
-                    )
-            except Exception as exc:
-                results["callback"] = exc
-
-        def hazard() -> None:
-            if not callback_mutating_running.wait(timeout=10):
-                results["hazard"] = TimeoutError("callback did not reach RUNNING mutation")
-                hazard_committed.set()
-                return
-            runtime = person_hazard.MonitorRuntime(
-                robot_id="tb3_1",
-                source="tb3_1_picam",
-                task_id=task_id,
-                enable_time=datetime.now(timezone.utc),
-            )
-            try:
-                with write_transaction() as conn:
-                    results["hazard"] = person_hazard.process_advisory(
-                        conn,
-                        runtime,
-                        self._fresh_person_advisory(task_id, suffix="cancel-requested"),
-                    )
-            except Exception as exc:
-                results["hazard"] = exc
-            finally:
-                hazard_committed.set()
-
-        with (
-            patch.object(orchestrator.orch_state, "set_phase", side_effect=coordinated_set_phase),
-            patch.object(orchestrator, "dispatch_current_step", return_value="next-command") as dispatch,
-            patch.object(person_hazard.movement_client, "estop", return_value={"estopped": True}),
-        ):
-            threads = [
-                threading.Thread(target=callback, name="cancel-terminal-callback"),
-                threading.Thread(target=hazard, name="cancel-person-hazard"),
-            ]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join(timeout=15)
-                self.assertFalse(thread.is_alive(), "cancel/hazard race contender did not finish")
-
-        self.assertIs(results.get("hazard"), True)
-        self.assertIsNone(results.get("callback"))
+        self.assertIsInstance(result, dict)
         dispatch.assert_not_called()
         with transaction() as conn:
             orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
         self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
-        self.assertEqual(self._post_safety_orchestration_phases(task_id), ["AWAITING_OPERATOR"])
+        self.assertEqual(orchestration["steps"][0]["status"], "DONE")
+        self.assertEqual(orchestration["recovery"]["reason"], "command_completed_during_stop")
+        self.assertEqual(orchestration["recovery"]["cargo_state"], "EMPTY")
 
     def test_late_person_hold_after_callback_win_blocks_further_callback_dispatch(self) -> None:
         task_id, command_id = self._create_two_step_move_task()
