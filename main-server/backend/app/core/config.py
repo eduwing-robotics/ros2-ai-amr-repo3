@@ -2,7 +2,6 @@
 
 import json
 import os
-import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import quote
@@ -151,20 +150,24 @@ class Settings:
     # 상대경로는 프로세스 CWD가 아니라 레포 루트 기준으로 해석한다(서버는 backend/에서 뜬다).
     map_assets_dir: Path = field(default_factory=lambda: _resolve_repo_path(os.getenv("LMS_MAP_ASSETS_DIR", "maps")))
     movement_client_mode: str = os.getenv("LMS_MOVEMENT_CLIENT_MODE", "http")
-    # 로봇 id를 모르는 경우의 fallback 단일 주소.
-    movement_base_url: str = os.getenv(
-        "LMS_MOVEMENT_BASE_URL",
-        f"http://{_DEFAULT_MOVEMENT_HOST}:8001/movement-api/v1",
-    )
-    # 로봇별 주소 맵 (포트 라우팅: tb3_1->8001, tb3_2->8002).
+    # 로봇별 단일 주소 맵 (포트 라우팅: tb3_1->8001, tb3_2->8002).
     movement_base_urls: dict[str, str] = field(default_factory=_movement_base_urls)
     movement_robot_keys: dict[str, str] = field(default_factory=_movement_robot_keys)
     movement_timeout_sec: float = float(os.getenv("LMS_MOVEMENT_TIMEOUT_SEC", "3.0"))
     movement_health_timeout_sec: float = float(os.getenv("LMS_MOVEMENT_HEALTH_TIMEOUT_SEC", "0.8"))
-    # Human control-plane credentials. All mutation routes fail closed when absent.
-    # Fake/no-hardware mode intentionally creates process-local credentials for tests/simulation.
-    operator_token: str = os.getenv("LMS_OPERATOR_TOKEN", "").strip() or (secrets.token_urlsafe(32) if os.getenv("LMS_MOVEMENT_CLIENT_MODE", "http").strip().lower() == "fake" else "")
-    admin_token: str = os.getenv("LMS_ADMIN_TOKEN", "").strip() or (secrets.token_urlsafe(32) if os.getenv("LMS_MOVEMENT_CLIENT_MODE", "http").strip().lower() == "fake" else "")
+    pose_receive_stale_sec: float = float(os.getenv("LMS_POSE_RECEIVE_STALE_SEC", "1.5"))
+    pose_receive_lost_sec: float = float(os.getenv("LMS_POSE_RECEIVE_LOST_SEC", "5.0"))
+    pose_source_stale_sec: float = float(os.getenv("LMS_POSE_SOURCE_STALE_SEC", "3.0"))
+    pose_source_lost_sec: float = float(os.getenv("LMS_POSE_SOURCE_LOST_SEC", "10.0"))
+    pose_recovery_samples: int = int(os.getenv("LMS_POSE_RECOVERY_SAMPLES", "3"))
+    pose_watchdog_interval_sec: float = float(os.getenv("LMS_POSE_WATCHDOG_INTERVAL_SEC", "0.25"))
+    pose_poll_interval_sec: float = float(os.getenv("LMS_POSE_POLL_INTERVAL_SEC", "1.0"))
+    pose_push_preferred_sec: float = float(os.getenv("LMS_POSE_PUSH_PREFERRED_SEC", "2.0"))
+    pose_max_source_age_sec: float = float(os.getenv("LMS_POSE_MAX_SOURCE_AGE_SEC", "86400"))
+    pose_jump_distance_m: float = float(os.getenv("LMS_POSE_JUMP_DISTANCE_M", "1.0"))
+    pose_jump_speed_mps: float = float(os.getenv("LMS_POSE_JUMP_SPEED_MPS", "1.0"))
+    pose_event_queue_size: int = int(os.getenv("LMS_POSE_EVENT_QUEUE_SIZE", "256"))
+    pose_event_retry_limit: int = int(os.getenv("LMS_POSE_EVENT_RETRY_LIMIT", "5"))
     # Shared secret for Main->Nav commands and Nav->Main callbacks. Empty means real HTTP mutations fail closed.
     movement_hmac_secret: str = os.getenv("LMS_MOVEMENT_HMAC_SECRET", "").strip()
     movement_hmac_clock_skew_sec: float = float(os.getenv("LMS_MOVEMENT_HMAC_CLOCK_SKEW_SEC", "60"))
@@ -176,16 +179,14 @@ class Settings:
     camera_stream_url_template: str = os.getenv("LMS_CAMERA_STREAM_URL_TEMPLATE", _DEFAULT_CAMERA_STREAM_URL_TEMPLATE)
     # Vision/AI 서버(단발 frame/overlay image, evidence). Main이 이 base를 프록시한다.
     # AI 서버가 외부 PC에서 보이려면 .63에서 0.0.0.0 바인딩이어야 한다(문서 §3.6).
-    # 호스트명 우선(.local) + IP 폴백: primary 해석/연결 실패 시 fallback base로 1회 재시도한다.
+    # Canonical hostname only; field IP retry would split service identity.
     vision_api_base_url: str = os.getenv("LMS_VISION_API_BASE_URL", "http://smartfactory-vision.local:8100").rstrip("/")
-    vision_api_fallback_base_url: str = os.getenv("LMS_VISION_API_FALLBACK_BASE_URL", "").rstrip("/")
     vision_timeout_sec: float = float(os.getenv("LMS_VISION_TIMEOUT_SEC", "2.0"))
     # Shared Main→AI mutation secret. Never log this value; AI rejects unsigned requests.
     vision_hmac_secret: str = os.getenv("LMS_VISION_HMAC_SECRET", "").strip()
     vision_hmac_clock_skew_sec: float = float(os.getenv("LMS_VISION_HMAC_CLOCK_SKEW_SEC", "60"))
     # Vision stream bridge(MJPEG). Main/GUI PC는 ROS/DDS를 몰라도 이 HTTP gateway만 보면 된다.
     vision_stream_base_url: str = os.getenv("LMS_VISION_STREAM_BASE_URL", "http://smartfactory-vision.local:8090").rstrip("/")
-    vision_stream_fallback_base_url: str = os.getenv("LMS_VISION_STREAM_FALLBACK_BASE_URL", "").rstrip("/")
     vision_stream_timeout_sec: float = float(os.getenv("LMS_VISION_STREAM_TIMEOUT_SEC", "3.0"))
     # Lift/load evidence. Disabled by default; gate mode is fail-safe hold unless Main approves PASS + command_satisfying=true.
     lift_load_evidence_enabled: bool = os.getenv("LMS_LIFT_LOAD_EVIDENCE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
@@ -206,7 +207,6 @@ class Settings:
     manual_translate_duration_sec: float = float(os.getenv("LMS_MANUAL_TRANSLATE_DURATION_SEC", "1.0"))
     manual_translate_linear_x: float = float(os.getenv("LMS_MANUAL_TRANSLATE_LINEAR_X", "0.1"))
     manual_hold_timeout_sec: float = float(os.getenv("LMS_MANUAL_HOLD_TIMEOUT_SEC", "2.0"))
-    manual_override_nav: bool = os.getenv("LMS_MANUAL_OVERRIDE_NAV", "false").lower() in {"1", "true", "yes", "on"}
     # Person hazard (PHASE_77) — AI advisory polling + Main-owned E-stop policy.
     person_hazard_enabled: bool = os.getenv("LMS_PERSON_HAZARD_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
     person_hazard_action: str = os.getenv("LMS_PERSON_HAZARD_ACTION", "estop").strip().lower()
@@ -215,8 +215,8 @@ class Settings:
     person_hazard_stale_sec: float = float(os.getenv("LMS_PERSON_HAZARD_STALE_SEC", "2.0"))
     person_hazard_cooldown_sec: float = float(os.getenv("LMS_PERSON_HAZARD_COOLDOWN_SEC", "2.0"))
     person_hazard_timeout_sec: float = min(float(os.getenv("LMS_PERSON_HAZARD_TIMEOUT_SEC", "0.5")), 1.0)
-    # Recovery replan (PHASE_78) — dock_transfer auto-unload requires Movement /robot-commands support.
-    recovery_dock_transfer_enabled: bool = os.getenv("LMS_RECOVERY_DOCK_TRANSFER_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+    # Operator-approved recovery moves only to this safe home location.
+    recovery_safe_location_id: str = os.getenv("LMS_RECOVERY_SAFE_LOCATION_ID", "HOME_01").strip()
 
 
     def api_callback_base_url(self, request_base_url: str | None = None) -> str:

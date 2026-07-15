@@ -31,6 +31,14 @@ COMMAND_MAP = {
 }
 ROTATE_COMMANDS = {"left", "right"}
 TRANSLATE_COMMANDS = {"forward", "backward"}
+AUTONOMY_TERMINAL_STATES = {
+    "DONE",
+    "ARRIVED",
+    "FAILED",
+    "ABORTED",
+    "CANCELED",
+    "CANCELLED",
+}
 
 
 def execute_teleop(payload: TeleopRequest) -> TeleopResponse:
@@ -43,6 +51,9 @@ def execute_teleop(payload: TeleopRequest) -> TeleopResponse:
         robots = robot_repo(conn)
         if not robots.exists(payload.robot_id):
             raise HTTPException(status_code=404, detail="robot not found")
+        robot = robots.get(payload.robot_id)
+        if robot and not robot.get("enabled", True):
+            raise HTTPException(status_code=409, detail="robot_disabled")
 
         response_payload, status_value = call_movement(payload.robot_id, command_type, request_body)
         record_teleop_result(
@@ -115,21 +126,47 @@ def build_movement_request(robot_id: str, command: str, hold: bool) -> tuple[str
 
 def manual_payload(robot_id: str) -> dict:
     """모든 Movement 수동조작 요청에 공통으로 들어가는 필드."""
-    return {
-        "robot_name": robot_id,
-        "override_nav": settings.manual_override_nav,
-    }
+    return {"robot_name": robot_id}
 
 
 def call_movement(robot_id: str, command_type: str, body: dict) -> tuple[dict, str]:
     """Movement 서버 호출 실패를 DB에 남길 수 있도록 예외를 status 값으로 변환한다."""
     try:
+        if command_type != "manual_stop":
+            stop_active_autonomy(robot_id)
         response_payload = send_movement(robot_id, command_type, body)
         status_value = "ACCEPTED" if response_payload.get("accepted", True) else "REJECTED"
     except MovementClientError as exc:
         response_payload = {"accepted": False, "error": str(exc)}
         status_value = "FAILED"
     return response_payload, status_value
+
+
+def stop_active_autonomy(robot_id: str) -> None:
+    """Terminalize Nav autonomy before any bounded manual motion."""
+    nav_state = movement_client.nav_state(robot_id)
+    if nav_state.get("robot_online") is False:
+        raise MovementClientError("teleop blocked: robot is offline")
+    if nav_state.get("is_emergency") is True:
+        raise MovementClientError("teleop blocked: E-stop is active")
+
+    command_ids = nav_state.get("active_commands") or []
+    if not isinstance(command_ids, list):
+        raise MovementClientError("teleop blocked: invalid Nav active-command state")
+    for command_id in command_ids:
+        result = movement_client.cancel_command(robot_id, str(command_id))
+        state = str(result.get("state") or "").upper()
+        if not result.get("accepted", True) or state not in AUTONOMY_TERMINAL_STATES:
+            raise MovementClientError(
+                f"teleop blocked: autonomy safe stop was not confirmed ({state or 'UNKNOWN'})"
+            )
+
+    confirmed = movement_client.nav_state(robot_id)
+    remaining = confirmed.get("active_commands") or []
+    if not isinstance(remaining, list) or remaining:
+        raise MovementClientError(
+            "teleop blocked: autonomy safe stop was not confirmed"
+        )
 
 
 def send_movement(robot_id: str, command_type: str, body: dict) -> dict:

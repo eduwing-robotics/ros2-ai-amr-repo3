@@ -161,15 +161,15 @@ if [[ "$SKIP_DB" -eq 0 ]]; then
   fi
   echo "[bootstrap] explicit local-development PostgreSQL 준비"
   "$ROOT/scripts/setup_pg.sh" --local-dev
-  if [[ -f "$DB_SNAPSHOT" ]]; then
-    DB_SNAPSHOT_STAMP="$STATE_DIR/current_pg.dump.sha"
-    if [[ "$FORCE" -eq 1 || "$FORCE_DB_RESTORE" -eq 1 ]] || ! stamp_matches "$DB_SNAPSHOT_STAMP" "$DB_SNAPSHOT"; then
-      echo "[bootstrap] 현재 DB snapshot 복원"
-      "$ROOT/scripts/restore_current_db.sh"
-      write_stamp "$DB_SNAPSHOT_STAMP" "$DB_SNAPSHOT"
-    else
-      echo "[bootstrap] 현재 DB snapshot 복원 OK"
+  if [[ "$FORCE_DB_RESTORE" -eq 1 ]]; then
+    if [[ ! -f "$DB_SNAPSHOT" ]]; then
+      echo "[bootstrap] ERROR: DB snapshot이 없다: $DB_SNAPSHOT" >&2
+      exit 2
     fi
+    echo "[bootstrap] 명시적으로 요청한 현재 DB snapshot 복원"
+    "$ROOT/scripts/restore_current_db.sh"
+  elif [[ -f "$DB_SNAPSHOT" ]]; then
+    echo "[bootstrap] DB snapshot 자동 복원 안 함 (--force-db-restore로 명시적으로 요청)"
   fi
 else
   echo "[bootstrap] PostgreSQL 준비 건너뜀"

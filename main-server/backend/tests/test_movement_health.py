@@ -53,11 +53,23 @@ class MovementHealthTest(unittest.TestCase):
         self.assertTrue(urlopen.call_count >= 1)
         self.assertTrue(all(call.args[0].full_url.startswith(BASE) or call.args[0].full_url == "http://nav.local:8001/health" for call in urlopen.call_args_list))
 
+    def test_unknown_robot_has_no_health_endpoint_fallback(self) -> None:
+        configured = replace(settings, movement_base_urls={"tb3_1": BASE})
+        with patch("app.services.movement_health.settings", configured), patch(
+            "app.services.movement_health.urlopen"
+        ) as urlopen:
+            result = http_health("unknown-robot")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "movement_endpoint_not_configured")
+        self.assertEqual(health_bases_for("unknown-robot"), [])
+        urlopen.assert_not_called()
+
     @patch("app.services.movement_health.health_bases_for", return_value=[BASE])
     def test_http_health_uses_versioned_health_first(self, _bases) -> None:
         with patch("app.services.movement_health.urlopen") as urlopen:
             urlopen.return_value.__enter__.return_value.read.return_value = (
-                b'{"ok":true,"robot_online":true}'
+                b'{"ok":true,"robot_online":true,"is_emergency":false}'
             )
             result = http_health("tb3_burger_01")
         self.assertTrue(result["ok"])
@@ -77,11 +89,32 @@ class MovementHealthTest(unittest.TestCase):
         self.assertEqual(urlopen.call_count, 1)
 
     @patch("app.services.movement_health.health_bases_for", return_value=[BASE])
+    def test_http_health_missing_required_safety_fields_is_not_safe(self, _bases) -> None:
+        with patch("app.services.movement_health.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = (
+                b'{"ok":true,"robot_online":true}'
+            )
+            result = http_health("tb3_burger_01")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["estop_state"], "unknown")
+        self.assertTrue(result["health_endpoint_reached"])
+
+    @patch("app.services.movement_health.health_bases_for", return_value=[BASE])
+    def test_empty_http_health_payload_is_not_safe(self, _bases) -> None:
+        with patch("app.services.movement_health.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b"{}"
+            result = http_health("tb3_burger_01")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["estop_state"], "unknown")
+
+    @patch("app.services.movement_health.health_bases_for", return_value=[BASE])
     def test_http_health_falls_back_to_root_health(self, _bases) -> None:
         with patch("app.services.movement_health.urlopen") as urlopen:
             urlopen.side_effect = [
                 not_found(f"{BASE}/health"),
-                BytesIO(b'{"ok":true,"robot_online":true}'),
+                BytesIO(b'{"ok":true,"robot_online":true,"is_emergency":false}'),
             ]
             result = http_health("tb3_burger_01")
         self.assertTrue(result["ok"])
@@ -107,6 +140,7 @@ class MovementHealthTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["source"], "pose_fallback")
         self.assertTrue(result["robot_online"])
+        self.assertEqual(result["estop_state"], "unknown")
         self.assertEqual(
             urlopen.call_args_list[2].args[0].full_url,
             "http://nav.local:8001/movement-api/v1/robots/tb3_1/pose",

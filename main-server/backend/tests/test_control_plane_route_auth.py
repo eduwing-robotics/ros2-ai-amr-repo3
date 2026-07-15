@@ -17,7 +17,6 @@ sys.path.insert(0, str(BACKEND_ROOT))
 from app.core.config import settings as runtime_settings
 from app.main import app
 
-
 MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 HUMAN_BEARER_DEPENDENCIES = {"require_operator", "require_admin", "require_role"}
 MACHINE_INGRESS_DEPENDENCIES = {"require_nav_callback_signature"}
@@ -68,15 +67,20 @@ class ControlPlaneRouteAuthTest(unittest.TestCase):
 
     def setUp(self) -> None:
         configured = replace(runtime_settings, movement_hmac_secret="route-nav-secret")
+        movement_transaction = patch("app.api.routers.movement.transaction")
         self._patches = [
             patch("app.core.config.settings", configured),
             patch("app.api.routers.movement.settings", configured),
-            patch("app.db.pg_connection.require_database_url"),
+            movement_transaction,
+            patch(
+                "app.api.routers.movement.callbacks.estop_all_robots",
+                return_value=[{"robot_id": "tb3_1", "ok": True}],
+            ),
             patch("app.db.connection.init_db"),
             patch("app.main.asyncio.create_task", return_value=MagicMock()),
         ]
-        for item in self._patches:
-            item.start()
+        started = [item.start() for item in self._patches]
+        started[self._patches.index(movement_transaction)].return_value.__enter__.return_value = MagicMock()
         self.client = TestClient(app)
 
     def tearDown(self) -> None:

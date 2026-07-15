@@ -16,7 +16,11 @@ from urllib.request import Request, urlopen
 from app.core.config import settings
 from app.services.api_logs import begin_call, finish_call
 from app.services.health_cache import get_cached_swr
-from app.services.movement import movement_client, robot_is_emergency
+from app.services.movement import (
+    movement_client,
+    robot_emergency_state,
+    robot_is_emergency,
+)
 from app.services.robot_mapping import movement_robot_key
 
 _DEFAULT_FAKE_CAPABILITIES = {"navigate", "charge", "lift", "inbound", "outbound"}
@@ -87,16 +91,19 @@ def battery_from_health(health: dict[str, Any]) -> int | None:
 
 def fake_health(robot_id: str) -> dict[str, Any]:
     """fake 모드에서는 네트워크 없이 UI 확인용 상태만 제공한다."""
-    emergency = robot_is_emergency(robot_id)
+    emergency_state = robot_emergency_state(robot_id)
+    emergency = emergency_state is True
+    emergency_unknown = emergency_state is None
     health = {
-        "ok": not emergency,
+        "ok": not emergency and not emergency_unknown,
         "robot_name": robot_id,
         "mode": "fake",
         "dry_run": True,
         "base_url": base_url_for(robot_id),
         "checked_at": now_iso(),
         "is_emergency": emergency,
-        "command_accepting": not emergency,
+        "estop_state": "active" if emergency else "unknown" if emergency_unknown else "clear",
+        "command_accepting": not emergency and not emergency_unknown,
         "capabilities": sorted(_fake_capabilities_by_robot.get(robot_id, _DEFAULT_FAKE_CAPABILITIES)),
     }
     health.update(_fake_health_overrides_by_robot.get(robot_id, {}))
@@ -112,7 +119,10 @@ def http_health(robot_id: str) -> dict[str, Any]:
     서버 연결성의 보조 신호로 사용한다.
     """
     last_failed: dict[str, Any] | None = None
-    for base in health_bases_for(robot_id):
+    bases = health_bases_for(robot_id)
+    if not bases:
+        return failed_health(robot_id, "", "movement_endpoint_not_configured")
+    for base in bases:
         for url in health_urls_for(base):
             result = _probe_health_url(robot_id, url, base)
             if result.get("ok") or result.get("health_endpoint_reached"):
@@ -122,14 +132,14 @@ def http_health(robot_id: str) -> dict[str, Any]:
         if pose_result.get("ok"):
             return pose_result
         last_failed = pose_result or last_failed
-    return last_failed or failed_health(robot_id, health_bases_for(robot_id)[0] + "/health", "unreachable")
+    return last_failed or failed_health(robot_id, bases[0] + "/health", "unreachable")
 
 
 def health_bases_for(robot_id: str) -> list[str]:
     """Probe only the robot's configured primary Movement endpoint."""
     key = movement_robot_key(robot_id)
-    primary = settings.movement_base_urls.get(key, settings.movement_base_url).rstrip("/")
-    return [primary]
+    primary = settings.movement_base_urls.get(key)
+    return [primary.rstrip("/")] if primary else []
 
 
 def health_urls_for(base: str) -> list[str]:
@@ -157,15 +167,29 @@ def _probe_health_url(robot_id: str, url: str, routed_base: str) -> dict[str, An
         with urlopen(req, timeout=settings.movement_health_timeout_sec) as res:
             raw = res.read().decode("utf-8")
         payload = json.loads(raw) if raw else {}
+        if not isinstance(payload, dict):
+            finish_call(ctx, False, "invalid_payload", "health payload must be an object")
+            return failed_health(robot_id, url, "health payload must be an object")
         finish_call(ctx, True, 200, "health ok")
+        local_estop = robot_emergency_state(robot_id)
+        remote_estop = payload.get("is_emergency")
+        remote_estop_known = isinstance(remote_estop, bool)
+        estop_state = (
+            "active"
+            if remote_estop is True or local_estop is True
+            else "unknown"
+            if not remote_estop_known or local_estop is None
+            else "clear"
+        )
         return {
-            "ok": bool(payload.get("ok", True)),
             "mode": "http",
             "base_url": routed_base,
             "checked_at": now_iso(),
-            "health_endpoint_reached": True,
             **payload,
-            "is_emergency": bool(payload.get("is_emergency")) or robot_is_emergency(robot_id),
+            "ok": payload.get("ok") is True and remote_estop_known,
+            "health_endpoint_reached": True,
+            "is_emergency": estop_state == "active",
+            "estop_state": estop_state,
         }
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -195,6 +219,7 @@ def _probe_pose_as_health(robot_id: str, routed_base: str) -> dict[str, Any]:
         pose = payload.get("pose")
         localized = bool(payload.get("localized")) or bool(pose)
         finish_call(ctx, True, 200, "pose fallback ok")
+        local_estop = robot_emergency_state(robot_id)
         return {
             "ok": True,
             "mode": "http",
@@ -206,6 +231,7 @@ def _probe_pose_as_health(robot_id: str, routed_base: str) -> dict[str, Any]:
             "localized": localized,
             "pose": pose,
             "is_emergency": robot_is_emergency(robot_id),
+            "estop_state": "active" if local_estop is True else "unknown",
             "health_error": "health endpoint unavailable; pose API responded",
         }
     except HTTPError as exc:
@@ -225,6 +251,7 @@ def _probe_pose_as_health(robot_id: str, routed_base: str) -> dict[str, Any]:
 
 def failed_health(robot_id: str, url: str, error: str) -> dict[str, Any]:
     """health 실패도 /status 응답에 담아 운영자가 원인을 볼 수 있게 한다."""
+    local_estop = robot_emergency_state(robot_id)
     return {
         "ok": False,
         "robot_name": robot_id,
@@ -233,13 +260,20 @@ def failed_health(robot_id: str, url: str, error: str) -> dict[str, Any]:
         "error": error,
         "checked_at": now_iso(),
         "is_emergency": robot_is_emergency(robot_id),
+        "estop_state": (
+            "active"
+            if local_estop is True
+            else "unknown"
+            if local_estop is None
+            else "clear"
+        ),
     }
 
 
 def base_url_for(robot_id: str) -> str:
     """Movement client와 같은 로봇별 포트 라우팅 규칙을 사용한다."""
     key = movement_robot_key(robot_id)
-    return settings.movement_base_urls.get(key, settings.movement_base_url).rstrip("/")
+    return settings.movement_base_urls.get(key, "").rstrip("/")
 
 
 def now_iso() -> str:

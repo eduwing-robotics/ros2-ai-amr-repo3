@@ -1,6 +1,8 @@
 """Task schemas."""
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict
 
 
 class Task(BaseModel):
@@ -34,3 +36,23 @@ class TaskAssign(BaseModel):
     """작업 수동 배정 요청."""
 
     robot_id: str
+
+
+class RecoverySafetyChecks(BaseModel):
+    """Operator confirmations required before any recovery action."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    site_clear: Literal[True]
+    pose_ok: Literal[True]
+    cargo_ok: Literal[True]
+
+
+class RecoveryActionRequest(BaseModel):
+    """Fail-closed recovery decision or execution request."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cargo_state: Literal["LOADED", "EMPTY", "UNKNOWN"] = "UNKNOWN"
+    strategy: Literal["safe_move", "manual_abort"] = "safe_move"
+    checks: RecoverySafetyChecks

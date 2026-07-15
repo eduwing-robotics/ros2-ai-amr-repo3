@@ -90,6 +90,31 @@ def _move_step(scan: dict[str, Any], *, name: str) -> dict[str, Any]:
     }
 
 
+def _append_route_and_scan(
+    conn,
+    steps: list[dict[str, Any]],
+    scan: dict[str, Any],
+    *,
+    scan_name: str,
+) -> None:
+    scan_id = str(scan.get("slot_id") or scan.get("location_id") or "")
+    scan_map_id = scan.get("map_id")
+    seen = {scan_id}
+    for route_step in location_repo(conn).list_route_steps(scan_id):
+        waypoint_id = str(route_step.get("slot_id") or route_step.get("location_id") or "")
+        if waypoint_id in seen:
+            continue
+        if route_step.get("type") != "transit":
+            raise HTTPException(status_code=409, detail=f"scan route step is not transit: {waypoint_id}")
+        if route_step.get("x") is None or route_step.get("y") is None:
+            raise HTTPException(status_code=409, detail=f"scan route step missing coordinates: {waypoint_id}")
+        if not scan_map_id or route_step.get("map_id") != scan_map_id:
+            raise HTTPException(status_code=409, detail=f"scan route step map mismatch: {waypoint_id}")
+        steps.append(_move_step(route_step, name=f"route:{waypoint_id}"))
+        seen.add(waypoint_id)
+    steps.append(_move_step(scan, name=scan_name))
+
+
 def _dock_step(conn, dock_id: str, scan: dict[str, Any], action: str, floor: int) -> dict[str, Any]:
     return {
         "action_type": "dock_transfer",
@@ -111,7 +136,7 @@ def _append_dock_gate(
 ) -> None:
     scan = _resolve_scan_for_dock(conn, dock_id)
     _require_location(conn, dock_id, label="dock")
-    steps.append(_move_step(scan, name=f"scan:{scan.get('slot_id') or dock_id}"))
+    _append_route_and_scan(conn, steps, scan, scan_name=f"scan:{scan.get('slot_id') or dock_id}")
     steps.append(_dock_step(conn, dock_id, scan, action, floor))
 
 
@@ -126,7 +151,7 @@ def _append_aruco_align_gate(
     scan = _resolve_scan_for_dock(conn, location_id)
     _require_location(conn, location_id, label=label)
     marker = _aruco_marker_for_dock(conn, location_id, scan)
-    steps.append(_move_step(scan, name=f"scan:{scan.get('slot_id') or location_id}"))
+    _append_route_and_scan(conn, steps, scan, scan_name=f"scan:{scan.get('slot_id') or location_id}")
     steps.append({
         "action_type": "aruco_align",
         "name": f"{label}:{location_id}",

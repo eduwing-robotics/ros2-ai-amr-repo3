@@ -108,14 +108,19 @@ class MvpTaskRepository:
         robot = self.conn.execute("SELECT * FROM robots WHERE id = %s FOR UPDATE", (robot_id,)).fetchone()
         if not task or not robot:
             return None
-        if task["status"] not in {"CREATED", "QUEUED"} or task.get("robot_id") or robot["status"] != "IDLE":
+        if (
+            task["status"] not in {"CREATED", "QUEUED"}
+            or task.get("robot_id")
+            or robot["status"] != "IDLE"
+            or not robot.get("enabled", True)
+        ):
             return None
 
         claimed_robot = self.conn.execute(
             """
             UPDATE robots
             SET status = 'ASSIGNED', last_seen_at = now()
-            WHERE id = %s AND status = 'IDLE'
+            WHERE id = %s AND status = 'IDLE' AND enabled = TRUE
             RETURNING id
             """,
             (robot_id,),

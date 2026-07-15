@@ -31,6 +31,19 @@ class MvpLocationRepository:
     def list_by_type(self, location_type: str) -> list[dict[str, Any]]:
         return self.list(location_type)
 
+    def list_route_steps(self, target_location_id: str) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            """
+            SELECT locations.*
+            FROM location_route_steps
+            JOIN locations ON locations.id = location_route_steps.waypoint_id
+            WHERE location_route_steps.target_location_id = %s
+            ORDER BY location_route_steps.step_order
+            """,
+            (target_location_id,),
+        ).fetchall()
+        return [self._as_slot(row) for row in rows]
+
     def get_inbound(self, specified_id: str | None = None) -> dict[str, Any]:
         rows = [r for r in self.list_by_type("inbound") if r.get("enabled", True)]
         if not rows:
@@ -141,7 +154,24 @@ class MvpLocationRepository:
             marker = r.get("marker_id")
             if marker is not None:
                 marker_to_scan[int(marker)] = r["id"]
-        return [self._row_to_waypoint(r, scan_ids=scan_ids, marker_to_scan=marker_to_scan) for r in rows]
+        route_rows = self.conn.execute(
+            """
+            SELECT target_location_id, step_order, waypoint_id
+            FROM location_route_steps
+            ORDER BY target_location_id, step_order
+            """
+        ).fetchall()
+        route_target_by_waypoint = {r["waypoint_id"]: r["target_location_id"] for r in route_rows}
+        approaches_by_target: dict[str, list[str]] = {}
+        for route in route_rows:
+            approaches_by_target.setdefault(route["target_location_id"], []).append(route["waypoint_id"])
+        result = []
+        for row in rows:
+            waypoint = self._row_to_waypoint(row, scan_ids=scan_ids, marker_to_scan=marker_to_scan)
+            waypoint["route_target_id"] = route_target_by_waypoint.get(row["id"])
+            waypoint["approach_waypoint_ids"] = approaches_by_target.get(row["id"], [])
+            result.append(waypoint)
+        return result
 
     def upsert_waypoint(self, data: dict[str, Any]) -> None:
         from app.core.config import settings

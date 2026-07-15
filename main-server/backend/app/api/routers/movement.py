@@ -15,7 +15,7 @@ from app.core.config import settings
 from app.db.connection import transaction
 from app.db.repo_bridge import event_repo, movement_repo, robot_repo
 from app.models.schemas import ApiMessage, InitialPoseRequest
-from app.security import ReplayCache, require_operator, verify_headers
+from app.security import ReplayCache, verify_headers
 from app.services import missions as mission_service
 from app.services import movement_callbacks as callbacks
 from app.services.api_logs import list_logs as list_api_logs
@@ -173,7 +173,7 @@ def aruco_latest(
     return payload
 
 
-@router.post("/robots/{robot_id}/initial-pose", dependencies=[Depends(require_operator)])
+@router.post("/robots/{robot_id}/initial-pose")
 def set_robot_initial_pose(robot_id: str, payload: InitialPoseRequest) -> dict:
     """Publish an initial pose only into the exact, content-verified active map."""
     with transaction() as conn:
@@ -261,13 +261,16 @@ def movement_result(payload: dict) -> ApiMessage:
 
 @router.post("/movement/robots/{robot_name}/status", response_model=ApiMessage, dependencies=[Depends(require_nav_callback_signature)])
 def movement_robot_status(robot_name: str, payload: dict) -> ApiMessage:
-    """Movement robot status callback을 current robot/pose에 반영한다."""
-    with transaction() as conn:
-        callbacks.ingest_robot_status(conn, robot_name, payload)
-    return ApiMessage(message="movement robot status saved")
+    """Accept health status and persist only issues; pose uses the canonical route."""
+    if callbacks.robot_status_requires_event(payload):
+        with transaction() as conn:
+            callbacks.ingest_robot_status(conn, robot_name, {**payload, "pose": None})
+        return ApiMessage(message="movement robot status issue saved")
+    return ApiMessage(message="movement robot status accepted")
 
 
-@router.post("/robot/estop", dependencies=[Depends(require_operator)])
+@router.post("/robots/estop-all")
+@router.post("/robot/estop")
 def robot_estop_all() -> dict:
     """등록된 모든 로봇에 비상 정지를 요청한다."""
     with transaction() as conn:
@@ -275,9 +278,22 @@ def robot_estop_all() -> dict:
     return {"ok": all(r.get("ok") for r in results), "robots": results}
 
 
-@router.post("/robot/clear_estop", dependencies=[Depends(require_operator)])
+@router.post("/robots/clear-estop-all")
+@router.post("/robot/clear_estop")
 def robot_clear_estop_all() -> dict:
     """등록된 모든 로봇의 비상 정지를 해제한다."""
     with transaction() as conn:
         results = callbacks.clear_estop_all_robots(conn)
-    return {"ok": all(r.get("ok") for r in results), "robots": results}
+    attempted = [row for row in results if row.get("attempted", True)]
+    unknown = [row["robot_id"] for row in results if row.get("state") == "unknown"]
+    active = [row["robot_id"] for row in results if row.get("state") == "active"]
+    ok = bool(attempted) and not unknown and not active and all(row.get("ok") for row in attempted)
+    state = "active" if active else "partial" if unknown else "clear" if ok else "unknown"
+    return {
+        "ok": ok,
+        "state": state,
+        "partial": bool(unknown or active),
+        "unknown_robots": unknown,
+        "active_robots": active,
+        "robots": results,
+    }

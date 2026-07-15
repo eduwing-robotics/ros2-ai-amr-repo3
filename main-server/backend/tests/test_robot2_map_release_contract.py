@@ -6,7 +6,6 @@ import hashlib
 import json
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 MAIN_ROOT = REPO_ROOT / "main-server"
 BACKEND_ROOT = MAIN_ROOT / "backend"
@@ -54,11 +53,19 @@ def test_release_manifest_is_the_asset_and_route_authority() -> None:
 
 def test_charge_uses_robot2_approach_but_final_dispatch_stays_uncommissioned() -> None:
     bindings = json.loads(FIELD_BINDINGS.read_text(encoding="utf-8"))
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     charge = bindings["locations"]["CHARGE_01"]
-    charge_scan = bindings["scans"][charge["scan_location_id"]]
+    release_locations = {row["id"]: row for row in manifest["locations"]}
 
+    assert "scans" not in bindings
     assert charge["map_id"] == "robot2_map"
-    assert charge_scan["nav_waypoint"] == "vehicle_2_approach"
+    assert charge["scan_location_id"] == "vehicle_2_approach"
+    assert release_locations[charge["scan_location_id"]]["marker_id"] == 4
+    assert all("marker_id" not in binding for binding in bindings["locations"].values())
+    assert all(
+        release_locations[binding["scan_location_id"]]["type"] == "scan"
+        for binding in bindings["locations"].values()
+    )
     dispatch = bindings["map_dispatch"]["robot2_map"]
     assert dispatch["inbound"] is False
     assert dispatch["outbound"] is False

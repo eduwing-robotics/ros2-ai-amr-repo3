@@ -25,7 +25,6 @@ class HttpMovementClientTest(unittest.TestCase):
                 "tb3_1": "http://nav.local:8001/movement-api/v1",
                 "tb3_2": "http://nav.local:8002/movement-api/v1",
             },
-            "http://nav.local:8001/movement-api/v1",
             timeout_sec=1.0,
         )
 
@@ -67,7 +66,7 @@ class HttpMovementClientTest(unittest.TestCase):
         req = urlopen.call_args.args[0]
         self.assertEqual(req.full_url, "http://nav.local:8001/robot-commands/cmd-move-1")
 
-    def test_command_status_falls_back_to_legacy_commands_on_404(self) -> None:
+    def test_command_status_does_not_fall_back_on_canonical_404(self) -> None:
         err = HTTPError(
             url="http://nav.local:8001/robot-commands/cmd-x",
             code=404,
@@ -75,13 +74,47 @@ class HttpMovementClientTest(unittest.TestCase):
             hdrs=None,
             fp=BytesIO(b'{"detail":"missing"}'),
         )
-        ok = BytesIO(b'{"state": "DONE"}')
         with patch("app.services.movement.urlopen") as urlopen:
-            urlopen.side_effect = [err, ok]
-            result = self.client.command_status("tb3_1", "cmd-x")
-        self.assertEqual(result["state"], "DONE")
-        legacy_req = urlopen.call_args_list[1].args[0]
-        self.assertIn("/commands/cmd-x", legacy_req.full_url)
+            urlopen.side_effect = err
+            with self.assertRaises(MovementClientError) as ctx:
+                self.client.command_status("tb3_1", "cmd-x")
+        self.assertEqual(ctx.exception.status_code, 404)
+        self.assertEqual(urlopen.call_count, 1)
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://nav.local:8001/robot-commands/cmd-x")
+
+    def test_cancel_command_uses_signed_canonical_path(self) -> None:
+        with patch("app.services.movement.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"state": "CANCELED"}'
+            result = self.client.cancel_command("tb3_1", "cmd-x")
+        self.assertEqual(result["state"], "CANCELED")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "http://nav.local:8001/robot-commands/cmd-x/cancel")
+        self.assertEqual(request.method, "POST")
+        self.assertIn("x-sf-signature", {key.lower(): value for key, value in request.headers.items()})
+
+    def test_estop_controls_use_signed_root_compatibility_paths(self) -> None:
+        with patch("app.services.movement.urlopen") as urlopen:
+            response = urlopen.return_value.__enter__.return_value
+            response.read.side_effect = [b'{"message":"stopped"}', b'{"message":"cleared"}']
+
+            self.client.estop("tb3_1")
+            self.client.clear_estop("tb3_1")
+
+        requests = [call.args[0] for call in urlopen.call_args_list]
+        self.assertEqual(
+            [request.full_url for request in requests],
+            [
+                "http://nav.local:8001/robot/estop",
+                "http://nav.local:8001/robot/clear_estop",
+            ],
+        )
+        for request in requests:
+            self.assertEqual(request.method, "POST")
+            self.assertIn(
+                "x-sf-signature",
+                {key.lower(): value for key, value in request.headers.items()},
+            )
 
     def test_http_error_preserves_status_code(self) -> None:
         err = HTTPError(
@@ -95,6 +128,14 @@ class HttpMovementClientTest(unittest.TestCase):
             with self.assertRaises(MovementClientError) as ctx:
                 self.client.robot_command("tb3_1", {"command_id": "c", "kind": "dock_transfer"})
         self.assertEqual(ctx.exception.status_code, 409)
+
+    def test_unknown_robot_has_no_cross_robot_endpoint_fallback(self) -> None:
+        with patch("app.services.movement.urlopen") as urlopen:
+            with self.assertRaises(MovementClientError) as ctx:
+                self.client.nav_state("unknown-robot")
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertIn("endpoint is not configured", str(ctx.exception))
+        urlopen.assert_not_called()
 
 
 if __name__ == "__main__":

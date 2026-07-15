@@ -63,6 +63,8 @@ class Waypoint(BaseModel):
     yaw: float = 0.0
     waypoint_type: str = "move"
     scan_waypoint_id: str | None = None
+    route_target_id: str | None = None
+    approach_waypoint_ids: list[str] = Field(default_factory=list)
     aruco_marker_id: int | None = None
     dock_mode: str = "none"
     status: str = "ACTIVE"
@@ -94,3 +96,8 @@ class WaypointUpsert(BaseModel):
     scan_waypoint_id: str | None = None
     aruco_marker_id: int | None = Field(default=None, ge=1)
     dock_mode: str = "none"
+
+
+class WaypointRouteUpsert(BaseModel):
+    waypoint_id: str
+    target_location_id: str

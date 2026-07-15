@@ -26,6 +26,7 @@ from app.db.mvp_repositories import (
     MvpSafetyStopRepository,
     MvpTaskRepository,
 )
+from app.models.schemas import RobotCommandResponse
 from app.services import movement_callbacks, person_hazard, task_recovery, work_orders_pg
 from app.services import tasks as task_service
 from tests.pg_fixture import apply_demo_fixture
@@ -209,7 +210,7 @@ class PgDbSafetyRaceTest(unittest.TestCase):
             )
         self.assertNotEqual(first["tasks"][0]["task_id"], second["tasks"][0]["task_id"])
 
-    def test_recovery_callback_and_poller_claim_exactly_one_resume(self) -> None:
+    def test_recovery_callback_and_poller_finalize_exactly_one_operator_hold(self) -> None:
         with write_transaction() as conn:
             task_id = MvpTaskRepository(conn).create({"task_type": "MOVE", "status": "RUNNING"})
             MvpEvidenceRepository(conn).save_orchestration(
@@ -220,7 +221,7 @@ class PgDbSafetyRaceTest(unittest.TestCase):
                     "steps": [{"kind": "move_to_point", "status": "dispatched", "command_id": "recovery-cmd"}],
                     "recovery": {
                         "reason": "person_hazard",
-                        "strategy": "safe_replan",
+                        "strategy": "safe_move",
                         "checks": {"area_clear": True},
                         "active_command_id": "recovery-cmd",
                     },
@@ -254,19 +255,129 @@ class PgDbSafetyRaceTest(unittest.TestCase):
                 thread.join(timeout=15)
                 self.assertFalse(thread.is_alive(), "recovery contender did not finish")
 
-        self.assertEqual(sum(result is not None for result in results), 1)
-        self.assertEqual(dispatch.call_count, 1)
+        self.assertEqual(sum(isinstance(result, dict) for result in results), 1)
+        self.assertEqual(sum(result is None for result in results), 1)
+        dispatch.assert_not_called()
         with transaction() as conn:
+            orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
             events = MvpEvidenceRepository(conn).list_for_task(task_id, limit=100)
-            resumed = [
+            terminal = [
                 row
                 for row in events
-                if row["event_type"] == "RECOVERY_RESUMED" and row["source"] == "main_recovery"
+                if row["event_type"] == "RECOVERY_MOVE_TERMINAL"
             ]
-            self.assertEqual(len(resumed), 1)
+            resumed = [row for row in events if row["event_type"] == "RECOVERY_RESUMED"]
+            claimed = [
+                row
+                for row in events
+                if row["event_type"] == "RECOVERY_TERMINAL_CLAIMED"
+                or (row.get("data_json") or {}).get("phase") == "RECOVERY_TERMINAL_CLAIMED"
+            ]
+
+            self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
+            self.assertNotIn("active_command_id", orchestration["recovery"])
+            self.assertEqual(len(terminal), 1)
+            self.assertEqual(len(resumed), 0)
+            self.assertEqual(len(claimed), 0)
             self.assertEqual(
-                resumed[0]["data_json"]["transition_id"], f"{task_id}:recovery:recovery-cmd:DONE"
+                terminal[0]["data_json"]["transition_id"],
+                f"{task_id}:recovery:recovery-cmd:DONE",
             )
+
+    def test_concurrent_safe_move_recovery_has_one_claim_and_dispatch(self) -> None:
+        with write_transaction() as conn:
+            task_id = MvpTaskRepository(conn).create(
+                {"task_type": "MOVE", "status": "RUNNING", "robot_id": "tb3_1"}
+            )
+            MvpEvidenceRepository(conn).save_orchestration(
+                task_id,
+                {
+                    "phase": "AWAITING_OPERATOR",
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "kind": "move_to_point",
+                            "status": "dispatched",
+                            "command_id": "interrupted-move",
+                        }
+                    ],
+                    "recovery": {"reason": "person_hazard", "robot_id": "tb3_1"},
+                },
+            )
+
+        barrier = threading.Barrier(2)
+        results: list[object] = []
+        results_lock = threading.Lock()
+        plan = {
+            "task_id": task_id,
+            "strategy": "safe_move",
+            "cargo_state": "LOADED",
+            "executable": True,
+            "steps": [
+                {
+                    "kind": "move_to_point",
+                    "params": {"map_id": "robot2_map", "x": 0.0, "y": 0.0, "yaw": 0.0},
+                }
+            ],
+        }
+
+        def safety_gate(*_args, **_kwargs):
+            barrier.wait(timeout=10)
+            return {"confirmed": True}
+
+        def dispatch(_conn, payload, request=None):
+            self.assertIsNone(request)
+            return RobotCommandResponse(
+                command_id=str(payload.command_id),
+                robot_id=payload.robot_id,
+                kind=payload.kind,
+                accepted=True,
+            )
+
+        def execute() -> None:
+            try:
+                with write_transaction() as conn:
+                    result: object = task_recovery.execute_recovery(
+                        conn,
+                        task_id,
+                        cargo_state="LOADED",
+                        strategy="safe_move",
+                        checks={"area_clear": True},
+                    )
+            except Exception as exc:
+                result = exc
+            with results_lock:
+                results.append(result)
+
+        with (
+            patch.object(task_recovery, "preview_recovery_plan", return_value=plan),
+            patch.object(task_recovery, "_verify_recovery_safety_gate", side_effect=safety_gate),
+            patch.object(task_recovery.command_service, "dispatch_robot_command", side_effect=dispatch) as send,
+        ):
+            threads = [threading.Thread(target=execute) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=20)
+                self.assertFalse(thread.is_alive(), "recovery start contender did not finish")
+
+        self.assertEqual(sum(isinstance(result, dict) for result in results), 1)
+        self.assertEqual(
+            sum(isinstance(result, HTTPException) and result.status_code == 409 for result in results),
+            1,
+        )
+        send.assert_called_once()
+        with transaction() as conn:
+            orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
+            events = MvpEvidenceRepository(conn).list_for_task(task_id, limit=100)
+        self.assertEqual(orchestration["phase"], "RECOVERY_RUNNING")
+        self.assertEqual(orchestration["recovery"]["dispatch_state"], "SENT")
+        for event_type in (
+            "RECOVERY_DECISION",
+            "RECOVERY_COMMAND_PENDING",
+            "RECOVERY_COMMAND_DISPATCHED",
+        ):
+            self.assertEqual(sum(row["event_type"] == event_type for row in events), 1)
 
     def test_late_person_advisory_remains_active_after_operator_clear_and_blocks_recovery_dispatch(self) -> None:
         """A clear snapshot must not erase a hazard committed immediately after it.
@@ -299,7 +410,7 @@ class PgDbSafetyRaceTest(unittest.TestCase):
                         conn,
                         task_id,
                         cargo_state="LOADED",
-                        strategy="safe_replan",
+                        strategy="safe_move",
                         checks={"area_clear": True},
                     )
             except Exception as exc:
@@ -338,6 +449,19 @@ class PgDbSafetyRaceTest(unittest.TestCase):
         with (
             patch.object(MvpSafetyStopRepository, "list_active", list_active_with_late_advisory),
             patch.object(movement_callbacks.movement_client, "clear_estop", return_value={"cleared": True}),
+            patch.object(
+                movement_callbacks,
+                "get_movement_health",
+                side_effect=lambda robot_ids, force=False: {
+                    robot_id: {
+                        "ok": True,
+                        "robot_online": True,
+                        "is_emergency": False,
+                        "estop_state": "clear",
+                    }
+                    for robot_id in robot_ids
+                },
+            ),
             patch.object(person_hazard.movement_client, "estop", return_value={"estopped": True}),
             patch.object(task_recovery, "get_movement_health", return_value={"tb3_1": {"ok": True, "is_emergency": False}}),
             patch("app.services.orchestrator.dispatch_current_step") as resumed_dispatch,

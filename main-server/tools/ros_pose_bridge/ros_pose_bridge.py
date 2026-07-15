@@ -14,7 +14,7 @@
 
 예시:
     # 실제 TF 사용
-    python3 ros_pose_bridge.py --robot-id robot-01 --api-base http://localhost:8088/api/v1
+    python3 ros_pose_bridge.py --robot-id tb3_1
 
     # 여러 로봇 설정을 JSON 으로
     python3 ros_pose_bridge.py --config config.json
@@ -28,13 +28,21 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import signal
 import sys
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+_BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
+from app.security import sign_headers  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -45,8 +53,8 @@ class BridgeConfig:
     """단일 로봇 bridge 설정. CLI 인자가 JSON config 보다 우선한다."""
 
     robot_id: str
-    map_id: str = "map"
-    api_base: str = "http://localhost:8088/api/v1"
+    map_id: str = "robot2_map"
+    api_base: str = "http://smartfactory-main.local:8088/api/v1"
     map_frame: str = "map"
     base_frame: str = "base_link"
     odom_topic: str | None = None  # 지정 시 linear/angular velocity 를 같이 보고
@@ -120,14 +128,31 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def pose_headers(cfg: BridgeConfig, body: bytes) -> dict[str, str]:
+    """Build the canonical service signature required by Main."""
+    secret = (
+        os.getenv("NAV_MAIN_HMAC_SECRET", "").strip()
+        or os.getenv("LMS_MOVEMENT_HMAC_SECRET", "").strip()
+    )
+    if not secret:
+        raise RuntimeError("pose bridge HMAC secret is not configured")
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    headers.update(sign_headers(secret, "POST", cfg.pose_url, body))
+    return headers
+
+
 def post_pose(cfg: BridgeConfig, pose: dict) -> tuple[bool, str]:
     """pose 한 건을 Main API 로 POST. (ok, detail) 반환. 예외를 밖으로 던지지 않는다."""
     body = json.dumps(pose).encode("utf-8")
+    try:
+        headers = pose_headers(cfg, body)
+    except RuntimeError as exc:
+        return False, str(exc)
     req = Request(
         cfg.pose_url,
         data=body,
         method="POST",
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers=headers,
     )
     try:
         with urlopen(req, timeout=cfg.timeout_s) as res:
@@ -185,10 +210,16 @@ def run_ros(configs: list[BridgeConfig], stop: "Stopper") -> None:
     """rclpy 노드로 map->base_link TF 를 lookup 해 로봇별 pose 를 push 한다."""
     try:
         import rclpy
-        from rclpy.node import Node
         from rclpy.duration import Duration
+        from rclpy.node import Node
         from rclpy.time import Time
-        from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException, ExtrapolationException
+        from tf2_ros import (
+            Buffer,
+            ConnectivityException,
+            ExtrapolationException,
+            LookupException,
+            TransformListener,
+        )
     except ImportError as exc:  # pragma: no cover - ROS 미설치 환경
         raise SystemExit(
             f"error: ROS 2(rclpy/tf2_ros) 를 불러오지 못했다 ({exc}).\n"
@@ -289,8 +320,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="ROS 2 map->base_link pose 를 Main 서버로 push 하는 bridge")
     p.add_argument("--robot-id", help="단일 로봇 id (config 보다 우선, config 의 robots 를 덮어씀)")
     p.add_argument("--config", help="로봇 설정 JSON 파일 (config.example.json 참고)")
-    p.add_argument("--map-id", help="Main 서버에 보고할 map_id (기본 map)")
-    p.add_argument("--api-base", help="Main API base (기본 http://localhost:8088/api/v1)")
+    p.add_argument("--map-id", help="Main 서버에 보고할 map_id (기본 robot2_map)")
+    p.add_argument(
+        "--api-base",
+        help="Main API base (기본 http://smartfactory-main.local:8088/api/v1)",
+    )
     p.add_argument("--map-frame", help="TF source frame (기본 map)")
     p.add_argument("--base-frame", help="TF target frame (기본 base_link)")
     p.add_argument("--odom-topic", help="velocity 를 같이 보고할 nav_msgs/Odometry 토픽")

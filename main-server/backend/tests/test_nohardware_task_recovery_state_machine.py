@@ -213,12 +213,8 @@ class NoHardwareTaskRecoveryStateMachineTest(unittest.TestCase):
             patch("app.services.evidence_runtime.task_repo", return_value=self.h.task_repo),
         )
 
-    def test_person_estop_recovery_done_redispatches_interrupted_step_and_completes_task(self) -> None:
-        """Full desired flow: advisory -> trusted E-stop -> recovery -> re-dispatch -> DONE.
-
-        This is expected to be RED until recovery completion resumes the interrupted
-        current step instead of returning to AWAITING_OPERATOR.
-        """
+    def test_person_estop_recovery_done_returns_to_operator_without_redispatch(self) -> None:
+        """Recovery movement ends held for a fresh operator decision."""
         runtime = person_hazard.MonitorRuntime(robot_id=ROBOT_ID, source=SOURCE, task_id=TASK_ID)
         runtime.enable_time = datetime.now(timezone.utc) - timedelta(seconds=1)
         checks = {"area_clear": True, "cargo_secured": True, "operator_confirmed": True}
@@ -249,6 +245,7 @@ class NoHardwareTaskRecoveryStateMachineTest(unittest.TestCase):
             stack.enter_context(patch.object(movement_callbacks, "robot_repo", return_value=self.h.robot_repo))
             stack.enter_context(patch.object(movement_callbacks, "safety_stop_repo", return_value=self.h.safety_stop_repo))
             callback_movement = stack.enter_context(patch.object(movement_callbacks, "movement_client"))
+            stack.enter_context(patch.object(movement_callbacks, "get_movement_health", return_value={ROBOT_ID: {"ok": True, "robot_online": True}}))
             stack.enter_context(patch.object(orchestrator, "task_repo", return_value=self.h.task_repo))
             stack.enter_context(patch.object(orchestrator, "event_repo", return_value=self.h.event_repo))
             stack.enter_context(patch.object(orchestrator, "evidence_repo", return_value=self.h.evidence_repo))
@@ -257,8 +254,8 @@ class NoHardwareTaskRecoveryStateMachineTest(unittest.TestCase):
             stack.enter_context(patch.object(orchestrator.task_service, "complete_task", side_effect=lambda _conn, task_id, source="callback": self.h.task_repo.set_status(task_id, "DONE") or self.h.task_repo.get(task_id)))
             stack.enter_context(patch("app.services.evidence_runtime.evidence_repo", return_value=self.h.evidence_repo))
             stack.enter_context(patch("app.services.evidence_runtime.task_repo", return_value=self.h.task_repo))
-            stack.enter_context(patch.object(task_recovery, "settings", SimpleNamespace(recovery_dock_transfer_enabled=False, movement_active_map_id="robot1_map")))
-            stack.enter_context(patch.object(task_recovery, "get_movement_health", return_value={ROBOT_ID: {"ok": True, "is_emergency": False, "mode": "fake", "checked_at": "2026-07-10T00:00:00+00:00"}}))
+            stack.enter_context(patch.object(task_recovery, "settings", SimpleNamespace(recovery_safe_location_id="HOME", movement_active_map_id="robot1_map")))
+            stack.enter_context(patch.object(task_recovery, "get_movement_health", return_value={ROBOT_ID: {"ok": True, "is_emergency": False, "estop_state": "clear", "mode": "fake", "checked_at": "2026-07-10T00:00:00+00:00"}}))
 
             hazard_movement.estop.return_value = {"accepted": True, "emergency": True}
             callback_movement.clear_estop.return_value = {"accepted": True, "emergency": False}
@@ -291,7 +288,7 @@ class NoHardwareTaskRecoveryStateMachineTest(unittest.TestCase):
 
             # operator clear-estop command records robot callback/event state.
             clear_result = movement_callbacks.clear_estop_all_robots(self.conn)
-            self.assertEqual(clear_result, [{"robot_id": ROBOT_ID, "ok": True, "response": {"accepted": True, "emergency": False}}])
+            self.assertEqual(clear_result, [{"robot_id": ROBOT_ID, "ok": True, "attempted": True, "state": "cleared", "response": {"accepted": True, "emergency": False}}])
             callback_movement.clear_estop.assert_called_once_with(ROBOT_ID)
             self.assertEqual(self.h.state["safety_stops"][0]["status"], "CLOSED")
             self.h.event_repo.append.assert_any_call(
@@ -305,7 +302,7 @@ class NoHardwareTaskRecoveryStateMachineTest(unittest.TestCase):
                 self.conn,
                 TASK_ID,
                 cargo_state="LOADED",
-                strategy="safe_replan",
+                strategy="safe_move",
                 checks=checks,
             )
             self.assertEqual(recovery_result["command_id"], "cmd-recovery-safe-zone")
@@ -314,9 +311,9 @@ class NoHardwareTaskRecoveryStateMachineTest(unittest.TestCase):
             self.assertEqual(self.h.evidence_by_type("RECOVERY_DECISION")[0]["trusted"], True)
             decision = self.h.evidence_by_type("RECOVERY_DECISION")[0]["data_json"]
             self.assertTrue(decision["trusted_safety_gate"]["clear_acknowledgement"]["confirmed"])
-            self.assertEqual(self.h.evidence_by_type("RECOVERY_COMMAND_DISPATCHED")[0]["data_json"]["strategy"], "safe_replan")
+            self.assertEqual(self.h.evidence_by_type("RECOVERY_COMMAND_DISPATCHED")[0]["data_json"]["strategy"], "safe_move")
 
-            # Recovery DONE should be idempotent and should safely re-dispatch/resume the interrupted step.
+            # Recovery DONE is idempotent and remains held; it never auto-resumes work.
             first_done = task_recovery.handle_recovery_command_event(
                 self.conn,
                 TASK_ID,
@@ -331,20 +328,12 @@ class NoHardwareTaskRecoveryStateMachineTest(unittest.TestCase):
             self.assertIsNone(second_done)
             self.assertEqual(len(self.h.evidence_by_type("RECOVERY_MOVE_TERMINAL")), 1)
 
-            # RED today: implementation leaves phase AWAITING_OPERATOR and does not redispatch.
-            self.assertEqual(self.h.state["orch"]["phase"], "RUNNING")
+            self.assertEqual(self.h.state["orch"]["phase"], "AWAITING_OPERATOR")
             self.assertEqual(self.h.state["orch"]["step_index"], 0)
             self.assertEqual(self.h.state["orch"]["steps"][0]["status"], "dispatched")
-            self.assertEqual(self.h.state["orch"]["steps"][0]["command_id"], "cmd-resumed-move")
-            self.assertGreaterEqual(dispatch.call_count, 2)
-            redispatch_spy.assert_called_with(self.conn, TASK_ID)
-
-            # Normal DONE after resumed move completes task once.
-            done = orchestrator.advance_on_command_event(self.conn, TASK_ID, {"task_id": TASK_ID, "command_id": "cmd-resumed-move", "event": "ARRIVED"})
-            self.assertEqual(done["status"], "DONE")
-            self.assertEqual(self.h.state["orch"]["phase"], "DONE")
-            self.assertEqual(self.h.state["task"]["status"], "DONE")
-            self.assertEqual(self.h.state["robot"], {"robot_id": ROBOT_ID, "status": "IDLE", "task_id": None})
+            self.assertEqual(self.h.state["orch"]["steps"][0]["command_id"], "cmd-interrupted-move")
+            self.assertEqual(dispatch.call_count, 1)
+            redispatch_spy.assert_not_called()
 
     def test_recovery_terminal_callback_is_idempotent_for_existing_recovery_phase(self) -> None:
         self.h.state["orch"]["phase"] = "RECOVERY_RUNNING"

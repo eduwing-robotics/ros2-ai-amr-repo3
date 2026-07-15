@@ -12,8 +12,12 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes import router
 from app.core.config import settings
-from app.db.connection import init_db
+from app.db.connection import init_db, transaction
+from app.db.repo_bridge import robot_repo
 from app.services.person_hazard_loop import person_hazard_loop
+from app.services.pose_monitor import pose_event_writer_loop, pose_fallback_poller_loop, pose_watchdog_loop
+from app.services.pose_runtime import pose_runtime
+from app.services.runtime_map_context import get_runtime_map_context
 from app.services.task_progress_poller import poll_task_progress_loop
 
 
@@ -33,6 +37,17 @@ class SpaStaticFiles(StaticFiles):
             raise
 
 
+def initialize_pose_runtime() -> None:
+    """Register enabled robots without restoring any persisted starting pose."""
+    with transaction() as conn:
+        rows = robot_repo(conn).list()
+    context = get_runtime_map_context().to_map_state()
+    pose_runtime.configure(
+        [row["robot_id"] for row in rows if row.get("enabled", True)],
+        context,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작 시 PostgreSQL DB를 초기화하고 task progress poller를 띄운다."""
@@ -44,15 +59,23 @@ async def lifespan(app: FastAPI):
     load_field_bindings()
     require_database_url()
     init_db()
+    initialize_pose_runtime()
     sweep_task = asyncio.create_task(poll_task_progress_loop())
     hazard_task = asyncio.create_task(person_hazard_loop())
-    yield
-    hazard_task.cancel()
-    sweep_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await hazard_task
-    with contextlib.suppress(asyncio.CancelledError):
-        await sweep_task
+    pose_tasks = [
+        asyncio.create_task(pose_watchdog_loop()),
+        asyncio.create_task(pose_event_writer_loop()),
+        asyncio.create_task(pose_fallback_poller_loop()),
+    ]
+    app.state.pose_tasks = pose_tasks
+    try:
+        yield
+    finally:
+        for task in [hazard_task, sweep_task, *pose_tasks]:
+            task.cancel()
+        for task in [hazard_task, sweep_task, *pose_tasks]:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 def create_app() -> FastAPI:

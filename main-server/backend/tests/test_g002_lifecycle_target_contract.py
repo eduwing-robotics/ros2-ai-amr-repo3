@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = BACKEND_ROOT / "app"
 
@@ -69,11 +68,41 @@ def _unknown_cargo_raises_http_409(source: str) -> bool:
     return False
 
 
+def _has_typed_accepted_post_route(source: str, path: str) -> bool:
+    tree = ast.parse(source)
+    for function in (
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ):
+        for decorator in function.decorator_list:
+            if not isinstance(decorator, ast.Call):
+                continue
+            if not (
+                isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr == "post"
+                and decorator.args
+                and isinstance(decorator.args[0], ast.Constant)
+                and decorator.args[0].value == path
+            ):
+                continue
+            keywords = {keyword.arg: keyword.value for keyword in decorator.keywords}
+            response_model = keywords.get("response_model")
+            status_code = keywords.get("status_code")
+            return (
+                isinstance(response_model, ast.Name)
+                and response_model.id == "WorkOrderStopResult"
+                and isinstance(status_code, ast.Attribute)
+                and status_code.attr == "HTTP_202_ACCEPTED"
+            )
+    return False
+
+
 def test_work_order_safe_stop_has_route_and_single_service_entrypoint() -> None:
     router = _source("api/routers/work_orders.py")
     service = _source("services/work_orders_pg.py")
 
-    assert '@router.post("/work-orders/{order_id}/stop"' in router
+    assert _has_typed_accepted_post_route(router, "/work-orders/{order_id}/stop")
     assert "def stop_work_order(" in service
     assert "request_work_order_stop" in service
     assert "AWAITING_OPERATOR" in service
@@ -99,9 +128,11 @@ def test_robot_enablement_and_estop_tristate_are_public_contracts() -> None:
     assert "enabled: bool" in robot_models
     assert "enabled: bool | None = None" in robot_models
     assert "enabled" in robots
-    for state in ("cleared", "active", "unknown", "disabled"):
+    for state in ("cleared", "active", "unknown"):
         assert state in callbacks
     assert "offline" in callbacks.lower()
+    assert "enabled_ids" not in callbacks
+    assert 'state": "disabled"' not in callbacks
 
 
 def test_realtime_pose_is_process_memory_only_and_canonical() -> None:
@@ -114,6 +145,10 @@ def test_realtime_pose_is_process_memory_only_and_canonical() -> None:
     assert '@router.post("/movement/missions/{command_id}/pose"' not in router
     assert "transaction(" not in router
     assert "movement_client.robot_pose" not in router
+    movement_router = _source("api/routers/movement.py")
+    movement_callbacks = _source("services/movement_callbacks.py")
+    assert "ingest_robot_status_pose" not in movement_router
+    assert "pose_runtime.ingest" not in movement_callbacks
 
 
 def test_mission_status_uses_only_canonical_robot_command_endpoint() -> None:

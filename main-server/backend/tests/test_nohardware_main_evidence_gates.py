@@ -61,20 +61,20 @@ class MainChargeScenarioNoHardwareTest(unittest.TestCase):
                     "yaw": 0.0,
                     "marker_id": 3,
                 },
-                "scan_CHARGE_01": {
-                    "location_id": "scan_CHARGE_01",
-                    "slot_id": "scan_CHARGE_01",
+                "vehicle_2_approach": {
+                    "location_id": "vehicle_2_approach",
+                    "slot_id": "vehicle_2_approach",
                     "type": "scan",
                     "x": -0.8,
                     "y": 0.0,
                     "yaw": 1.57,
-                    "marker_id": 3,
+                    "marker_id": 4,
                 },
             }
             return rows.get(location_id)
 
         with (
-            patch.object(evidence_runtime, "settings", SimpleNamespace(movement_active_map_id="robot1_map")),
+            patch.object(evidence_runtime, "settings", SimpleNamespace(movement_active_map_id="robot2_map")),
             patch.object(evidence_runtime, "location_repo") as location_repo,
         ):
             location_repo.return_value.get.side_effect = get_location
@@ -95,9 +95,9 @@ class MainChargeScenarioNoHardwareTest(unittest.TestCase):
         self.assertEqual(steps[0]["action_type"], "leave_dock")
         self.assertEqual(steps[1]["action_type"], "move")
         self.assertIn("scan", steps[1]["name"].lower())
-        self.assertEqual(steps[1]["waypoint_id"], "scan_CHARGE_01")
+        self.assertEqual(steps[1]["waypoint_id"], "vehicle_2_approach")
         self.assertEqual(steps[2]["action_type"], "aruco_align")
-        self.assertEqual(steps[2]["params"], {"aruco_marker_id": 3, "final": "charge"})
+        self.assertEqual(steps[2]["params"], {"aruco_marker_id": 4, "final": "charge"})
         self.assertNotEqual(steps[-1]["action_type"], "move", "CHARGE must not end as a generic move without ArUco final alignment")
 
 

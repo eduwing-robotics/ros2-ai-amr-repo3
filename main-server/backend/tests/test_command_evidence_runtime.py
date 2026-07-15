@@ -6,7 +6,6 @@ import os
 import unittest
 
 from app.db.connection import init_db, transaction
-from app.db.mvp_repositories import MvpCommandRepository, MvpEvidenceRepository, MvpSafetyStopRepository
 from app.db.repo_bridge import command_repo, evidence_repo, safety_stop_repo, task_repo
 from app.services import evidence_runtime
 
@@ -135,14 +134,14 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                 [step.get("action_type") for step in steps],
                 ["leave_dock", "move", "dock_transfer", "move", "dock_transfer", "move", "aruco_align"],
             )
-            self.assertIn("scan_INBOUND_01", steps[1].get("name", ""))
+            self.assertIn("inbound_slot_1_approach", steps[1].get("name", ""))
             self.assertEqual(steps[2].get("action_type"), "dock_transfer")
             self.assertEqual(steps[2]["params"]["action"], "load")
             self.assertEqual(steps[3].get("action_type"), "move")
             self.assertEqual(steps[4].get("action_type"), "dock_transfer")
             self.assertEqual(steps[4]["params"]["action"], "unload")
             self.assertEqual(steps[5].get("action_type"), "move")
-            self.assertIn("scan_HOME_01", steps[5].get("name", ""))
+            self.assertIn("vehicle_1_approach", steps[5].get("name", ""))
             self.assertEqual(steps[6].get("action_type"), "aruco_align")
             self.assertEqual(steps[6]["params"]["final"], "park")
 
@@ -167,7 +166,7 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(steps[2]["params"]["action"], "load")
             self.assertEqual(steps[4]["params"]["action"], "unload")
-            self.assertEqual(steps[5].get("waypoint_id"), "scan_HOME_01")
+            self.assertEqual(steps[5].get("waypoint_id"), "vehicle_1_approach")
             self.assertEqual(steps[6]["params"]["final"], "park")
 
 

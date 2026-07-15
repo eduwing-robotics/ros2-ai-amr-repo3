@@ -22,9 +22,10 @@ from app.services import missions, robot_commands
 
 def _settings(**changes):
     defaults = {
-        "callback_base_url": "https://main.example",
-        "callback_allowlist": ("https://main.example",),
-        "callback_allow_http": False,
+        "public_base_url": "http://smartfactory-main.local:8088",
+        "callback_base_url": "http://smartfactory-main.local:8088",
+        "callback_allowlist": ("http://smartfactory-main.local:8088",),
+        "callback_allow_http": True,
         "nohardware_mode": False,
         "nohardware_callback_allowlist": (),
     }
@@ -36,10 +37,14 @@ def test_callback_uses_configured_base_and_ignores_user_override():
     request = MagicMock()
     request.base_url = "https://attacker.example/"
     with patch.object(helpers, "settings", _settings()), patch(
-        "app.api.helpers.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("8.8.8.8", 443))]
+        "app.api.helpers.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("192.168.30.9", 8088))]
     ):
-        assert helpers.callback_base_url(request, "https://169.254.169.254/latest") == "https://main.example/api/v1"
-        assert helpers.command_events_callback_url() == "https://main.example/api/v1/movement/command-events"
+        assert helpers.callback_base_url(request, "https://169.254.169.254/latest") == (
+            "http://smartfactory-main.local:8088/api/v1"
+        )
+        assert helpers.command_events_callback_url() == (
+            "http://smartfactory-main.local:8088/api/v1/movement/command-events"
+        )
 
 
 def test_work_order_rejects_user_callback_base_url():
@@ -52,10 +57,10 @@ def test_work_order_rejects_user_callback_base_url():
 
 def test_command_and_legacy_route_callbacks_ignore_supplied_destination():
     with patch.object(helpers, "settings", _settings()), patch(
-        "app.api.helpers.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("8.8.8.8", 443))]
+        "app.api.helpers.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("192.168.30.9", 8088))]
     ):
         assert robot_commands.resolve_callback_url(None, "https://attacker.example") == (
-            "https://main.example/api/v1/movement/command-events"
+            "http://smartfactory-main.local:8088/api/v1/movement/command-events"
         )
         request = missions.build_goto_route_request(
             {
@@ -65,28 +70,32 @@ def test_command_and_legacy_route_callbacks_ignore_supplied_destination():
                 "callback_base_url": "https://attacker.example",
             }
         )
-    assert request["callback_url"] == "https://main.example/api/v1/movement/command-events"
+    assert request["callback_url"] == "http://smartfactory-main.local:8088/api/v1/movement/command-events"
 
 
 @pytest.mark.parametrize("base", [
-    "https://user:pass@main.example",
-    "https://main.example/api/v1?next=https://evil.example",
-    "http://main.example",
+    "http://user:pass@smartfactory-main.local:8088",
+    "http://smartfactory-main.local:8088/api/v1?next=https://evil.example",
+    "http://192.168.30.9:8088",
 ])
-def test_callback_configuration_rejects_credentials_query_and_http(base):
-    with patch.object(helpers, "settings", _settings(callback_base_url=base)):
+def test_callback_configuration_rejects_credentials_query_and_ip_identity(base):
+    configured = _settings(callback_base_url=base, callback_allowlist=(base,))
+    with patch.object(helpers, "settings", configured):
         with pytest.raises(HTTPException) as exc:
             helpers.command_events_callback_url()
     assert exc.value.status_code == 503
 
 
-def test_callback_configuration_rejects_private_ipv6_and_dns_results():
-    with patch.object(helpers, "settings", _settings(callback_base_url="https://[::1]")):
+def test_callback_configuration_rejects_http_when_not_explicitly_enabled():
+    with patch.object(helpers, "settings", _settings(callback_allow_http=False)):
         with pytest.raises(HTTPException):
             helpers.command_events_callback_url()
 
-    with patch.object(helpers, "settings", _settings(callback_base_url="https://main.example")), patch(
-        "app.api.helpers.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("10.0.0.8", 443))],
+
+@pytest.mark.parametrize("resolved", ["10.0.0.8", "192.168.10.9", "8.8.8.8"])
+def test_callback_configuration_rejects_non_site_dns_results(resolved):
+    with patch.object(helpers, "settings", _settings()), patch(
+        "app.api.helpers.socket.getaddrinfo", return_value=[(0, 0, 0, "", (resolved, 8088))],
     ):
         with pytest.raises(HTTPException):
             helpers.command_events_callback_url()
@@ -118,10 +127,12 @@ def test_orchestrator_ignores_supplied_callback_base_url():
     ) as new_orchestration, patch.object(orchestrator.evidence_runtime, "save_orchestration"), patch.object(
         orchestrator, "dispatch_current_step", return_value="command-17"
     ), patch.object(orchestrator, "event_repo"), patch(
-        "app.api.helpers.callback_base_url", return_value="https://main.example/api/v1"
+        "app.api.helpers.callback_base_url", return_value="http://smartfactory-main.local:8088/api/v1"
     ):
         orchestrator.start_task_orchestration(MagicMock(), 17, "http://127.0.0.1:2375")
 
-    new_orchestration.assert_called_once_with([], callback_base_url="https://main.example/api/v1")
+    new_orchestration.assert_called_once_with(
+        [], callback_base_url="http://smartfactory-main.local:8088/api/v1"
+    )
     task_repo.return_value.set_status.assert_called_once_with(17, "RUNNING")
     robot_repo.return_value.set_task.assert_called_once_with("tb3_1", "RUNNING", 17)

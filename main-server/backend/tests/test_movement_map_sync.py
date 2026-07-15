@@ -12,7 +12,7 @@ from fastapi import HTTPException
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.api.movement_helpers import resolve_movement_map_id
+from app.api.movement_helpers import movement_reason, resolve_movement_map_id
 from app.models.schemas import RobotCommandRequest
 from app.services import robot_commands as command_service
 from app.services.runtime_map_context import RuntimeMapContext
@@ -76,8 +76,64 @@ class ResolveMovementMapIdTest(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 409)
 
 
-class MoveToPointRouteFallbackTest(unittest.TestCase):
-    def test_falls_back_to_route_on_robot_commands_404(self) -> None:
+class MovementReasonTest(unittest.TestCase):
+    def test_nonphysical_health_still_blocks_emergency_stop(self) -> None:
+        reason = movement_reason(
+            {
+                "ok": True,
+                "robot_online": True,
+                "is_emergency": True,
+                "localization_required": False,
+                "localized": False,
+                "pose": None,
+                "command_accepting": True,
+            }
+        )
+        self.assertEqual(reason, ("emergency_stop", "clear_emergency"))
+
+    def test_nonphysical_health_can_accept_without_pose(self) -> None:
+        reason = movement_reason(
+            {
+                "ok": True,
+                "robot_online": True,
+                "is_emergency": False,
+                "localization_required": False,
+                "localized": False,
+                "pose": None,
+                "command_accepting": True,
+            }
+        )
+        self.assertEqual(reason, ("ok", None))
+
+    def test_nonphysical_health_still_requires_command_acceptance(self) -> None:
+        reason = movement_reason(
+            {
+                "ok": True,
+                "robot_online": True,
+                "localization_required": False,
+                "localized": False,
+                "pose": None,
+                "command_accepting": False,
+            }
+        )
+        self.assertEqual(reason, ("command_not_accepting", "check_nav_state"))
+
+    def test_physical_health_still_requires_localization(self) -> None:
+        reason = movement_reason(
+            {
+                "ok": True,
+                "robot_online": True,
+                "localization_required": True,
+                "localized": False,
+                "pose": None,
+                "command_accepting": True,
+            }
+        )
+        self.assertEqual(reason, ("initial_pose_required", "set_initial_pose"))
+
+
+class MoveToPointCanonicalRouteTest(unittest.TestCase):
+    def test_robot_commands_404_does_not_fallback_to_legacy_route(self) -> None:
         payload = RobotCommandRequest(
             robot_id="tb3_1",
             kind="move_to_point",
@@ -85,15 +141,19 @@ class MoveToPointRouteFallbackTest(unittest.TestCase):
             params={"map_id": "map", "x": 1.0, "y": 2.0, "yaw": 0.0},
         )
         passthrough_error = HTTPException(status_code=502, detail='movement HTTP 404: {"detail":"Not Found"}')
-        with patch("app.services.robot_commands.field_bindings.assert_robot_live_map", return_value={"ok": True}), patch(
-            "app.services.robot_commands._dispatch_passthrough", side_effect=passthrough_error
+        with patch(
+            "app.services.robot_commands.field_bindings.assert_robot_live_map",
+            return_value={"ok": True},
+        ), patch(
+            "app.services.robot_commands._dispatch_passthrough",
+            side_effect=passthrough_error,
         ), patch(
             "app.services.robot_commands.mission_service.preview_goto_route",
             return_value={"accepted": True, "command_id": "cmd-route-1"},
-        ) as preview:
-            result = command_service._dispatch_move_to_point(MagicMock(), payload, "cmd-route-1", "")
-        self.assertTrue(result.accepted)
-        preview.assert_called_once()
+        ) as preview, self.assertRaises(HTTPException) as raised:
+            command_service._dispatch_move_to_point(MagicMock(), payload, "cmd-route-1", "")
+        self.assertIs(raised.exception, passthrough_error)
+        preview.assert_not_called()
 
 
 if __name__ == "__main__":

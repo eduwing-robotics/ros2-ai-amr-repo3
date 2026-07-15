@@ -92,12 +92,8 @@ class MvpEvidenceRepository:
             (int(task_id),),
         ).fetchone()
 
-    def claim_terminal_transition(self, task_id: int, command_id: str, event_name: str) -> dict[str, Any] | None:
-        """Atomically claim the active terminal callback/poll observation.
-
-        The row lock ends before any HTTP dispatch. A duplicate worker observes
-        ``transition_claimed`` (or a later state) and returns ``None``.
-        """
+    def lock_orchestration(self, task_id: int) -> dict[str, Any] | None:
+        """Return the latest task orchestration while holding its transaction lock."""
         import json
 
         self._acquire_task_claim_lock(task_id)
@@ -114,7 +110,17 @@ class MvpEvidenceRepository:
         orchestration = row.get("data_json") or {}
         if isinstance(orchestration, str):
             orchestration = json.loads(orchestration)
-        orchestration = json.loads(json.dumps(orchestration))
+        return json.loads(json.dumps(orchestration))
+
+    def claim_terminal_transition(self, task_id: int, command_id: str, event_name: str) -> dict[str, Any] | None:
+        """Atomically claim the active terminal callback/poll observation.
+
+        The row lock ends before any HTTP dispatch. A duplicate worker observes
+        ``transition_claimed`` (or a later state) and returns ``None``.
+        """
+        orchestration = self.lock_orchestration(task_id)
+        if orchestration is None:
+            return None
         steps = orchestration.get("steps") if isinstance(orchestration.get("steps"), list) else orchestration.get("legs") or []
         index = int(orchestration.get("step_index", orchestration.get("cursor", 0)) or 0)
         if index >= len(steps):
@@ -136,29 +142,16 @@ class MvpEvidenceRepository:
     def claim_recovery_terminal_transition(
         self, task_id: int, command_id: str, event_name: str
     ) -> dict[str, Any] | None:
-        """Atomically consume one terminal recovery command observation.
+        """Lock and validate one terminal recovery command observation.
 
         Callback delivery and the recovery poller can observe the same terminal
-        state.  Persisting this task-scoped claim before dispatching the
-        interrupted step makes exactly one of them the resumer.
+        state.  The caller keeps this transaction-scoped task lock until it
+        persists the final ``AWAITING_OPERATOR`` state, so there is no durable
+        intermediate claim that could strand the task after a process crash.
         """
-        import json
-
-        self._acquire_task_claim_lock(task_id)
-        row = self.conn.execute(
-            """
-            SELECT id, data_json FROM evidence_events
-            WHERE task_id = %s AND event_type = %s
-            ORDER BY id DESC LIMIT 1 FOR UPDATE
-            """,
-            (task_id, self.ORCHESTRATION_TYPE),
-        ).fetchone()
-        if not row:
+        orchestration = self.lock_orchestration(task_id)
+        if orchestration is None:
             return None
-        orchestration = row.get("data_json") or {}
-        if isinstance(orchestration, str):
-            orchestration = json.loads(orchestration)
-        orchestration = json.loads(json.dumps(orchestration))
         recovery = dict(orchestration.get("recovery") or {})
         if (
             str(orchestration.get("phase") or "") != "RECOVERY_RUNNING"
@@ -166,16 +159,26 @@ class MvpEvidenceRepository:
         ):
             return None
         transition_id = f"{task_id}:recovery:{command_id}:{event_name}"
-        recovery.pop("active_command_id", None)
-        recovery.pop("active_command_kind", None)
         recovery["terminal_transition_id"] = transition_id
         recovery["terminal_event"] = event_name
         orchestration["recovery"] = recovery
-        orchestration["phase"] = "RECOVERY_TERMINAL_CLAIMED"
-        self.save_orchestration(task_id, orchestration)
-        # Do not retain the database lock while a successful recovery resumes
-        # via Movement.  The durable phase/transition id rejects duplicates.
-        self.conn.commit()
+        return orchestration
+
+    def lock_recovery_command(
+        self,
+        task_id: int,
+        command_id: str,
+    ) -> dict[str, Any] | None:
+        """Lock and return the current recovery command until caller commit/rollback."""
+        orchestration = self.lock_orchestration(task_id)
+        if orchestration is None:
+            return None
+        recovery = orchestration.get("recovery") or {}
+        if (
+            str(orchestration.get("phase") or "") != "RECOVERY_RUNNING"
+            or str(recovery.get("active_command_id") or "") != str(command_id)
+        ):
+            return None
         return orchestration
 
     def claim_step_dispatch(self, task_id: int, step_index: int, command_id: str) -> dict[str, Any] | None:

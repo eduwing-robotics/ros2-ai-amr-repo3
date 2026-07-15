@@ -534,12 +534,138 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
 
     step = steps[step_index]
     event_name = str(event.get("event") or event.get("state") or event.get("status") or "").upper()
+    if event_name in {"CANCELED", "STOPPED"}:
+        event_name = "CANCELLED"
     event_command_id = event.get("command_id")
     if event_command_id and step.get("command_id") and event_command_id != step.get("command_id"):
         return None
     if step.get("status") in TERMINAL_STEP_STATES:
         return None
-    terminal_event = event_name in _step_done_events(str(step.get("kind") or "move_to_point")) or event_name in {"FAILED", "ABORTED", "REJECTED"}
+    phase = orch_state.normalize_phase(orch.get("phase"))
+    if event_name == "CANCELLED" and phase != orch_state.PHASE_CANCEL_REQUESTED:
+        if not event_command_id:
+            return None
+        claimed_orch = _claim_terminal_transition(conn, task_id, str(event_command_id), event_name)
+        if claimed_orch is None:
+            return None
+        orch = claimed_orch
+        steps = orch_state.get_steps(orch)
+        step_index = orch_state.get_step_index(orch)
+        step = steps[step_index]
+        step["status"] = "CANCELLED"
+        orch_state.set_steps(orch, steps)
+        orch_state.set_phase(orch, orch_state.PHASE_AWAITING_OPERATOR)
+        robot_id = task.get("assigned_robot_id")
+        orch["recovery"] = {
+            "reason": "unexpected_movement_cancel",
+            "robot_id": robot_id,
+            "cargo_state": "UNKNOWN",
+        }
+        evidence_runtime.save_orchestration(conn, task_id, orch)
+        event_repo(conn).append(
+            event_type=orch_state.EVENT_AWAITING_OPERATOR,
+            task_id=task_id,
+            robot_id=robot_id,
+            message=f"task {task_id} movement canceled without a persisted stop request",
+            payload={"task_id": task_id, "event": event, "step_index": step_index},
+        )
+        return _task(conn, task_id)
+    if phase == orch_state.PHASE_CANCEL_REQUESTED:
+        stop_request = orch.get("stop_request") or {}
+        if event_name in {"STOP_UNCONFIRMED", "FAILED", "REJECTED"}:
+            if not event_command_id:
+                return None
+            claimed_orch = _claim_terminal_transition(conn, task_id, str(event_command_id), event_name)
+            if claimed_orch is None:
+                return None
+            orch = claimed_orch
+            steps = orch_state.get_steps(orch)
+            step_index = orch_state.get_step_index(orch)
+            step = steps[step_index]
+            step["status"] = event_name
+            orch_state.set_steps(orch, steps)
+            robot_id = task.get("assigned_robot_id")
+            orch_state.set_phase(orch, orch_state.PHASE_AWAITING_OPERATOR)
+            orch["recovery"] = {
+                "reason": (
+                    "physical_stop_unconfirmed"
+                    if event_name == "STOP_UNCONFIRMED"
+                    else "cancel_terminal_failure"
+                ),
+                "robot_id": robot_id,
+                "cargo_state": "UNKNOWN",
+                "command_id": str(event_command_id),
+            }
+            evidence_runtime.save_orchestration(conn, task_id, orch)
+            event_repo(conn).append(
+                event_type=orch_state.EVENT_AWAITING_OPERATOR,
+                task_id=task_id,
+                robot_id=robot_id,
+                message=f"work order {task_id} cancel ended as {event_name}; operator review required",
+                payload={"task_id": task_id, "event": event, "step_index": step_index},
+            )
+            return _task(conn, task_id)
+        if event_name in {"CANCELLED", "ABORTED"}:
+            if not event_command_id:
+                return None
+            claimed_orch = _claim_terminal_transition(conn, task_id, str(event_command_id), event_name)
+            if claimed_orch is None:
+                return None
+            orch = claimed_orch
+            steps = orch_state.get_steps(orch)
+            step_index = orch_state.get_step_index(orch)
+            step = steps[step_index]
+            step["status"] = "CANCELLED"
+            orch_state.set_steps(orch, steps)
+            business_completed = bool(stop_request.get("business_completed"))
+            cargo_state = str(stop_request.get("cargo_state") or "UNKNOWN")
+            robot_id = task.get("assigned_robot_id")
+            if business_completed:
+                orch["return_status"] = "PARK_FAILED"
+                orch["parking_error"] = {
+                    "state": event_name,
+                    "reason": "operator_safe_stop",
+                    "event": event,
+                }
+                orch_state.set_phase(orch, orch_state.PHASE_DONE)
+                evidence_runtime.save_orchestration(conn, task_id, orch)
+                result = task_service.complete_task(conn, task_id, source=source)
+            elif cargo_state != "EMPTY":
+                orch_state.set_phase(orch, orch_state.PHASE_AWAITING_OPERATOR)
+                orch["recovery"] = {
+                    "reason": "operator_safe_stop",
+                    "robot_id": robot_id,
+                    "cargo_state": cargo_state,
+                }
+                evidence_runtime.save_orchestration(conn, task_id, orch)
+                result = _task(conn, task_id)
+            else:
+                orch_state.set_phase(orch, "CANCELLED")
+                evidence_runtime.save_orchestration(conn, task_id, orch)
+                tasks.set_status(task_id, "CANCELLED", clear_robot=True)
+                if robot_id:
+                    robot_repo(conn).set_task(str(robot_id), "IDLE", None)
+                    person_hazard.on_robot_task_terminal(str(robot_id))
+                result = _task(conn, task_id)
+            event_repo(conn).append(
+                event_type="WORK_ORDER_STOPPED",
+                task_id=task_id,
+                robot_id=robot_id,
+                message=f"work order {task_id} safe stop confirmed ({cargo_state})",
+                payload={
+                    "event": event,
+                    "cargo_state": cargo_state,
+                    "business_completed": business_completed,
+                },
+            )
+            return result
+        if event_name in _step_done_events(str(step.get("kind") or "move_to_point")):
+            orch_state.set_phase(orch, orch_state.PHASE_RUNNING)
+            orch.pop("stop_request", None)
+            evidence_runtime.save_orchestration(conn, task_id, orch)
+        else:
+            return None
+    terminal_event = event_name in _step_done_events(str(step.get("kind") or "move_to_point")) or event_name in {"FAILED", "ABORTED", "REJECTED", "CANCELLED"}
     if terminal_event:
         if not event_command_id:
             return None
@@ -566,6 +692,12 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
     if event_name in {"FAILED", "ABORTED", "REJECTED"}:
         step["status"] = event_name
         orch_state.set_steps(orch, steps)
+        if bool(orch.get("business_completed")) and str(step.get("kind")) in {"move_to_point", "aruco_align"}:
+            orch["return_status"] = "PARK_FAILED"
+            orch["parking_error"] = {"state": event_name, "reason": "return_to_home_failed", "event": event}
+            orch_state.set_phase(orch, orch_state.PHASE_DONE)
+            evidence_runtime.save_orchestration(conn, task_id, orch)
+            return task_service.complete_task(conn, task_id, source=source)
         event_payload = event.get("event") if isinstance(event.get("event"), dict) else event
         reason = str((event_payload or {}).get("reason") or "").lower()
         awaiting_operator = event_name == "ABORTED" and "estop" in reason
@@ -673,8 +805,11 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
                 )
                 return _task(conn, task_id)
         elif action == "unload":
-            # Unload was pre-gated before dispatch; DONE only records progress.
-            pass
+            # The business transfer is complete even while the robot returns home.
+            orch["business_completed"] = True
+            orch["business_completed_at_step"] = step_index
+            orch["return_status"] = "RETURNING_HOME"
+            orch["parking_error"] = None
 
     step["status"] = "DONE"
     orch_state.set_steps(orch, steps)
@@ -683,6 +818,8 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
     orch_state.set_phase(orch, orch_state.PHASE_RUNNING)
 
     if step_index >= len(steps):
+        if bool(orch.get("business_completed")):
+            orch["return_status"] = "PARKED"
         orch_state.set_phase(orch, orch_state.PHASE_DONE)
         evidence_runtime.save_orchestration(conn, task_id, orch)
         finished = task_service.complete_task(conn, task_id, source=source)
@@ -762,7 +899,14 @@ def poll_running_tasks(conn) -> int:
             continue
         state = str(status.get("state") or status.get("status") or "").upper()
         done_events = _step_done_events(str(step.get("kind") or "move_to_point"))
-        if state in done_events or state in {"FAILED", "ABORTED", "REJECTED"}:
+        if state in done_events or state in {
+            "FAILED",
+            "ABORTED",
+            "REJECTED",
+            "CANCELED",
+            "CANCELLED",
+            "STOP_UNCONFIRMED",
+        }:
             if advance_on_command_event(
                 conn,
                 int(task["task_id"]),

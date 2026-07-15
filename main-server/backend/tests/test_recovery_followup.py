@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import sys
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -12,8 +14,10 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 from fastapi import HTTPException
 
+from app.models.schemas import RobotCommandResponse
 from app.services import task_recovery as recovery
 from app.services import tasks as task_service
+from app.services.movement import MovementClientError
 
 
 class RecoveryPhaseGuardTest(unittest.TestCase):
@@ -22,10 +26,304 @@ class RecoveryPhaseGuardTest(unittest.TestCase):
         with patch.object(recovery, "_assert_needs_attention_phase", side_effect=HTTPException(409, "recovery_requires_needs_attention_phase")):
             with self.assertRaises(HTTPException) as ctx:
                 recovery.execute_recovery(
-                    conn, 1, cargo_state="LOADED", strategy="safe_replan",
+                    conn, 1, cargo_state="LOADED", strategy="safe_move",
                     checks={"site_clear": True, "pose_ok": True, "cargo_ok": True},
                 )
         self.assertEqual(ctx.exception.detail, "recovery_requires_needs_attention_phase")
+
+    def test_rejected_recovery_command_does_not_enter_running_phase(self) -> None:
+        conn = MagicMock()
+        tasks = MagicMock()
+        tasks.get.return_value = {"task_id": 1, "status": "RUNNING", "assigned_robot_id": "r1"}
+        evidence = MagicMock()
+        plan = {"executable": True, "steps": [{"kind": "move_to_point", "params": {"map_id": "m"}}]}
+        rejected = RobotCommandResponse(command_id="c1", robot_id="r1", kind="move_to_point", accepted=False)
+        with (
+            patch.object(recovery, "_assert_needs_attention_phase"),
+            patch.object(recovery, "preview_recovery_plan", return_value=plan),
+            patch.object(recovery, "_verify_recovery_safety_gate", return_value={}),
+            patch.object(recovery, "save_recovery_decision"),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(recovery, "evidence_repo", return_value=evidence),
+            patch.object(recovery.command_service, "dispatch_robot_command", return_value=rejected),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            recovery.execute_recovery(conn, 1, cargo_state="LOADED", strategy="safe_move", checks={"ok": True})
+        self.assertEqual(ctx.exception.status_code, 502)
+        self.assertEqual(
+            [call.kwargs["event_type"] for call in evidence.append.call_args_list],
+            ["RECOVERY_DECISION", "RECOVERY_COMMAND_PENDING"],
+        )
+
+    def test_manual_abort_requires_confirmed_robot_stop(self) -> None:
+        conn = MagicMock()
+        tasks = MagicMock()
+        tasks.get.return_value = {"task_id": 1, "status": "RUNNING", "assigned_robot_id": "r1"}
+        with (
+            patch.object(recovery, "_assert_needs_attention_phase"),
+            patch.object(recovery, "save_recovery_decision"),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(recovery.movement_client, "manual_stop", side_effect=MovementClientError("down")),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            recovery.execute_recovery(conn, 1, cargo_state="LOADED", strategy="manual_abort", checks={"ok": True})
+        self.assertEqual(ctx.exception.detail, "recovery_stop_unconfirmed")
+        tasks.set_status.assert_not_called()
+
+    def test_manual_abort_rejects_unconfirmed_robot_stop_response(self) -> None:
+        conn = MagicMock()
+        tasks = MagicMock()
+        tasks.get.return_value = {"task_id": 1, "status": "RUNNING", "assigned_robot_id": "r1"}
+        with (
+            patch.object(recovery, "_assert_needs_attention_phase"),
+            patch.object(recovery, "save_recovery_decision"),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(
+                recovery.movement_client,
+                "manual_stop",
+                return_value={
+                    "accepted": False,
+                    "stopped": False,
+                    "state": "STOP_UNCONFIRMED",
+                },
+            ),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            recovery.execute_recovery(
+                conn,
+                1,
+                cargo_state="LOADED",
+                strategy="manual_abort",
+                checks={"ok": True},
+            )
+        self.assertEqual(ctx.exception.detail, "recovery_stop_unconfirmed")
+        tasks.set_status.assert_not_called()
+
+    def test_manual_abort_accepts_only_confirmed_robot_stop_response(self) -> None:
+        with patch.object(
+            recovery.movement_client,
+            "manual_stop",
+            return_value={"accepted": True, "stopped": True, "state": "STOPPED"},
+        ) as manual_stop:
+            recovery._stop_robot_movement("r1")
+
+        manual_stop.assert_called_once_with("r1", {"robot_name": "r1"})
+
+    def test_safe_move_identity_is_committed_before_dispatch(self) -> None:
+        conn = MagicMock()
+        tasks = MagicMock()
+        tasks.get.return_value = {"task_id": 1, "status": "RUNNING", "assigned_robot_id": "r1"}
+        state: dict = {}
+        evidence = MagicMock()
+        evidence.get_orchestration.side_effect = lambda _task_id: state.copy()
+        plan = {
+            "executable": True,
+            "steps": [
+                {
+                    "kind": "move_to_point",
+                    "params": {"map_id": "robot2_map", "x": 1.0, "y": 2.0},
+                }
+            ],
+        }
+
+        def save(_conn, _task_id, orchestration):
+            state.clear()
+            state.update(orchestration)
+
+        def dispatch(_conn, payload, request=None):
+            self.assertIsNone(request)
+            self.assertEqual(state["phase"], "RECOVERY_RUNNING")
+            self.assertEqual(state["recovery"]["active_command_id"], "cmd-durable-recovery")
+            self.assertEqual(state["recovery"]["dispatch_state"], "PENDING")
+            conn.commit.assert_called_once_with()
+            return RobotCommandResponse(
+                command_id=payload.command_id,
+                robot_id=payload.robot_id,
+                kind=payload.kind,
+                accepted=True,
+            )
+
+        with (
+            patch.object(recovery, "_assert_needs_attention_phase"),
+            patch.object(recovery, "preview_recovery_plan", return_value=plan),
+            patch.object(recovery, "_verify_recovery_safety_gate", return_value={}),
+            patch.object(recovery, "save_recovery_decision"),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(recovery, "evidence_repo", return_value=evidence),
+            patch.object(recovery.evidence_runtime, "save_orchestration", side_effect=save),
+            patch.object(recovery.command_service, "default_command_id", return_value="cmd-durable-recovery"),
+            patch.object(recovery.command_service, "dispatch_robot_command", side_effect=dispatch),
+        ):
+            result = recovery.execute_recovery(
+                conn,
+                1,
+                cargo_state="LOADED",
+                strategy="safe_move",
+                checks={"ok": True},
+            )
+
+        self.assertTrue(result["accepted"])
+        self.assertEqual(state["recovery"]["dispatch_state"], "SENT")
+        self.assertEqual(
+            [call.kwargs["event_type"] for call in evidence.append.call_args_list],
+            ["RECOVERY_DECISION", "RECOVERY_COMMAND_PENDING", "RECOVERY_COMMAND_DISPATCHED"],
+        )
+
+    def test_two_safe_move_starts_have_one_claim_and_one_dispatch(self) -> None:
+        task_id = 77
+        state = {
+            "phase": "AWAITING_OPERATOR",
+            "recovery": {"reason": "person_hazard"},
+        }
+        state_lock = threading.Lock()
+        start_barrier = threading.Barrier(2)
+        evidence = MagicMock()
+        tasks = MagicMock()
+        tasks.get.return_value = {
+            "task_id": task_id,
+            "status": "RUNNING",
+            "assigned_robot_id": "r1",
+        }
+        plan = {
+            "executable": True,
+            "steps": [
+                {
+                    "kind": "move_to_point",
+                    "params": {"map_id": "robot2_map", "x": 1.0, "y": 2.0},
+                }
+            ],
+        }
+        accepted = RobotCommandResponse(
+            command_id="cmd-one-recovery",
+            robot_id="r1",
+            kind="move_to_point",
+            accepted=True,
+        )
+
+        def get_orchestration(_task_id):
+            with state_lock:
+                return copy.deepcopy(state)
+
+        def save_orchestration(_conn, _task_id, orchestration):
+            with state_lock:
+                state.clear()
+                state.update(copy.deepcopy(orchestration))
+
+        def preview(*_args, **_kwargs):
+            start_barrier.wait(timeout=5)
+            return copy.deepcopy(plan)
+
+        results: list[object] = []
+        results_lock = threading.Lock()
+
+        def start_recovery() -> None:
+            try:
+                result: object = recovery.execute_recovery(
+                    MagicMock(),
+                    task_id,
+                    cargo_state="LOADED",
+                    strategy="safe_move",
+                    checks={"ok": True},
+                )
+            except Exception as exc:
+                result = exc
+            with results_lock:
+                results.append(result)
+
+        evidence.get_orchestration.side_effect = get_orchestration
+        with (
+            patch.object(recovery, "_assert_needs_attention_phase"),
+            patch.object(recovery, "preview_recovery_plan", side_effect=preview),
+            patch.object(recovery, "_verify_recovery_safety_gate", return_value={}),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(recovery, "evidence_repo", return_value=evidence),
+            patch.object(
+                recovery.evidence_runtime,
+                "save_orchestration",
+                side_effect=save_orchestration,
+            ),
+            patch.object(
+                recovery.command_service,
+                "default_command_id",
+                return_value="cmd-one-recovery",
+            ),
+            patch.object(
+                recovery.command_service,
+                "dispatch_robot_command",
+                return_value=accepted,
+            ) as dispatch,
+        ):
+            threads = [threading.Thread(target=start_recovery) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=10)
+                self.assertFalse(thread.is_alive(), "recovery start contender did not finish")
+
+        winners = [result for result in results if isinstance(result, dict)]
+        losers = [result for result in results if isinstance(result, HTTPException)]
+        self.assertEqual(len(winners), 1)
+        self.assertEqual(len(losers), 1)
+        self.assertEqual(losers[0].status_code, 409)
+        self.assertEqual(losers[0].detail, "recovery_requires_needs_attention_phase")
+        dispatch.assert_called_once()
+        self.assertEqual(state["phase"], "RECOVERY_RUNNING")
+        self.assertEqual(state["recovery"]["dispatch_state"], "SENT")
+
+    def test_recovery_poller_redelivers_pending_identity_after_crash_window(self) -> None:
+        conn = MagicMock()
+        state = {
+            "phase": "RECOVERY_RUNNING",
+            "recovery": {
+                "active_command_id": "cmd-durable-recovery",
+                "active_command_kind": "move_to_point",
+                "active_robot_id": "r1",
+                "active_command_params": {"map_id": "robot2_map", "x": 1.0, "y": 2.0},
+                "dispatch_state": "PENDING",
+                "strategy": "safe_move",
+            },
+        }
+        task = {
+            "task_id": 1,
+            "status": "RUNNING",
+            "assigned_robot_id": "r1",
+            "preset_snapshot": {"_orchestration": state},
+        }
+        evidence = MagicMock()
+        evidence.get_orchestration.side_effect = lambda _task_id: state.copy()
+        tasks = MagicMock()
+        tasks.get.return_value = task
+
+        def save(_conn, _task_id, orchestration):
+            state.clear()
+            state.update(orchestration)
+
+        def attach(row, _conn):
+            row["preset_snapshot"]["_orchestration"] = state
+            return row
+
+        accepted = RobotCommandResponse(
+            command_id="cmd-durable-recovery",
+            robot_id="r1",
+            kind="move_to_point",
+            accepted=True,
+        )
+        with (
+            patch.object(recovery.evidence_runtime, "list_orchestrated_running", return_value=[task]),
+            patch.object(recovery.evidence_runtime, "attach_orchestration", side_effect=attach),
+            patch.object(recovery.evidence_runtime, "save_orchestration", side_effect=save),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(recovery, "evidence_repo", return_value=evidence),
+            patch.object(recovery.command_service, "dispatch_robot_command", return_value=accepted) as dispatch,
+            patch.object(recovery.movement_client, "command_status", return_value={"state": "RUNNING"}),
+        ):
+            advanced = recovery.poll_recovery_tasks(conn)
+
+        self.assertEqual(advanced, 0)
+        payload = dispatch.call_args.args[1]
+        self.assertEqual(payload.command_id, "cmd-durable-recovery")
+        self.assertEqual(payload.robot_id, "r1")
+        self.assertEqual(state["recovery"]["dispatch_state"], "SENT")
 
 
 class RecoveryCommandTerminalTest(unittest.TestCase):

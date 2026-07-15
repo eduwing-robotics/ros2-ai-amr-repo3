@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import FileResponse
 
 from app.db.connection import transaction
 from app.db.repo_bridge import event_repo, map_repo
 from app.models.schemas import ApiMessage, MapRecord, MapUpsert
-from app.security import require_admin
 from app.services.map_assets import find_map_asset, import_map_assets, list_map_asset_records, pgm_to_png
 from app.services.movement_map_sync import sync_from_movement
 from app.services.runtime_map_context import get_runtime_map_context, overlay_nav_dims
@@ -31,7 +30,7 @@ def list_map_assets() -> list[dict]:
     return list_map_asset_records()
 
 
-@router.post("/maps/import-folder", dependencies=[Depends(require_admin)])
+@router.post("/maps/import-folder")
 def import_maps_from_folder() -> dict:
     """maps 폴더의 ROS 맵을 DB maps 테이블에 등록/갱신한다."""
     with transaction() as conn:
@@ -40,7 +39,7 @@ def import_maps_from_folder() -> dict:
     return {"ok": True, "count": len(imported), "maps": imported, "skipped": result["skipped"], "removed": result["removed"]}
 
 
-@router.post("/maps/sync-from-movement", dependencies=[Depends(require_admin)])
+@router.post("/maps/sync-from-movement")
 def sync_maps_from_movement() -> dict:
     """Movement active map-state로 maps/ 자산·DB를 동기화한다 (권장: Nav2와 동일 map_id·메타)."""
     with transaction() as conn:
@@ -78,7 +77,7 @@ def map_asset_yaml(map_id: str) -> FileResponse:
     )
 
 
-@router.post("/maps", response_model=ApiMessage, dependencies=[Depends(require_admin)])
+@router.post("/maps", response_model=ApiMessage)
 def upsert_map(payload: MapUpsert) -> ApiMessage:
     """맵 메타데이터를 생성하거나 수정한다."""
     with transaction() as conn:
@@ -91,7 +90,7 @@ def upsert_map(payload: MapUpsert) -> ApiMessage:
     return ApiMessage(message="map saved")
 
 
-@router.delete("/maps/{map_id}", response_model=ApiMessage, dependencies=[Depends(require_admin)])
+@router.delete("/maps/{map_id}", response_model=ApiMessage)
 def delete_map(map_id: str) -> ApiMessage:
     """맵 메타데이터를 삭제한다."""
     with transaction() as conn:

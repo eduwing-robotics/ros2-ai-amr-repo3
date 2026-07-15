@@ -22,6 +22,25 @@ from app.services.vision_proxy import fetch_camera_health
 router = APIRouter(tags=["system"])
 
 
+def _estop_summary(robots: list[Robot], health: dict) -> dict:
+    """Summarize fleet E-stop state without treating offline robots as clear."""
+    rows = []
+    for robot in robots:
+        snapshot = health.get(robot.robot_id) or {}
+        if snapshot.get("is_emergency") is True:
+            state = "active"
+        elif snapshot.get("estop_state") != "clear":
+            state = "unknown"
+        elif not snapshot.get("ok") or snapshot.get("robot_online") is False:
+            state = "unknown"
+        else:
+            state = "clear"
+        rows.append({"robot_id": robot.robot_id, "state": state})
+    states = {row["state"] for row in rows}
+    state = "active" if "active" in states else "unknown" if "unknown" in states else "clear" if "clear" in states else "disabled"
+    return {"state": state, "partial": len(states - {"disabled"}) > 1 or "unknown" in states, "robots": rows}
+
+
 def _sync_battery_from_health(robots: list[Robot], health: dict) -> None:
     """movement /health가 실어준 배터리를 DB에 반영하고 응답 객체도 즉시 갱신한다.
 
@@ -52,7 +71,6 @@ def external_config(request: Request) -> dict:
         "api_callback_base_url": settings.api_callback_base_url(str(request.base_url).rstrip("/")),
         "movement": {
             "mode": settings.movement_client_mode,
-            "fallback_base_url": settings.movement_base_url,
             "base_urls": settings.movement_base_urls,
             "active_map_id": settings.movement_active_map_id,
         },
@@ -65,8 +83,6 @@ def external_config(request: Request) -> dict:
         "vision": {
             "api_base_url": settings.vision_api_base_url,
             "stream_base_url": settings.vision_stream_base_url,
-            "api_fallback_base_url": settings.vision_api_fallback_base_url,
-            "stream_fallback_base_url": settings.vision_stream_fallback_base_url,
         },
     }
 
@@ -88,6 +104,7 @@ def status() -> StatusSnapshot:
         system={
             "mode": "MANUAL",
             "movement_mode": movement_client.mode,
+            "estop": _estop_summary(robots, movement_health),
             "camera_mode": "configured",
             "camera": camera_system_config(),
             "camera_health": fetch_camera_health([c.source_id for c in cameras]),

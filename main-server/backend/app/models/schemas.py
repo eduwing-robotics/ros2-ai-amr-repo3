@@ -17,13 +17,12 @@ from app.models.robots import (
     InitialPoseRequest,
     Robot,
     RobotPose,
-    RobotPoseReport,
     RobotPoseUpdate,
     RobotUpsert,
     TeleopRequest,
     TeleopResponse,
 )
-from app.models.tasks import Task, TaskAssign, TaskCreate
+from app.models.tasks import RecoveryActionRequest, RecoverySafetyChecks, Task, TaskAssign, TaskCreate
 from app.models.warehouse import (
     InventoryRecord,
     InventoryUpsert,
@@ -40,6 +39,7 @@ from app.models.work_orders import (
     WorkOrderPreview,
     WorkOrderPreviewRequest,
     WorkOrderPriorityUpdate,
+    WorkOrderStopResult,
     WorkOrderTask,
 )
 
@@ -63,9 +63,10 @@ __all__ = [
     "RobotCommandRequest",
     "RobotCommandResponse",
     "RobotPose",
-    "RobotPoseReport",
     "RobotPoseUpdate",
     "RobotUpsert",
+    "RecoveryActionRequest",
+    "RecoverySafetyChecks",
     "StatusSnapshot",
     "StorageSlot",
     "StorageSlotUpsert",
@@ -87,4 +88,5 @@ __all__ = [
     "WorkOrderPreview",
     "WorkOrderPreviewRequest",
     "WorkOrderTask",
+    "WorkOrderStopResult",
 ]
