@@ -103,15 +103,6 @@ Expected when a person is visible:
 - `event.trusted` is `false`.
 - `event.confidence` carries the model confidence.
 
-Disable the monitor after the live check:
-
-```bash
-curl -fsS -X PUT http://127.0.0.1:8100/api/v1/vision/monitors/person_drive/state \
-  -H 'content-type: application/json' \
-  -d '{"enabled":false,"source":"tb3_2_picam","operation_state":"IDLE"}' \
-  | python3 -m json.tool
-```
-
 ## 4. Global camera ZoneROI / ArUco sanity check
 
 ```bash

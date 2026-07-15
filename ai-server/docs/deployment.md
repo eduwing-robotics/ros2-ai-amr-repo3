@@ -40,9 +40,16 @@ Use the supervised low-load WebRTC bundle for normal AI Server lab operation:
 ./scripts/vision/sf_lab.sh low-load
 ```
 
-This is the main operational entrypoint. It dynamically publishes
-`smartfactory-vision.local` to the current `192.168.30.*` address and starts
+This is the main operational entrypoint. Before starting it, verify the shared
+repository hosts mapping resolves `smartfactory-vision.local` to the canonical
+Vision host. The runtime does not republish or override that name. It starts
 WebRTC as the primary browser stream plane.
+
+```bash
+cd ..
+./scripts/install-smartfactory-hosts.sh --check
+cd ai-server
+```
 
 ### API-only development
 
@@ -51,8 +58,8 @@ WebRTC as the primary browser stream plane.
 AI_SERVER_HOST=0.0.0.0 AI_SERVER_PORT=8100 ./scripts/ai/run_ai_server.sh
 ```
 
-The API-only command does not start the ROS camera gateways, mDNS hostname
-publisher, MediaMTX, or camera WebRTC publishers.
+The API-only command does not start the ROS camera gateways, MediaMTX, or camera
+WebRTC publishers.
 
 ## Model/runtime preflight
 

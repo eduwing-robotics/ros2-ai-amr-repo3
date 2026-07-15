@@ -129,7 +129,6 @@ load_profile() {
   export WMS_EMIT_ENABLED="${WMS_EMIT_ENABLED:-false}"
   export VISION_WEBRTC_ENABLED="${VISION_WEBRTC_ENABLED:-true}"
   export AI_SERVER_CORS_ALLOW_ORIGINS="${AI_SERVER_CORS_ALLOW_ORIGINS:-http://smartfactory-main.local:8088,http://localhost:8088,http://127.0.0.1:8088}"
-  export SF_VISION_MDNS_ENABLED="${SF_VISION_MDNS_ENABLED:-false}"
   export SF_VISION_BUNDLE_ENABLED="${SF_VISION_BUNDLE_ENABLED:-true}"
   export SF_VISION_GOPRO_ENABLED="${SF_VISION_GOPRO_ENABLED:-false}"
   export SF_VISION_GOPRO_REQUIRED="${SF_VISION_GOPRO_REQUIRED:-false}"
@@ -238,7 +237,6 @@ SmartFactory Vision operator config
   logs: ${LOG_DIR}
 
 Processes selected by profile:
-  mdns_alias: ${SF_VISION_MDNS_ENABLED}
   local_bundle: ${SF_VISION_BUNDLE_ENABLED}
   gopro_stream_adapter: ${SF_VISION_GOPRO_ENABLED}
   gopro_required: ${SF_VISION_GOPRO_REQUIRED}
@@ -677,17 +675,6 @@ warn_ros_discovery_config() {
   fi
 }
 
-start_mdns() {
-  if is_truthy "${SF_VISION_MDNS_ENABLED}"; then
-    local address
-    if ! address="$(sf_lan_ip "${VISION_MAIN_HOST:-}")"; then
-      echo "ERROR: mDNS alias requires a ${SMARTFACTORY_LAN_IPV4_PREFIX:-192.168.30.} address" >&2
-      return 1
-    fi
-    start_logged mdns-alias python3 scripts/vision/publish_vision_mdns_alias.py --address "${address}"
-  fi
-}
-
 start_bundle() {
   if is_truthy "${SF_VISION_BUNDLE_ENABLED}"; then
     start_logged vision-bundle ./scripts/vision/run_d1_vision_multi_source_gateway_bundle.sh
@@ -1078,7 +1065,6 @@ run_up() {
   : > "${PID_FILE}"
   record_summary
   trap cleanup INT TERM EXIT
-  start_mdns
   start_bundle
   if is_truthy "${SF_VISION_GOPRO_ADAPTER_AFTER_WEBRTC_SIDECAR}"; then
     start_gopro_mediamtx_first
