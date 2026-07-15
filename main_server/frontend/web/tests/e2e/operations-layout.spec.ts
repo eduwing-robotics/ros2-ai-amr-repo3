@@ -27,7 +27,7 @@ const runningOrder = {
   }],
 };
 
-test("입출고 우측 문맥을 열어도 맵·전역 카메라·하단 작업 바는 이동하지 않는다", async ({ page }, testInfo) => {
+test("입출고 좌측 메뉴는 좌측 요청 패널을 열고 전역 카메라·하단 작업 바를 유지한다", async ({ page }, testInfo) => {
   await mockMainApi(page, {
     cameraOnline: true,
     cameraSources: [globalCamera],
@@ -49,7 +49,7 @@ test("입출고 우측 문맥을 열어도 맵·전역 카메라·하단 작업 
   expect(Math.abs(cameraBefore!.y - mapBefore!.y)).toBeLessThanOrEqual(1);
   expect(Math.abs(cameraBefore!.height - mapBefore!.height)).toBeLessThanOrEqual(1);
 
-  await page.getByRole("button", { name: "새 요청 만들기" }).click();
+  await page.getByRole("navigation", { name: "운영 메뉴" }).getByRole("button", { name: "입출고", exact: true }).click();
   const drawer = page.getByRole("region", { name: "입출고" });
   const mapAfter = await map.boundingBox();
   const cameraAfter = await camera.boundingBox();
@@ -59,10 +59,10 @@ test("입출고 우측 문맥을 열어도 맵·전역 카메라·하단 작업 
   expect(cameraAfter).not.toBeNull();
   expect(dockAfter).not.toBeNull();
   expect(drawerBox).not.toBeNull();
-  expect(Math.abs(mapAfter!.width - mapBefore!.width)).toBeLessThanOrEqual(1);
+  expect(mapAfter!.x).toBeGreaterThanOrEqual(drawerBox!.x + drawerBox!.width);
   expect(Math.abs(cameraAfter!.x - cameraBefore!.x)).toBeLessThanOrEqual(1);
   expect(Math.abs(dockAfter!.y - dockBefore!.y)).toBeLessThanOrEqual(1);
-  expect(drawerBox!.x).toBeGreaterThanOrEqual(cameraAfter!.x + cameraAfter!.width);
+  expect(drawerBox!.x).toBeLessThan(mapAfter!.x);
   await page.screenshot({ path: testInfo.outputPath("operations-spatial-v4.png"), fullPage: true });
 });
 
@@ -114,12 +114,12 @@ test("좌측에는 목적지만, 우측에는 모든 로봇과 로봇별 명령�
   await page.goto("/operate/control");
 
   const nav = page.getByRole("navigation", { name: "운영 메뉴" });
-  await expect(nav.getByRole("button", { name: "입출고", exact: true })).toHaveCount(0);
+  await expect(nav.getByRole("button", { name: "입출고", exact: true })).toBeVisible();
   await expect(nav.getByRole("button", { name: "조작", exact: true })).toHaveCount(0);
   await expect(page.getByRole("complementary", { name: "전체 로봇 상태와 명령" })).toBeVisible();
   await expect(page.locator(".operator-fleet-card")).toHaveCount(3);
   await expect(page.locator(".operator-fleet-card").getByRole("button", { name: "조작 →" })).toHaveCount(3);
-  await expect(page.getByRole("button", { name: "새 요청 만들기" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "새 요청 만들기" })).toHaveCount(0);
 });
 
 test("하단 작업 큐는 할당 로봇과 실제 Movement 단계 및 안전 중지를 제공한다", async ({ page }) => {
@@ -168,7 +168,7 @@ test("맵·카메라·작업 큐는 크기 조절되고 Grid와 이벤트 등급
 });
 
 
-test("Adobe Industrial Signal 토큰과 위험·주의 비색상 단서가 적용된다", async ({ page }) => {
+test("Adobe Electric Indigo 토큰과 위험·주의 비색상 단서가 적용된다", async ({ page }) => {
   await mockMainApi(page, {
     events: [
       { event_id: 1, created_at: "2026-07-15T10:00:00", event_type: "ROBOT_ESTOP", message: "비상 정지" },
@@ -180,14 +180,14 @@ test("Adobe Industrial Signal 토큰과 위험·주의 비색상 단서가 적�
   const tokens = await page.evaluate(() => {
     const style = getComputedStyle(document.documentElement);
     return {
-      blue: style.getPropertyValue("--adobe-blue").trim(),
+      indigo: style.getPropertyValue("--adobe-indigo").trim(),
+      violet: style.getPropertyValue("--adobe-violet").trim(),
       cyan: style.getPropertyValue("--adobe-cyan").trim(),
-      teal: style.getPropertyValue("--adobe-teal").trim(),
-      yellow: style.getPropertyValue("--adobe-yellow").trim(),
+      green: style.getPropertyValue("--adobe-green").trim(),
       orange: style.getPropertyValue("--adobe-orange").trim(),
     };
   });
-  expect(tokens).toEqual({ blue: "#0673b9", cyan: "#27bbd8", teal: "#08a399", yellow: "#f7d000", orange: "#e84314" });
+  expect(tokens).toEqual({ indigo: "#4f46e5", violet: "#7c3aed", cyan: "#06b6d4", green: "#16a34a", orange: "#f97316" });
   await expect(page.locator(".event-row--err .event-severity", { hasText: "위험" })).toBeVisible();
   await expect(page.locator(".event-row--warn .event-severity", { hasText: "주의" })).toBeVisible();
   await expect(page.locator(".event-row--err td").first()).toHaveCSS("box-shadow", /rgb/);

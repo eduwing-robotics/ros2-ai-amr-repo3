@@ -411,19 +411,6 @@ export function OperatorShell() {
             </Drawer>
           ) : null}
           <div className="operator-main">
-            <div className="operator-page-head">
-              <div>
-                <h1>{pageMeta.title}</h1>
-              </div>
-              <div className="operator-page-actions">
-                <button type="button" className="btn secondary" onClick={() => refetch()} disabled={isLoading}>
-                  {isLoading ? "갱신 중…" : "새로고침"}
-                </button>
-                <button type="button" className="btn" aria-label="새 요청 만들기" aria-controls="operator-context-drawer" aria-expanded={drawer === "inout"} onClick={() => toggleDrawer("inout")}>
-                  입출고 요청
-                </button>
-              </div>
-            </div>
             {emergencyRobots.length > 0 ? (
               <div className="inline-alert err operator-status-banner emergency-banner">
                 비상 정지 활성 — {emergencyRobots.join(", ")} — 해당 로봇의 이동·입출고·수동 조작이 비활성화됩니다.

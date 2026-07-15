@@ -1,0 +1,27 @@
+/* Left-origin work request navigation and compact transaction form. */
+@media (min-width:1201px){
+  .operator-stage>.operator-drawer{left:12px;right:auto;top:12px;bottom:12px;width:390px;max-height:none;border-radius:10px;box-shadow:12px 0 28px rgb(16 47 58 / 16%)}
+  .operator-stage.drawer-open .operator-context-area{visibility:visible}
+  .operator-stage.drawer-open .operator-primary-workspace{margin-left:402px}
+}
+.inout-drawer{border-color:var(--border-strong);background:var(--surface)}
+.inout-drawer .drawer-head{min-height:52px;padding:0 14px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+.inout-drawer .drawer-head h2{font-size:15px}
+.inout-drawer .drawer-body{padding:0;overflow:hidden}
+.inout-drawer .work-order-panel{height:100%;display:flex;flex-direction:column;background:var(--surface)}
+.inout-drawer .work-order-form-body{flex:1;min-height:0;padding:12px 14px 18px;overflow:auto;scrollbar-gutter:stable}
+.inout-drawer .work-order-operation-switch{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;border:1px solid var(--border);border-radius:8px;background:var(--surface-2)}
+.inout-drawer .work-order-operation-switch .btn{min-height:48px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;padding:7px 11px;text-align:left}
+.inout-drawer .work-order-operation-switch .btn small{font-size:9px;font-weight:500;opacity:.75}
+.inout-drawer .work-order-assignment-switch{display:grid;grid-template-columns:1fr 76px 94px;gap:5px;padding:8px 0;border:0;border-bottom:1px solid var(--border-light);background:transparent}
+.inout-drawer .work-order-section-label{align-self:center;color:var(--text-muted);font-size:10px;font-weight:750;letter-spacing:.04em}
+.inout-drawer .form-grid.compact{margin-top:10px;padding:0;border:0;background:transparent}
+.inout-drawer .form-grid.compact>label{padding:9px;border:1px solid var(--border-light);border-radius:7px;background:var(--surface-2)}
+.inout-drawer .form-grid.compact>label:focus-within{border-color:var(--operator);box-shadow:0 0 0 2px color-mix(in srgb,var(--operator) 14%,transparent)}
+.inout-drawer .form-grid.compact label>span:first-child{font-size:10px;font-weight:700;color:var(--text-muted)}
+.inout-drawer :is(select,input){min-height:36px;background:var(--surface)}
+.inout-drawer .work-order-footer{padding:11px 14px;border-top:1px solid var(--border);background:var(--surface-2);box-shadow:0 -8px 18px rgb(16 47 58 / 6%)}
+.inout-drawer .work-order-actions{display:grid;grid-template-columns:96px 1fr;width:100%}
+.inout-drawer .work-order-actions .btn{min-height:40px}
+.operator-page-head{display:none}
+@media(max-width:1200px){.inout-drawer .work-order-form-body{padding:12px}.inout-drawer .work-order-operation-switch .btn{align-items:center}}

@@ -17,6 +17,8 @@ import "./styles/operations-enhancements.css";
 import "./styles/motion.css";
 import "./styles/adobe-theme.css";
 import "./styles/queue-camera-enhancements.css";
+import "./styles/admin-data-workspace.css";
+import "./styles/inout-navigation.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
