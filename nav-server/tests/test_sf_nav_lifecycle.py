@@ -50,16 +50,17 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
-def _health_server_script(path: Path) -> Path:
+def _health_server_script(path: Path, *, response_delay: float = 0.0) -> Path:
     path.write_text(
         "#!/usr/bin/env bash\n"
         "exec python3 - \"$SF_NAV_RESOLVED_PROFILE_PATH\" <<'PY'\n"
         "from http.server import BaseHTTPRequestHandler,HTTPServer\n"
-        "import json,sys\n"
+        "import json,sys,time\n"
         "import os\n"
         "cfg=json.load(open(sys.argv[1])); robot=cfg['robots'][0]; lift_ready=os.getenv('FAKE_LIFT_READY','0')=='1'\n"
         "class H(BaseHTTPRequestHandler):\n"
         " def do_GET(self):\n"
+        f"  time.sleep({response_delay!r})\n"
         "  if self.path=='/movement-api/v1/health': body={'ok':True,'active_robot_id':robot['robot_id'],'ros_domain_id':robot['ros_domain_id'],'process_ros_domain_id':robot['nav_local_domain_id'],'lift':{'ready':lift_ready}}\n"
         "  elif self.path=='/movement-api/v1/endpoints': body={'nav_api_url':'http://smartfactory-nav.local:8001'}\n"
         "  else: self.send_response(404); self.end_headers(); return\n"
@@ -499,6 +500,23 @@ def test_http_readiness_records_services_owned_by_spawned_process_group(tmp_path
         assert identity["pids"]
     finally:
         subprocess.run([str(SCRIPT), "down"], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
+
+
+def test_http_readiness_accepts_bounded_slow_health_response(tmp_path):
+    port = _free_port()
+    fake_run = _health_server_script(tmp_path / "slow-health-run.sh", response_delay=0.4)
+    env = {
+        **os.environ,
+        **_isolated_profile(tmp_path, port),
+        "SF_NAV_STATE_DIR": str(tmp_path / "state"),
+        "SF_NAV_RUN_SCRIPT": str(fake_run),
+        "SF_NAV_START_SETTLE_SEC": "0.02",
+        "SF_NAV_READINESS_MODE": "http",
+        "SF_NAV_READINESS_TIMEOUT_SEC": "2",
+    }
+    result = subprocess.run([str(SCRIPT), "up"], cwd=ROOT, env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    subprocess.run([str(SCRIPT), "down"], cwd=ROOT, env=env, check=True, capture_output=True, text=True)
 
 
 def test_http_readiness_rejects_foreign_service_on_selected_port(tmp_path):

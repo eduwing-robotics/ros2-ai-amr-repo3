@@ -380,6 +380,7 @@ def align_scan_to_map(
     best = _select_fine_candidate(
         fine_candidates,
         distance_slack_m=float(cfg.get("wall_direction_distance_slack_m", 0.0005)),
+        config=cfg,
     )
 
     _, dx, dy, dyaw, best_score = best
@@ -639,13 +640,25 @@ def _pose_near(
     )
 
 
-def _select_fine_candidate(candidates, *, distance_slack_m: float):
+def _select_fine_candidate(candidates, *, distance_slack_m: float, config=None):
     """Use wall direction only as a tie-break among near-equal distance fits."""
     if distance_slack_m < 0.0:
         raise ValueError("wall direction distance slack must be non-negative")
-    minimum_distance = min(float(item[4][5]) for item in candidates)
+    selection_pool = list(candidates)
+    if config is not None:
+        cfg = {**DEFAULTS, **dict(config)}
+        admissible = [
+            item for item in selection_pool
+            if float(item[4][5]) <= float(cfg["max_mean_distance_m"])
+            and float(item[4][2]) >= float(cfg["min_match_ratio"])
+            and float(item[4][3]) <= float(cfg["max_segment_mismatch_m"])
+            and float(item[4][4]) <= float(cfg["max_wall_direction_error_rad"])
+        ]
+        if admissible:
+            selection_pool = admissible
+    minimum_distance = min(float(item[4][5]) for item in selection_pool)
     eligible = [
-        item for item in candidates
+        item for item in selection_pool
         if float(item[4][5]) <= minimum_distance + distance_slack_m
     ]
     return min(eligible, key=lambda item: (float(item[4][0]), float(item[4][5])))

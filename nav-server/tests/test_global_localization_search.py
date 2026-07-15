@@ -313,6 +313,31 @@ def test_repeated_search_does_not_resume_or_replace_still_running_motion():
     assert navigator.global_localization_thread is previous
 
 
+def test_repeated_observe_only_request_keeps_the_active_search_running():
+    navigator = navigator_stub()
+    previous = MagicMock()
+    previous.is_alive.return_value = True
+    navigator.global_localization_thread = previous
+    navigator.global_localization_status = {
+        "accepted": True,
+        "strategy": "observe_only",
+        "motion_started": False,
+        "reason": "map_wide_candidate_pending",
+        "stage": "map_wide",
+    }
+
+    result = navigator.request_global_localization(
+        {"strategy": "observe_only", "map_wide_scan_matching": True}
+    )
+
+    assert result["accepted"] is True
+    assert result["reason"] == "search_already_active"
+    assert result["stage"] == "map_wide"
+    assert navigator.global_localization_stop_event.is_set() is False
+    previous.join.assert_not_called()
+    navigator.global_localization_client.call_async.assert_not_called()
+
+
 def test_concurrent_bounded_requests_never_create_two_motion_workers(monkeypatch):
     navigator = navigator_stub()
     first_service_wait_entered = Event()
@@ -506,6 +531,42 @@ def test_bounded_fallback_samples_during_motion_until_converged(monkeypatch):
     assert navigator._global_search_pose_converged.call_count == 10
     assert navigator.cmd_vel_pub.publish.call_count > 0
     assert navigator._publish_stop_velocity.call_count >= 1
+
+
+def test_bounded_fallback_uses_the_open_direction_when_reverse_is_too_close(monkeypatch):
+    navigator = navigator_stub()
+    navigator.safety = MagicMock(estop=False)
+    navigator.cmd_vel_pub = MagicMock()
+    navigator.front_min_range = MagicMock(return_value=1.0)
+    navigator.rear_min_range = MagicMock(return_value=0.5)
+    navigator.get_clock = MagicMock()
+    navigator.get_clock.return_value.now.return_value.to_msg.return_value = MagicMock()
+    clock = [0.0]
+    monkeypatch.setattr(navigator_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        navigator_module.time,
+        "sleep",
+        lambda seconds: clock.__setitem__(0, clock[0] + seconds),
+    )
+
+    result = navigator._bounded_linear_localization_search(
+        {
+            "linear_speed_mps": 0.04,
+            "max_step_m": 0.05,
+            "max_total_m": 0.1,
+            "max_scan_age_sec": 1.0,
+            "min_front_clearance_m": 0.6,
+            "min_rear_clearance_m": 0.6,
+        }
+    )
+
+    assert result["reason"] == "motion_budget_exhausted"
+    assert result["moved_m"] == pytest.approx(0.1)
+    assert navigator.cmd_vel_pub.publish.call_count > 0
+    assert all(
+        call.args[0].twist.linear.x > 0.0
+        for call in navigator.cmd_vel_pub.publish.call_args_list
+    )
 
 
 def test_fine_covariance_breach_requests_hysteresis_fallback_without_motion():

@@ -57,7 +57,9 @@ def test_nav2_readiness_cannot_reenable_basic_navigator_amcl_seeding():
     )
     method_source = ast.get_source_segment(source, method)
 
-    assert 'waitUntilNav2Active(localizer="robot_localization")' in method_source
+    assert 'for node_name in ("amcl", "bt_navigator")' in method_source
+    assert "_wait_for_lifecycle_active(node_name)" in method_source
+    assert "waitUntilNav2Active" not in method_source
     assert "NAV2_LOCALIZER" not in method_source
 
 

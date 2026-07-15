@@ -375,6 +375,36 @@ def test_wall_direction_breaks_ties_only_inside_distance_slack():
     assert selected is parallel
 
 
+def test_fine_candidate_does_not_select_hard_invalid_direction_when_valid_fit_exists():
+    invalid_lower_distance = (
+        0.0140,
+        0.0,
+        0.0,
+        0.0,
+        (0.0140, 0.0, 0.91, 0.003, math.radians(3.15), 0.0126),
+    )
+    valid_nearby_fit = (
+        0.0141,
+        0.0,
+        0.0,
+        0.0,
+        (0.0141, 0.0, 0.91, 0.003, math.radians(2.90), 0.0128),
+    )
+
+    selected = _select_fine_candidate(
+        [invalid_lower_distance, valid_nearby_fit],
+        distance_slack_m=0.0005,
+        config={
+            "max_mean_distance_m": 0.015,
+            "min_match_ratio": 0.65,
+            "max_segment_mismatch_m": 0.015,
+            "max_wall_direction_error_rad": math.radians(3.0),
+        },
+    )
+
+    assert selected is valid_nearby_fit
+
+
 def test_hybrid_backend_still_recovers_with_sparse_dynamic_outliers(tmp_path):
     map_yaml = _write_room_map(tmp_path)
     true_pose = {"x": 1.35, "y": 0.42, "yaw": math.radians(-90.0)}

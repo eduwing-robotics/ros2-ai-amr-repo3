@@ -30,6 +30,7 @@ from rclpy.duration import Duration
 from rclpy.time import Time
 from tf2_ros import Buffer, ConnectivityException, ExtrapolationException, LookupException, TransformListener
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TwistStamped
+from lifecycle_msgs.srv import GetState
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 
 
@@ -164,6 +165,7 @@ class LogisticsNavigator(Node):
         self.nav2_ready_lock = threading.Lock()
         self.nav2_readiness_start_lock = threading.Lock()
         self.nav2_readiness_thread = None
+        self.nav2_lifecycle_clients = {}
         self.last_nav_failure = None
         self.controller_param_clients = {}
         self.global_localization_lock = threading.Lock()
@@ -293,6 +295,45 @@ class LogisticsNavigator(Node):
             current.start()
             return current
 
+    def _wait_for_lifecycle_active(self, node_name):
+        """Wait for one lifecycle node without leaving an unbounded RPC pending."""
+        normalized_name = str(node_name).strip("/")
+        clients = getattr(self, "nav2_lifecycle_clients", None)
+        if clients is None:
+            clients = {}
+            self.nav2_lifecycle_clients = clients
+        client = clients.get(normalized_name)
+        if client is None:
+            client = self.create_client(GetState, f"/{normalized_name}/get_state")
+            clients[normalized_name] = client
+
+        while rclpy.ok():
+            if not client.wait_for_service(timeout_sec=1.0):
+                self.get_logger().info(
+                    f"Nav2 lifecycle service 대기 중: /{normalized_name}/get_state"
+                )
+                continue
+
+            future = client.call_async(GetState.Request())
+            result = self._wait_for_future(future, timeout_sec=2.0)
+            if result is None:
+                cancel = getattr(future, "cancel", None)
+                if callable(cancel):
+                    cancel()
+                self.get_logger().info(
+                    f"Nav2 lifecycle 응답 재시도 중: {normalized_name}"
+                )
+                continue
+
+            state = str(getattr(getattr(result, "current_state", None), "label", ""))
+            if state == "active":
+                return True
+            self.get_logger().info(
+                f"Nav2 lifecycle 활성화 대기 중: {normalized_name} state={state or 'unknown'}"
+            )
+            time.sleep(0.5)
+        return False
+
     def ensure_nav2_ready(self):
         """Wait once for Nav2 action servers/lifecycle nodes before sending a goal."""
         if self.nav2_ready:
@@ -308,14 +349,18 @@ class LogisticsNavigator(Node):
 
             self.get_logger().info("Nav2 active state 확인 중...")
             try:
-                # BasicNavigator's AMCL readiness branch publishes its own
-                # default initial pose before it spins for /amcl_pose.  This
-                # process deliberately owns localization through map-wide scan
-                # matching or an explicit operator seed, so readiness only
-                # checks Nav2 lifecycle and never injects a fixed (0, 0) pose.
-                # Fresh AMCL/scan/TF state is enforced separately by
-                # LocalizationGate before any physical command is admitted.
-                self.nav.waitUntilNav2Active(localizer="robot_localization")
+                # BasicNavigator's AMCL readiness branch publishes a default
+                # initial pose. This process owns localization, so check the
+                # two required lifecycle nodes directly. Each RPC is bounded,
+                # allowing the background monitor to recover if external Nav2
+                # is stopped and restarted while readiness is still pending.
+                for node_name in ("amcl", "bt_navigator"):
+                    if not self._wait_for_lifecycle_active(node_name):
+                        self.last_nav_failure = (
+                            f"{node_name} lifecycle is not active"
+                        )
+                        self.nav2_ready = False
+                        return False
                 self.nav2_ready = True
                 self.get_logger().info("Nav2 active state 확인 완료.")
                 return True
@@ -1100,9 +1145,20 @@ class LogisticsNavigator(Node):
         if strategy != "observe_only" and not allow_motion:
             return self._set_global_localization_status(False, strategy, False, "motion_permission_required")
         with self.global_localization_lock:
-            self.global_localization_stop_event.set()
             previous = self.global_localization_thread
             if previous and previous.is_alive():
+                current = self.global_localization_status
+                if (
+                    strategy == "observe_only"
+                    and current.get("strategy") == "observe_only"
+                    and not current.get("motion_started", False)
+                ):
+                    return {
+                        **current,
+                        "accepted": True,
+                        "reason": "search_already_active",
+                    }
+                self.global_localization_stop_event.set()
                 if self.global_localization_status.get("strategy") != "observe_only":
                     self._publish_stop_velocity()
                 previous.join(timeout=0.5)
@@ -1113,6 +1169,7 @@ class LogisticsNavigator(Node):
                 return self._set_global_localization_status(
                     False, strategy, False, "concurrent_search_already_active"
                 )
+            self.global_localization_stop_event.set()
             map_wide_scan_matching = bool(
                 strategy == "observe_only" and search.get("map_wide_scan_matching", False)
             )
@@ -1531,21 +1588,32 @@ class LogisticsNavigator(Node):
             next_convergence_check = now + convergence_check_interval
             return self._global_search_pose_converged(search, fine_samples)
 
+        def directional_clearance(candidate_direction):
+            if candidate_direction > 0:
+                return self.front_min_range(35.0, max_scan_age)
+            return self.rear_min_range(35.0, max_scan_age)
+
         try:
             while moved + 1e-9 < total_limit and not self.global_localization_stop_event.is_set():
                 if self.safety.estop:
                     return self._set_global_localization_status(False, "bounded_linear_wiggle", False, "estop_active", moved_m=round(moved, 4))
                 if localization_converged():
                     return self._set_global_localization_status(True, "bounded_linear_wiggle", False, "converged", moved_m=round(moved, 4))
-                clearance = (
-                    self.front_min_range(half_angle_deg=35.0, max_age_sec=max_scan_age)
-                    if direction > 0
-                    else self.rear_min_range(half_angle_deg=35.0, max_age_sec=max_scan_age)
-                )
-                if clearance is None:
-                    return self._set_global_localization_status(False, "bounded_linear_wiggle", False, "scan_missing_or_stale", moved_m=round(moved, 4))
-                if clearance < clearances[direction]:
-                    return self._set_global_localization_status(False, "bounded_linear_wiggle", False, "clearance_too_small", moved_m=round(moved, 4), clearance_m=round(clearance, 3))
+                clearance = directional_clearance(direction)
+                if clearance is None or clearance < clearances[direction]:
+                    alternative = -direction
+                    alternative_clearance = directional_clearance(alternative)
+                    if (
+                        alternative_clearance is not None
+                        and alternative_clearance >= clearances[alternative]
+                    ):
+                        direction = alternative
+                        clearance = alternative_clearance
+                    elif clearance is None and alternative_clearance is None:
+                        return self._set_global_localization_status(False, "bounded_linear_wiggle", False, "scan_missing_or_stale", moved_m=round(moved, 4))
+                    else:
+                        measured = clearance if clearance is not None else alternative_clearance
+                        return self._set_global_localization_status(False, "bounded_linear_wiggle", False, "clearance_too_small", moved_m=round(moved, 4), clearance_m=round(measured, 3))
                 this_step = min(step_m, total_limit - moved)
                 deadline = time.monotonic() + this_step / speed
                 twist = TwistStamped()
@@ -1562,7 +1630,7 @@ class LogisticsNavigator(Node):
                             "converged",
                             moved_m=round(moved, 4),
                         )
-                    current = self.front_min_range(35.0, max_scan_age) if direction > 0 else self.rear_min_range(35.0, max_scan_age)
+                    current = directional_clearance(direction)
                     if current is None or current < clearances[direction]:
                         return self._set_global_localization_status(False, "bounded_linear_wiggle", False, "clearance_lost", moved_m=round(moved, 4))
                     twist.header.stamp = self.get_clock().now().to_msg()

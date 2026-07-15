@@ -219,12 +219,14 @@ PY
 }
 wait_readiness() {
   local config="$1" pid="$2" pgid="$3" identities="$4" timeout="${SF_NAV_READINESS_TIMEOUT_SEC:-20}" mode="${SF_NAV_READINESS_MODE:-full}"
+  local health_probe_timeout="${SF_NAV_HEALTH_PROBE_TIMEOUT_SEC:-1.0}"
   [[ "$mode" == process-only ]] && { process_alive "$pid"; return; }
   if [[ "$mode" != external-only ]]; then
-    "$PYTHON_BIN" - "$config" "$timeout" "$pgid" "$identities" <<'PY' || return 1
+    "$PYTHON_BIN" - "$config" "$timeout" "$pgid" "$identities" "$health_probe_timeout" <<'PY' || return 1
 import json,os,sys,tempfile,time,urllib.request
 from pathlib import Path
-cfg=json.load(open(sys.argv[1],encoding='utf-8')); deadline=time.monotonic()+float(sys.argv[2]); expected_pgid=int(sys.argv[3]); output=Path(sys.argv[4]); pending=list(cfg['robots']); services={}
+cfg=json.load(open(sys.argv[1],encoding='utf-8')); deadline=time.monotonic()+float(sys.argv[2]); expected_pgid=int(sys.argv[3]); output=Path(sys.argv[4]); probe_timeout=float(sys.argv[5]); pending=list(cfg['robots']); services={}
+if probe_timeout <= 0: raise SystemExit('SF_NAV_HEALTH_PROBE_TIMEOUT_SEC must be positive')
 
 def owners(port):
     inodes=set()
@@ -249,7 +251,7 @@ while pending and time.monotonic()<deadline:
     rest=[]
     for robot in pending:
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{robot['api_port']}/movement-api/v1/health",timeout=.3) as r:
+            with urllib.request.urlopen(f"http://127.0.0.1:{robot['api_port']}/movement-api/v1/health",timeout=probe_timeout) as r:
                 body=json.load(r)
                 active=body.get('active_robot_id',body.get('robot_id'))
                 owned=owners(int(robot['api_port']))

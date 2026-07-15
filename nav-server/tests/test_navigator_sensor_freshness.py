@@ -37,6 +37,8 @@ def navigator_class(monkeypatch):
     _module(monkeypatch, "tf2_ros", Buffer=object, ConnectivityException=Exception, ExtrapolationException=Exception, LookupException=Exception, TransformListener=object)
     _module(monkeypatch, "geometry_msgs")
     _module(monkeypatch, "geometry_msgs.msg", PoseStamped=object, PoseWithCovarianceStamped=object, TwistStamped=object)
+    _module(monkeypatch, "lifecycle_msgs")
+    _module(monkeypatch, "lifecycle_msgs.srv", GetState=object)
     _module(monkeypatch, "nav2_simple_commander")
     _module(monkeypatch, "nav2_simple_commander.robot_navigator", BasicNavigator=object, TaskResult=SimpleNamespace(SUCCEEDED=1))
     _module(monkeypatch, "sensor_msgs")
@@ -324,6 +326,7 @@ def test_nav2_readiness_does_not_publish_a_default_amcl_initial_pose(
     navigator.nav2_ready_lock = threading.Lock()
     navigator.last_nav_failure = None
     navigator.nav = SimpleNamespace(waitUntilNav2Active=Mock())
+    navigator._wait_for_lifecycle_active = Mock(side_effect=[True, True])
     navigator.get_logger = lambda: SimpleNamespace(info=Mock(), error=Mock())
     monkeypatch.setenv("SIMULATION_MODE", "0")
     monkeypatch.delenv("NAV2_SKIP_ACTIVE_WAIT", raising=False)
@@ -331,9 +334,28 @@ def test_nav2_readiness_does_not_publish_a_default_amcl_initial_pose(
 
     assert navigator.ensure_nav2_ready() is True
 
-    # Jazzy BasicNavigator publishes its own default (0, 0) /initialpose when
-    # localizer="amcl".  The application owns localization, so readiness uses
-    # the non-seeding branch and leaves arbitrary-start search untouched.
-    navigator.nav.waitUntilNav2Active.assert_called_once_with(
-        localizer="robot_localization"
-    )
+    # The application owns localization. Readiness checks lifecycle services
+    # directly, so it neither publishes BasicNavigator's default (0, 0) pose
+    # nor wedges on an in-flight request when an external Nav2 process restarts.
+    assert navigator._wait_for_lifecycle_active.call_args_list == [
+        (("amcl",),),
+        (("bt_navigator",),),
+    ]
+    navigator.nav.waitUntilNav2Active.assert_not_called()
+
+
+def test_nav2_readiness_fails_closed_when_a_lifecycle_node_is_unavailable(
+    navigator_class, monkeypatch
+):
+    navigator = navigator_class.__new__(navigator_class)
+    navigator.nav2_ready = False
+    navigator.nav2_ready_lock = threading.Lock()
+    navigator.last_nav_failure = None
+    navigator._wait_for_lifecycle_active = Mock(side_effect=[True, False])
+    navigator.get_logger = lambda: SimpleNamespace(info=Mock(), error=Mock())
+    monkeypatch.setenv("SIMULATION_MODE", "0")
+    monkeypatch.delenv("NAV2_SKIP_ACTIVE_WAIT", raising=False)
+
+    assert navigator.ensure_nav2_ready() is False
+    assert navigator.nav2_ready is False
+    assert navigator.last_nav_failure == "bt_navigator lifecycle is not active"
