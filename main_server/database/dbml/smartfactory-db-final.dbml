@@ -28,8 +28,23 @@ Table robots {
   id text [pk]
   domain_id integer [not null]
   status text [not null]
+  enabled boolean [not null, default: true]
   battery_level float8
   last_seen_at timestamptz
+}
+
+Table robot_latest_poses {
+  robot_id text [pk, ref: > robots.id]
+  map_id text [not null]
+  x float8 [not null]
+  y float8 [not null]
+  yaw float8 [not null, default: 0]
+  linear_velocity float8
+  angular_velocity float8
+  source text [not null]
+  command_id text
+  reported_at timestamptz [not null]
+  received_at timestamptz [not null]
 }
 
 Table locations {

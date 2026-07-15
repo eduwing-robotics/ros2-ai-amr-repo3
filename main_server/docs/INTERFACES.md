@@ -128,6 +128,7 @@ tb3_2 -> http://<movement-host>:8002/movement-api/v1
 ```text
 GET /movement-api/v1/health
 GET /movement-api/v1/robots/{robot_name}/pose
+POST /api/v1/robots/{robot_name}/pose  # Movement -> Main canonical latest-pose push
 POST /robot-commands
 GET /robot-commands/{command_id}
 POST /robot-commands/{command_id}/cancel

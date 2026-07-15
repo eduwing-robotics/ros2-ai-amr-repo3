@@ -29,7 +29,7 @@ work order는 `tasks`, waypoint는 `locations`, map metadata는 filesystem YAML�
 릴리즈 관리 좌표를 함께 기록하며, `locations.release_managed`로 운영자가 만든 행과 구분한다.
 기준 데이터 동기화는 목록에 없는 행을 삭제하지 않는다.
 
-## 업무·infra 12테이블 ERD (DDL FK 기준)
+## 업무·infra 13테이블 ERD (DDL FK 기준)
 
 물리 FK만 그림에 넣는다. `task_logs`·`item_change_logs`·`evidence_events.task_id`는 **의도적으로 FK 없음**(완료 후 tasks 삭제 가능). `cameras`는 업무 테이블과 FK 없음.
 
@@ -150,7 +150,8 @@ erDiagram
 | 테이블 | PK / 핵심 컬럼 | 역할 |
 | --- | --- | --- |
 | `items` | `id` | 품목 마스터 |
-| `robots` | `id` · `domain_id` · `status` · `battery_level` | 로봇 current |
+| `robots` | `id` · `domain_id` · `status` · `enabled` · `battery_level` | 로봇 운용 의도·current |
+| `robot_latest_poses` | `robot_id` · `map_id` · `x/y/yaw` · `reported_at` | 로봇별 최신 pose 1행 |
 | `locations` | `id` · `type` · `marker_id` · x/y/yaw | 단일 맵의 마커·존·슬롯 |
 | `location_route_steps` | `(target_location_id, step_order)` · `waypoint_id` | 업무 위치로 가기 전 경유 순서 |
 | `inventory` | `(item_id, location_id, floor)` · floor∈{1,2} | 층별 재고 |

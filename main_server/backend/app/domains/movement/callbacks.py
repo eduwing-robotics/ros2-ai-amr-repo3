@@ -115,6 +115,7 @@ def ingest_robot_status(conn, robot_name: str, payload: dict[str, Any]) -> None:
             y=pose["y"],
             yaw=pose.get("yaw", 0.0),
             source=pose.get("source") or "movement_status",
+            command_id=payload.get("current_command_id"),
             reported_at=pose.get("reported_at") or payload.get("reported_at"),
         )
         report_pose_for_robot(conn, robot_name, update, source=update.source)

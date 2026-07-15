@@ -19,6 +19,7 @@ from app.db.connection import init_db, transaction
 DBML_TABLES = (
     "items",
     "robots",
+    "robot_latest_poses",
     "locations",
     "inventory",
     "tasks",

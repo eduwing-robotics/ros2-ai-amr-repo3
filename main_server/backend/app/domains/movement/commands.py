@@ -50,6 +50,9 @@ def resolve_callback_url(request: Request | None, override: str | None) -> str:
 def dispatch_robot_command(conn, payload: RobotCommandRequest, request: Request | None = None) -> RobotCommandResponse:
     if not robots.exists(conn, payload.robot_id):
         raise HTTPException(status_code=404, detail="robot not found")
+    robot = robots.get(conn, payload.robot_id)
+    if payload.kind != "estop" and robot and not robot.get("enabled", True):
+        raise HTTPException(status_code=409, detail="robot_disabled")
 
     command_id = payload.command_id or default_command_id(payload.task_id, payload.robot_id, payload.kind)
     callback_url = payload.callback_url or resolve_callback_url(request, None)
@@ -81,6 +84,8 @@ def _dispatch_move_to_point(
 ) -> RobotCommandResponse:
     p = payload.params
     waypoint_id = str(p.get("waypoint_id") or "").strip()
+    if waypoint_id and any(key in p for key in ("map_id", "x", "y", "yaw")):
+        raise HTTPException(status_code=400, detail="move_to_point accepts waypoint_id or coordinates, not both")
     if waypoint_id:
         passthrough = RobotCommandRequest(
             robot_id=payload.robot_id,

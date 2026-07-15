@@ -28,6 +28,10 @@ def list_robots() -> list[Robot]:
 def upsert_robot(payload: RobotUpsert) -> ApiMessage:
     """DB 관리 화면에서 로봇을 생성하거나 수정한다."""
     with transaction() as conn:
+        current = robots.get(conn, payload.robot_id)
+        if current and current.get("enabled", True) and payload.enabled is False:
+            if reason := robots.disable_block_reason(conn, payload.robot_id):
+                raise HTTPException(status_code=409, detail=reason)
         robots.upsert(conn, payload.model_dump())
         operational_events.append(
             conn,

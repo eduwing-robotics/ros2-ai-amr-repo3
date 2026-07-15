@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -11,7 +12,7 @@ from app.core.api_logs import list_logs as list_api_logs
 from app.core.config import settings
 from app.core.health_cache import clear_cache
 from app.db.connection import transaction
-from app.db.postgres import operational_events
+from app.db.postgres import operational_events, robot_poses
 from app.db.postgres import robots as postgres_robots
 from app.domains.movement import callbacks, missions
 from app.domains.movement.client import MovementClientError, movement_client, set_robot_emergency
@@ -273,6 +274,7 @@ def movement_robot_status(robot_name: str, payload: MovementRobotStatusCallback,
     return ApiMessage(message="movement robot status saved")
 
 
+@router.post("/robots/estop-all")
 @router.post("/robot/estop")
 def robot_estop_all() -> dict:
     """등록된 모든 로봇에 비상 정지를 요청한다."""
@@ -281,12 +283,18 @@ def robot_estop_all() -> dict:
     return {"ok": all(r.get("ok") for r in results), "robots": results}
 
 
+@router.post("/robots/clear-estop-all")
 @router.post("/robot/clear_estop")
 def robot_clear_estop_all() -> dict:
-    """등록된 모든 로봇의 비상 정지를 해제한다."""
+    """등록된 운용 로봇의 비상 정지를 해제하고 미확인 로봇을 분리한다."""
     with transaction() as conn:
         results = clear_estop_all_robots(conn)
-    return {"ok": all(r.get("ok") for r in results), "robots": results}
+    attempted = [r for r in results if r.get("attempted", True)]
+    unknown = [r["robot_id"] for r in results if r.get("state") == "unknown"]
+    failed = [r["robot_id"] for r in attempted if not r.get("ok")]
+    ok = bool(attempted) and not failed
+    state = "failed" if failed else "partial" if unknown else "clear" if ok else "unknown"
+    return {"ok": ok, "state": state, "partial": bool(unknown), "unknown_robots": unknown, "robots": results}
 
 
 @router.post("/robot-commands", response_model=RobotCommandResponse)
@@ -304,52 +312,45 @@ def get_robot_command(command_id: str, robot_id: str = Query(...)) -> RobotComma
 
 @router.get("/robot-poses", response_model=list[RobotPose])
 def list_robot_poses(map_id: str | None = None) -> list[RobotPose]:
-    """로봇별 최신 map pose — Movement live state + robots 목록.
-
-    DBML에 pose current-state 컬럼이 없으므로 DB pose 테이블을 사용하지 않는다.
-    """
+    """Return cached push poses; refresh stale or missing rows from Movement as fallback."""
     with transaction() as conn:
-        robot_ids = [
-            r["robot_id"]
-            for r in postgres_robots.list_robots(
-                conn,
-            )
-        ]
-
-    rows: dict[str, dict] = {}
+        robot_ids = [r["robot_id"] for r in postgres_robots.list_robots(conn)]
+        cached_by_robot = {row["robot_id"]: row for row in robot_poses.list_latest(conn)}
     map_state = movement_map_state()
     active_map_id = map_state.get("active_map_id")
     ctx = get_runtime_map_context()
-
+    rows: list[RobotPose] = []
     for robot_id in robot_ids:
-        try:
-            live = movement_client.robot_pose(robot_id)
-        except MovementClientError:
+        row = cached_by_robot.get(robot_id)
+        if not row or row.get("cache_age_sec") is None or float(row["cache_age_sec"]) > 2.0:
+            try:
+                live = movement_client.robot_pose(robot_id)
+                pose = live.get("pose") or {}
+                if live.get("localized") and pose:
+                    update = RobotPoseUpdate(
+                        map_id=map_id or active_map_id or pose.get("frame_id") or "map",
+                        x=float(pose["x"]), y=float(pose["y"]), yaw=float(pose.get("yaw") or 0.0),
+                        linear_velocity=pose.get("linear_velocity"), angular_velocity=pose.get("angular_velocity"),
+                        source=pose.get("source") or "movement_pose",
+                        reported_at=pose.get("reported_at") or live.get("reported_at"),
+                    )
+                    with transaction() as conn:
+                        report_pose_for_robot(conn, robot_id, update)
+                    row = {"robot_id": robot_id, **update.model_dump(), "age_sec": pose.get("age_sec"), "cache_age_sec": 0.0, "received_at": datetime.now(timezone.utc).isoformat()}
+            except MovementClientError:
+                pass
+        if not row:
             continue
-        pose = live.get("pose") or {}
-        if not live.get("localized") or not pose:
-            continue
-        display_map_id = map_id or active_map_id or pose.get("frame_id") or "map"
-        px = float(pose["x"])
-        py = float(pose["y"])
-        rows[robot_id] = {
-            "robot_id": robot_id,
-            "map_id": display_map_id,
-            "x": px,
-            "y": py,
-            "yaw": pose.get("yaw", 0.0),
-            "linear_velocity": None,
-            "angular_velocity": None,
-            "source": pose.get("source") or "movement_pose",
-            "frame_id": pose.get("frame_id"),
-            "child_frame_id": pose.get("child_frame_id"),
-            "age_sec": pose.get("age_sec"),
-            "covariance": pose.get("covariance"),
-            "reported_at": pose.get("reported_at") or live.get("reported_at"),
-            "received_at": pose.get("reported_at") or live.get("reported_at"),
-            "in_bounds": pose_in_bounds(px, py, ctx),
-        }
-    return [RobotPose(**p) for p in sorted(rows.values(), key=lambda item: item["robot_id"])]
+        display_map_id = map_id or row.get("map_id") or active_map_id or "map"
+        px, py = float(row["x"]), float(row["y"])
+        rows.append(RobotPose(
+            robot_id=robot_id, map_id=display_map_id, x=px, y=py, yaw=float(row.get("yaw") or 0.0),
+            linear_velocity=row.get("linear_velocity"), angular_velocity=row.get("angular_velocity"),
+            source=row.get("source") or "movement_pose", command_id=row.get("command_id"), age_sec=row.get("age_sec"),
+            reported_at=row.get("reported_at"), received_at=row.get("received_at"),
+            in_bounds=pose_in_bounds(px, py, ctx),
+        ))
+    return rows
 
 
 @router.post("/robot-poses/report", response_model=ApiMessage)
@@ -370,19 +371,11 @@ def report_robot_pose_for_robot(robot_id: str, payload: RobotPoseUpdate) -> ApiM
 
 @router.post("/movement/missions/{command_id}/pose", response_model=ApiMessage)
 def report_mission_pose(command_id: str, payload: RobotPoseReport) -> ApiMessage:
-    """Movement mission pose callback."""
-    update = RobotPoseUpdate(**payload.model_dump(exclude={"robot_id"}))
+    """Legacy mission-scoped alias for canonical robot pose ingestion."""
+    update = RobotPoseUpdate(**payload.model_dump(exclude={"robot_id"}), command_id=command_id)
     with transaction() as conn:
         report_pose_for_robot(conn, payload.robot_id, update, source=payload.source or "movement_mission")
-        operational_events.append(
-            conn,
-            event_type="MOVEMENT_POSE",
-            robot_id=payload.robot_id,
-            command_id=command_id,
-            message=f"pose received for {payload.robot_id}",
-            payload={"command_id": command_id, **payload.model_dump()},
-        )
-    return ApiMessage(message="mission pose accepted")
+    return ApiMessage(message="mission pose accepted; use /robots/{robot_id}/pose")
 
 
 @router.post("/teleop", response_model=TeleopResponse)
@@ -422,27 +415,33 @@ def estop_all_robots(conn) -> list[dict[str, Any]]:
 
 
 def clear_estop_all_robots(conn) -> list[dict[str, Any]]:
-    """Clear estop for every registered robot and record outcomes."""
-    robot_ids = [
-        r["robot_id"]
-        for r in postgres_robots.list_robots(
-            conn,
-        )
-    ]
+    """Clear enabled online robots; keep offline robots explicitly unconfirmed."""
+    robot_rows = postgres_robots.list_robots(conn)
+    enabled_ids = [r["robot_id"] for r in robot_rows if r.get("enabled", True)]
+    health = get_movement_health(enabled_ids, force=True)
     results: list[dict[str, Any]] = []
-    for robot_id in robot_ids:
+    for robot in robot_rows:
+        robot_id = robot["robot_id"]
+        if not robot.get("enabled", True):
+            results.append({"robot_id": robot_id, "ok": True, "attempted": False, "state": "disabled"})
+            continue
+        snapshot = health.get(robot_id) or {}
+        online = bool(snapshot.get("ok")) and snapshot.get("robot_online") is not False
+        if not online:
+            results.append({
+                "robot_id": robot_id, "ok": False, "attempted": False, "state": "unknown",
+                "error": "robot offline; estop clear unconfirmed",
+            })
+            continue
         try:
             payload = movement_client.clear_estop(robot_id)
             set_robot_emergency(robot_id, False)
-            results.append({"robot_id": robot_id, "ok": True, "response": payload})
+            results.append({"robot_id": robot_id, "ok": True, "attempted": True, "state": "cleared", "response": payload})
             operational_events.append(
-                conn,
-                event_type="ROBOT_CLEAR_ESTOP",
-                robot_id=robot_id,
-                message=f"clear estop: {robot_id}",
-                payload=payload,
+                conn, event_type="ROBOT_CLEAR_ESTOP", robot_id=robot_id,
+                message=f"clear estop: {robot_id}", payload=payload,
             )
         except MovementClientError as exc:
-            results.append({"robot_id": robot_id, "ok": False, "error": str(exc)})
+            results.append({"robot_id": robot_id, "ok": False, "attempted": True, "state": "failed", "error": str(exc)})
     clear_cache()
     return results

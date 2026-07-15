@@ -23,6 +23,21 @@ from app.models.tasks import RobotTask
 router = APIRouter(tags=["system"])
 
 
+def _estop_summary(robots: list[Robot], health: dict) -> dict:
+    enabled_ids = [robot.robot_id for robot in robots if robot.enabled]
+    active: list[str] = []
+    unknown: list[str] = []
+    for robot_id in enabled_ids:
+        snapshot = health.get(robot_id) or {}
+        online = bool(snapshot.get("ok")) and snapshot.get("robot_online") is not False
+        if not online:
+            unknown.append(robot_id)
+        elif snapshot.get("is_emergency"):
+            active.append(robot_id)
+    state = "active" if active else "unknown" if unknown else "clear"
+    return {"state": state, "active_robots": active, "unknown_robots": unknown}
+
+
 def _sync_battery_from_health(robots: list[Robot], health: dict) -> None:
     """movement /health가 실어준 배터리를 DB에 반영하고 응답 객체도 즉시 갱신한다.
 
@@ -100,6 +115,7 @@ def status() -> ControlSystemStatusSnapshot:
     return ControlSystemStatusSnapshot(
         system={
             "mode": "MANUAL",
+            "estop_summary": _estop_summary(robots, movement_health),
             "movement_mode": movement_client.mode,
             "camera_mode": "configured",
             "camera": camera_system_config(),

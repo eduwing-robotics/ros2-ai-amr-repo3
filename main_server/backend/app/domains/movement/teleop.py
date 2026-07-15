@@ -42,6 +42,9 @@ def execute_teleop(payload: TeleopRequest) -> TeleopResponse:
     with transaction() as conn:
         if not robots.exists(conn, payload.robot_id):
             raise HTTPException(status_code=404, detail="robot not found")
+        robot = robots.get(conn, payload.robot_id)
+        if robot and not robot.get("enabled", True):
+            raise HTTPException(status_code=409, detail="robot_disabled")
 
         response_payload, status_value = invoke_teleop_movement(payload.robot_id, command_type, request_body)
         record_teleop_result(

@@ -1,16 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "../lib/api";
 import { agoLabel, poseFreshness } from "../lib/format";
-import type { Robot, RobotPose } from "../types";
+import type { Robot } from "../types";
+import { useRobotPoses } from "./useRobotPoses";
 
-/** 헤더·운영 레일이 공유하는 pose 기반 로봇 연결 판정. */
+/** Header and operator rail connectivity derived from the shared pose cache. */
 export function useRobotConnectivity(robots: Robot[]) {
-  const { data: poses = [] } = useQuery({
-    queryKey: ["robot-poses", "header-all"],
-    queryFn: () => apiGet<RobotPose[]>("/robot-poses"),
-    refetchInterval: 2000,
-  });
-
+  const { data: poses = [] } = useRobotPoses(undefined, 2000);
   const nowMs = Date.now();
   const poseByRobot = new Map(poses.map((p) => [p.robot_id, p]));
 
@@ -25,7 +19,8 @@ export function useRobotConnectivity(robots: Robot[]) {
   const robotTitle = robots.length
     ? robots.map((r) => {
         const f = robotFresh(r.robot_id);
-        return `${r.robot_id}: ${f.online ? "온라인" : "오프라인"} · ${agoLabel(f.ageSec)}`;
+        const operation = r.enabled ? "운용" : "미운용";
+        return `${r.robot_id}: ${f.online ? "온라인" : "오프라인"} · ${operation} · ${agoLabel(f.ageSec)}`;
       }).join("\n")
     : "등록된 로봇 없음";
 

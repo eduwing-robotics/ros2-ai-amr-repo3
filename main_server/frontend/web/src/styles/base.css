@@ -188,6 +188,14 @@
     .mt-8 { margin-top: 8px; }
     .switch-line { display: inline-flex; align-items: center; gap: 8px; margin: 0; color: var(--text-muted); font-size: 13px; white-space: nowrap; }
     .switch-line input { width: auto; margin: 0; }
+    .operation-switch { display: inline-flex; position: relative; align-items: center; gap: 8px; margin: 0; color: var(--text-muted); font-size: 13px; white-space: nowrap; cursor: pointer; }
+    .operation-switch input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .operation-switch-track { position: relative; width: 34px; height: 20px; flex: 0 0 auto; border-radius: 999px; background: var(--border); transition: background .15s ease; }
+    .operation-switch-track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 24%); transition: transform .15s ease; }
+    .operation-switch input:checked + .operation-switch-track { background: var(--primary); }
+    .operation-switch input:checked + .operation-switch-track::after { transform: translateX(14px); }
+    .operation-switch input:focus-visible + .operation-switch-track { outline: 2px solid var(--primary); outline-offset: 2px; }
+    .operation-switch input:disabled + .operation-switch-track { opacity: .55; cursor: wait; }
     .inline-alert { border: 1px solid var(--info-border); background: var(--info-bg); color: var(--info-fg); border-radius: var(--radius); padding: 10px 12px; margin-top: 12px; font-size: 13px; }
     .inline-alert.err { border-color: var(--err-border); background: var(--err-bg); color: var(--err-fg); }
     .inline-alert.warn { border-color: var(--warn-border); background: var(--warn-bg); color: var(--warn-fg); }

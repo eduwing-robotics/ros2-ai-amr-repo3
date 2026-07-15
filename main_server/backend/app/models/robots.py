@@ -13,6 +13,7 @@ class Robot(BaseModel):
     robot_id: str
     display_name: str
     status: str
+    enabled: bool = True
     battery: int | None = None
     current_task_id: int | None = None
     last_command_id: str | None = None
@@ -25,6 +26,7 @@ class RobotUpsert(BaseModel):
     robot_id: str
     display_name: str
     status: str = "IDLE"
+    enabled: bool | None = None
     battery: int | None = None
 
 
@@ -58,6 +60,7 @@ class RobotPose(BaseModel):
     linear_velocity: float | None = None
     angular_velocity: float | None = None
     source: str = "manual"
+    command_id: str | None = None
     frame_id: str | None = None
     child_frame_id: str | None = None
     age_sec: float | None = None
@@ -91,6 +94,7 @@ class RobotPoseUpdate(BaseModel):
     linear_velocity: float | None = None
     angular_velocity: float | None = None
     source: str = "ros_tf"
+    command_id: str | None = None
     reported_at: str | None = None
 
 
