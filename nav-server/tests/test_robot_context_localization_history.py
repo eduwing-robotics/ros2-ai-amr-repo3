@@ -255,6 +255,43 @@ def test_live_command_acceptance_requires_background_nav2_readiness(monkeypatch)
     assert robot_context.command_accepting() is True
 
 
+@pytest.mark.parametrize("simulation_mode,dry_run", [(True, False), (False, True)])
+def test_nonphysical_command_acceptance_does_not_require_amcl(monkeypatch, simulation_mode, dry_run):
+    navigator = SimpleNamespace(nav2_ready=False)
+    mission_manager = SimpleNamespace(dry_run=dry_run)
+    monkeypatch.setattr(runtime, "navigator", navigator)
+    monkeypatch.setattr(runtime, "mission_manager", mission_manager)
+    monkeypatch.setattr(robot_context, "active_robot_online", lambda: True)
+    monkeypatch.setattr(robot_context, "localization_health", lambda: {"localized": False})
+    monkeypatch.setattr(robot_context, "is_simulation_mode", lambda: simulation_mode)
+
+    assert robot_context.command_accepting() is True
+
+
+def test_nonphysical_command_acceptance_still_blocks_estop(monkeypatch):
+    navigator = SimpleNamespace(nav2_ready=False)
+    mission_manager = SimpleNamespace(dry_run=True)
+    monkeypatch.setattr(runtime, "navigator", navigator)
+    monkeypatch.setattr(runtime, "mission_manager", mission_manager)
+    monkeypatch.setattr(robot_context, "active_robot_online", lambda: True)
+    monkeypatch.setattr(robot_context, "localization_health", lambda: {"localized": False})
+    monkeypatch.setattr(robot_context, "is_simulation_mode", lambda: False)
+
+    assert robot_context.command_accepting(is_emergency=True) is False
+
+
+def test_physical_command_acceptance_still_requires_amcl(monkeypatch):
+    navigator = SimpleNamespace(nav2_ready=True)
+    mission_manager = SimpleNamespace(dry_run=False)
+    monkeypatch.setattr(runtime, "navigator", navigator)
+    monkeypatch.setattr(runtime, "mission_manager", mission_manager)
+    monkeypatch.setattr(robot_context, "active_robot_online", lambda: True)
+    monkeypatch.setattr(robot_context, "localization_health", lambda: {"localized": False})
+    monkeypatch.setattr(robot_context, "is_simulation_mode", lambda: False)
+
+    assert robot_context.command_accepting() is False
+
+
 @pytest.mark.parametrize(
     "overrides, reason",
     [

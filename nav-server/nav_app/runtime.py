@@ -18,6 +18,7 @@ class NavRuntime:
         # Constructed lazily by robot_context so unit tests and config checks stay ROS-free.
         self.localization: Any = None
         self.movement_commands: Dict[str, Dict[str, Any]] = {}
+        self.active_movement_command_id: Optional[str] = None
         self.last_arrived_gate_by_robot: Dict[str, Dict[str, Any]] = {}
         self.command_state_lock = threading.Lock()
         self.movement_execution_lock = threading.Lock()

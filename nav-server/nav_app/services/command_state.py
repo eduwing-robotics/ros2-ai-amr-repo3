@@ -1,9 +1,11 @@
 """Command gate, abort, and callback reporting."""
+import logging
 import threading
 import time
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
+from traffic_manager import TrafficLockConflict
 
 from nav_app.adapters.callbacks import post_json_callback as _post_json_callback
 from nav_app.adapters.callbacks import post_main_callback as _post_main_callback
@@ -12,6 +14,7 @@ from nav_app.services.lift_backends import lift_provenance
 from nav_app.services.robot_context import (
     report_movement_robot_status as _report_movement_robot_status,
 )
+from nav_app.services.safety import engage_estop, stop_active_motion
 from nav_app.services.status_helpers import (
     movement_result_from_state as _movement_result_from_state,
 )
@@ -21,6 +24,8 @@ from nav_app.services.status_helpers import (
 from nav_app.settings import ACTIVE_ROBOT_ID, GATE_TIMEOUT_SEC, is_simulation_mode
 from nav_app.util.time import utc_now as _utc_now
 
+logger = logging.getLogger(__name__)
+
 
 def release_traffic_locks_for_command(command: Dict[str, Any]):
     if not runtime.traffic_manager:
@@ -28,12 +33,24 @@ def release_traffic_locks_for_command(command: Dict[str, Any]):
     segments = command.get("traffic_segments") or []
     if not segments:
         return
-    runtime.traffic_manager.release_many(
-        segments,
-        robot_id=command.get("robot_name"),
-        command_id=command.get("command_id"),
-        force=True,
-    )
+    for segment_id in segments:
+        try:
+            runtime.traffic_manager.release(
+                segment_id,
+                robot_id=command.get("robot_name"),
+                command_id=command.get("command_id"),
+                force=False,
+            )
+        except TrafficLockConflict:
+            # The same robot may already have handed this segment to its next
+            # command. Never let the old command delete the new ownership.
+            continue
+        except Exception:
+            logger.exception(
+                "failed to release traffic segment %s for command %s",
+                segment_id,
+                command.get("command_id"),
+            )
 
 
 def report_movement_result(command_id: str, task_id: Optional[int], robot_name: str, state: str, message: str):
@@ -106,6 +123,105 @@ def mark_command_aborted(command: Dict[str, Any], reason: str, stage: str, robot
     _report_movement_robot_status(command.get("robot_name"), None, "idle" if reason == "timeout" else "estop")
     release_traffic_locks_for_command(command)
     return True
+
+
+def cancel_command(command: Dict[str, Any]) -> Dict[str, Any]:
+    """Stop and terminalize one canonical command, idempotently."""
+    with runtime.command_state_lock:
+        current_state = str(command.get("state") or "")
+        if current_state in ("DONE", "FAILED", "ABORTED", "CANCELED", "CANCELLED"):
+            return {
+                "accepted": True,
+                "command_id": command.get("command_id"),
+                "state": current_state,
+                "changed": False,
+            }
+        if current_state == "STOP_UNCONFIRMED":
+            return {
+                "accepted": False,
+                "command_id": command.get("command_id"),
+                "state": current_state,
+                "changed": False,
+            }
+        command["state"] = "CANCEL_REQUESTED"
+        command["reason"] = "operator_cancel"
+        command["stage"] = _stage_for_step_action(command.get("current_step_action"))
+        command["message"] = "operator cancel requested"
+        command["resumable"] = False
+        command["updated_at"] = _utc_now()
+        gate = runtime.last_arrived_gate_by_robot.get(command.get("robot_name"))
+        if gate and gate.get("command_id") == command.get("command_id"):
+            runtime.last_arrived_gate_by_robot.pop(command.get("robot_name"), None)
+
+    stop_result = stop_active_motion()
+    if not stop_result["confirmed"]:
+        engage_estop()
+        with runtime.command_state_lock:
+            command["state"] = "STOP_UNCONFIRMED"
+            command["reason"] = "physical_stop_unconfirmed"
+            command["message"] = "physical stop could not be confirmed"
+            command["stop_result"] = stop_result
+            command["updated_at"] = _utc_now()
+        _report_movement_robot_status(command.get("robot_name"), None, "estop")
+        release_traffic_locks_for_command(command)
+        return {
+            "accepted": False,
+            "command_id": command.get("command_id"),
+            "state": "STOP_UNCONFIRMED",
+            "changed": True,
+            "stop_result": stop_result,
+        }
+
+    with runtime.command_state_lock:
+        command["state"] = "CANCELED"
+        command["message"] = "canceled by operator"
+        command["stop_result"] = stop_result
+        command["updated_at"] = _utc_now()
+    report_movement_result(
+        command.get("command_id"),
+        command.get("task_id"),
+        command.get("robot_name"),
+        "CANCELED",
+        command["message"],
+    )
+    report_command_callback(command, "CANCELED", command["message"])
+    _report_movement_robot_status(command.get("robot_name"), None, "idle")
+    release_traffic_locks_for_command(command)
+    return {
+        "accepted": True,
+        "command_id": command.get("command_id"),
+        "state": "CANCELED",
+        "changed": True,
+        "stop_result": stop_result,
+    }
+
+
+def cancel_command_id(command_id: str) -> Dict[str, Any]:
+    """Cancel an existing command or reserve a terminal tombstone before accept."""
+    with runtime.command_state_lock:
+        command = runtime.movement_commands.get(command_id)
+        if command is None:
+            command = {
+                "command_id": command_id,
+                "task_id": None,
+                "robot_name": ACTIVE_ROBOT_ID,
+                "state": "CANCELED",
+                "reason": "operator_cancel_before_accept",
+                "message": "canceled before command acceptance",
+                "resumable": False,
+                "traffic_segments": [],
+                "cancel_tombstone": True,
+                "updated_at": _utc_now(),
+            }
+            runtime.movement_commands[command_id] = command
+            return {
+                "accepted": True,
+                "command_id": command_id,
+                "state": "CANCELED",
+                "changed": True,
+                "tombstone": True,
+            }
+    return cancel_command(command)
 
 
 def schedule_gate_timeout(command: Dict[str, Any], timeout_sec: float):

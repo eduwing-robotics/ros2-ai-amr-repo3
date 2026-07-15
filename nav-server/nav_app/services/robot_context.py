@@ -53,6 +53,7 @@ def command_accepting(is_emergency: bool = False):
     if not runtime.navigator:
         return False
     dry_run = bool(runtime.mission_manager and runtime.mission_manager.dry_run)
+    localization_required = not (dry_run or is_simulation_mode())
     nav2_ready = bool(
         dry_run
         or is_simulation_mode()
@@ -62,7 +63,7 @@ def command_accepting(is_emergency: bool = False):
         not is_emergency
         and nav2_ready
         and active_robot_online()
-        and localization_health()["localized"]
+        and (not localization_required or localization_health()["localized"])
     )
 
 

@@ -11,8 +11,6 @@ from nav_app.models import MissionRequest, StatusResponse
 from nav_app.runtime import runtime
 from nav_app.settings import legacy_mission_start_enabled
 from nav_app.security import require_main_signature
-from nav_app.services import command_state
-from nav_app.services.safety import engage_estop
 from nav_app.services import mission_helpers
 from nav_app.services import robot_context
 
@@ -68,30 +66,3 @@ async def start_mission(req: MissionRequest, request: Request):
         status_code=410,
         detail="legacy /mission/start does not admit inbound or outbound business missions; use /movement-api/v1/routes/commands",
     )
-
-
-@router.post("/robot/estop")
-def trigger_estop():
-    """즉시 비상 정지 명령을 내립니다."""
-    if not runtime.navigator or not runtime.mission_manager:
-        raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
-
-    engage_estop()
-    aborted_commands = command_state.abort_active_commands_for_estop()
-    runtime.mission_manager.is_emergency = True
-    runtime.mission_manager._set_mission_status("EMERGENCY", "API 비상 정지 명령")
-
-    return {"message": "비상 정지 명령이 실행되었습니다.", "aborted_commands": aborted_commands}
-
-
-@router.post("/robot/clear_estop")
-def clear_estop():
-    """비상 정지 상태를 해제합니다."""
-    if not runtime.navigator or not runtime.mission_manager:
-        raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
-
-    runtime.navigator.safety.clear_estop()
-    runtime.mission_manager.is_emergency = False
-    if runtime.mission_manager.mission_status == "EMERGENCY":
-        runtime.mission_manager._set_mission_status("IDLE")
-    return {"message": "비상 정지 상태가 해제되었습니다."}

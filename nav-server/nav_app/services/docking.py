@@ -208,6 +208,7 @@ def _require_docking_motion_or_abort(
 ) -> None:
     """Apply the admission gate and stop both physical actuators on failure."""
     try:
+        raise_if_command_canceled(stage)
         require_docking_motion_freshness(
             payload, stage, require_aruco=require_aruco, require_lift=require_lift,
         )
@@ -2271,6 +2272,19 @@ def execute_leave_dock_step(step: MovementStep):
 def raise_if_estop(stage: str):
     if runtime.navigator and runtime.navigator.safety.estop:
         raise CommandAborted("estop", stage=stage)
+    raise_if_command_canceled(stage)
+
+
+def raise_if_command_canceled(stage: str) -> None:
+    command_id = runtime.active_movement_command_id
+    command = runtime.movement_commands.get(command_id) if command_id else None
+    if command and command.get("state") in (
+        "CANCEL_REQUESTED",
+        "CANCELED",
+        "CANCELLED",
+        "STOP_UNCONFIRMED",
+    ):
+        raise CommandAborted("operator_cancel", stage=stage)
 
 
 def execute_aruco_align_step(step: MovementStep):

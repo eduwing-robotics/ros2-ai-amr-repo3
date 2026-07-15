@@ -14,6 +14,8 @@ from nav_app.settings import CALLBACK_TIMEOUT_SEC, MAIN_CALLBACK_HMAC_SECRET
 from nav_app.security import sign_headers
 
 _ALLOWED_PATHS = re.compile(r"^/movement/(?:command-events|results|robots/[A-Za-z0-9_-]+/status)$")
+_CANONICAL_MAIN_HOST = "smartfactory-main.local"
+_SITE_NETWORK = ipaddress.ip_network("192.168.30.0/24")
 
 
 class _NoRedirect(request.HTTPRedirectHandler):
@@ -45,15 +47,26 @@ def _canonical_url(value: str) -> str | None:
     return urlunsplit((parsed.scheme.lower(), netloc, path, "", ""))
 
 
-def _is_public_host(host: str, port: int) -> bool:
+def _is_site_main_host(host: str, port: int) -> bool:
+    if host.rstrip(".").lower() != _CANONICAL_MAIN_HOST:
+        return False
     try:
-        addresses = {str(ipaddress.ip_address(host))}
+        addresses = {
+            item[4][0]
+            for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        }
+    except socket.gaierror:
+        return False
+    if not addresses:
+        return False
+    try:
+        parsed = [ipaddress.ip_address(address) for address in addresses]
     except ValueError:
-        try:
-            addresses = {item[4][0] for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)}
-        except socket.gaierror:
-            return False
-    return bool(addresses) and all(ipaddress.ip_address(address).is_global for address in addresses)
+        return False
+    return all(
+        isinstance(address, ipaddress.IPv4Address) and address in _SITE_NETWORK
+        for address in parsed
+    )
 
 
 def _configured_callback_url(url: str) -> str | None:
@@ -72,8 +85,6 @@ def _configured_callback_url(url: str) -> str | None:
         os.getenv("NAV_NOHARDWARE", "").strip().lower() in {"1", "true", "yes", "on"}
         and base_origin in nohardware_origins
     )
-    if parsed_base.scheme != "https" and not (nohardware_allowed and parsed_base.scheme == "http"):
-        return None
     expected_base = f"{base.rstrip('/')}/movement"
     # The candidate has to be a configured Main endpoint, not merely an allowed host.
     if not candidate.startswith(expected_base + "/"):
@@ -86,7 +97,7 @@ def _configured_callback_url(url: str) -> str | None:
     parsed = urlsplit(candidate)
     if parsed.scheme != parsed_base.scheme or parsed.netloc != parsed_base.netloc:
         return None
-    if not nohardware_allowed and not _is_public_host(
+    if not nohardware_allowed and not _is_site_main_host(
         parsed.hostname or "", parsed.port or (443 if parsed.scheme == "https" else 80)
     ):
         return None

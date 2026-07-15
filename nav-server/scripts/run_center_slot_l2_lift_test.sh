@@ -90,7 +90,7 @@ manual_drive() {
   echo "manual $dir ${dist}m (~${dur}s)"
   curl -s --max-time 5 -X POST "$BASE/movement-api/v1/manual/start" \
     -H 'Content-Type: application/json' \
-    -d "{\"robot_name\":\"$ROBOT_NAME\",\"command\":\"$dir\",\"linear_x\":$INSERT_SPEED,\"timeout_sec\":$dur,\"override_nav\":true}" \
+    -d "{\"robot_name\":\"$ROBOT_NAME\",\"command\":\"$dir\",\"linear_x\":$INSERT_SPEED,\"timeout_sec\":$dur}" \
     | python3 -m json.tool
   sleep "$(python3 -c "import math; print(max(1.0, math.ceil(${dur})+1))")"
   curl -s -X POST "$BASE/movement-api/v1/manual/stop" \
