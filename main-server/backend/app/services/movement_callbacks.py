@@ -142,12 +142,16 @@ def estop_all_robots(conn) -> list[dict[str, Any]]:
     """Request estop for every registered robot and record outcomes."""
     from app.services.person_hazard import mark_running_tasks_needs_attention, on_robot_task_terminal
 
-    mark_running_tasks_needs_attention(conn, reason="operator_estop")
-    # Make every task hold durable and release transaction-scoped task locks
-    # before the first remote E-stop request.  Keep this boundary explicit even
-    # when there are no running tasks or the hold helper is replaced in tests.
-    conn.commit()
     robots = robot_repo(conn).list()
+    hold_error: Exception | None = None
+    try:
+        mark_running_tasks_needs_attention(conn, reason="operator_estop")
+        # Make every task hold durable and release transaction-scoped task
+        # locks before the first remote E-stop request.
+        conn.commit()
+    except Exception as exc:
+        hold_error = exc
+        conn.rollback()
     events = event_repo(conn)
     results: list[dict[str, Any]] = []
     stopped_robot_ids: list[str] = []
@@ -186,8 +190,14 @@ def estop_all_robots(conn) -> list[dict[str, Any]]:
     # Remote monitor cleanup is lower priority than physical stop and runs only
     # after every task hold is committed and all fleet E-stop calls finish.
     for robot_id in stopped_robot_ids:
-        on_robot_task_terminal(robot_id, conn=conn)
+        try:
+            on_robot_task_terminal(robot_id, conn=conn)
+        except Exception:
+            conn.rollback()
+            logger.exception("failed to close person monitor after fleet E-stop robot=%s", robot_id)
     clear_cache()
+    if hold_error is not None:
+        raise hold_error
     return results
 
 

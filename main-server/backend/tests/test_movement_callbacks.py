@@ -252,6 +252,32 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertEqual(movement_client.estop.call_count, 2)
         self.conn.rollback.assert_called_once_with()
 
+    @patch("app.services.movement_callbacks.movement_client")
+    @patch("app.services.movement_callbacks.event_repo")
+    @patch("app.services.movement_callbacks.robot_repo")
+    def test_estop_all_robots_attempts_every_robot_when_hold_persistence_fails(
+        self,
+        robot_repo,
+        event_repo,
+        movement_client,
+    ) -> None:
+        robot_repo.return_value = self.robot
+        event_repo.return_value = self.event
+        self.robot.list.return_value = [{"robot_id": "r1"}, {"robot_id": "r2"}]
+        movement_client.estop.return_value = {"message": "stopped"}
+
+        with (
+            patch(
+                "app.services.person_hazard.mark_running_tasks_needs_attention",
+                side_effect=RuntimeError("hold database unavailable"),
+            ),
+            self.assertRaisesRegex(RuntimeError, "hold database unavailable"),
+        ):
+            callbacks.estop_all_robots(self.conn)
+
+        self.assertEqual(movement_client.estop.call_count, 2)
+        self.conn.rollback.assert_called()
+
     @patch("app.services.movement_callbacks.get_movement_health")
     @patch("app.services.movement_callbacks.movement_client")
     @patch("app.services.movement_callbacks.event_repo")
