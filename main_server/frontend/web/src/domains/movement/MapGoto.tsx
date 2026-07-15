@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useMaps } from "../../hooks/useScenarioData";
-import { useRobotPoses } from "../../hooks/useRobotPoses";
+import { MAP_POSE_REFETCH_MS, useRobotPoses } from "../../hooks/useRobotPoses";
 import { useMapStageOverlay } from "../../hooks/useMapStageOverlay";
 import { clientToPixel, degToRad, pixelToWorld, radToDeg, worldToPixel, yawFromPixel } from "../../lib/coords";
 import { missionGoto, missionGotoPreview, missionStatus, movementCommandTrace, movementMapState, robotLocalization, robotNavState, setRobotInitialPose } from "../../lib/missions";
 import { isMapRuntimeMismatch, mapAssetWarning, runtimeBadgeLabel } from "../../lib/mapRuntime";
 import { shortId } from "../../lib/format";
 import type { MissionStatusResponse, Robot } from "../../types";
-
-// 마커 크기(화면 px). 운영 화면에서는 고정값만 사용한다.
-const MARKER_PX = 10;
+import { GotoTargetMarker, RobotPoseMarkers, RuntimeMapCanvas } from "../map/RuntimeMapCanvas";
 
 // 수동조작: 맵 위 한 점을 찍어 Nav2 goToPose 로 이동(테스트). 시나리오 저장 없이 즉석 1지점 미션.
 // 브라우저는 Main API(/robot-commands)를 호출하고, Main 이 Movement→Nav2 로 전달한다.
@@ -34,7 +32,7 @@ export function MapGoto({ robots }: { robots: Robot[] }) {
   const runtimeMismatch = isMapRuntimeMismatch(map);
   const renderMap = map;
   const { stageRef, overlayReady, u } = useMapStageOverlay(renderMap?.width, renderMap?.height);
-  const { data: poses = [] } = useRobotPoses(map?.map_id, 250);
+  const { data: poses = [] } = useRobotPoses(map?.map_id, MAP_POSE_REFETCH_MS);
   const robot = robotId || robots[0]?.robot_id || "";
   const selectedPose = poses.find((p) => p.robot_id === robot);
   const { data: mapState } = useQuery({
@@ -108,7 +106,7 @@ export function MapGoto({ robots }: { robots: Robot[] }) {
 
   // 빈 곳을 누르면 그 지점에 목표를 찍고 바로 드래그 이동을 시작한다(click 대신 pointerdown — 핸들 뗀 위치로 튀는 문제 방지).
   const onStageDown = (e: React.PointerEvent) => {
-    if ((e.target as Element).closest("[data-goto]")) return;
+    if ((e.target as Element).closest("[data-goto-target]")) return;
     const stage = stageRef.current;
     if (!stage || !renderMap) return;
     const rect = stage.getBoundingClientRect();
@@ -213,11 +211,7 @@ export function MapGoto({ robots }: { robots: Robot[] }) {
     return () => { cancelled = true; window.clearInterval(id); };
   }, [activeCommandId, robot]);
 
-  const tp = renderMap && target ? worldToPixel(renderMap, target.x, target.y) : null;
   const yaw = degToRad(Number(yawDeg) || 0);
-  const U = (px: number) => px * u;
-  const ringR = U(MARKER_PX), dotR = U(MARKER_PX * 0.28), handleR = U(MARKER_PX * 0.72), yawLen = U(MARKER_PX * 3.2);
-  const robotScale = U(MARKER_PX / 7);
   const trailPoints = renderMap ? trail.map((pt) => worldToPixel(renderMap, pt.x, pt.y)).map((pt) => `${pt.x},${pt.y}`).join(" ") : "";
   const targetLine = renderMap && selectedPose && target ? [worldToPixel(renderMap, selectedPose.x, selectedPose.y), worldToPixel(renderMap, target.x, target.y)] : null;
 
@@ -263,38 +257,43 @@ export function MapGoto({ robots }: { robots: Robot[] }) {
         </div>
       ) : null}
 
-      <div className={`map-stage map-stage-md goto-stage${runtimeMismatch ? " mismatch" : ""}`} ref={stageRef} onPointerDown={onStageDown}>
-        {!renderMap ? <div className="map-empty">맵 데이터 없음</div> : (
-          <>
-            {renderMap.image_url ? <img src={renderMap.image_url} alt={renderMap.name} /> : null}
-            <svg viewBox={`0 0 ${renderMap.width || 1000} ${renderMap.height || 800}`} preserveAspectRatio="xMidYMid meet">
+      <RuntimeMapCanvas
+        map={renderMap}
+        className={`map-stage map-stage-md goto-stage${runtimeMismatch ? " mismatch" : ""}`}
+        stageRef={stageRef}
+        onPointerDown={onStageDown}
+        overlays={renderMap ? <>
+          {guide ? <div className="cursor-guide mono" style={{ left: guide.left, top: guide.top }}>x {guide.x.toFixed(2)} · y {guide.y.toFixed(2)}</div> : null}
+          {target ? <div className="stage-coords mono">목표 x {target.x.toFixed(2)} · y {target.y.toFixed(2)} · {Math.round(Number(yawDeg) || 0)}°</div> : null}
+        </> : null}
+      >
+        {renderMap ? <>
               {targetLine ? <line className="goto-yaw" x1={targetLine[0].x} y1={targetLine[0].y} x2={targetLine[1].x} y2={targetLine[1].y} /> : null}
               {trailPoints ? <polyline className={`map-path${runtimeMismatch ? " mismatch" : ""}`} points={trailPoints} /> : null}
-              {overlayReady ? poses.map((p) => {
-                const pt = worldToPixel(renderMap, p.x, p.y);
-                const yawDegR = -((p.yaw || 0) * 180) / Math.PI;
-                return (
-                  <g key={p.robot_id} className={runtimeMismatch ? "map-pose mismatch" : "map-pose"} transform={`translate(${pt.x} ${pt.y}) rotate(${yawDegR}) scale(${robotScale})`}>
-                    <polygon className={`map-robot live${runtimeMismatch ? " mismatch" : ""}`} points="9,0 -7,5 -5,0 -7,-5" />
-                  </g>
-                );
-              }) : null}
-              {tp && overlayReady ? (
-                <g data-goto>
-                  <line className="goto-yaw" x1={tp.x} y1={tp.y} x2={tp.x + yawLen * Math.cos(yaw)} y2={tp.y - yawLen * Math.sin(yaw)} />
-                  <circle className="goto-yaw-handle" data-goto-handle cx={tp.x + yawLen * Math.cos(yaw)} cy={tp.y - yawLen * Math.sin(yaw)} r={handleR}
-                    onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); dragKind.current = "yaw"; setGuide(null); }} />
-                  <circle className="goto-ring" cx={tp.x} cy={tp.y} r={ringR}
-                    onPointerDown={(e) => { e.stopPropagation(); dragKind.current = "move"; }} />
-                  <circle className="goto-dot" cx={tp.x} cy={tp.y} r={dotR} />
-                </g>
-              ) : null}
-            </svg>
-            {guide ? <div className="cursor-guide mono" style={{ left: guide.left, top: guide.top }}>x {guide.x.toFixed(2)} · y {guide.y.toFixed(2)}</div> : null}
-            {target ? <div className="stage-coords mono">목표 x {target.x.toFixed(2)} · y {target.y.toFixed(2)} · {Math.round(Number(yawDeg) || 0)}°</div> : null}
-          </>
-        )}
-      </div>
+              {overlayReady ? <RobotPoseMarkers
+                map={renderMap}
+                poses={poses}
+                scale={u}
+                runtimeMismatch={runtimeMismatch}
+              /> : null}
+              {overlayReady ? <GotoTargetMarker
+                map={renderMap}
+                target={target ? { ...target, yaw } : null}
+                scale={u}
+                markerPx={10}
+                onYawPointerDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  dragKind.current = "yaw";
+                  setGuide(null);
+                }}
+                onMovePointerDown={(e) => {
+                  e.stopPropagation();
+                  dragKind.current = "move";
+                }}
+              /> : null}
+        </> : null}
+      </RuntimeMapCanvas>
 
       <div className="btnbar">
         {mode === "initial_pose" ? (

@@ -1,12 +1,13 @@
 import { formatPlanSummaryLine } from "./workOrderLabels";
 import type { WorkOrder, WorkOrderRobotTask } from "../../types";
+import { taskLifecycleOf } from "./taskLifecycle";
 
 export type Segment = "all" | "queued" | "running" | "closed";
 
 export function segmentOf(status: string): Segment {
-  const s = status.toUpperCase();
-  if (s === "CREATED" || s === "QUEUED" || s === "ASSIGNED") return "queued";
-  if (s === "RUNNING" || s === "IN_PROGRESS") return "running";
+  const lifecycle = taskLifecycleOf(status);
+  if (lifecycle === "queued") return "queued";
+  if (lifecycle === "running" || lifecycle === "recovery") return "running";
   return "closed";
 }
 

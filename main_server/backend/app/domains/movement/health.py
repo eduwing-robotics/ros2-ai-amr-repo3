@@ -43,8 +43,8 @@ def get_movement_health(robot_ids: list[str], *, force: bool = False) -> dict[st
 def battery_from_health(health: dict[str, Any]) -> int | None:
     """Movement /health가 실어주는 배터리 퍼센트를 0~100 정수로 정규화한다.
 
-    이동서버가 아직 battery를 안 주면 None을 반환하고, 이 경우 호출부는
-    기존 DB 값을 유지한다(0%로 덮어쓰지 않음). 계약: 정수 퍼센트 0~100
+    이동서버가 아직 battery를 안 주면 None을 반환한다. 호출부는 DB를
+    0%로 덮어쓰지 않되 운영 상태 응답에는 미수신으로 표시한다. 계약: 정수 퍼센트 0~100
     (docs/reference/MOVEMENT_SERVER_REQUIREMENTS.md §6.1).
     """
     raw = health.get("battery")

@@ -462,8 +462,17 @@
 .robot-status-card.emergency { border-left-color: var(--red); background: var(--err-bg); }
 .robot-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .robot-task-ctx { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 13px; }
-.robot-battery.battery-warn { color: var(--warn-fg); }
-.robot-battery.battery-low { color: var(--red); font-weight: 700; }
+.battery-indicator { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); white-space: nowrap; }
+.battery-icon { position: relative; display: inline-block; width: 22px; height: 11px; padding: 1px; border: 1.5px solid currentColor; border-radius: 2px; color: inherit; }
+.battery-icon::after { content: ""; position: absolute; top: 2px; right: -4px; width: 3px; height: 5px; border-radius: 0 2px 2px 0; background: currentColor; }
+.battery-icon > i { display: block; height: 100%; min-width: 0; border-radius: 1px; background: currentColor; transition: width .2s ease, background-color .2s ease; }
+.battery-indicator.battery-good { color: #16a34a; }
+.battery-indicator.battery-medium { color: #65a30d; }
+.battery-indicator.battery-warn { color: var(--amber); }
+.battery-indicator.battery-low { color: #ea580c; font-weight: 700; }
+.battery-indicator.battery-critical { color: var(--red); font-weight: 700; }
+.battery-indicator.battery-unknown { color: var(--text-dim); }
+.battery-alert { font-size: 11px; }
 
 /* : 로봇=박스 융합 레일 */
 .robot-monitor-rail.panel { padding: 12px; margin: 0; gap: 10px; flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0; }
@@ -520,8 +529,6 @@
   gap: 6px;
   align-items: center;
 }
-.robot-monitor-battery.battery-warn { color: var(--warn-fg); }
-.robot-monitor-battery.battery-low { color: var(--red); font-weight: 700; }
 .robot-monitor-camera { min-width: 0; display: flex; flex-direction: column; }
 .robot-monitor-camera .cam-tile { gap: 4px; }
 .robot-monitor-camera .live-stage {

@@ -23,8 +23,9 @@ export function useEmergency() {
   const unknownRobots = summary?.unknown_robots ?? [];
   const estopState: EstopState = summary?.state ?? (emergencyRobots.length ? "active" : "clear");
   const emergencySet = useMemo(() => new Set(emergencyRobots), [emergencyRobots]);
-  const isEmergency = estopState !== "clear";
+  const isEmergency = estopState === "active" || emergencyRobots.length > 0;
+  const isEstopUnknown = !isEmergency && estopState === "unknown";
   const isRobotEmergency = (robotId: string) => emergencySet.has(robotId);
 
-  return { isEmergency, estopState, emergencyRobots, unknownRobots, isRobotEmergency, refetch };
+  return { isEmergency, isEstopUnknown, estopState, emergencyRobots, unknownRobots, isRobotEmergency, refetch };
 }

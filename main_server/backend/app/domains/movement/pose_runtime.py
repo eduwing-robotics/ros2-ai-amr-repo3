@@ -316,6 +316,8 @@ class PoseRuntime:
             candidate = previous
         if candidate != previous:
             if candidate in {"stale", "lost"}:
+                # 시간 경과로 stale/lost가 된 경우도 복구 샘플을 처음부터 다시 확인한다.
+                entry.recovery_samples = 0
                 entry.pose_episode_id = entry.pose_episode_id or str(uuid.uuid4())
                 self._emit(
                     "POSE_STALE" if candidate == "stale" else "POSE_LOST",

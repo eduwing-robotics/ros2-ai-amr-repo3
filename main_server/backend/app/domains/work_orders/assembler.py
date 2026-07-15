@@ -6,7 +6,36 @@ from collections.abc import Mapping
 from typing import Any
 
 from app.domains.execution.state import RobotTaskExecutionState
-from app.models.work_orders import RobotTaskPlanSummary, RobotTaskSummary
+from app.models.work_orders import (
+    RobotTaskPlanSummary,
+    RobotTaskProgress,
+    RobotTaskProgressStep,
+    RobotTaskSummary,
+)
+
+
+def _progress_snapshot(execution: RobotTaskExecutionState) -> RobotTaskProgress | None:
+    steps = execution.steps
+    if not steps:
+        return None
+    return RobotTaskProgress(
+        phase=execution.phase,
+        current_step_index=execution.step_index,
+        steps=[
+            RobotTaskProgressStep(
+                step_index=index,
+                kind=str(step.get("kind") or "unknown"),
+                label=_optional_str(step.get("label")),
+                status=str(step.get("status") or "PENDING").upper(),
+                command_id=_optional_str(step.get("command_id")),
+                transfer_action=_optional_str(
+                    step.get("transfer_action") or (step.get("params") or {}).get("action")
+                ),
+                failure_reason=_optional_str(step.get("dispatch_error")),
+            )
+            for index, step in enumerate(steps)
+        ],
+    )
 
 
 def assemble_robot_task_summary(
@@ -47,6 +76,7 @@ def assemble_robot_task_summary(
         business_completed=execution.business_completed,
         return_status=execution.return_status,
         parking_error=parking_error,
+        progress=_progress_snapshot(execution),
         plan=plan,
         created_at=robot_task.get("created_at"),
         started_at=robot_task.get("started_at"),

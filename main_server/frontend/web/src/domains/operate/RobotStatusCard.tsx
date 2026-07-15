@@ -1,7 +1,8 @@
 import { Pill } from "../../components/Pill";
-import { cell } from "../../lib/format";
+import { BatteryIndicator } from "../../components/BatteryIndicator";
 import { taskStatusLabel } from "./workOrderLabels";
 import type { MovementHealth, Robot, RobotTask } from "../../types";
+import { isActiveTaskStatus } from "./taskLifecycle";
 
 const healthState = (h: MovementHealth) => (h.ok ? (h.dry_run ? "dry_run" : "online") : "offline");
 
@@ -10,19 +11,12 @@ const taskTypeLabel = (t?: string | null) => {
   return v === "inbound" ? "입고" : v === "outbound" ? "출고" : String(t ?? "");
 };
 
-function batteryClass(battery: number | null | undefined) {
-  if (battery == null || Number.isNaN(battery)) return "";
-  if (battery <= 20) return "battery-low";
-  if (battery <= 35) return "battery-warn";
-  return "";
-}
-
 function taskForRobot(tasks: RobotTask[], robotId: string, currentTaskId?: number | null) {
   if (currentTaskId) {
-    const cur = tasks.find((t) => t.task_id === currentTaskId);
+    const cur = tasks.find((t) => t.task_id === currentTaskId && isActiveTaskStatus(t.status));
     if (cur) return cur;
   }
-  return tasks.find((t) => t.assigned_robot_id === robotId && !["DONE", "COMPLETED", "CANCELLED"].includes(t.status));
+  return tasks.find((t) => t.assigned_robot_id === robotId && isActiveTaskStatus(t.status));
 }
 
 // 운영 카드 상세 — 프론트스테이지 정보만 (UX.md §2).
@@ -57,10 +51,7 @@ export function RobotStatusDetails({
         {health && !health.ok && health.error ? <span className="muted"> · {String(health.error)}</span> : null}
       </div>
       {showBattery ? (
-        <div className={`robot-battery ${batteryClass(robot.battery ?? null)}`}>
-          배터리 {robot.battery != null ? `${cell(robot.battery)}%` : "—"}
-          {robot.battery != null && robot.battery <= 20 ? " ⚠" : ""}
-        </div>
+        <BatteryIndicator value={robot.battery} showLabel className="robot-battery" />
       ) : null}
     </>
   );

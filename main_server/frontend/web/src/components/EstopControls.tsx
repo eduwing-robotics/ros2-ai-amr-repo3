@@ -25,7 +25,7 @@ function failedRobotSummary(result: EstopResult) {
 }
 
 export function EstopControls() {
-  const { isEmergency, estopState, unknownRobots } = useEmergency();
+  const { isEmergency, isEstopUnknown, unknownRobots, refetch } = useEmergency();
   const queryClient = useQueryClient();
   const { confirm, toast } = useFeedback();
   const [busy, setBusy] = useState(false);
@@ -33,6 +33,18 @@ export function EstopControls() {
   const refreshSafety = async () => {
     await queryClient.invalidateQueries({ queryKey: ["status"] });
     await queryClient.invalidateQueries({ queryKey: ["recovery-awaiting-operator"] });
+  };
+
+  const refreshEstopState = async () => {
+    setBusy(true);
+    try {
+      const result = await refetch();
+      if (result.error) throw result.error;
+    } catch (error) {
+      toast("ESTOP 상태 조회 실패: " + String(error), "err");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const triggerEstop = async () => {
@@ -77,13 +89,27 @@ export function EstopControls() {
   return (
     <div className="estop-controls">
       {isEmergency ? (
-        <button type="button" className="estop-btn active" disabled={busy} onClick={() => void clearEstop()} title="클릭하여 해제 또는 미확인 상태 재조회">
-          {estopState === "unknown" ? `ESTOP 미확인 ${unknownRobots.length}` : "ESTOP 활성"}
+        <button type="button" className="estop-btn active" disabled={busy} onClick={() => void clearEstop()} title="클릭하여 비상 정지 해제">
+          ESTOP 활성
         </button>
       ) : (
-        <button type="button" className="estop-btn" disabled={busy} onClick={() => void triggerEstop()} title="전 로봇 즉시 정지">
-          ESTOP
-        </button>
+        <>
+          <button type="button" className="estop-btn" disabled={busy} onClick={() => void triggerEstop()} title="전 로봇 즉시 정지">
+            ESTOP
+          </button>
+          {isEstopUnknown ? (
+            <button
+              type="button"
+              className="estop-unknown"
+              disabled={busy}
+              onClick={() => void refreshEstopState()}
+              title={"E-STOP 활성 여부를 확인할 수 없는 로봇: " + unknownRobots.join(", ") + " · 클릭하여 재조회"}
+              aria-label={"ESTOP 상태 미확인 " + unknownRobots.length + "대, 다시 조회"}
+            >
+              상태 미확인 {unknownRobots.length}
+            </button>
+          ) : null}
+        </>
       )}
     </div>
   );

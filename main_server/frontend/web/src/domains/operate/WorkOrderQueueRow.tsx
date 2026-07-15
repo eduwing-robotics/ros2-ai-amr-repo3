@@ -3,6 +3,7 @@ import { Pill } from "../../components/Pill";
 import { operationLabel, formatPlanSummaryLine, taskStatusLabel } from "./workOrderLabels";
 import type { Robot, WorkOrder } from "../../types";
 import { OrderReorderControls } from "./WorkOrderQueueControls";
+import { TaskProgressTimeline } from "./TaskProgressTimeline";
 import {
   canCancelOrder,
   canCancelTask,
@@ -74,7 +75,7 @@ export function WorkOrderQueueRow({
   return (
     <>
       <tr>
-        <td><button type="button" className="rowbtn ghost" aria-label={open ? "접기" : "펼치기"} onClick={onToggle}>{open ? "▾" : "▸"}</button></td>
+        <td><button type="button" className="rowbtn task-expand-btn" aria-label={open ? "접기" : "펼치기"} onClick={onToggle}>{open ? "▾" : "▸"}</button></td>
         {showReorder ? (
           <td>
             <OrderReorderControls
@@ -144,7 +145,8 @@ export function WorkOrderQueueRow({
                 const canAssign = status === "QUEUED" && idleRobots.length > 0;
                 const canStart = status === "ASSIGNED";
                 return (
-                  <div key={t.task_id} className="task-queue-nested mono">
+                  <div key={t.task_id} className="task-queue-task">
+                    <div className="task-queue-nested mono">
                     <span>
                       task {t.task_id}
                       {planLine ? ` · ${planLine}` : ` · 슬롯 ${t.slot_label || t.slot_id || "-"}`}
@@ -184,6 +186,8 @@ export function WorkOrderQueueRow({
                         <button type="button" className="rowbtn danger" onClick={() => onCancelTask(t.task_id)}>취소</button>
                       ) : null}
                     </span>
+                    </div>
+                    <TaskProgressTimeline task={t} />
                   </div>
                 );
               })}

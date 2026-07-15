@@ -297,6 +297,10 @@ test("WEB-17 알람 타일은 이벤트 목록을 펼치고 모두 확인 시 �
       { id: 2, created_at: "2026-07-14T09:01:00Z", event_type: "MOVEMENT_RESULT", message: "이동 timeout" },
       // 로봇 상태 하트비트는 state=error여도 알람으로 세지 않는다
       { id: 3, created_at: "2026-07-14T09:02:00Z", event_type: "MOVEMENT_ROBOT_STATUS", message: "error" },
+      // 복구 이벤트 메시지에 stale이 포함돼도 신규 알람으로 세지 않는다
+      { id: 4, created_at: "2026-07-14T09:03:00Z", event_type: "POSE_RECOVERED", message: "POSE_RECOVERED: stale -> live" },
+      // 기존 3초대 source 지연 이력은 기준 변경 후 미확인 알람에서 제외한다
+      { id: 5, created_at: "2026-07-14T09:04:00Z", event_type: "POSE_STALE", message: "POSE_STALE: live -> stale", payload: { pose: { quality_reasons: ["SOURCE_DELAY"], source_age_sec: 3.1 } } },
     ],
   });
   await page.goto("/operate/control");
@@ -325,6 +329,30 @@ test("WEB-17 알람 타일은 이벤트 목록을 펼치고 모두 확인 시 �
   // 다시 클릭 → 접힘
   await alarmTile.click();
   await expect(panel).not.toBeAttached();
+});
+
+test("WEB-18 운영 지도와 관리자 Goto는 공통 런타임 캔버스를 사용한다", async ({ page }) => {
+  await mockMainApi(page);
+
+  await page.goto("/operate/control");
+  const operatorMap = page.locator(".operator-map-wrap .map-stage");
+  await expect(operatorMap.locator(":scope > .map-zoom-layer")).toHaveCount(1);
+
+  await page.goto("/admin/devices");
+  const adminGotoMap = page.locator(".goto-stage");
+  await expect(adminGotoMap.locator(":scope > .map-zoom-layer")).toHaveCount(1);
+  await adminGotoMap.click();
+  await expect(adminGotoMap.locator("[data-goto-target]")).toHaveCount(1);
+});
+
+test("WEB-19 배터리 미수신은 대시와 회색 게이지로 표시한다", async ({ page }) => {
+  await mockMainApi(page, { robotBattery: null });
+  await page.goto("/operate/control");
+
+  const batteries = page.locator(".battery-indicator");
+  await expect(batteries.first()).toHaveClass(/battery-unknown/);
+  await expect(batteries.first()).toContainText("—");
+  await expect(batteries.first()).not.toContainText("100%");
 });
 
 test("WEB-16 WebRTC 대기 영상 요소는 hidden으로 제거되지 않는다", async ({ page }) => {

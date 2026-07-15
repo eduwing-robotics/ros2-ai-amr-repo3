@@ -61,9 +61,22 @@ export function eventKey(ev: { id?: unknown; created_at?: string; event_type?: s
 }
 
 // 이벤트 심각도 → 상태 dot 클래스(err/warn/off). 알람 레인 색 표시용.
-export function eventDotClass(ev: { event_type?: string; message?: string }): "err" | "warn" | "off" {
+const POSE_SOURCE_ALERT_SEC = 5;
+
+export function eventDotClass(ev: { event_type?: string; message?: string; payload?: unknown }): "err" | "warn" | "off" {
   // 로봇 상태 하트비트는 알람 아님 — state가 error여도 원인 실패는 MOVEMENT_RESULT_*가 별도 알람으로 뜬다(중복 방지)
   if (ev.event_type === "MOVEMENT_ROBOT_STATUS") return "off";
+  // 복구 이력은 감사 타임라인에는 남기되 미확인 알람으로 다시 세지 않는다.
+  if (/(RECOVERED|RECONNECTED|BACK_IN_BOUNDS)$/.test(ev.event_type ?? "")) return "off";
+  // 기준 변경 전에 저장된 3초대 SOURCE_DELAY도 운영 알람에서 제외한다.
+  if (ev.event_type === "POSE_STALE" && ev.payload && typeof ev.payload === "object") {
+    const pose = (ev.payload as { pose?: { quality_reasons?: unknown; source_age_sec?: unknown } }).pose;
+    const reasons = Array.isArray(pose?.quality_reasons) ? pose.quality_reasons.map(String) : [];
+    const sourceAge = Number(pose?.source_age_sec);
+    if (reasons.includes("SOURCE_DELAY") && Number.isFinite(sourceAge) && sourceAge < POSE_SOURCE_ALERT_SEC) {
+      return "off";
+    }
+  }
   const s = `${ev.event_type ?? ""} ${ev.message ?? ""}`.toLowerCase();
   if (/(error|fail|fault|estop|critical|alarm|reject)/.test(s)) return "err";
   if (/(warn|stale|timeout|retry|degrad|pending)/.test(s)) return "warn";
@@ -114,6 +127,8 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   MOVEMENT_ROBOT_STATUS: "로봇 상태 보고",
   MOVEMENT_INITIAL_POSE: "초기 위치 설정",
   MOVEMENT_COMMAND_MAP_CONTEXT: "이동 맵 컨텍스트",
+  POSE_STALE: "위치 수신 지연",
+  POSE_RECOVERED: "위치 수신 복구",
 };
 
 export function eventTypeLabel(type?: string | null): string {

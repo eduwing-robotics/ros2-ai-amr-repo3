@@ -20,6 +20,7 @@ import { Records } from "../records/Records";
 import { RobotMonitorCard } from "./RobotMonitorCard";
 import { GotoTargetProvider } from "./GotoTargetContext";
 import type { AppEvent, CameraHealth, CameraSource, MovementHealth, Robot } from "../../types";
+import { taskLifecycleOf } from "./taskLifecycle";
 
 const camerasForRobot = (robotId: string, cameras: CameraSource[]) => cameras.filter((camera) => camera.robot_id === robotId);
 const globalCameras = (cameras: CameraSource[]) => cameras.filter((camera) => !camera.robot_id);
@@ -255,7 +256,7 @@ export function OperatorShell() {
 
   const robots = data?.robots ?? [];
   const cameras = data?.camera_sources ?? [];
-  const tasks = data?.tasks ?? [];
+  const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks]);
   const events = useMemo(() => data?.events ?? [], [data?.events]);
   const globalCams = globalCameras(cameras);
   const cameraOnline = Boolean(((data?.system ?? {}) as { camera_health?: CameraHealth }).camera_health?.ok);
@@ -325,14 +326,17 @@ export function OperatorShell() {
   const insightBandRef = useRef<HTMLDivElement>(null);
   const allRobotsEmergency = robots.length > 0 && emergencyRobots.length >= robots.length;
   const movementAvailable = Object.values(data?.movement_health ?? {}).some((health) => health.ok);
-  const activeTaskCount = tasks.filter(
-    (t) => !["DONE", "COMPLETED", "CANCELLED"].includes(String(t.status || "").toUpperCase()),
-  ).length;
-
-  const queuedTaskCount = tasks.filter((t) =>
-    ["PENDING", "QUEUED", "RESERVED", "PLANNED", "CREATED"].includes(String(t.status || "").toUpperCase()),
-  ).length;
-  const runningTaskCount = Math.max(0, activeTaskCount - queuedTaskCount);
+  const taskLifecycleCounts = useMemo(() => {
+    const counts = { queued: 0, running: 0, recovery: 0 };
+    for (const task of tasks) {
+      const lifecycle = taskLifecycleOf(task.status);
+      if (lifecycle === "queued" || lifecycle === "running" || lifecycle === "recovery") counts[lifecycle] += 1;
+    }
+    return counts;
+  }, [tasks]);
+  const queuedTaskCount = taskLifecycleCounts.queued;
+  const runningTaskCount = taskLifecycleCounts.running;
+  const activeTaskCount = queuedTaskCount + runningTaskCount + taskLifecycleCounts.recovery;
 
   // 알람(err/warn) 이벤트 — 최신순. 확인(ack)된 알람은 카운트·강조색에서 제외한다.
   const [alarmsOpen, setAlarmsOpen] = useState(false);

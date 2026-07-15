@@ -29,6 +29,7 @@ def robot_task_summary_to_v1(summary: RobotTaskSummary) -> dict[str, Any]:
         "business_completed": summary.business_completed,
         "return_status": summary.return_status,
         "parking_error": summary.parking_error,
+        "progress": summary.progress.model_dump(mode="json") if summary.progress else None,
     }
 
 

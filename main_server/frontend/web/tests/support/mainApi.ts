@@ -11,6 +11,7 @@ export const map = { map_id: "map", name: "테스트 맵", width: 1000, height: 
 
 type State = {
   emergency?: boolean;
+  estopUnknown?: boolean;
   movementOk?: boolean;
   workOrders?: unknown[];
   inventory?: unknown[];
@@ -19,6 +20,7 @@ type State = {
   cameraSources?: unknown[];
   cameraOnline?: boolean;
   events?: unknown[];
+  robotBattery?: number | null;
 };
 
 function json(route: Route, body: unknown, status = 200) {
@@ -29,15 +31,19 @@ export async function mockMainApi(page: Page, state: State = {}) {
   await page.route("**/api/v1/**", async (route) => {
     const req = route.request();
     const path = new URL(req.url()).pathname.replace("/api/v1", "");
+    const responseRobot = { ...robot, battery: state.robotBattery === undefined ? robot.battery : state.robotBattery };
     if (path === "/status") return json(route, {
-      system: state.cameraOnline ? { camera_health: { ok: true } } : {},
-      robots: [robot],
+      system: {
+        ...(state.cameraOnline ? { camera_health: { ok: true } } : {}),
+        ...(state.estopUnknown ? { estop_summary: { state: "unknown", active_robots: [], unknown_robots: [responseRobot.robot_id] } } : {}),
+      },
+      robots: [responseRobot],
       camera_sources: state.cameraSources ?? [],
       tasks: state.tasks ?? [],
       events: state.events ?? [],
       movement_health: { tb3_1: { ok: state.movementOk ?? true, is_emergency: Boolean(state.emergency) } },
     });
-    if (path === "/robots") return json(route, [robot]);
+    if (path === "/robots") return json(route, [responseRobot]);
     if (path === "/items") return json(route, [item]);
     if (path === "/storage-slots") return json(route, [slot]);
     if (path.startsWith("/inventory")) return json(route, state.inventory ?? []);
@@ -96,6 +102,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
       steps: [{ kind: "move_to_point", label: "safe:HOME_01", params: { x: 0.5, y: 0.4 } }],
       limitations: ["자동 하역 및 기존 작업 재개는 수행하지 않습니다."],
     });
+    if (path.startsWith("/comm/logs")) return json(route, { logs: [], movement_commands: [] });
     if (path.startsWith("/events") || path.startsWith("/api-logs")) return json(route, []);
     if (path.startsWith("/cameras") || path.startsWith("/camera-sources")) return json(route, []);
     throw new Error(`Unhandled Main API mock: ${req.method()} ${path}`);

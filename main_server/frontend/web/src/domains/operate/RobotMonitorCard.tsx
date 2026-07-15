@@ -1,18 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pill } from "../../components/Pill";
+import { BatteryIndicator } from "../../components/BatteryIndicator";
 import { CameraTile } from "../vision/LiveCamera";
 import { defaultView, viewsForSource } from "../vision/transport";
 import { RobotStatusDetails } from "./RobotStatusCard";
 import type { CameraSource, MovementHealth, Robot, RobotTask } from "../../types";
 
 type Kind = "overlay" | "frame";
-
-function batteryClass(battery: number | null | undefined) {
-  if (battery == null || Number.isNaN(battery)) return "";
-  if (battery <= 20) return "battery-low";
-  if (battery <= 35) return "battery-warn";
-  return "";
-}
 
 export function RobotMonitorCard({
   robot,
@@ -66,9 +60,7 @@ export function RobotMonitorCard({
           <strong>{robot.robot_id}</strong>
           {emergency ? <span className="pill err">ESTOP</span> : null}
           <Pill status={robot.status} />
-          <span className={`mono robot-monitor-battery ${batteryClass(robot.battery ?? null)}`}>
-            {robot.battery != null ? `🔋 ${robot.battery}%` : "🔋 —"}
-          </span>
+          <BatteryIndicator value={robot.battery} className="robot-monitor-battery" />
         </div>
         <div className="robot-monitor-head-controls">
           {videoVisible && cameras.length > 1 ? (

@@ -26,6 +26,26 @@ class RobotTaskPlanSummary(BaseModel):
     available_quantity_at_plan: int | None = None
 
 
+class RobotTaskProgressStep(BaseModel):
+    """Operator-facing projection of one callback-tracked execution step."""
+
+    step_index: int = Field(ge=0)
+    kind: str
+    label: str | None = None
+    status: str
+    command_id: str | None = None
+    transfer_action: str | None = None
+    failure_reason: str | None = None
+
+
+class RobotTaskProgress(BaseModel):
+    """Read-only progress snapshot updated by Movement callbacks or polling fallback."""
+
+    phase: str
+    current_step_index: int = Field(ge=0)
+    steps: list[RobotTaskProgressStep] = Field(default_factory=list)
+
+
 class RobotTaskSummary(BaseModel):
     """Canonical read model assembled from task, execution, plan, and location data."""
 
@@ -44,6 +64,7 @@ class RobotTaskSummary(BaseModel):
     business_completed: bool = False
     return_status: RobotTaskReturnStatus | None = None
     parking_error: dict[str, Any] | None = None
+    progress: RobotTaskProgress | None = None
     plan: RobotTaskPlanSummary | None = None
     created_at: datetime | None = None
     started_at: datetime | None = None
@@ -70,6 +91,7 @@ class WorkOrderRobotTask(BaseModel):
     business_completed: bool = False
     return_status: str | None = None
     parking_error: dict[str, Any] | None = None
+    progress: RobotTaskProgress | None = None
 
 
 class WorkOrder(BaseModel):

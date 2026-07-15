@@ -4,7 +4,7 @@ import { useMaps, useRobots, useWaypoints } from "../../hooks/useScenarioData";
 import { useInventory } from "../warehouse/useWarehouseData";
 import { pairsFromWaypoints, isHelperWaypoint } from "../../lib/dockPairs";
 import { pairedScanWaypointIds, ZONE_DOT_R, ZONE_YAW_LEN } from "../../lib/scanMarker";
-import { useRobotPoses } from "../../hooks/useRobotPoses";
+import { MAP_POSE_REFETCH_MS, useRobotPoses } from "../../hooks/useRobotPoses";
 import { movementSyncStatus } from "../../lib/missions";
 import { isMapRuntimeMismatch, mapAssetWarning, poseOutOfBounds, runtimeBadgeLabel } from "../../lib/mapRuntime";
 import { clientToPixel, pixelToWorld, worldToPixel, yawFromPixel } from "../../lib/coords";
@@ -17,18 +17,8 @@ import { MapMarkerLabel } from "../../components/MapMarkerLabel";
 import { ZONE_COLOR } from "./constants";
 import { DockPairOverlay } from "./DockPairOverlay";
 import { ApproachRouteOverlay } from "./ApproachRouteOverlay";
+import { GotoTargetMarker, RobotPoseMarkers, RuntimeMapCanvas } from "./RuntimeMapCanvas";
 import { useGotoTargetOptional } from "../operate/GotoTargetContext";
-
-// 운영 goto 마커 — 화면 px 고정(non-scaling-stroke)
-const GOTO_MARKER_PX = 7;
-
-const ROBOT_DIAMETER_M: Record<string, number> = { burger: 0.178, waffle: 0.281 };
-
-function robotFootprintRadiusPx(robotId: string, resolution: number): number | null {
-  const id = robotId.toLowerCase();
-  const diameter = id.includes("waffle") ? ROBOT_DIAMETER_M.waffle : id.includes("burger") ? ROBOT_DIAMETER_M.burger : null;
-  return diameter == null || !Number.isFinite(resolution) || resolution <= 0 ? null : diameter / 2 / resolution;
-}
 
 export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
   const { data: maps = [] } = useMaps();
@@ -179,10 +169,7 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
     return () => { document.removeEventListener("pointermove", onMove); document.removeEventListener("pointerup", onUp); };
   }, [gotoMode, renderMap, setGotoTarget, stageRef]);
 
-  const gotoTargetPx = gotoCtx?.target && renderMap ? worldToPixel(renderMap, gotoCtx.target.x, gotoCtx.target.y) : null;
-  const gotoYaw = gotoCtx?.target?.yaw ?? 0;
-
-  const { data: poses = [] } = useRobotPoses(map?.map_id, 500);
+  const { data: poses = [] } = useRobotPoses(map?.map_id, MAP_POSE_REFETCH_MS);
   const { data: syncStatus } = useQuery({
     queryKey: ["movement-sync-status"],
     queryFn: movementSyncStatus,
@@ -221,11 +208,6 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
     [zones, layers, pairedScanIds],
   );
 
-  const gotoHandleLen = u * GOTO_MARKER_PX * 3.2;
-  const gotoRingR = u * GOTO_MARKER_PX;
-  const gotoDotR = u * GOTO_MARKER_PX * 0.28;
-  const gotoHandleR = u * GOTO_MARKER_PX * 0.72;
-
   // pose 가 있는 로봇 / 없는 로봇(위치 없음)을 나눈다.
   const posedIds = useMemo(() => new Set(poses.map((p) => p.robot_id)), [poses]);
   const missing = robots.filter((r) => !posedIds.has(r.robot_id));
@@ -258,20 +240,29 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
           {map ? `로봇 ${poses.length}` : "맵 없음"}
         </span>
       </div>
-      <div
+      <RuntimeMapCanvas
+        map={renderMap}
         className={`map-stage map-stage-lg${gotoMode ? " goto-mode" : ""}${runtimeMismatch ? " mismatch" : ""}`}
-        ref={stageRef}
+        stageRef={stageRef}
         onPointerDown={onStagePointerDown}
+        layerRef={zoomLayerRef}
+        layerStyle={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}
+        overlays={renderMap ? <>
+          <MapLayersPopover
+            layers={layers}
+            colors={ZONE_COLOR}
+            arrowLabel="연결 화살표(스캔↔도킹)"
+            visibleCount={visibleZones.length}
+            totalCount={zones.length}
+          />
+          <div className="map-zoom-controls" data-map-overlay>
+            <button type="button" onClick={() => zoomAt(1.4)} title="확대" aria-label="맵 확대">＋</button>
+            <button type="button" onClick={() => zoomAt(1 / 1.4)} title="축소" aria-label="맵 축소" disabled={view.z <= 1}>−</button>
+            <button type="button" onClick={resetView} title="화면 맞춤(줌 초기화)" aria-label="화면 맞춤" disabled={view.z <= 1}>⤢</button>
+          </div>
+        </> : null}
       >
-        {!renderMap ? <div className="map-empty">맵 데이터 없음</div> : (
-          <>
-            <div
-              className="map-zoom-layer"
-              ref={zoomLayerRef}
-              style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.z})` }}
-            >
-            {renderMap.image_url ? <img src={renderMap.image_url} alt={renderMap.name} /> : null}
-            <svg viewBox={`0 0 ${renderMap.width || 1000} ${renderMap.height || 800}`} preserveAspectRatio="xMidYMid meet">
+        {renderMap ? <>
               {overlayReady && layers.showArrows ? <ApproachRouteOverlay map={renderMap} zones={zones} /> : null}
               {overlayReady && layers.showArrows ? <DockPairOverlay map={renderMap} zones={zones} pairs={mapDockPairs} scale={u} /> : null}
               {plannedPaths.map((path) => {
@@ -316,73 +307,30 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
                   </g>
                 );
               }) : null}
-              {overlayReady ? poses.map((p) => {
-                const pt = worldToPixel(renderMap, p.x, p.y);
-                const yawDeg = -((p.yaw || 0) * 180) / Math.PI;
-                const { state } = poseFreshness(p);
-                const footprintR = robotFootprintRadiusPx(p.robot_id, renderMap.resolution || 0.05);
-                return (
-                  <g key={p.robot_id} className={runtimeMismatch ? "map-pose mismatch" : "map-pose"}>
-                    {footprintR ? (
-                      <circle className={`map-robot-footprint ${state}${runtimeMismatch ? " mismatch" : ""}`} cx={pt.x} cy={pt.y} r={footprintR} />
-                    ) : null}
-                    <g transform={`translate(${pt.x} ${pt.y}) rotate(${yawDeg}) scale(${u})`}>
-                      <polygon className={`map-robot ${state}${runtimeMismatch ? " mismatch" : ""}`} points="18,0 -13,10 -9,0 -13,-10" />
-                      <text className="map-label" x={21} y={4} transform={`rotate(${-yawDeg})`}>{p.robot_id}</text>
-                    </g>
-                  </g>
-                );
-              }) : null}
-              {gotoTargetPx && overlayReady ? (
-                <g data-goto-target>
-                  <line
-                    className="goto-yaw"
-                    x1={gotoTargetPx.x}
-                    y1={gotoTargetPx.y}
-                    x2={gotoTargetPx.x + gotoHandleLen * Math.cos(gotoYaw)}
-                    y2={gotoTargetPx.y - gotoHandleLen * Math.sin(gotoYaw)}
-                  />
-                  <circle
-                    className="goto-yaw-handle"
-                    cx={gotoTargetPx.x + gotoHandleLen * Math.cos(gotoYaw)}
-                    cy={gotoTargetPx.y - gotoHandleLen * Math.sin(gotoYaw)}
-                    r={gotoHandleR}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      dragKind.current = "yaw";
-                    }}
-                  />
-                  <circle
-                    className="goto-ring"
-                    cx={gotoTargetPx.x}
-                    cy={gotoTargetPx.y}
-                    r={gotoRingR}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      dragKind.current = "move";
-                    }}
-                  />
-                  <circle className="goto-dot" cx={gotoTargetPx.x} cy={gotoTargetPx.y} r={gotoDotR} />
-                </g>
-              ) : null}
-            </svg>
-            </div>
-            <MapLayersPopover
-              layers={layers}
-              colors={ZONE_COLOR}
-              arrowLabel="연결 화살표(스캔↔도킹)"
-              visibleCount={visibleZones.length}
-              totalCount={zones.length}
-            />
-            <div className="map-zoom-controls" data-map-overlay>
-              <button type="button" onClick={() => zoomAt(1.4)} title="확대" aria-label="맵 확대">＋</button>
-              <button type="button" onClick={() => zoomAt(1 / 1.4)} title="축소" aria-label="맵 축소" disabled={view.z <= 1}>−</button>
-              <button type="button" onClick={resetView} title="화면 맞춤(줌 초기화)" aria-label="화면 맞춤" disabled={view.z <= 1}>⤢</button>
-            </div>
-          </>
-        )}
-      </div>
+              {overlayReady ? <RobotPoseMarkers
+                map={renderMap}
+                poses={poses}
+                scale={u}
+                runtimeMismatch={runtimeMismatch}
+                showFootprint
+                showLabel
+              /> : null}
+              {overlayReady ? <GotoTargetMarker
+                map={renderMap}
+                target={gotoCtx?.target ?? null}
+                scale={u}
+                onYawPointerDown={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  dragKind.current = "yaw";
+                }}
+                onMovePointerDown={(e) => {
+                  e.stopPropagation();
+                  dragKind.current = "move";
+                }}
+              /> : null}
+        </> : null}
+      </RuntimeMapCanvas>
       {map ? (
         <>
         {assetWarning ? <div className="inline-alert warn">{assetWarning}</div> : null}

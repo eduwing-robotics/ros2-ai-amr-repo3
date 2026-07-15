@@ -41,13 +41,16 @@ def _estop_summary(robots: list[Robot], health: dict) -> dict:
 def _sync_battery_from_health(robots: list[Robot], health: dict) -> None:
     """movement /health가 실어준 배터리를 DB에 반영하고 응답 객체도 즉시 갱신한다.
 
-    이동서버가 battery를 안 주면(대부분의 현 상태) no-op — 기존 정적 값을 유지한다.
+    이동서버가 battery를 안 주면 DB의 과거 정적값을 완충으로 오인하지 않도록
+    운영 상태 응답에서는 None으로 표시한다. DB 원본은 실제 값 수신 전까지 보존한다.
     """
-    updates = {
-        robot.robot_id: pct
-        for robot in robots
-        if (pct := battery_from_health(health.get(robot.robot_id) or {})) is not None and pct != robot.battery
-    }
+    updates: dict[str, int] = {}
+    for robot in robots:
+        pct = battery_from_health(health.get(robot.robot_id) or {})
+        if pct is None:
+            robot.battery = None
+        elif pct != robot.battery:
+            updates[robot.robot_id] = pct
     if not updates:
         return
     with transaction() as conn:

@@ -46,6 +46,15 @@ class TestPoseRuntime:
         assert row["receive_state"] == "live"
         assert row["source_state"] == "fresh"
 
+    def test_source_delay_requires_five_seconds(self) -> None:
+        self.runtime.ingest("r1", {"map_id": "m", "x": 1, "y": 2, "source_age_sec": 3.2})
+        assert self.runtime.list_snapshots()[0]["pose_state"] == "live"
+
+        self.runtime.ingest("r1", {"map_id": "m", "x": 1, "y": 2, "source_age_sec": 5.1})
+        row = self.runtime.list_snapshots()[0]
+        assert row["pose_state"] == "stale"
+        assert row["quality_reasons"] == ["SOURCE_DELAY"]
+
     def test_watchdog_emits_issue_once_and_three_samples_recover(self) -> None:
         self.runtime.ingest("r1", {"map_id": "m", "x": 1, "y": 2}, source_kind="canonical")
         self.runtime.collect_events()
@@ -57,6 +66,8 @@ class TestPoseRuntime:
 
         for sample in range(3):
             self.runtime.ingest("r1", {"map_id": "m", "x": 1, "y": 2, "yaw": sample}, source_kind="canonical")
+            expected = "live" if sample == 2 else "lost"
+            assert self.runtime.list_snapshots()[0]["pose_state"] == expected
         events = self.runtime.collect_events()
         assert [e["event_type"] for e in events].count("POSE_RECOVERED") == 1
         assert self.runtime.list_snapshots()[0]["pose_state"] == "live"
