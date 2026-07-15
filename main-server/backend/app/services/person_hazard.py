@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.config import settings
+from app.db.mvp.evidence import MvpEvidenceRepository
 from app.db.repo_bridge import evidence_repo, safety_stop_repo
 from app.services import evidence_runtime
 from app.services import orchestration_state as orch_state
@@ -201,7 +202,11 @@ def on_robot_task_terminal(robot_id: str, *, conn=None) -> None:
 
 
 def mark_task_needs_attention(conn, task_id: int, *, reason: str, robot_id: str | None = None) -> None:
-    orch = evidence_repo(conn).get_orchestration(task_id)
+    repo = evidence_repo(conn)
+    if isinstance(repo, MvpEvidenceRepository) and getattr(conn, "is_postgres", False) is True:
+        orch = repo.lock_orchestration(task_id)
+    else:
+        orch = repo.get_orchestration(task_id)
     if not orch:
         return
     orch = dict(orch)
@@ -253,6 +258,14 @@ def reconcile_startup_person_hazard_safety(conn) -> int:
             if (
                 kind not in _PHYSICAL_MOTION_KINDS
                 or str(step.get("status") or "").upper() not in _ACTIVE_MOTION_STATES
+            ):
+                continue
+        elif phase == orch_state.PHASE_ADVANCING:
+            kind = str(step.get("kind") or "")
+            command_id = str(step.get("command_id") or "")
+            if (
+                kind not in _PHYSICAL_MOTION_KINDS
+                or str(step.get("status") or "").lower() != "transition_claimed"
             ):
                 continue
         elif phase == orch_state.PHASE_CANCEL_REQUESTED:

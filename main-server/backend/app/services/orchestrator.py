@@ -37,6 +37,115 @@ TERMINAL_LEG_STATES = TERMINAL_STEP_STATES
 _transition_locks: defaultdict[int, threading.RLock] = defaultdict(threading.RLock)
 
 
+def _locked_current_orchestration(
+    conn,
+    task_id: int,
+    fallback: dict[str, Any],
+) -> dict[str, Any] | None:
+    repo = evidence_repo(conn)
+    if isinstance(repo, MvpEvidenceRepository) and getattr(conn, "is_postgres", False) is True:
+        return repo.lock_orchestration(task_id)
+    return fallback
+
+
+def _claimed_transition_id(
+    claimed: dict[str, Any],
+) -> str:
+    steps = orch_state.get_steps(claimed)
+    step_index = orch_state.get_step_index(claimed)
+    if step_index >= len(steps):
+        return ""
+    return str(steps[step_index].get("transition_id") or "")
+
+
+def _finalize_terminal_transition(
+    conn,
+    task_id: int,
+    transition_id: str,
+    orchestration: dict[str, Any],
+) -> bool:
+    if not transition_id:
+        return False
+    repo = evidence_repo(conn)
+    if isinstance(repo, MvpEvidenceRepository) and getattr(conn, "is_postgres", False) is True:
+        return repo.finalize_terminal_transition(
+            task_id,
+            transition_id,
+            orchestration,
+        )
+    # Fake repositories run in one process and often expose their stored
+    # orchestration object by reference.  Re-reading it after the caller has
+    # prepared the terminal state would therefore compare the object with
+    # itself rather than a detached PostgreSQL snapshot.  The in-process lock
+    # is the fake repository's serialization boundary; the real CAS remains
+    # mandatory on PostgreSQL above.
+    with _transition_locks[task_id]:
+        evidence_runtime.save_orchestration(conn, task_id, orchestration)
+        return True
+
+
+def _lock_step_dispatch_for_finalize(
+    conn,
+    task_id: int,
+    step_index: int,
+    command_id: str,
+    claimed: dict[str, Any],
+) -> dict[str, Any] | None:
+    current = _locked_current_orchestration(conn, task_id, claimed)
+    if current is None or orch_state.normalize_phase(current.get("phase")) != orch_state.PHASE_RUNNING:
+        return None
+    steps = orch_state.get_steps(current)
+    if orch_state.get_step_index(current) != step_index or step_index >= len(steps):
+        return None
+    step = steps[step_index]
+    if str(step.get("command_id") or "") != command_id or str(step.get("status") or "") != "dispatching":
+        return None
+    return current
+
+
+def _fail_close_current_terminal_claim(conn, task_id: int, event: dict[str, Any]) -> None:
+    if getattr(conn, "is_postgres", False) is not True:
+        return
+    command_id = str(event.get("command_id") or "")
+    event_name = str(event.get("event") or event.get("state") or event.get("status") or "").upper()
+    if event_name in {"CANCELED", "STOPPED"}:
+        event_name = "CANCELLED"
+    if not command_id or not event_name:
+        return
+    try:
+        conn.rollback()
+        repo = evidence_repo(conn)
+        current = repo.lock_orchestration(task_id)
+        if current is None or orch_state.normalize_phase(current.get("phase")) != orch_state.PHASE_ADVANCING:
+            conn.rollback()
+            return
+        steps = orch_state.get_steps(current)
+        step_index = orch_state.get_step_index(current)
+        if step_index >= len(steps):
+            conn.rollback()
+            return
+        step = steps[step_index]
+        transition_id = f"{task_id}:{step_index}:{command_id}:{event_name}"
+        if (
+            str(step.get("status") or "") != "transition_claimed"
+            or str(step.get("transition_id") or "") != transition_id
+        ):
+            conn.rollback()
+            return
+        orch_state.set_phase(current, orch_state.PHASE_AWAITING_OPERATOR)
+        current["recovery"] = {
+            "reason": "terminal_transition_error",
+            "command_id": command_id,
+            "event": event_name,
+            "step_index": step_index,
+        }
+        repo.save_orchestration(task_id, current)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception("failed to hold task %s after terminal callback error", task_id)
+
+
 def _claim_terminal_transition(conn, task_id: int, command_id: str, event_name: str) -> dict[str, Any] | None:
     repo = evidence_repo(conn)
     if isinstance(repo, MvpEvidenceRepository) and getattr(conn, "is_postgres", False) is True:
@@ -49,6 +158,11 @@ def _claim_terminal_transition(conn, task_id: int, command_id: str, event_name: 
         if not task:
             return None
         orch = _orch(task)
+        if orch_state.normalize_phase(orch.get("phase")) not in {
+            orch_state.PHASE_RUNNING,
+            orch_state.PHASE_CANCEL_REQUESTED,
+        }:
+            return None
         steps = orch_state.get_steps(orch)
         index = orch_state.get_step_index(orch)
         if index >= len(steps):
@@ -70,6 +184,8 @@ def _claim_step_dispatch(conn, task_id: int, robot_id: str, step_index: int) -> 
     if not task:
         return None
     orch = _orch(task)
+    if orch_state.normalize_phase(orch.get("phase")) != orch_state.PHASE_RUNNING:
+        return None
     steps = orch_state.get_steps(orch)
     if step_index >= len(steps):
         return None
@@ -84,6 +200,8 @@ def _claim_step_dispatch(conn, task_id: int, robot_id: str, step_index: int) -> 
         if not task:
             return None
         orch = _orch(task)
+        if orch_state.normalize_phase(orch.get("phase")) != orch_state.PHASE_RUNNING:
+            return None
         steps = orch_state.get_steps(orch)
         if orch_state.get_step_index(orch) != step_index or step_index >= len(steps):
             return None
@@ -367,6 +485,7 @@ def _hold_for_evidence_gate(
     step_index: int,
     decision: dict[str, Any],
     hold_reason: str = "evidence_gate",
+    transition_id: str | None = None,
 ) -> dict[str, Any] | None:
     robot_id = task.get("assigned_robot_id")
     orch_state.set_phase(orch, orch_state.PHASE_AWAITING_OPERATOR)
@@ -378,7 +497,11 @@ def _hold_for_evidence_gate(
         "gate_decision": decision,
     }
     orch_state.set_steps(orch, steps)
-    evidence_runtime.save_orchestration(conn, task_id, orch)
+    if transition_id:
+        if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+            return None
+    else:
+        evidence_runtime.save_orchestration(conn, task_id, orch)
     event_repo(conn).append(
         event_type=orch_state.EVENT_AWAITING_OPERATOR,
         task_id=task_id,
@@ -421,6 +544,8 @@ def dispatch_current_step(conn, task_id: int) -> str:
         raise HTTPException(status_code=409, detail="task has no robot")
 
     orch = _orch(task)
+    if orch_state.normalize_phase(orch.get("phase")) != orch_state.PHASE_RUNNING:
+        return ""
     steps = orch_state.get_steps(orch)
     step_index = orch_state.get_step_index(orch)
     if step_index >= len(steps):
@@ -494,6 +619,18 @@ def dispatch_current_step(conn, task_id: int) -> str:
         task_id=task_id,
     )
     result = command_service.dispatch_robot_command(conn, payload, request=None)
+    current_orch = _lock_step_dispatch_for_finalize(
+        conn,
+        task_id,
+        step_index,
+        command_id,
+        orch,
+    )
+    if current_orch is None:
+        return command_id
+    orch = current_orch
+    steps = orch_state.get_steps(orch)
+    step = steps[step_index]
     if not result.accepted:
         step["status"] = "FAILED"
         orch_state.set_phase(orch, orch_state.PHASE_FAILED)
@@ -521,7 +658,7 @@ def dispatch_current_step(conn, task_id: int) -> str:
 dispatch_current_leg = dispatch_current_step
 
 
-def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: str = "callback") -> dict[str, Any] | None:
+def _advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: str = "callback") -> dict[str, Any] | None:
     tasks = task_repo(conn)
     task = _task(conn, task_id)
     if not task or task["status"] not in {"RUNNING"}:
@@ -551,6 +688,7 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
         claimed_orch = _claim_terminal_transition(conn, task_id, str(event_command_id), event_name)
         if claimed_orch is None:
             return None
+        transition_id = _claimed_transition_id(claimed_orch)
         orch = claimed_orch
         steps = orch_state.get_steps(orch)
         step_index = orch_state.get_step_index(orch)
@@ -564,7 +702,8 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
             "robot_id": robot_id,
             "cargo_state": "UNKNOWN",
         }
-        evidence_runtime.save_orchestration(conn, task_id, orch)
+        if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+            return None
         event_repo(conn).append(
             event_type=orch_state.EVENT_AWAITING_OPERATOR,
             task_id=task_id,
@@ -581,6 +720,7 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
             claimed_orch = _claim_terminal_transition(conn, task_id, str(event_command_id), event_name)
             if claimed_orch is None:
                 return None
+            transition_id = _claimed_transition_id(claimed_orch)
             orch = claimed_orch
             steps = orch_state.get_steps(orch)
             step_index = orch_state.get_step_index(orch)
@@ -599,7 +739,8 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
                 "cargo_state": "UNKNOWN",
                 "command_id": str(event_command_id),
             }
-            evidence_runtime.save_orchestration(conn, task_id, orch)
+            if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+                return None
             event_repo(conn).append(
                 event_type=orch_state.EVENT_AWAITING_OPERATOR,
                 task_id=task_id,
@@ -614,6 +755,7 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
             claimed_orch = _claim_terminal_transition(conn, task_id, str(event_command_id), event_name)
             if claimed_orch is None:
                 return None
+            transition_id = _claimed_transition_id(claimed_orch)
             orch = claimed_orch
             steps = orch_state.get_steps(orch)
             step_index = orch_state.get_step_index(orch)
@@ -631,7 +773,8 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
                     "event": event,
                 }
                 orch_state.set_phase(orch, orch_state.PHASE_DONE)
-                evidence_runtime.save_orchestration(conn, task_id, orch)
+                if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+                    return None
                 result = task_service.complete_task(conn, task_id, source=source)
             elif cargo_state != "EMPTY":
                 orch_state.set_phase(orch, orch_state.PHASE_AWAITING_OPERATOR)
@@ -640,11 +783,13 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
                     "robot_id": robot_id,
                     "cargo_state": cargo_state,
                 }
-                evidence_runtime.save_orchestration(conn, task_id, orch)
+                if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+                    return None
                 result = _task(conn, task_id)
             else:
                 orch_state.set_phase(orch, "CANCELLED")
-                evidence_runtime.save_orchestration(conn, task_id, orch)
+                if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+                    return None
                 tasks.set_status(task_id, "CANCELLED", clear_robot=True)
                 if robot_id:
                     robot_repo(conn).set_task(str(robot_id), "IDLE", None)
@@ -662,23 +807,23 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
                 },
             )
             return result
-        if event_name in _step_done_events(str(step.get("kind") or "move_to_point")):
-            orch_state.set_phase(orch, orch_state.PHASE_RUNNING)
-            orch.pop("stop_request", None)
-            evidence_runtime.save_orchestration(conn, task_id, orch)
-        else:
+        if event_name not in _step_done_events(str(step.get("kind") or "move_to_point")):
             return None
     terminal_event = event_name in _step_done_events(str(step.get("kind") or "move_to_point")) or event_name in {"FAILED", "ABORTED", "REJECTED", "CANCELLED"}
+    transition_id = ""
     if terminal_event:
         if not event_command_id:
             return None
         claimed_orch = _claim_terminal_transition(conn, task_id, str(event_command_id), event_name)
         if claimed_orch is None:
             return None
+        transition_id = _claimed_transition_id(claimed_orch)
         orch = claimed_orch
         steps = orch_state.get_steps(orch)
         step_index = orch_state.get_step_index(orch)
         step = steps[step_index]
+        if phase == orch_state.PHASE_CANCEL_REQUESTED:
+            orch.pop("stop_request", None)
 
     task = _task(conn, task_id) or task
     command_def_id = evidence_runtime.resolve_command_def_id(
@@ -699,7 +844,8 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
             orch["return_status"] = "PARK_FAILED"
             orch["parking_error"] = {"state": event_name, "reason": "return_to_home_failed", "event": event}
             orch_state.set_phase(orch, orch_state.PHASE_DONE)
-            evidence_runtime.save_orchestration(conn, task_id, orch)
+            if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+                return None
             return task_service.complete_task(conn, task_id, source=source)
         event_payload = event.get("event") if isinstance(event.get("event"), dict) else event
         reason = str((event_payload or {}).get("reason") or "").lower()
@@ -710,7 +856,8 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
                 "reason": "movement_estop",
                 "robot_id": task.get("assigned_robot_id"),
             }
-            evidence_runtime.save_orchestration(conn, task_id, orch)
+            if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+                return None
             robot_id = task.get("assigned_robot_id")
             event_repo(conn).append(
                 event_type=orch_state.EVENT_AWAITING_OPERATOR,
@@ -730,7 +877,8 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
             return _task(conn, task_id)
 
         orch_state.set_phase(orch, event_name)
-        evidence_runtime.save_orchestration(conn, task_id, orch)
+        if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+            return None
         tasks.set_status(task_id, "FAILED", clear_robot=True)
         robot_id = task.get("assigned_robot_id")
         if robot_id:
@@ -781,6 +929,7 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
                     step_index=step_index,
                     decision=decision,
                     hold_reason="orchestration_migration_required",
+                    transition_id=transition_id,
                 )
                 return _task(conn, task_id)
 
@@ -805,6 +954,7 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
                     steps=steps,
                     step_index=step_index,
                     decision=decision,
+                    transition_id=transition_id,
                 )
                 return _task(conn, task_id)
         elif action == "unload":
@@ -824,7 +974,8 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
         if bool(orch.get("business_completed")):
             orch["return_status"] = "PARKED"
         orch_state.set_phase(orch, orch_state.PHASE_DONE)
-        evidence_runtime.save_orchestration(conn, task_id, orch)
+        if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+            return None
         finished = task_service.complete_task(conn, task_id, source=source)
         robot_id = task.get("assigned_robot_id")
         if robot_id:
@@ -839,7 +990,13 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
         )
         return finished
 
-    evidence_runtime.save_orchestration(conn, task_id, orch)
+    if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+        return None
+    # The next Movement request must not run while the PostgreSQL task lock is
+    # held.  A crash after this short commit leaves a RUNNING/pending step that
+    # poll_running_tasks resumes with the same deterministic command id.
+    if getattr(conn, "is_postgres", False) is True:
+        conn.commit()
     dispatch_current_step(conn, task_id)
     event_repo(conn).append(
         event_type="TASK_STEP_DONE",
@@ -849,6 +1006,19 @@ def advance_on_command_event(conn, task_id: int, event: dict[str, Any], source: 
         payload={"task_id": task_id, "step_index": step_index, "cursor": step_index, "event": event},
     )
     return _task(conn, task_id)
+
+
+def advance_on_command_event(
+    conn,
+    task_id: int,
+    event: dict[str, Any],
+    source: str = "callback",
+) -> dict[str, Any] | None:
+    try:
+        return _advance_on_command_event(conn, task_id, event, source=source)
+    except Exception:
+        _fail_close_current_terminal_claim(conn, task_id, event)
+        raise
 
 
 advance_task = advance_on_command_event
@@ -886,9 +1056,9 @@ def poll_running_tasks(conn) -> int:
         if step_index >= len(steps):
             continue
         step = steps[step_index]
-        if step.get("status") == "dispatching":
-            # Crash after the durable claim but before HTTP: retry the exact
-            # same command id; Movement receives an idempotency key.
+        if step.get("status") in {"pending", "dispatching"}:
+            # Recover either side of the durable dispatch claim. Deterministic
+            # command ids keep the retry idempotent.
             dispatch_current_step(conn, int(task["task_id"]))
             continue
         if step.get("status") not in {"dispatched", "RUNNING"} or not step.get("command_id"):

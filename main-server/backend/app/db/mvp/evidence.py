@@ -121,6 +121,8 @@ class MvpEvidenceRepository:
         orchestration = self.lock_orchestration(task_id)
         if orchestration is None:
             return None
+        if str(orchestration.get("phase") or "") not in {"RUNNING", "CANCEL_REQUESTED"}:
+            return None
         steps = orchestration.get("steps") if isinstance(orchestration.get("steps"), list) else orchestration.get("legs") or []
         index = int(orchestration.get("step_index", orchestration.get("cursor", 0)) or 0)
         if index >= len(steps):
@@ -138,6 +140,32 @@ class MvpEvidenceRepository:
         # Short transaction boundary: never hold a DB lock across Movement HTTP.
         self.conn.commit()
         return orchestration
+
+    def finalize_terminal_transition(
+        self,
+        task_id: int,
+        transition_id: str,
+        orchestration: dict[str, Any],
+    ) -> bool:
+        """Persist a claimed callback transition only if its short CAS still wins."""
+        current = self.lock_orchestration(task_id)
+        if current is None or str(current.get("phase") or "") != "ADVANCING":
+            self.conn.rollback()
+            return False
+        steps = current.get("steps") if isinstance(current.get("steps"), list) else current.get("legs") or []
+        index = int(current.get("step_index", current.get("cursor", 0)) or 0)
+        if index >= len(steps):
+            self.conn.rollback()
+            return False
+        step = steps[index]
+        if (
+            str(step.get("status") or "") != "transition_claimed"
+            or str(step.get("transition_id") or "") != transition_id
+        ):
+            self.conn.rollback()
+            return False
+        self.save_orchestration(task_id, orchestration)
+        return True
 
     def claim_recovery_terminal_transition(
         self, task_id: int, command_id: str, event_name: str
@@ -200,6 +228,8 @@ class MvpEvidenceRepository:
         if isinstance(orchestration, str):
             orchestration = json.loads(orchestration)
         orchestration = json.loads(json.dumps(orchestration))
+        if str(orchestration.get("phase") or "") != "RUNNING":
+            return None
         steps = orchestration.get("steps") if isinstance(orchestration.get("steps"), list) else orchestration.get("legs") or []
         index = int(orchestration.get("step_index", orchestration.get("cursor", 0)) or 0)
         if index != step_index or index >= len(steps):
