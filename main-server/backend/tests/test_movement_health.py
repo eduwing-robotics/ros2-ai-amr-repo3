@@ -14,7 +14,13 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.core.config import settings
-from app.services.movement_health import health_bases_for, health_urls_for, http_health
+from app.services.movement_health import (
+    _probe_health_url,
+    _probe_pose_as_health,
+    health_bases_for,
+    health_urls_for,
+    http_health,
+)
 
 BASE = "http://nav.local:8001/movement-api/v1"
 
@@ -105,6 +111,22 @@ class MovementHealthTest(unittest.TestCase):
         with patch("app.services.movement_health.urlopen") as urlopen:
             urlopen.return_value.__enter__.return_value.read.return_value = b"{}"
             result = http_health("tb3_burger_01")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["estop_state"], "unknown")
+
+    def test_non_object_http_health_payload_reports_estop_unknown(self) -> None:
+        with patch("app.services.movement_health.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b"[]"
+            result = _probe_health_url("tb3_burger_01", f"{BASE}/health", BASE)
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["estop_state"], "unknown")
+
+    def test_non_object_pose_fallback_payload_is_not_safe(self) -> None:
+        with patch("app.services.movement_health.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b"[]"
+            result = _probe_pose_as_health("tb3_burger_01", BASE)
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["estop_state"], "unknown")

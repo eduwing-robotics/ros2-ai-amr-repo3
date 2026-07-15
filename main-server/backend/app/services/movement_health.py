@@ -216,6 +216,9 @@ def _probe_pose_as_health(robot_id: str, routed_base: str) -> dict[str, Any]:
         with urlopen(req, timeout=settings.movement_health_timeout_sec) as res:
             raw = res.read().decode("utf-8")
         payload = json.loads(raw) if raw else {}
+        if not isinstance(payload, dict):
+            finish_call(ctx, False, "invalid_payload", "pose payload must be an object")
+            return failed_health(robot_id, url, "pose payload must be an object")
         pose = payload.get("pose")
         localized = bool(payload.get("localized")) or bool(pose)
         finish_call(ctx, True, 200, "pose fallback ok")
@@ -260,13 +263,7 @@ def failed_health(robot_id: str, url: str, error: str) -> dict[str, Any]:
         "error": error,
         "checked_at": now_iso(),
         "is_emergency": robot_is_emergency(robot_id),
-        "estop_state": (
-            "active"
-            if local_estop is True
-            else "unknown"
-            if local_estop is None
-            else "clear"
-        ),
+        "estop_state": "active" if local_estop is True else "unknown",
     }
 
 
