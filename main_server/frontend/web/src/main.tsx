@@ -15,6 +15,7 @@ import "./styles/admin-shell.css";
 import "./styles/operator-shell.css";
 import "./styles/operations-enhancements.css";
 import "./styles/motion.css";
+import "./styles/adobe-theme.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

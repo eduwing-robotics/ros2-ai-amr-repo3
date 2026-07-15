@@ -166,3 +166,29 @@ test("맵·카메라·작업 큐는 크기 조절되고 Grid와 이벤트 등급
   await expect(page.locator(".event-row--err")).toHaveCount(1);
   await expect(page.locator(".event-row--warn")).toHaveCount(1);
 });
+
+
+test("Adobe Industrial Signal 토큰과 위험·주의 비색상 단서가 적용된다", async ({ page }) => {
+  await mockMainApi(page, {
+    events: [
+      { event_id: 1, created_at: "2026-07-15T10:00:00", event_type: "ROBOT_ESTOP", message: "비상 정지" },
+      { event_id: 2, created_at: "2026-07-15T10:01:00", event_type: "POSE_STALE", message: "위치 수신 지연" },
+    ],
+  });
+  await page.goto("/operate/events");
+
+  const tokens = await page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    return {
+      blue: style.getPropertyValue("--adobe-blue").trim(),
+      cyan: style.getPropertyValue("--adobe-cyan").trim(),
+      teal: style.getPropertyValue("--adobe-teal").trim(),
+      yellow: style.getPropertyValue("--adobe-yellow").trim(),
+      orange: style.getPropertyValue("--adobe-orange").trim(),
+    };
+  });
+  expect(tokens).toEqual({ blue: "#0673b9", cyan: "#27bbd8", teal: "#08a399", yellow: "#f7d000", orange: "#e84314" });
+  await expect(page.locator(".event-row--err .event-severity", { hasText: "위험" })).toBeVisible();
+  await expect(page.locator(".event-row--warn .event-severity", { hasText: "주의" })).toBeVisible();
+  await expect(page.locator(".event-row--err td").first()).toHaveCSS("box-shadow", /rgb/);
+});
