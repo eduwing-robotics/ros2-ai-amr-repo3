@@ -191,7 +191,12 @@ def _orchestration_phase(conn, task_id: int) -> str | None:
 
 
 def complete_task(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
-    task = task_repo(conn).get(task_id)
+    tasks = task_repo(conn)
+    task = (
+        tasks.lock_for_completion(task_id)
+        if getattr(conn, "is_postgres", False) is True
+        else tasks.get(task_id)
+    )
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     if task["status"] != "RUNNING":
@@ -199,6 +204,8 @@ def complete_task(conn, task_id: int, source: str = "operator") -> dict[str, Any
     phase = _orchestration_phase(conn, task_id)
     if phase in HELD_ORCHESTRATION_PHASES:
         raise HTTPException(status_code=409, detail="held_task_complete_blocked_use_recovery")
+    if str(task.get("task_type") or "").upper() in {"INBOUND", "OUTBOUND"} and phase != orch_state.PHASE_DONE:
+        raise HTTPException(status_code=409, detail="orchestrated_task_not_done")
     return _finish_task(conn, task_id, "DONE", source)
 
 

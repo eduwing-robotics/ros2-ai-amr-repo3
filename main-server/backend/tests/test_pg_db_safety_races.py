@@ -27,7 +27,7 @@ from app.db.mvp_repositories import (
     MvpTaskRepository,
 )
 from app.models.schemas import RobotCommandResponse
-from app.services import movement_callbacks, person_hazard, task_recovery, work_orders_pg
+from app.services import inventory_ops, movement_callbacks, person_hazard, task_recovery, work_orders_pg
 from app.services import tasks as task_service
 from tests.pg_fixture import apply_demo_fixture
 
@@ -209,6 +209,95 @@ class PgDbSafetyRaceTest(unittest.TestCase):
                 conn, {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1"}
             )
         self.assertNotEqual(first["tasks"][0]["task_id"], second["tasks"][0]["task_id"])
+
+    def test_concurrent_inbound_completion_applies_inventory_exactly_once(self) -> None:
+        with write_transaction() as conn:
+            task_id = MvpTaskRepository(conn).create(
+                {
+                    "task_type": "INBOUND",
+                    "status": "RUNNING",
+                    "robot_id": "tb3_1",
+                    "item_id": "BOX-A",
+                    "quantity": 1,
+                    "from_location_id": "INBOUND_01",
+                    "from_floor": DEFAULT_FLOOR,
+                    "to_location_id": "STORAGE_S3",
+                    "to_floor": DEFAULT_FLOOR,
+                }
+            )
+            MvpEvidenceRepository(conn).save_orchestration(
+                task_id,
+                {"phase": "DONE", "step_index": 0, "steps": []},
+            )
+
+        inventory_reads = threading.Barrier(2)
+        original_inventory_task_repo = inventory_ops.MvpTaskRepository
+
+        class SynchronizedInventoryTaskRepository(original_inventory_task_repo):
+            def get(self, locked_task_id: int):
+                task = super().get(locked_task_id)
+                try:
+                    inventory_reads.wait(timeout=1)
+                except threading.BrokenBarrierError:
+                    pass
+                return task
+
+        start = threading.Barrier(2)
+        results: list[object] = []
+        results_lock = threading.Lock()
+
+        def complete() -> None:
+            try:
+                start.wait(timeout=10)
+                with write_transaction() as conn:
+                    result: object = task_service.complete_task(
+                        conn, task_id, source="pg_completion_race"
+                    )
+            except Exception as exc:
+                result = exc
+            with results_lock:
+                results.append(result)
+
+        with patch.object(
+            inventory_ops,
+            "MvpTaskRepository",
+            SynchronizedInventoryTaskRepository,
+        ):
+            threads = [threading.Thread(target=complete) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive(), "completion contender did not finish")
+
+        self.assertEqual(sum(isinstance(result, dict) for result in results), 1)
+        self.assertEqual(
+            sum(
+                isinstance(result, HTTPException) and result.status_code == 409
+                for result in results
+            ),
+            1,
+        )
+        with transaction() as conn:
+            quantity = conn.execute(
+                """
+                SELECT quantity FROM inventory
+                WHERE item_id = %s AND location_id = %s AND floor = %s
+                """,
+                ("BOX-A", "STORAGE_S3", DEFAULT_FLOOR),
+            ).fetchone()["quantity"]
+            change_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM item_change_logs WHERE task_id = %s",
+                (task_id,),
+            ).fetchone()["count"]
+            status = conn.execute(
+                "SELECT status FROM tasks WHERE id = %s",
+                (task_id,),
+            ).fetchone()["status"]
+
+        self.assertEqual(quantity, 1)
+        self.assertEqual(change_count, 1)
+        self.assertEqual(status, "COMPLETED")
 
     def test_recovery_callback_and_poller_finalize_exactly_one_operator_hold(self) -> None:
         with write_transaction() as conn:

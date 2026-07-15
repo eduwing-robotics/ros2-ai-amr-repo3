@@ -384,6 +384,32 @@ class HeldCompleteTaskTest(unittest.TestCase):
                 task_service.complete_task(conn, 1)
         self.assertEqual(ctx.exception.detail, "held_task_complete_blocked_use_recovery")
 
+    def test_inout_complete_is_blocked_before_orchestration_done(self) -> None:
+        conn = MagicMock()
+        task = {"task_id": 1, "task_type": "INBOUND", "status": "RUNNING"}
+        with patch.object(task_service, "task_repo") as task_repo, patch.object(
+            task_service, "_orchestration_phase", return_value="RUNNING"
+        ), patch.object(task_service, "_finish_task") as finish:
+            task_repo.return_value.get.return_value = task
+            with self.assertRaises(HTTPException) as ctx:
+                task_service.complete_task(conn, 1)
+
+        self.assertEqual(ctx.exception.detail, "orchestrated_task_not_done")
+        finish.assert_not_called()
+
+    def test_inout_complete_is_allowed_after_orchestration_done(self) -> None:
+        conn = MagicMock()
+        task = {"task_id": 1, "task_type": "INBOUND", "status": "RUNNING"}
+        completed = {**task, "status": "DONE"}
+        with patch.object(task_service, "task_repo") as task_repo, patch.object(
+            task_service, "_orchestration_phase", return_value="DONE"
+        ), patch.object(task_service, "_finish_task", return_value=completed) as finish:
+            task_repo.return_value.get.return_value = task
+            result = task_service.complete_task(conn, 1)
+
+        self.assertEqual(result, completed)
+        finish.assert_called_once_with(conn, 1, "DONE", "operator")
+
 
 class ActiveCommandProjectionTest(unittest.TestCase):
     def test_active_command_prefers_recovery_command(self) -> None:

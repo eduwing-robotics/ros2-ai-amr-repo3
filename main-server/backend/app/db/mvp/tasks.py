@@ -60,6 +60,18 @@ class MvpTaskRepository:
         row = self.conn.execute("SELECT * FROM tasks WHERE id = %s", (task_id,)).fetchone()
         return self._map(row) if row else None
 
+    def lock_for_completion(self, task_id: int) -> dict[str, Any] | None:
+        """Serialize orchestration claims and terminal inventory application."""
+        self.conn.execute(
+            "SELECT pg_advisory_xact_lock(%s)",
+            (int(task_id),),
+        ).fetchone()
+        row = self.conn.execute(
+            "SELECT * FROM tasks WHERE id = %s FOR UPDATE",
+            (task_id,),
+        ).fetchone()
+        return self._map(row) if row else None
+
     def list(self, limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
         if status:
             rows = self.conn.execute(
