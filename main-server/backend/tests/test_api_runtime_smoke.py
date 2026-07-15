@@ -41,6 +41,19 @@ class ApiRuntimeSmokeTest(unittest.TestCase):
         body = res.json()
         self.assertTrue(body.get("ok"))
 
+    def test_app_is_same_origin_only(self) -> None:
+        same_origin = self.client.get("/health", headers={"Origin": "http://testserver"})
+        self.assertEqual(same_origin.status_code, 200)
+
+        preflight = self.client.options(
+            "/api/v1/status",
+            headers={
+                "Origin": "https://evil.example",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        self.assertNotIn("access-control-allow-origin", preflight.headers)
+
     @patch("app.api.routers.system.fetch_camera_health", return_value={})
     @patch("app.api.routers.system.get_movement_health", return_value={})
     @patch("app.api.routers.system.task_repo")
