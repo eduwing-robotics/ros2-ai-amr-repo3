@@ -615,7 +615,7 @@ def _fail_close_ambiguous_recovery_dispatch(
     try:
         movement_client.estop(robot_id)
         estop_ok = True
-    except MovementClientError:
+    except Exception:
         pass
     held = _hold_recovery_dispatch(
         conn,
@@ -719,10 +719,11 @@ def _enforce_stop_requested_during_dispatch(
     cancel_error: str | None = None
     try:
         stopped = movement_client.cancel_command(robot_id, command_id)
-        cancel_state = str(stopped.get("state") or "").upper()
+        if isinstance(stopped, dict):
+            cancel_state = str(stopped.get("state") or "").upper()
         if cancel_state == "CANCELED" or cancel_state == "STOPPED":
             cancel_state = "CANCELLED"
-    except MovementClientError as exc:
+    except Exception as exc:
         cancel_error = str(exc)
 
     if cancel_state in RECOVERY_TERMINAL_EVENTS - {"STOP_UNCONFIRMED"}:
@@ -739,7 +740,7 @@ def _enforce_stop_requested_during_dispatch(
     try:
         movement_client.estop(robot_id)
         estop_ok = True
-    except MovementClientError as exc:
+    except Exception as exc:
         estop_error = str(exc)
 
     if estop_ok:

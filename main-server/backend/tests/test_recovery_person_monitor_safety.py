@@ -10,7 +10,6 @@ from fastapi import HTTPException
 
 from app.models.schemas import RobotCommandResponse
 from app.services import person_hazard, task_recovery
-from app.services.movement import MovementClientError
 
 
 @pytest.fixture(autouse=True)
@@ -125,7 +124,7 @@ def test_stop_requested_during_dispatch_is_enforced_before_response_returns() ->
         patch.object(
             task_recovery.movement_client,
             "cancel_command",
-            side_effect=MovementClientError("first cancel unavailable"),
+            side_effect=RuntimeError("first cancel unavailable"),
         ) as cancel,
         patch.object(task_recovery.movement_client, "estop", return_value={"estopped": True}) as estop,
         pytest.raises(HTTPException) as exc_info,
