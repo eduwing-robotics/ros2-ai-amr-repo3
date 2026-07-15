@@ -180,13 +180,17 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertTrue(robot_is_emergency("r1"))
         self.assertTrue(robot_is_emergency("r2"))
 
+    @patch("app.domains.movement.router.get_movement_health")
     @patch("app.domains.movement.router.movement_client")
     @patch("app.domains.movement.router.operational_events")
     @patch("app.domains.movement.router.postgres_robots")
-    def test_clear_estop_all_robots_records_event(self, robots, operational_events, movement_client) -> None:
+    def test_clear_estop_all_robots_records_event(
+        self, robots, operational_events, movement_client, get_movement_health
+    ) -> None:
         robots.list_robots = self.robot.list
         operational_events.append = self.event.append
         self.robot.list.return_value = [{"robot_id": "r1"}]
+        get_movement_health.return_value = {"r1": {"ok": True, "robot_online": True}}
         set_robot_emergency("r1", True)
         movement_client.clear_estop.return_value = {"cleared": True}
 
@@ -197,13 +201,17 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertEqual(self.event.append.call_args.kwargs["event_type"], "ROBOT_CLEAR_ESTOP")
         self.assertFalse(robot_is_emergency("r1"))
 
+    @patch("app.domains.movement.router.get_movement_health")
     @patch("app.domains.movement.router.movement_client")
     @patch("app.domains.movement.router.operational_events")
     @patch("app.domains.movement.router.postgres_robots")
-    def test_failed_clear_keeps_main_emergency_latch(self, robots, operational_events, movement_client) -> None:
+    def test_failed_clear_keeps_main_emergency_latch(
+        self, robots, operational_events, movement_client, get_movement_health
+    ) -> None:
         robots.list_robots = self.robot.list
         operational_events.append = self.event.append
         self.robot.list.return_value = [{"robot_id": "r1"}]
+        get_movement_health.return_value = {"r1": {"ok": True, "robot_online": True}}
         set_robot_emergency("r1", True)
         movement_client.clear_estop.side_effect = MovementClientError("still down")
 
