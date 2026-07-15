@@ -111,16 +111,18 @@ def ingest_robot_status(conn, robot_name: str, payload: dict[str, Any]) -> None:
 
 def estop_all_robots(conn) -> list[dict[str, Any]]:
     """Request estop for every registered robot and record outcomes."""
-    from app.services.person_hazard import mark_running_tasks_needs_attention
+    from app.services.person_hazard import mark_running_tasks_needs_attention, on_robot_task_terminal
 
     mark_running_tasks_needs_attention(conn, reason="operator_estop")
     robots = robot_repo(conn).list()
     results: list[dict[str, Any]] = []
+    stopped_robot_ids: list[str] = []
     for robot in robots:
         robot_id = robot["robot_id"]
         try:
             payload = movement_client.estop(robot_id)
             set_robot_emergency(robot_id, True)
+            stopped_robot_ids.append(str(robot_id))
             results.append({"robot_id": robot_id, "ok": True, "attempted": True, "state": "active", "response": payload})
             event_repo(conn).append(
                 event_type="ROBOT_ESTOP",
@@ -131,6 +133,10 @@ def estop_all_robots(conn) -> list[dict[str, Any]]:
         except MovementClientError as exc:
             set_robot_emergency(robot_id, None)
             results.append({"robot_id": robot_id, "ok": False, "attempted": True, "state": "unknown", "error": str(exc)})
+    # Remote monitor cleanup is lower priority than physical stop and runs only
+    # after every task hold is committed and all fleet E-stop calls finish.
+    for robot_id in stopped_robot_ids:
+        on_robot_task_terminal(robot_id, conn=conn)
     clear_cache()
     return results
 

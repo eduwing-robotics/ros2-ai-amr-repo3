@@ -199,6 +199,42 @@ def test_restart_cancel_requested_motion_still_fails_closed() -> None:
     assert repo.save_orchestration.call_args.args[1]["phase"] == "AWAITING_OPERATOR"
 
 
+@pytest.mark.parametrize(
+    "recovery",
+    [
+        {
+            "strategy": "safe_move",
+            "active_robot_id": "tb3_1",
+            "active_command_id": "cmd-recovery-ambiguous",
+            "active_command_kind": "move_to_point",
+            "dispatch_state": "DISPATCHING",
+        },
+        {
+            "strategy": "manual_abort",
+            "active_robot_id": "tb3_1",
+            "active_command_kind": "manual_stop",
+            "dispatch_state": "ABORT_STOP_REQUESTED",
+        },
+    ],
+)
+def test_restart_ambiguous_recovery_io_estops_and_holds_without_redispatch(
+    recovery: dict,
+) -> None:
+    task = _task(phase="RECOVERY_RUNNING")
+    task["preset_snapshot"]["_orchestration"]["recovery"] = recovery
+
+    result, repo, stop_repo, estop, rearm, dispatch = _reconcile(task)
+
+    assert result == 1
+    estop.assert_called_once_with("tb3_1")
+    rearm.assert_not_called()
+    dispatch.assert_not_called()
+    stop_repo.open_from_evidence.assert_called_once_with(22)
+    saved = repo.save_orchestration.call_args.args[1]
+    assert saved["phase"] == "AWAITING_OPERATOR"
+    assert saved["recovery"]["reason"] == "person_monitor_outage"
+
+
 def test_restart_reconciliation_respects_explicitly_disabled_person_hazard() -> None:
     with (
         patch.object(ph, "settings", person_hazard_enabled=False),

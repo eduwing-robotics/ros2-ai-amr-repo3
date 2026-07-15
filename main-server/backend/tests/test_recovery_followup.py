@@ -118,6 +118,51 @@ class RecoveryPhaseGuardTest(unittest.TestCase):
 
         manual_stop.assert_called_once_with("r1", {"robot_name": "r1"})
 
+    def test_manual_abort_commits_stop_intent_before_http_then_finalizes_exact_claim(self) -> None:
+        conn = MagicMock()
+        tasks = MagicMock()
+        tasks.get.return_value = {"task_id": 1, "status": "RUNNING", "assigned_robot_id": "r1"}
+        robots = MagicMock()
+        evidence = MagicMock()
+        state = {"phase": "AWAITING_OPERATOR", "recovery": {"reason": "operator_estop"}}
+        evidence.get_orchestration.side_effect = lambda _task_id: copy.deepcopy(state)
+
+        def save(_conn, _task_id, orchestration):
+            state.clear()
+            state.update(copy.deepcopy(orchestration))
+
+        def stop(robot_id, payload):
+            self.assertEqual(robot_id, "r1")
+            self.assertEqual(payload, {"robot_name": "r1"})
+            self.assertEqual(state["phase"], "RECOVERY_RUNNING")
+            self.assertEqual(state["recovery"]["dispatch_state"], "ABORT_STOP_REQUESTED")
+            conn.commit.assert_called_once_with()
+            return {"accepted": True, "stopped": True, "state": "STOPPED"}
+
+        with (
+            patch.object(recovery, "_assert_needs_attention_phase"),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(recovery, "evidence_repo", return_value=evidence),
+            patch.object(recovery.evidence_runtime, "save_orchestration", side_effect=save),
+            patch.object(recovery.movement_client, "manual_stop", side_effect=stop),
+            patch("app.db.repo_bridge.robot_repo", return_value=robots),
+            patch.object(recovery.person_hazard, "on_robot_task_terminal") as monitor_done,
+        ):
+            result = recovery.execute_recovery(
+                conn,
+                1,
+                cargo_state="LOADED",
+                strategy="manual_abort",
+                checks={"ok": True},
+            )
+
+        self.assertEqual(result["status"], "CANCELLED")
+        self.assertEqual(state["phase"], "ABORTED")
+        self.assertEqual(state["recovery"]["last_recovery_result"], "STOP_CONFIRMED")
+        tasks.set_status.assert_called_once_with(1, "CANCELLED", clear_robot=True)
+        robots.set_task.assert_called_once_with("r1", "IDLE", None)
+        monitor_done.assert_called_once_with("r1", conn=conn)
+
     def test_safe_move_identity_is_committed_before_dispatch(self) -> None:
         conn = MagicMock()
         tasks = MagicMock()
@@ -143,8 +188,8 @@ class RecoveryPhaseGuardTest(unittest.TestCase):
             self.assertIsNone(request)
             self.assertEqual(state["phase"], "RECOVERY_RUNNING")
             self.assertEqual(state["recovery"]["active_command_id"], "cmd-durable-recovery")
-            self.assertEqual(state["recovery"]["dispatch_state"], "PENDING")
-            conn.commit.assert_called_once_with()
+            self.assertEqual(state["recovery"]["dispatch_state"], "DISPATCHING")
+            self.assertEqual(conn.commit.call_count, 2)
             return RobotCommandResponse(
                 command_id=payload.command_id,
                 robot_id=payload.robot_id,

@@ -37,7 +37,9 @@ RECOVERY_TERMINAL_EVENTS = {
     "STOP_UNCONFIRMED",
 }
 RECOVERY_DISPATCH_PENDING = "PENDING"
+RECOVERY_DISPATCHING = "DISPATCHING"
 RECOVERY_DISPATCH_SENT = "SENT"
+RECOVERY_ABORT_STOP_REQUESTED = "ABORT_STOP_REQUESTED"
 _recovery_command_locks: defaultdict[int, threading.RLock] = defaultdict(threading.RLock)
 
 
@@ -286,6 +288,20 @@ def execute_recovery(
     _assert_needs_attention_phase(conn, task_id)
     _assert_recovery_checks(checks)
     if strategy == "manual_abort":
+        plan = preview_recovery_plan(
+            conn,
+            task_id,
+            cargo_state=cargo_state,
+            strategy=strategy,
+        )
+        task = task_repo(conn).get(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="task not found")
+        if task.get("status") != "RUNNING":
+            raise HTTPException(status_code=409, detail="task is not running")
+        robot_id = task.get("assigned_robot_id") or task.get("robot_id")
+        if not robot_id:
+            raise HTTPException(status_code=409, detail="task has no assigned robot")
         with recovery_start_guard(
             conn,
             task_id,
@@ -297,16 +313,56 @@ def execute_recovery(
                 != orch_state.PHASE_AWAITING_OPERATOR
             ):
                 raise HTTPException(status_code=409, detail="recovery_requires_needs_attention_phase")
-            save_recovery_decision(
+            orch = _record_recovery_decision(
                 conn,
                 task_id,
+                orch,
                 cargo_state=cargo_state,
                 strategy=strategy,
                 checks=checks,
+                plan=plan,
             )
-            result = _abort_recovery_task(conn, task_id, cargo_state=cargo_state, checks=checks)
+            recovery = dict(orch.get("recovery") or {})
+            recovery.update(
+                {
+                    "active_command_kind": "manual_stop",
+                    "active_robot_id": str(robot_id),
+                    "dispatch_state": RECOVERY_ABORT_STOP_REQUESTED,
+                    "strategy": strategy,
+                    "cargo_state": cargo_state,
+                }
+            )
+            orch["recovery"] = recovery
+            orch_state.set_phase(orch, orch_state.PHASE_RECOVERY_RUNNING)
+            evidence_runtime.save_orchestration(conn, task_id, orch)
+            evidence_repo(conn).append(
+                task_id=task_id,
+                event_type="RECOVERY_MANUAL_ABORT_STOP_REQUESTED",
+                source="main_recovery",
+                trusted=True,
+                data_json={"robot_id": str(robot_id), "strategy": strategy},
+            )
             conn.commit()
-            return result
+
+        try:
+            _stop_robot_movement(str(robot_id))
+        except HTTPException:
+            conn.rollback()
+            _hold_unconfirmed_manual_abort(conn, task_id, orch)
+            raise
+
+        result = _finalize_manual_abort(
+            conn,
+            task_id,
+            orch,
+            robot_id=str(robot_id),
+            cargo_state=cargo_state,
+            checks=checks,
+        )
+        # Vision disable is remote I/O.  The task cancellation and robot
+        # release above are already committed before this best-effort call.
+        person_hazard.on_robot_task_terminal(str(robot_id), conn=conn)
+        return result
 
     plan = preview_recovery_plan(conn, task_id, cargo_state=cargo_state, strategy=strategy)
     if not plan.get("executable"):
@@ -405,91 +461,217 @@ def _dispatch_persisted_recovery_command(
             task_id=task_id,
         )
 
-    with recovery_command_guard(
+    # Vision is remote I/O. Arm it before taking the short task claim; a
+    # monitor failure may itself E-stop and persist a newer operator hold.
+    if not person_hazard.arm_physical_motion_monitor(
+        conn,
+        robot_id,
+        task_id,
+        command_id,
+        command_kind,
+    ):
+        # A real arm failure has already recorded Main's trusted fail-safe
+        # E-stop/hold on this connection; make that safety decision durable.
+        conn.commit()
+        _hold_recovery_dispatch(
+            conn,
+            task_id,
+            command_id,
+            orch,
+            reason="person_monitor_outage",
+            result="PERSON_MONITOR_UNAVAILABLE",
+            cargo_state=None,
+        )
+        raise HTTPException(status_code=503, detail="person_monitor_unavailable")
+
+    claimed = _claim_recovery_dispatch(conn, task_id, command_id, orch)
+    if claimed is None:
+        raise HTTPException(status_code=409, detail="recovery command superseded")
+
+    try:
+        # The DISPATCHING claim above is durable and its advisory lock has been
+        # released. A synchronous Nav callback or safety hold can now acquire
+        # the same task lock while this network request is in flight.
+        result = command_service.dispatch_robot_command(conn, payload, request=None)
+    except Exception:
+        conn.rollback()
+        _fail_close_ambiguous_recovery_dispatch(
+            conn,
+            task_id,
+            command_id,
+            robot_id,
+            claimed,
+        )
+        raise
+
+    command_id_mismatch = str(result.command_id) != command_id
+    accepted = bool(result.accepted) and not command_id_mismatch
+    finalized = _finalize_recovery_dispatch(
         conn,
         task_id,
         command_id,
-        fallback=orch,
-    ) as latest:
+        claimed,
+        accepted=accepted,
+        command_kind=command_kind,
+    )
+    if not accepted:
+        if finalized:
+            # Best-effort remote cleanup happens only after the short finalize
+            # transaction has released the task lock.
+            person_hazard.disable_monitor(robot_id, conn=conn)
+        if command_id_mismatch:
+            raise HTTPException(status_code=502, detail="recovery command id mismatch")
+    return result
+
+
+def _clear_active_recovery_command(recovery: dict[str, Any]) -> None:
+    recovery.pop("active_command_id", None)
+    recovery.pop("active_command_kind", None)
+    recovery.pop("active_robot_id", None)
+    recovery.pop("active_command_params", None)
+
+
+def _claim_recovery_dispatch(
+    conn,
+    task_id: int,
+    command_id: str,
+    fallback: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Persist PENDING -> DISPATCHING and release the task lock before HTTP."""
+    with recovery_command_guard(conn, task_id, command_id, fallback=fallback) as latest:
         if latest is None:
-            raise HTTPException(status_code=409, detail="recovery command superseded")
-        latest_recovery = dict(latest.get("recovery") or {})
-        if latest_recovery.get("stop_requested") is True:
-            if latest_recovery.get("dispatch_state") == RECOVERY_DISPATCH_PENDING:
-                latest_recovery.pop("active_command_id", None)
-                latest_recovery.pop("active_command_kind", None)
-                latest_recovery.pop("active_robot_id", None)
-                latest_recovery.pop("active_command_params", None)
-                latest_recovery.pop("dispatch_state", None)
-                latest_recovery["cargo_state"] = "UNKNOWN"
-                latest_recovery["reason"] = "operator_safe_stop_before_dispatch"
-                latest["recovery"] = latest_recovery
+            conn.rollback()
+            return None
+        recovery = dict(latest.get("recovery") or {})
+        if recovery.get("stop_requested") is True:
+            if recovery.get("dispatch_state") == RECOVERY_DISPATCH_PENDING:
+                _clear_active_recovery_command(recovery)
+                recovery.pop("dispatch_state", None)
+                recovery["cargo_state"] = "UNKNOWN"
+                recovery["reason"] = "operator_safe_stop_before_dispatch"
+                latest["recovery"] = recovery
                 orch_state.set_phase(latest, orch_state.PHASE_AWAITING_OPERATOR)
                 evidence_runtime.save_orchestration(conn, task_id, latest)
                 conn.commit()
+            else:
+                conn.rollback()
             raise HTTPException(status_code=409, detail="recovery stop already requested")
-
-        if not person_hazard.arm_physical_motion_monitor(
-            conn,
-            robot_id,
-            task_id,
-            command_id,
-            command_kind,
-        ):
-            # The command was never dispatched. Restore a durable operator hold
-            # without discarding the operator's cargo/strategy decision.
-            latest_recovery.pop("active_command_id", None)
-            latest_recovery.pop("active_command_kind", None)
-            latest_recovery.pop("active_robot_id", None)
-            latest_recovery.pop("active_command_params", None)
-            latest_recovery["dispatch_state"] = "REJECTED"
-            latest_recovery["last_recovery_result"] = "PERSON_MONITOR_UNAVAILABLE"
-            latest_recovery["reason"] = "person_monitor_outage"
-            latest["recovery"] = latest_recovery
-            orch_state.set_phase(latest, orch_state.PHASE_AWAITING_OPERATOR)
-            evidence_runtime.save_orchestration(conn, task_id, latest)
-            conn.commit()
-            raise HTTPException(status_code=503, detail="person_monitor_unavailable")
-
-        try:
-            result = command_service.dispatch_robot_command(conn, payload, request=None)
-        except Exception:
+        if recovery.get("dispatch_state") != RECOVERY_DISPATCH_PENDING:
             conn.rollback()
-            raise
-
-        command_id_mismatch = str(result.command_id) != command_id
-        if not result.accepted or command_id_mismatch:
-            latest_recovery.pop("active_command_id", None)
-            latest_recovery.pop("active_command_kind", None)
-            latest_recovery.pop("active_robot_id", None)
-            latest_recovery.pop("active_command_params", None)
-            latest_recovery["dispatch_state"] = "REJECTED"
-            latest_recovery["last_recovery_result"] = "REJECTED"
-            latest["recovery"] = latest_recovery
-            orch_state.set_phase(latest, orch_state.PHASE_AWAITING_OPERATOR)
-            evidence_runtime.save_orchestration(conn, task_id, latest)
-            person_hazard.disable_monitor(robot_id, conn=conn)
-            conn.commit()
-            if command_id_mismatch:
-                raise HTTPException(status_code=502, detail="recovery command id mismatch")
-            return result
-
-        latest_recovery["dispatch_state"] = RECOVERY_DISPATCH_SENT
-        latest["recovery"] = latest_recovery
+            return None
+        recovery["dispatch_state"] = RECOVERY_DISPATCHING
+        latest["recovery"] = recovery
         evidence_runtime.save_orchestration(conn, task_id, latest)
+        conn.commit()
+        return latest
+
+
+def _hold_recovery_dispatch(
+    conn,
+    task_id: int,
+    command_id: str,
+    fallback: dict[str, Any],
+    *,
+    reason: str,
+    result: str,
+    cargo_state: str | None,
+) -> bool:
+    """Fail closed only if the same recovery command still owns the task."""
+    with recovery_command_guard(conn, task_id, command_id, fallback=fallback) as latest:
+        if latest is None:
+            conn.rollback()
+            return False
+        recovery = dict(latest.get("recovery") or {})
+        _clear_active_recovery_command(recovery)
+        recovery["dispatch_state"] = "REJECTED"
+        recovery["last_recovery_result"] = result
+        recovery["reason"] = reason
+        if cargo_state is not None:
+            recovery["cargo_state"] = cargo_state
+        latest["recovery"] = recovery
+        orch_state.set_phase(latest, orch_state.PHASE_AWAITING_OPERATOR)
+        evidence_runtime.save_orchestration(conn, task_id, latest)
+        conn.commit()
+        return True
+
+
+def _fail_close_ambiguous_recovery_dispatch(
+    conn,
+    task_id: int,
+    command_id: str,
+    robot_id: str,
+    fallback: dict[str, Any],
+) -> None:
+    """E-stop an ambiguous HTTP delivery, then persist an operator hold."""
+    estop_ok = False
+    try:
+        movement_client.estop(robot_id)
+        estop_ok = True
+    except MovementClientError:
+        pass
+    held = _hold_recovery_dispatch(
+        conn,
+        task_id,
+        command_id,
+        fallback,
+        reason="recovery_dispatch_ambiguous",
+        result="DISPATCH_ERROR",
+        cargo_state="UNKNOWN",
+    )
+    if held:
         evidence_repo(conn).append(
             task_id=task_id,
-            event_type="RECOVERY_COMMAND_DISPATCHED",
+            event_type="RECOVERY_DISPATCH_AMBIGUOUS_STOP",
             source="main_recovery",
+            severity="CRITICAL",
             trusted=True,
-            data_json={
-                "command_id": command_id,
-                "kind": command_kind,
-                "strategy": latest_recovery.get("strategy"),
-            },
+            data_json={"command_id": command_id, "robot_id": robot_id, "estop_ok": estop_ok},
         )
         conn.commit()
-        return result
+
+
+def _finalize_recovery_dispatch(
+    conn,
+    task_id: int,
+    command_id: str,
+    fallback: dict[str, Any],
+    *,
+    accepted: bool,
+    command_kind: str,
+) -> bool:
+    """Finalize only the exact durable DISPATCHING claim after Movement HTTP."""
+    with recovery_command_guard(conn, task_id, command_id, fallback=fallback) as latest:
+        if latest is None:
+            conn.rollback()
+            return False
+        recovery = dict(latest.get("recovery") or {})
+        if recovery.get("dispatch_state") != RECOVERY_DISPATCHING:
+            conn.rollback()
+            return False
+        if accepted:
+            recovery["dispatch_state"] = RECOVERY_DISPATCH_SENT
+            latest["recovery"] = recovery
+            evidence_runtime.save_orchestration(conn, task_id, latest)
+            evidence_repo(conn).append(
+                task_id=task_id,
+                event_type="RECOVERY_COMMAND_DISPATCHED",
+                source="main_recovery",
+                trusted=True,
+                data_json={
+                    "command_id": command_id,
+                    "kind": command_kind,
+                    "strategy": recovery.get("strategy"),
+                },
+            )
+        else:
+            _clear_active_recovery_command(recovery)
+            recovery["dispatch_state"] = "REJECTED"
+            recovery["last_recovery_result"] = "REJECTED"
+            latest["recovery"] = recovery
+            orch_state.set_phase(latest, orch_state.PHASE_AWAITING_OPERATOR)
+            evidence_runtime.save_orchestration(conn, task_id, latest)
+        conn.commit()
+        return True
 
 
 def _verify_recovery_safety_gate(conn, task_id: int, robot_id: str) -> dict[str, Any]:
@@ -718,38 +900,93 @@ def _stop_robot_movement(robot_id: str) -> None:
         raise HTTPException(status_code=409, detail="recovery_stop_unconfirmed")
 
 
-def _abort_recovery_task(
+def _hold_unconfirmed_manual_abort(
     conn,
     task_id: int,
+    fallback: dict[str, Any],
+) -> bool:
+    """Restore the operator hold after an unconfirmed unlocked stop request."""
+    with recovery_start_guard(conn, task_id, fallback=fallback) as latest:
+        if latest is None:
+            conn.rollback()
+            return False
+        recovery = dict(latest.get("recovery") or {})
+        if (
+            orch_state.normalize_phase(latest.get("phase"))
+            != orch_state.PHASE_RECOVERY_RUNNING
+            or recovery.get("strategy") != "manual_abort"
+            or recovery.get("dispatch_state") != RECOVERY_ABORT_STOP_REQUESTED
+        ):
+            conn.rollback()
+            return False
+        _clear_active_recovery_command(recovery)
+        recovery["dispatch_state"] = "REJECTED"
+        recovery["last_recovery_result"] = "STOP_UNCONFIRMED"
+        recovery["reason"] = "physical_stop_unconfirmed"
+        recovery["cargo_state"] = "UNKNOWN"
+        latest["recovery"] = recovery
+        orch_state.set_phase(latest, orch_state.PHASE_AWAITING_OPERATOR)
+        evidence_runtime.save_orchestration(conn, task_id, latest)
+        evidence_repo(conn).append(
+            task_id=task_id,
+            event_type="RECOVERY_MANUAL_ABORT_STOP_UNCONFIRMED",
+            source="main_recovery",
+            severity="CRITICAL",
+            trusted=True,
+            data_json={"cargo_state": "UNKNOWN"},
+        )
+        conn.commit()
+        return True
+
+
+def _finalize_manual_abort(
+    conn,
+    task_id: int,
+    fallback: dict[str, Any],
     *,
+    robot_id: str,
     cargo_state: CargoState,
     checks: dict[str, bool],
 ) -> dict[str, Any]:
-    _assert_recovery_checks(checks)
-    task = task_repo(conn).get(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="task not found")
-    if task.get("status") != "RUNNING":
-        raise HTTPException(status_code=409, detail="task is not running")
-    robot_id = task.get("assigned_robot_id")
-    if robot_id:
-        _stop_robot_movement(str(robot_id))
-    task_repo(conn).set_status(task_id, "CANCELLED", clear_robot=True)
-    if robot_id:
-        from app.db.repo_bridge import robot_repo
-        robot_repo(conn).set_task(str(robot_id), "IDLE", None)
-        person_hazard.on_robot_task_terminal(str(robot_id))
-    orch = evidence_repo(conn).get_orchestration(task_id) or {}
-    orch = dict(orch)
-    orch["phase"] = "ABORTED"
-    evidence_runtime.save_orchestration(conn, task_id, orch)
-    evidence_repo(conn).append(
-        task_id=task_id,
-        event_type="RECOVERY_MANUAL_ABORT",
-        source="operator",
-        trusted=True,
-        data_json={"cargo_state": cargo_state, "checks": checks},
-    )
+    """Cancel the task only when the exact durable stop intent still wins."""
+    from app.db.repo_bridge import robot_repo
+
+    with recovery_start_guard(conn, task_id, fallback=fallback) as latest:
+        if latest is None:
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="manual_abort_superseded")
+        recovery = dict(latest.get("recovery") or {})
+        if (
+            orch_state.normalize_phase(latest.get("phase"))
+            != orch_state.PHASE_RECOVERY_RUNNING
+            or recovery.get("strategy") != "manual_abort"
+            or recovery.get("dispatch_state") != RECOVERY_ABORT_STOP_REQUESTED
+            or str(recovery.get("active_robot_id") or "") != robot_id
+        ):
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="manual_abort_superseded")
+        task = task_repo(conn).get(task_id)
+        if not task or task.get("status") != "RUNNING":
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="task is not running")
+
+        task_repo(conn).set_status(task_id, "CANCELLED", clear_robot=True)
+        robot_repo(conn).set_task(robot_id, "IDLE", None)
+        _clear_active_recovery_command(recovery)
+        recovery.pop("dispatch_state", None)
+        recovery["last_recovery_result"] = "STOP_CONFIRMED"
+        latest["recovery"] = recovery
+        orch_state.set_phase(latest, orch_state.PHASE_ABORTED)
+        evidence_runtime.save_orchestration(conn, task_id, latest)
+        evidence_repo(conn).append(
+            task_id=task_id,
+            event_type="RECOVERY_MANUAL_ABORT",
+            source="operator",
+            trusted=True,
+            data_json={"cargo_state": cargo_state, "checks": checks},
+        )
+        conn.commit()
+
     return {
         "task_id": task_id,
         "strategy": "manual_abort",

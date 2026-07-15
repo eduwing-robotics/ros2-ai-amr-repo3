@@ -68,11 +68,13 @@ def test_recovery_dispatch_arms_person_monitor_before_movement_request() -> None
             "cmd-recovery",
             "move_to_point",
         )
+        assert state["recovery"]["dispatch_state"] == "PENDING"
         order.append("arm")
         return True
 
     def dispatch(_conn, payload, request=None):
         assert request is None
+        assert state["recovery"]["dispatch_state"] == "DISPATCHING"
         order.append("dispatch")
         return RobotCommandResponse(
             command_id=payload.command_id,
@@ -124,7 +126,8 @@ def test_recovery_monitor_arm_failure_holds_task_without_dispatch() -> None:
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "person_monitor_unavailable"
-    conn.commit.assert_called_once_with()
+    assert conn.commit.call_count == 2
+    conn.rollback.assert_not_called()
     dispatch.assert_not_called()
     estop.assert_not_called()
     assert state["phase"] == "AWAITING_OPERATOR"
@@ -136,7 +139,7 @@ def test_recovery_monitor_arm_failure_holds_task_without_dispatch() -> None:
     assert "active_command_id" not in state["recovery"]
 
 
-@pytest.mark.parametrize("dispatch_state", ["PENDING", "SENT"])
+@pytest.mark.parametrize("dispatch_state", ["PENDING", "DISPATCHING", "SENT"])
 @pytest.mark.parametrize("command_id", ["cmd-recovery", None])
 def test_restart_recovery_motion_estops_and_holds_without_rearm_or_dispatch(
     dispatch_state: str,

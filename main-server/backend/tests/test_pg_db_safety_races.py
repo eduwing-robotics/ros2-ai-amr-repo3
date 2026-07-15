@@ -589,6 +589,7 @@ class PgDbSafetyRaceTest(unittest.TestCase):
         with (
             patch.object(task_recovery, "preview_recovery_plan", return_value=plan),
             patch.object(task_recovery, "_verify_recovery_safety_gate", side_effect=safety_gate),
+            patch.object(person_hazard, "arm_physical_motion_monitor", return_value=True),
             patch.object(task_recovery.command_service, "dispatch_robot_command", side_effect=dispatch) as send,
         ):
             threads = [threading.Thread(target=execute) for _ in range(2)]
@@ -615,6 +616,253 @@ class PgDbSafetyRaceTest(unittest.TestCase):
             "RECOVERY_COMMAND_DISPATCHED",
         ):
             self.assertEqual(sum(row["event_type"] == event_type for row in events), 1)
+
+    def test_recovery_dispatch_releases_task_lock_during_movement_http(self) -> None:
+        with write_transaction() as conn:
+            task_id = MvpTaskRepository(conn).create(
+                {"task_type": "MOVE", "status": "RUNNING", "robot_id": "tb3_1"}
+            )
+            MvpEvidenceRepository(conn).save_orchestration(
+                task_id,
+                {
+                    "phase": "AWAITING_OPERATOR",
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "kind": "move_to_point",
+                            "status": "dispatched",
+                            "command_id": "interrupted-move",
+                        }
+                    ],
+                    "recovery": {"reason": "operator_estop", "robot_id": "tb3_1"},
+                },
+            )
+
+        dispatch_started = threading.Event()
+        hold_committed = threading.Event()
+        results: dict[str, object] = {}
+        plan = {
+            "task_id": task_id,
+            "strategy": "safe_move",
+            "cargo_state": "LOADED",
+            "executable": True,
+            "steps": [
+                {
+                    "kind": "move_to_point",
+                    "params": {"map_id": "robot2_map", "x": 0.0, "y": 0.0, "yaw": 0.0},
+                }
+            ],
+        }
+
+        def blocked_dispatch(_conn, payload, request=None):
+            self.assertIsNone(request)
+            dispatch_started.set()
+            if not hold_committed.wait(timeout=10):
+                raise TimeoutError("task hold could not acquire the dispatch task lock")
+            return RobotCommandResponse(
+                command_id=str(payload.command_id),
+                robot_id=payload.robot_id,
+                kind=payload.kind,
+                accepted=True,
+            )
+
+        def recover() -> None:
+            try:
+                with write_transaction() as conn:
+                    results["recovery"] = task_recovery.execute_recovery(
+                        conn,
+                        task_id,
+                        cargo_state="LOADED",
+                        strategy="safe_move",
+                        checks={"area_clear": True},
+                    )
+            except Exception as exc:
+                results["recovery"] = exc
+
+        def hold() -> None:
+            if not dispatch_started.wait(timeout=10):
+                results["hold"] = TimeoutError("Movement dispatch did not start")
+                hold_committed.set()
+                return
+            try:
+                with write_transaction() as conn:
+                    person_hazard.mark_task_needs_attention(
+                        conn,
+                        task_id,
+                        reason="concurrent_safety_hold",
+                        robot_id="tb3_1",
+                    )
+                results["hold"] = True
+            except Exception as exc:
+                results["hold"] = exc
+            finally:
+                hold_committed.set()
+
+        with (
+            patch.object(task_recovery, "preview_recovery_plan", return_value=plan),
+            patch.object(task_recovery, "_verify_recovery_safety_gate", return_value={"confirmed": True}),
+            patch.object(person_hazard, "arm_physical_motion_monitor", return_value=True),
+            patch.object(task_recovery.command_service, "dispatch_robot_command", side_effect=blocked_dispatch) as send,
+        ):
+            threads = [
+                threading.Thread(target=recover, name="recovery-dispatch"),
+                threading.Thread(target=hold, name="recovery-concurrent-hold"),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive(), "recovery lock contender did not finish")
+
+        self.assertIs(results.get("hold"), True)
+        self.assertIsInstance(results.get("recovery"), dict)
+        send.assert_called_once()
+        with transaction() as conn:
+            orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
+        self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
+        self.assertEqual(orchestration["recovery"]["reason"], "concurrent_safety_hold")
+
+    def test_manual_abort_releases_task_lock_during_manual_stop_http(self) -> None:
+        with write_transaction() as conn:
+            task_id = MvpTaskRepository(conn).create(
+                {"task_type": "MOVE", "status": "RUNNING", "robot_id": "tb3_1"}
+            )
+            MvpEvidenceRepository(conn).save_orchestration(
+                task_id,
+                {
+                    "phase": "AWAITING_OPERATOR",
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "kind": "move_to_point",
+                            "status": "dispatched",
+                            "command_id": "interrupted-move",
+                        }
+                    ],
+                    "recovery": {"reason": "operator_estop", "robot_id": "tb3_1"},
+                },
+            )
+
+        stop_started = threading.Event()
+        hold_committed = threading.Event()
+        results: dict[str, object] = {}
+
+        def blocked_stop(robot_id, payload):
+            self.assertEqual(robot_id, "tb3_1")
+            self.assertEqual(payload, {"robot_name": "tb3_1"})
+            stop_started.set()
+            if not hold_committed.wait(timeout=10):
+                raise TimeoutError("task hold could not acquire the manual-abort task lock")
+            return {"accepted": True, "stopped": True, "state": "STOPPED"}
+
+        def abort() -> None:
+            try:
+                with write_transaction() as conn:
+                    results["abort"] = task_recovery.execute_recovery(
+                        conn,
+                        task_id,
+                        cargo_state="LOADED",
+                        strategy="manual_abort",
+                        checks={"area_clear": True},
+                    )
+            except Exception as exc:
+                results["abort"] = exc
+
+        def hold() -> None:
+            if not stop_started.wait(timeout=10):
+                results["hold"] = TimeoutError("manual stop did not start")
+                hold_committed.set()
+                return
+            try:
+                with write_transaction() as conn:
+                    person_hazard.mark_task_needs_attention(
+                        conn,
+                        task_id,
+                        reason="concurrent_safety_hold",
+                        robot_id="tb3_1",
+                    )
+                results["hold"] = True
+            except Exception as exc:
+                results["hold"] = exc
+            finally:
+                hold_committed.set()
+
+        with patch.object(task_recovery.movement_client, "manual_stop", side_effect=blocked_stop):
+            threads = [
+                threading.Thread(target=abort, name="manual-abort-stop"),
+                threading.Thread(target=hold, name="manual-abort-concurrent-hold"),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive(), "manual-abort lock contender did not finish")
+
+        self.assertIs(results.get("hold"), True)
+        self.assertIsInstance(results.get("abort"), HTTPException)
+        self.assertEqual(results["abort"].detail, "manual_abort_superseded")
+        with transaction() as conn:
+            task = MvpTaskRepository(conn).get(task_id)
+            orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
+        self.assertEqual(task["status"], "RUNNING")
+        self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
+        self.assertEqual(orchestration["recovery"]["reason"], "concurrent_safety_hold")
+
+    def test_fleet_estop_commits_task_holds_before_movement_http(self) -> None:
+        task_id, _command_id = self._create_two_step_move_task()
+        estop_started = threading.Event()
+        lock_reacquired = threading.Event()
+        results: dict[str, object] = {}
+        first_call = True
+
+        def blocked_estop(robot_id):
+            nonlocal first_call
+            if first_call:
+                first_call = False
+                estop_started.set()
+                if not lock_reacquired.wait(timeout=10):
+                    raise TimeoutError("fleet task hold was not committed before E-stop HTTP")
+            return {"estopped": True, "robot_id": robot_id}
+
+        def estop_fleet() -> None:
+            try:
+                with write_transaction() as conn:
+                    results["estop"] = movement_callbacks.estop_all_robots(conn)
+            except Exception as exc:
+                results["estop"] = exc
+
+        def reacquire_task_lock() -> None:
+            if not estop_started.wait(timeout=10):
+                results["lock"] = TimeoutError("fleet E-stop did not start")
+                lock_reacquired.set()
+                return
+            try:
+                with write_transaction() as conn:
+                    MvpEvidenceRepository(conn).lock_orchestration(task_id)
+                results["lock"] = True
+            except Exception as exc:
+                results["lock"] = exc
+            finally:
+                lock_reacquired.set()
+
+        with patch.object(movement_callbacks.movement_client, "estop", side_effect=blocked_estop):
+            threads = [
+                threading.Thread(target=estop_fleet, name="fleet-estop"),
+                threading.Thread(target=reacquire_task_lock, name="fleet-estop-lock-check"),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive(), "fleet E-stop lock check did not finish")
+
+        self.assertIs(results.get("lock"), True)
+        self.assertIsInstance(results.get("estop"), list)
+        self.assertTrue(all(row.get("ok") for row in results["estop"]))
+        with transaction() as conn:
+            orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
+        self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
+        self.assertEqual(orchestration["recovery"]["reason"], "operator_estop")
 
     def test_person_hold_committed_before_terminal_claim_blocks_callback_advance(self) -> None:
         task_id, results, dispatch = self._race_terminal_callback_with_person_hold(

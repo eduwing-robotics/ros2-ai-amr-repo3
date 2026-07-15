@@ -31,7 +31,7 @@ _PHYSICAL_MOTION_KINDS = frozenset({
     "move_to_point", "aruco_align", "dock_transfer", "leave_dock",
 })
 _ACTIVE_MOTION_STATES = frozenset({"DISPATCHING", "DISPATCHED", "RUNNING"})
-_ACTIVE_RECOVERY_DISPATCH_STATES = frozenset({"PENDING", "SENT"})
+_ACTIVE_RECOVERY_DISPATCH_STATES = frozenset({"PENDING", "DISPATCHING", "SENT"})
 
 FORBIDDEN_PAYLOAD_KEYS = frozenset({
     "bbox", "bbox_xyxy", "mask", "mask_rle", "polygon", "raw_detections", "detections",
@@ -227,10 +227,11 @@ def mark_running_tasks_needs_attention(conn, *, reason: str) -> int:
         if orch_state.normalize_phase(orch.get("phase")) == orch_state.PHASE_AWAITING_OPERATOR:
             continue
         mark_task_needs_attention(conn, task_id, reason=reason, robot_id=task.get("assigned_robot_id"))
-        robot_id = task.get("assigned_robot_id")
-        if robot_id:
-            on_robot_task_terminal(str(robot_id), conn=conn)
         count += 1
+    if count:
+        # Fleet E-stop calls Movement only after these holds are durable and
+        # every transaction-scoped task lock has been released.
+        conn.commit()
     return count
 
 
@@ -278,10 +279,15 @@ def reconcile_startup_person_hazard_safety(conn) -> int:
             robot_id = str(recovery.get("active_robot_id") or robot_id)
             kind = str(recovery.get("active_command_kind") or "move_to_point")
             command_id = str(recovery.get("active_command_id") or "")
-            if (
+            dispatch_state = str(recovery.get("dispatch_state") or "").upper()
+            pending_manual_abort = (
+                recovery.get("strategy") == "manual_abort"
+                and kind == "manual_stop"
+                and dispatch_state == "ABORT_STOP_REQUESTED"
+            )
+            if not pending_manual_abort and (
                 kind not in _PHYSICAL_MOTION_KINDS
-                or str(recovery.get("dispatch_state") or "").upper()
-                not in _ACTIVE_RECOVERY_DISPATCH_STATES
+                or dispatch_state not in _ACTIVE_RECOVERY_DISPATCH_STATES
             ):
                 continue
         elif phase == orch_state.PHASE_AWAITING_OPERATOR:
