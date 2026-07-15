@@ -35,13 +35,6 @@ def _post_multipart(
     gateway_hmac_secret: str,
 ) -> requests.Response:
     filename, content_type, image_bytes = image_file
-    if not gateway_hmac_secret:
-        return session.post(
-            url,
-            data=data,
-            files={"image": (filename, image_bytes, content_type)},
-            timeout=timeout,
-        )
     prepared = requests.Request(
         "POST", url, data=data, files={"image": (filename, image_bytes, content_type)}
     ).prepare()
@@ -63,7 +56,7 @@ def post_frame(
     source_id: str,
     image_file: tuple[str, str, bytes],
     timeout: float,
-    gateway_hmac_secret: str = "",
+    gateway_hmac_secret: str,
 ) -> HttpResult:
     try:
         response = _post_multipart(
@@ -99,9 +92,9 @@ def post_frame_process(
     source_id: str,
     image_file: tuple[str, str, bytes],
     timeout: float,
+    gateway_hmac_secret: str,
     force: bool = True,
     stale: bool = False,
-    gateway_hmac_secret: str = "",
 ) -> HttpResult:
     try:
         response = _post_multipart(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import cv2
 import numpy as np
 import pytest
@@ -19,6 +21,9 @@ from smartfactory_perception_ros.vision_frame_gateway import (
     post_frame_process,
     post_worker_tick,
 )
+
+GATEWAY_HMAC_SECRET = "fixture-vision-gateway-secret"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeResponse:
@@ -46,6 +51,21 @@ class FakeSession:
 
     def post(self, url, **kwargs):
         self.post_calls.append({"url": url, **kwargs})
+        if self.post_exc:
+            raise self.post_exc
+        if self.post_responses:
+            return self.post_responses.pop(0)
+        return FakeResponse(200, {"ok": True})
+
+    def send(self, request, **kwargs):
+        self.post_calls.append(
+            {
+                "url": request.url,
+                "headers": dict(request.headers),
+                "body": request.body,
+                **kwargs,
+            }
+        )
         if self.post_exc:
             raise self.post_exc
         if self.post_responses:
@@ -109,6 +129,23 @@ def test_safety_filters_reject_motion_and_non_sf_publish_topics():
         assert_safe_publish_topic("/sf/vision/cmd_vel", role="evidence")
 
 
+def test_gateway_exposes_no_unsigned_debug_auth_bypass():
+    obsolete_parameter = "gateway_auth_" + "debug_enabled"
+    node_source = (
+        PACKAGE_ROOT
+        / "smartfactory_perception_ros"
+        / "vision_frame_gateway.py"
+    ).read_text(encoding="utf-8")
+    launch_source = (
+        PACKAGE_ROOT
+        / "launch"
+        / "vision_frame_gateway.launch.py"
+    ).read_text(encoding="utf-8")
+
+    assert obsolete_parameter not in node_source
+    assert obsolete_parameter not in launch_source
+
+
 def test_post_frame_uses_latest_frame_ingest_endpoint_shape():
     session = FakeSession()
     session.post_responses.append(FakeResponse(200, {"frame": {"source": "tb3_1_picam"}}))
@@ -119,16 +156,14 @@ def test_post_frame_uses_latest_frame_ingest_endpoint_shape():
         source_id="tb3_1_picam",
         image_file=("snapshot.jpg", "image/jpeg", b"jpeg-bytes"),
         timeout=0.5,
+        gateway_hmac_secret=GATEWAY_HMAC_SECRET,
     )
 
     assert result.ok is True
     assert session.post_calls[0]["url"] == "http://ai/api/v1/vision/frame"
-    assert session.post_calls[0]["data"] == {"source": "tb3_1_picam"}
-    assert session.post_calls[0]["files"]["image"] == (
-        "snapshot.jpg",
-        b"jpeg-bytes",
-        "image/jpeg",
-    )
+    assert "X-SF-Gateway-Signature" in session.post_calls[0]["headers"]
+    assert b'tb3_1_picam' in session.post_calls[0]["body"]
+    assert b'jpeg-bytes' in session.post_calls[0]["body"]
 
 
 def test_post_frame_process_uses_inline_process_endpoint_shape():
@@ -141,17 +176,17 @@ def test_post_frame_process_uses_inline_process_endpoint_shape():
         source_id="tb3_1_picam",
         image_file=("snapshot.jpg", "image/jpeg", b"jpeg-bytes"),
         timeout=0.5,
+        gateway_hmac_secret=GATEWAY_HMAC_SECRET,
         force=True,
         stale=False,
     )
 
     assert result.ok is True
     assert session.post_calls[0]["url"] == "http://ai/api/v1/vision/frame/process"
-    assert session.post_calls[0]["data"] == {
-        "source": "tb3_1_picam",
-        "force": "true",
-        "stale": "false",
-    }
+    assert "X-SF-Gateway-Signature" in session.post_calls[0]["headers"]
+    assert b'tb3_1_picam' in session.post_calls[0]["body"]
+    assert b'true' in session.post_calls[0]["body"]
+    assert b'false' in session.post_calls[0]["body"]
 
 
 def test_post_worker_tick_uses_source_scoped_json_body():
@@ -185,6 +220,7 @@ def test_post_frame_reports_timeout_without_raising():
         source_id="tb3_1_picam",
         image_file=("snapshot.jpg", "image/jpeg", b"jpeg-bytes"),
         timeout=0.5,
+        gateway_hmac_secret=GATEWAY_HMAC_SECRET,
     )
 
     assert result.ok is False
@@ -197,7 +233,7 @@ def test_gateway_posts_latest_compressed_frame_and_does_not_create_motion_publis
         args=[
             "--ros-args",
             "-p",
-            "gateway_auth_debug_enabled:=true",
+            f"gateway_hmac_secret:={GATEWAY_HMAC_SECRET}",
             "-p",
             "source_id:=tb3_1_picam",
             "-p",
@@ -239,7 +275,7 @@ def test_gateway_default_inline_processes_latest_compressed_frame():
         args=[
             "--ros-args",
             "-p",
-            "gateway_auth_debug_enabled:=true",
+            f"gateway_hmac_secret:={GATEWAY_HMAC_SECRET}",
             "-p",
             "source_id:=tb3_1_picam",
             "-p",
@@ -260,11 +296,9 @@ def test_gateway_default_inline_processes_latest_compressed_frame():
         assert len(session.post_calls) == 1
         call = session.post_calls[0]
         assert call["url"].endswith("/api/v1/vision/frame/process")
-        assert call["data"] == {
-            "source": "tb3_1_picam",
-            "force": "false",
-            "stale": "false",
-        }
+        assert "X-SF-Gateway-Signature" in call["headers"]
+        assert b"tb3_1_picam" in call["body"]
+        assert call["body"].count(b"false") >= 2
         assert node.diagnostics["process_frame_inline"] is True
         assert node.diagnostics["frame_post_attempts"] == 1
         assert node.diagnostics["frame_post_successes"] == 1
@@ -280,7 +314,7 @@ def test_gateway_diagnostics_shape_stays_stable():
         args=[
             "--ros-args",
             "-p",
-            "gateway_auth_debug_enabled:=true",
+            f"gateway_hmac_secret:={GATEWAY_HMAC_SECRET}",
             "-p",
             "source_id:=tb3_1_picam",
             "-p",
@@ -329,7 +363,7 @@ def test_gateway_async_shutdown_stops_worker_and_closes_session():
         args=[
             "--ros-args",
             "-p",
-            "gateway_auth_debug_enabled:=true",
+            f"gateway_hmac_secret:={GATEWAY_HMAC_SECRET}",
             "-p",
             "source_id:=tb3_1_picam",
             "-p",
@@ -356,7 +390,7 @@ def test_gateway_can_publish_safe_overlay_and_evidence_from_ai_server_state():
         args=[
             "--ros-args",
             "-p",
-            "gateway_auth_debug_enabled:=true",
+            f"gateway_hmac_secret:={GATEWAY_HMAC_SECRET}",
             "-p",
             "source_id:=tb3_1_picam",
             "-p",
@@ -415,7 +449,7 @@ def test_async_pipeline_work_slot_is_bounded_and_drop_old():
         args=[
             "--ros-args",
             "-p",
-            "gateway_auth_debug_enabled:=true",
+            f"gateway_hmac_secret:={GATEWAY_HMAC_SECRET}",
             "-p",
             "source_id:=tb3_1_picam",
             "-p",
@@ -459,7 +493,7 @@ def test_gateway_rejects_unsafe_publish_parameter_before_running():
         args=[
             "--ros-args",
             "-p",
-            "gateway_auth_debug_enabled:=true",
+            f"gateway_hmac_secret:={GATEWAY_HMAC_SECRET}",
             "-p",
             "overlay_topic:=/cmd_vel",
         ]

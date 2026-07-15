@@ -28,9 +28,6 @@ def _gateway_node(*, name, source_id, image_topic, overlay_topic, condition):
                 "image_transport": "compressed",
                 "ai_server_url": LaunchConfiguration("ai_server_url"),
                 "gateway_hmac_secret": LaunchConfiguration("gateway_hmac_secret"),
-                "gateway_auth_debug_enabled": ParameterValue(
-                    LaunchConfiguration("gateway_auth_debug_enabled"), value_type=bool
-                ),
                 "frame_process_path": LaunchConfiguration("frame_process_path"),
                 "request_timeout_sec": ParameterValue(
                     LaunchConfiguration("request_timeout_sec"), value_type=float
@@ -105,7 +102,6 @@ def generate_launch_description():
                 "gateway_hmac_secret",
                 default_value=EnvironmentVariable("VISION_GATEWAY_HMAC_SECRET", default_value=""),
             ),
-            DeclareLaunchArgument("gateway_auth_debug_enabled", default_value="false"),
             DeclareLaunchArgument(
                 "frame_process_path",
                 default_value="/api/v1/vision/frame/process",

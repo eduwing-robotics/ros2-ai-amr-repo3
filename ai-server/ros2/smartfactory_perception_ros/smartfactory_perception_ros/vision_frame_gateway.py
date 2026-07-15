@@ -96,7 +96,6 @@ class VisionFrameGateway(Node):
         self.declare_parameter(
             "gateway_hmac_secret", os.environ.get("VISION_GATEWAY_HMAC_SECRET", "")
         )
-        self.declare_parameter("gateway_auth_debug_enabled", False)
         self.declare_parameter("frame_ingest_path", "/api/v1/vision/frame")
         self.declare_parameter("frame_process_path", "/api/v1/vision/frame/process")
         self.declare_parameter("worker_tick_path", "/api/v1/vision/worker/tick")
@@ -128,9 +127,6 @@ class VisionFrameGateway(Node):
         self.image_topic = str(self.get_parameter("image_topic").value)
         self.image_transport = str(self.get_parameter("image_transport").value).strip().lower()
         self.gateway_hmac_secret = str(self.get_parameter("gateway_hmac_secret").value).strip()
-        self.gateway_auth_debug_enabled = bool(
-            self.get_parameter("gateway_auth_debug_enabled").value
-        )
         ai_server_url = str(self.get_parameter("ai_server_url").value)
         self.frame_ingest_url = build_ai_server_url(
             ai_server_url, str(self.get_parameter("frame_ingest_path").value)
@@ -182,10 +178,8 @@ class VisionFrameGateway(Node):
                 f"image_transport must be one of {sorted(VALID_IMAGE_TRANSPORTS)}, "
                 f"got {self.image_transport!r}"
             )
-        if not self.gateway_hmac_secret and not self.gateway_auth_debug_enabled:
-            raise ValueError(
-                "gateway_hmac_secret is required unless gateway_auth_debug_enabled is explicitly true"
-            )
+        if not self.gateway_hmac_secret:
+            raise ValueError("gateway_hmac_secret is required")
         assert_safe_input_topic(self.image_topic)
         assert_safe_publish_topic(self.overlay_topic, role="overlay")
         assert_safe_publish_topic(self.evidence_topic, role="evidence")
