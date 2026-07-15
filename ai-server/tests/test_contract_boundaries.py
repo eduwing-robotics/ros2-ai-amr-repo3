@@ -224,6 +224,19 @@ def test_multi_source_bundle_does_not_advertise_runtime_ip_fallback() -> None:
         assert forbidden not in script_source
 
 
+def test_operator_wrapper_does_not_advertise_runtime_ip_fallback() -> None:
+    wrapper_source = (ROOT / "scripts" / "vision" / "sf_vision.sh").read_text(
+        encoding="utf-8"
+    )
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "detected_lan_fallback=" not in wrapper_source
+    assert "detected_lan_ip=" in wrapper_source
+    assert "read-only hostname diagnosis; never a service endpoint" in wrapper_source
+    assert "IP fallbacks empty by default" not in env_example
+    assert "Direct-IP runtime fallbacks are prohibited" in env_example
+
+
 def test_health_model_status_reports_invalid_class_map_as_error():
     from app.api.health import _vision_model_status
     from app.config import Settings

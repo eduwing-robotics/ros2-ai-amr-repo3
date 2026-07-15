@@ -31,23 +31,24 @@ def test_accepts_valid_dns_hostname_for_field_endpoint():
     checker.require_network_host("smartfactory-nav.local", "nav endpoint")
 
 
-def test_accepts_non_loopback_ipv4_for_field_endpoint():
+def test_rejects_non_loopback_ipv4_for_field_endpoint():
     checker = _load_checker()
 
-    checker.require_network_host("192.168.30.102", "robot address")
+    with pytest.raises(AssertionError, match="DNS hostname"):
+        checker.require_network_host("192.168.30.102", "robot address")
 
 
 def test_rejects_invalid_host_for_field_endpoint():
     checker = _load_checker()
 
-    with pytest.raises(AssertionError, match="valid DNS hostname or IPv4 address"):
+    with pytest.raises(AssertionError, match="valid DNS hostname"):
         checker.require_network_host("nav host/invalid", "nav endpoint")
 
 
 def test_rejects_loopback_ipv4_for_field_endpoint():
     checker = _load_checker()
 
-    with pytest.raises(AssertionError, match="must not use a loopback address"):
+    with pytest.raises(AssertionError, match="DNS hostname"):
         checker.require_network_host("127.0.0.1", "nav endpoint")
 
 

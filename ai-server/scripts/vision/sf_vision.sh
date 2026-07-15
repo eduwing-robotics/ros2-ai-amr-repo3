@@ -258,7 +258,7 @@ Main-facing URLs:
   VISION_API_BASE_URL=$(api_base_url)
   VISION_STREAM_BASE_URL=$(public_base_url)
   LMS_VISION_STREAM_BASE_URL=$(public_base_url)
-  detected_lan_fallback=http://${ip}:${VISION_STREAM_GATEWAY_PORT}
+  detected_lan_ip=${ip} (read-only hostname diagnosis; never a service endpoint)
 
 WebRTC status:
   VISION_WEBRTC_ENABLED=${VISION_WEBRTC_ENABLED}

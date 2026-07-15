@@ -48,15 +48,10 @@ def require_url(value: object, label: str) -> None:
 
 
 def require_network_host(value: object, label: str) -> None:
-    """Accept a routable IPv4 address or RFC-style DNS hostname.
-
-    The field contract is hostname-first, but an operator may supply a LAN IPv4
-    address where a host is accepted.  Loopback and malformed host values must
-    never pass the static deployment audit.
-    """
+    """Require an RFC-style DNS hostname for persisted production routing."""
     host = str(value).rstrip(".")
     try:
-        address = IPv4Address(host)
+        IPv4Address(host)
     except ValueError:
         hostname_labels = host.split(".")
         is_dns_name = bool(host) and len(host) <= 253 and all(
@@ -64,10 +59,9 @@ def require_network_host(value: object, label: str) -> None:
             for hostname_label in hostname_labels
         )
         if not is_dns_name or host.lower() == "localhost":
-            fail(f"{label} must be a valid DNS hostname or IPv4 address: {value!r}")
+            fail(f"{label} must be a valid DNS hostname: {value!r}")
         return
-    if address.is_loopback:
-        fail(f"{label} must not use a loopback address: {value!r}")
+    fail(f"{label} must be a DNS hostname, not a direct IPv4 address: {value!r}")
 
 
 def yaml_scalar(path: Path, key: str) -> str | None:
