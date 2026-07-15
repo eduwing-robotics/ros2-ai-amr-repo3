@@ -127,39 +127,6 @@ def post_frame_process(
     )
 
 
-def post_worker_tick(
-    *,
-    session: requests.Session,
-    url: str,
-    source_id: str,
-    timeout: float,
-    force: bool = False,
-    stale: bool = False,
-) -> HttpResult:
-    try:
-        response = session.post(
-            url,
-            json={"source": source_id, "force": force, "stale": stale},
-            timeout=timeout,
-        )
-    except requests.Timeout:
-        return HttpResult(ok=False, status_code=None, error="AI Server worker tick timed out")
-    except requests.RequestException as exc:
-        return HttpResult(
-            ok=False,
-            status_code=None,
-            error=f"AI Server worker tick failed: {exc.__class__.__name__}",
-        )
-    if 200 <= response.status_code < 300:
-        return HttpResult(ok=True, status_code=response.status_code, json_body=_response_json(response))
-    return HttpResult(
-        ok=False,
-        status_code=response.status_code,
-        error=f"AI Server worker tick returned HTTP {response.status_code}",
-        json_body=_response_json(response),
-    )
-
-
 def get_json(
     *,
     session: requests.Session,

@@ -19,11 +19,11 @@ from smartfactory_perception_ros.vision_frame_gateway import (
     build_qos_profile,
     post_frame,
     post_frame_process,
-    post_worker_tick,
 )
 
 GATEWAY_HMAC_SECRET = "fixture-vision-gateway-secret"
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+AI_SERVER_ROOT = PACKAGE_ROOT.parents[1]
 
 
 class FakeResponse:
@@ -129,21 +129,28 @@ def test_safety_filters_reject_motion_and_non_sf_publish_topics():
         assert_safe_publish_topic("/sf/vision/cmd_vel", role="evidence")
 
 
-def test_gateway_exposes_no_unsigned_debug_auth_bypass():
-    obsolete_parameter = "gateway_auth_" + "debug_enabled"
-    node_source = (
-        PACKAGE_ROOT
-        / "smartfactory_perception_ros"
-        / "vision_frame_gateway.py"
-    ).read_text(encoding="utf-8")
-    launch_source = (
-        PACKAGE_ROOT
-        / "launch"
-        / "vision_frame_gateway.launch.py"
-    ).read_text(encoding="utf-8")
+def test_gateway_exposes_no_unsigned_worker_tick_path():
+    checked_paths = [
+        PACKAGE_ROOT / "smartfactory_perception_ros" / "vision_frame_gateway.py",
+        PACKAGE_ROOT / "smartfactory_perception_ros" / "vision_frame_gateway_http.py",
+        PACKAGE_ROOT / "launch" / "vision_frame_gateway.launch.py",
+        PACKAGE_ROOT / "README.md",
+        AI_SERVER_ROOT / "scripts" / "vision" / "run_d1_vision_bundle.sh",
+        AI_SERVER_ROOT / "scripts" / "vision" / "run_d1_vision_domain_sidecar.sh",
+        AI_SERVER_ROOT / "scripts" / "vision" / "run_d1_vision_multi_source_gateway_bundle.sh",
+    ]
+    obsolete_names = (
+        "gateway_auth_" + "debug_enabled",
+        "process_with_" + "worker_tick",
+        "force_" + "worker_tick",
+        "mark_worker_tick_" + "stale",
+        "post_" + "worker_tick",
+    )
 
-    assert obsolete_parameter not in node_source
-    assert obsolete_parameter not in launch_source
+    for path in checked_paths:
+        source = path.read_text(encoding="utf-8")
+        for name in obsolete_names:
+            assert name not in source, f"{name} remains in {path}"
 
 
 def test_post_frame_uses_latest_frame_ingest_endpoint_shape():
@@ -187,27 +194,6 @@ def test_post_frame_process_uses_inline_process_endpoint_shape():
     assert b'tb3_1_picam' in session.post_calls[0]["body"]
     assert b'true' in session.post_calls[0]["body"]
     assert b'false' in session.post_calls[0]["body"]
-
-
-def test_post_worker_tick_uses_source_scoped_json_body():
-    session = FakeSession()
-    session.post_responses.append(FakeResponse(200, {"processed": True, "events": []}))
-
-    result = post_worker_tick(
-        session=session,
-        url="http://ai/api/v1/vision/worker/tick",
-        source_id="tb3_1_picam",
-        timeout=0.5,
-        force=True,
-        stale=False,
-    )
-
-    assert result.ok is True
-    assert session.post_calls[0]["json"] == {
-        "source": "tb3_1_picam",
-        "force": True,
-        "stale": False,
-    }
 
 
 def test_post_frame_reports_timeout_without_raising():
@@ -303,7 +289,6 @@ def test_gateway_default_inline_processes_latest_compressed_frame():
         assert node.diagnostics["frame_post_attempts"] == 1
         assert node.diagnostics["frame_post_successes"] == 1
         assert node.diagnostics["work_processed"] == 1
-        assert node.diagnostics["worker_tick_attempts"] == 0
     finally:
         node.destroy_node()
         rclpy.shutdown()
@@ -330,7 +315,6 @@ def test_gateway_diagnostics_shape_stays_stable():
             "image_topic",
             "overlay_topic",
             "evidence_topic",
-            "process_with_worker_tick",
             "publish_overlay",
             "publish_evidence",
             "async_pipeline",
@@ -341,8 +325,6 @@ def test_gateway_diagnostics_shape_stays_stable():
             "frame_post_attempts",
             "frame_post_successes",
             "frame_post_failures",
-            "worker_tick_attempts",
-            "worker_tick_successes",
             "overlay_publish_attempts",
             "overlay_publish_successes",
             "overlay_publish_skips",
@@ -396,32 +378,24 @@ def test_gateway_can_publish_safe_overlay_and_evidence_from_ai_server_state():
             "-p",
             "image_topic:=/camera/image_raw/compressed",
             "-p",
-            "process_with_worker_tick:=true",
-            "-p",
-            "force_worker_tick:=true",
-            "-p",
             "publish_overlay:=true",
             "-p",
             "publish_evidence:=true",
             "-p",
             "async_pipeline:=false",
-            "-p",
-            "process_frame_inline:=false",
         ]
     )
     session = FakeSession()
-    session.post_responses.extend(
-        [
-            FakeResponse(200, {"frame": {"source": "tb3_1_picam", "frame_seq": 1}}),
-            FakeResponse(
-                200,
-                {
-                    "processed": True,
-                    "events": [{"event_id": "evt-1"}],
-                    "overlay": {"frame_seq": 1},
-                },
-            ),
-        ]
+    session.post_responses.append(
+        FakeResponse(
+            200,
+            {
+                "frame_seq": 1,
+                "processed": True,
+                "events": [{"event_id": "evt-1"}],
+                "overlay": {"frame_seq": 1},
+            },
+        )
     )
     session.get_responses.append(
         FakeResponse(200, content=b"\xff\xd8overlay", headers={"content-type": "image/jpeg"})
@@ -432,11 +406,9 @@ def test_gateway_can_publish_safe_overlay_and_evidence_from_ai_server_state():
         node._on_timer()
 
         assert [call["url"].split("/api/v1/")[1] for call in session.post_calls] == [
-            "vision/frame",
-            "vision/worker/tick",
+            "vision/frame/process"
         ]
         assert session.get_calls[0]["url"].endswith("/api/v1/vision/overlay/latest/image")
-        assert node.diagnostics["worker_tick_successes"] == 1
         assert node.diagnostics["overlay_publish_successes"] == 1
         assert node.diagnostics["evidence_publish_successes"] == 1
     finally:

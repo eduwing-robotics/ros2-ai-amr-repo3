@@ -112,7 +112,6 @@ set_defaults() {
   export VISION_GATEWAY_RETRY_FAILED_FRAME="${VISION_GATEWAY_RETRY_FAILED_FRAME:-true}"
   export VISION_GATEWAY_RETRY_BACKOFF_SEC="${VISION_GATEWAY_RETRY_BACKOFF_SEC:-0.05}"
   export VISION_GATEWAY_PUBLISH_LAGGING_OVERLAY="${VISION_GATEWAY_PUBLISH_LAGGING_OVERLAY:-false}"
-  export VISION_GATEWAY_FORCE_WORKER_TICK="${VISION_GATEWAY_FORCE_WORKER_TICK:-true}"
   export VISION_GATEWAY_PUBLISH_OVERLAY="${VISION_GATEWAY_PUBLISH_OVERLAY:-true}"
   export VISION_GATEWAY_PUBLISH_EVIDENCE="${VISION_GATEWAY_PUBLISH_EVIDENCE:-true}"
   export VISION_STREAM_MAX_FPS="${VISION_STREAM_MAX_FPS:-30.0}"
@@ -323,8 +322,6 @@ start_source_pair() {
     -p "retry_failed_frame:=${VISION_GATEWAY_RETRY_FAILED_FRAME}" \
     -p "retry_backoff_sec:=${VISION_GATEWAY_RETRY_BACKOFF_SEC}" \
     -p "publish_lagging_overlay:=${VISION_GATEWAY_PUBLISH_LAGGING_OVERLAY}" \
-    -p "process_with_worker_tick:=true" \
-    -p "force_worker_tick:=${VISION_GATEWAY_FORCE_WORKER_TICK}" \
     -p "publish_overlay:=${VISION_GATEWAY_PUBLISH_OVERLAY}" \
     -p "publish_evidence:=${VISION_GATEWAY_PUBLISH_EVIDENCE}" \
     -p "overlay_topic:=${overlay_topic}" \
