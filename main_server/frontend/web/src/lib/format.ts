@@ -34,29 +34,15 @@ export function formatServerTime(s?: string | null): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-// 로봇 pose 신선도(ROS_POSE_BRIDGE.md): received_at 기준 live/stale/lost, 없으면 none.
+// 서버의 monotonic watchdog이 판정한 pose 품질을 그대로 사용한다.
 export type PoseState = "live" | "stale" | "lost" | "none";
 
-// nav 서버가 pose stamp를 ROS/sim-time으로 두고 age를 wall-clock과 빼면
-// 수십 년짜리 age_sec(예: ~1.78e9초)이 나온다. 이런 클럭 아티팩트는 신뢰하지 않고
-// received_at(서버가 응답을 내려준 wall-clock 시각) 기준 신선도로 폴백한다.
-const MAX_PLAUSIBLE_AGE_SEC = 86_400; // 1일 초과 age_sec은 stamp/clock 오류로 간주
-
-export function poseFreshness(receivedAt: string | null | undefined, nowMs: number, sourceAgeSec?: number | null): { state: PoseState; ageSec: number | null } {
-  const receivedAge = (() => {
-    const d = parseServerTime(receivedAt);
-    return d ? Math.max(0, (nowMs - d.getTime()) / 1000) : null;
-  })();
-  const sourceAge = sourceAgeSec !== null && sourceAgeSec !== undefined
-    ? Math.max(0, Number(sourceAgeSec))
+export function poseFreshness(pose: { pose_state?: PoseState; receive_age_sec?: number | null }): { state: PoseState; ageSec: number | null } {
+  const age = pose.receive_age_sec;
+  const ageSec = age !== null && age !== undefined && Number.isFinite(Number(age))
+    ? Math.max(0, Number(age))
     : null;
-  // age_sec은 그럴듯한 범위일 때만 신뢰하고, 비정상(무한·과대)이면 received_at로 폴백.
-  const sourceUsable = sourceAge !== null && Number.isFinite(sourceAge) && sourceAge <= MAX_PLAUSIBLE_AGE_SEC;
-  const ageSec = sourceUsable ? sourceAge : receivedAge;
-  if (ageSec === null || Number.isNaN(ageSec)) return { state: "none", ageSec: null };
-  if (ageSec <= 1) return { state: "live", ageSec };
-  if (ageSec <= 3) return { state: "stale", ageSec };
-  return { state: "lost", ageSec };
+  return { state: pose.pose_state ?? "none", ageSec };
 }
 
 // 경과 초 → 짧은 한국어 라벨.

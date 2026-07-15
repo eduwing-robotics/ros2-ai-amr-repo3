@@ -1,8 +1,6 @@
 """Robot state and pose schemas."""
 
-from typing import Any
-
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.common import TeleopCommand
 
@@ -50,7 +48,7 @@ class TeleopResponse(BaseModel):
 
 
 class RobotPose(BaseModel):
-    """맵 좌표계 기준 로봇 pose."""
+    """프로세스 메모리의 실시간 pose와 품질 상태."""
 
     robot_id: str
     map_id: str
@@ -59,33 +57,23 @@ class RobotPose(BaseModel):
     yaw: float = 0.0
     linear_velocity: float | None = None
     angular_velocity: float | None = None
-    source: str = "manual"
+    source: str
     command_id: str | None = None
-    frame_id: str | None = None
-    child_frame_id: str | None = None
-    age_sec: float | None = None
-    covariance: dict[str, Any] | None = None
-    reported_at: str | None = None
-    received_at: str | None = None
+    source_reported_at: str | None = None
+    received_at: str
+    source_age_sec: float | None = None
+    receive_age_sec: float
+    source_state: str
+    receive_state: str
+    pose_state: str
+    localized: bool | None = None
     in_bounds: bool | None = None
-
-
-class RobotPoseReport(BaseModel):
-    """Movement/Nav 서버나 테스트 도구가 pose를 보고할 때 쓰는 요청."""
-
-    robot_id: str
-    map_id: str
-    x: float
-    y: float
-    yaw: float = 0.0
-    linear_velocity: float | None = None
-    angular_velocity: float | None = None
-    source: str = "movement"
-    reported_at: str | None = None
+    quality_reasons: list[str] = Field(default_factory=list)
+    version: int
 
 
 class RobotPoseUpdate(BaseModel):
-    """URL path의 robot_id에 대해 pose를 보고할 때 쓰는 요청."""
+    """URL path의 robot_id에 대해 실시간 pose를 보고하는 canonical 요청."""
 
     map_id: str
     x: float
@@ -96,6 +84,8 @@ class RobotPoseUpdate(BaseModel):
     source: str = "ros_tf"
     command_id: str | None = None
     reported_at: str | None = None
+    source_age_sec: float | None = None
+    localized: bool | None = None
 
 
 class InitialPoseRequest(BaseModel):

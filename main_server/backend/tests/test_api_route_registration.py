@@ -21,6 +21,9 @@ class ApiRouteRegistrationTests(unittest.TestCase):
         ):
             self.assertIn(path, routes)
 
+        self.assertNotIn("/api/v1/robot-poses/report", routes)
+        self.assertNotIn("/api/v1/movement/missions/{command_id}/pose", routes)
+
 
 if __name__ == "__main__":
     unittest.main()

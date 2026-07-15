@@ -146,6 +146,20 @@ class Settings:
     # Shared token for Movement -> Main callbacks. Empty keeps local development compatible.
     movement_callback_token: str = os.getenv("LMS_MOVEMENT_CALLBACK_TOKEN", "").strip()
     movement_active_map_id: str = os.getenv("LMS_MOVEMENT_ACTIVE_MAP_ID", "robot2_map")
+    # Real-time Pose는 process memory를 사용하고 DB에는 품질 전이 event만 기록한다.
+    pose_receive_stale_sec: float = float(os.getenv("LMS_POSE_RECEIVE_STALE_SEC", "1.5"))
+    pose_receive_lost_sec: float = float(os.getenv("LMS_POSE_RECEIVE_LOST_SEC", "5.0"))
+    pose_source_stale_sec: float = float(os.getenv("LMS_POSE_SOURCE_STALE_SEC", "3.0"))
+    pose_source_lost_sec: float = float(os.getenv("LMS_POSE_SOURCE_LOST_SEC", "10.0"))
+    pose_recovery_samples: int = int(os.getenv("LMS_POSE_RECOVERY_SAMPLES", "3"))
+    pose_watchdog_interval_sec: float = float(os.getenv("LMS_POSE_WATCHDOG_INTERVAL_SEC", "0.25"))
+    pose_poll_interval_sec: float = float(os.getenv("LMS_POSE_POLL_INTERVAL_SEC", "1.0"))
+    pose_push_preferred_sec: float = float(os.getenv("LMS_POSE_PUSH_PREFERRED_SEC", "2.0"))
+    pose_max_source_age_sec: float = float(os.getenv("LMS_POSE_MAX_SOURCE_AGE_SEC", "86400"))
+    pose_jump_distance_m: float = float(os.getenv("LMS_POSE_JUMP_DISTANCE_M", "1.0"))
+    pose_jump_speed_mps: float = float(os.getenv("LMS_POSE_JUMP_SPEED_MPS", "1.0"))
+    pose_event_queue_size: int = int(os.getenv("LMS_POSE_EVENT_QUEUE_SIZE", "256"))
+    pose_event_retry_limit: int = int(os.getenv("LMS_POSE_EVENT_RETRY_LIMIT", "5"))
     # Camera 서버 기본 endpoint. stream URL은 DB의 camera_sources.stream_url이 있으면 DB 값을 우선한다.
     camera_host: str = os.getenv("LMS_CAMERA_HOST", _DEFAULT_CAMERA_HOST)
     camera_api_base_url: str = os.getenv("LMS_CAMERA_API_BASE_URL", _DEFAULT_CAMERA_API_BASE_URL).rstrip("/")

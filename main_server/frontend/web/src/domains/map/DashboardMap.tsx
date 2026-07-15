@@ -30,14 +30,6 @@ function robotFootprintRadiusPx(robotId: string, resolution: number): number | n
   return diameter == null || !Number.isFinite(resolution) || resolution <= 0 ? null : diameter / 2 / resolution;
 }
 
-function usePoseClock(intervalMs = 1000) {
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNowMs(Date.now()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return nowMs;
-}
 export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
   const { data: maps = [] } = useMaps();
   const { data: robots = [] } = useRobots();
@@ -48,9 +40,6 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
   const gotoTargetRef = useRef(gotoCtx?.target);
   useEffect(() => { gotoTargetRef.current = gotoCtx?.target; }, [gotoCtx?.target]);
   const setGotoTarget = gotoCtx?.setTarget;
-
-  // pose 폴링(2s)과 별개로, 수신 없이도 경과시간/색상이 갱신되도록 1s 틱.
-  const nowMs = usePoseClock();
 
   const map = maps[0] ?? null;
   const runtimeMismatch = isMapRuntimeMismatch(map);
@@ -244,7 +233,7 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
   // 레전드는 기본 이상 상태만 노출(점진적 노출) — 좌표 등 상세는 '상세 보기'에서.
   const [showAllPoses, setShowAllPoses] = useState(false);
   const legendRows = poses.map((p) => {
-    const { state, ageSec } = poseFreshness(p.received_at, nowMs, p.age_sec);
+    const { state, ageSec } = poseFreshness(p);
     const sync = syncByRobot.get(p.robot_id);
     const localized = sync?.localized === false ? "not localized" : sync?.localized ? "localized" : null;
     const reason = sync?.reason && sync.reason !== "ok" ? sync.reason : null;
@@ -330,7 +319,7 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
               {overlayReady ? poses.map((p) => {
                 const pt = worldToPixel(renderMap, p.x, p.y);
                 const yawDeg = -((p.yaw || 0) * 180) / Math.PI;
-                const { state } = poseFreshness(p.received_at, nowMs, p.age_sec);
+                const { state } = poseFreshness(p);
                 const footprintR = robotFootprintRadiusPx(p.robot_id, renderMap.resolution || 0.05);
                 return (
                   <g key={p.robot_id} className={runtimeMismatch ? "map-pose mismatch" : "map-pose"}>
@@ -420,7 +409,7 @@ export function DashboardMap({ gotoMode = false }: { gotoMode?: boolean }) {
           ) : null}
           {missing.map((r) => {
             const sync = syncByRobot.get(r.robot_id);
-            const hint = sync?.reason && sync.reason !== "ok" ? sync.reason : "pose 없음";
+            const hint = sync?.reason && sync.reason !== "ok" ? sync.reason : "수신 대기";
             return (
             <span key={r.robot_id} className="pose-chip none">
               <i className="pose-dot" /> {r.robot_id} · {hint}

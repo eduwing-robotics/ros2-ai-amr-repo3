@@ -78,13 +78,17 @@ export interface RobotPose {
   angular_velocity?: number | null;
   source: string;
   command_id?: string | null;
-  frame_id?: string | null;
-  child_frame_id?: string | null;
-  age_sec?: number | null;
-  covariance?: JsonObject | null;
-  reported_at?: string | null;
-  received_at?: string | null;
+  source_reported_at?: string | null;
+  received_at: string;
+  source_age_sec?: number | null;
+  receive_age_sec: number;
+  source_state: "fresh" | "stale" | "lost" | "unknown" | "clock_invalid";
+  receive_state: "live" | "stale" | "lost";
+  pose_state: "live" | "stale" | "lost" | "none";
+  localized?: boolean | null;
   in_bounds?: boolean | null;
+  quality_reasons: string[];
+  version: number;
 }
 
 // --- Movement 진단 ---

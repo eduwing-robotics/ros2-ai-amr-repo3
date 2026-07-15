@@ -117,7 +117,6 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | Browser | POST | `/robots/estop-all` · `/robots/clear-estop-all` | `— → JSON · object` | 명시적 전 로봇 비상정지·운용 로봇 해제 canonical alias |
 | Movement | POST | `/movement/command-events` | `RobotCommandEvent → MovementCallbackAck` | 검증·중복 제거 후 orchestrator |
 | Movement | POST | `/movement/results` · `/movement/robots/{name}/status` | typed result/status → ACK | 결과 상태 정규화·실시간 상태 수신 |
-| Movement | POST | `/movement/missions/{id}/pose` | `RobotPoseReport → ApiMessage` | mission pose 콜백 수신 |
 | Browser / Main | GET | `/movement/map-state` · `/movement/runtime-map-context` | `— → JSON · object` | 활성 맵·runtime 컨텍스트 |
 | Browser | GET | `/movement/sync-status` | `— → JSON · object` | 맵·pose 동기화 진단 (+`planned_paths[]`) |
 | Browser | GET | `/movement/commands/{id}/trace` | `— → JSON · object` | 명령 실행 추적 |
@@ -149,7 +148,6 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | Browser | GET | `/map-assets` | `— → JSON · object` | 단일 맵 에셋 조회 |
 | Browser | GET | `/map-assets/{id}/image.png` · `map.pgm` · `map.yaml` | `— → image/binary/text` | 맵 에셋 파일 |
 | Browser | GET | `/robot-poses` | `— → RobotPose[]` | 로봇 pose 일괄 조회 (`in_bounds` 포함) |
-| Movement / test tool | POST | `/robot-poses/report` | `RobotPoseReport → ApiMessage` | pose 보고 수신 |
 | Browser | GET/POST/DELETE | `/waypoints` | `— → Waypoint[]` / `WaypointUpsert → ApiMessage` | waypoint CRUD |
 | Browser | POST | `/waypoint-routes` | `WaypointRouteUpsert → ApiMessage` | 업무 위치의 경유 waypoint 순서 저장 |
 | Browser | DELETE | `/waypoint-routes/{waypoint_id}` | `— → ApiMessage` | 해당 업무 위치의 경유 경로 삭제 |
@@ -218,7 +216,7 @@ Command callback은 `command_id`, robot, event/state가 필수이며 누락 시 
 - **완료·복귀:** 목적지 precision `move_to_point`가 `ARRIVED`이면 재고를 한 번만 반영하고 `business_completed=true`가 된다. 자동 입출고는 중복 삽입을 막기 위해 별도 `dock_transfer`를 만들지 않는다. 이후 `vehicle_2_approach` 복귀와 `aruco_align(park)`는 후처리이며 `return_status`는 `RETURNING_HOME | PARKING | PARKED | PARK_FAILED`다. 주차 실패는 완료된 입출고를 실패로 되돌리지 않고 `parking_error`에 기록한다.
 - **배정·복구:** `POST /tasks/auto-assign-and-start`는 로봇 배정과 mission 시작을 한 번에 처리한다. 비상정지 후 복구는 awaiting-operator 목록 → context 조회 → preview → execute 순서로 진행한다. 운영 UI는 명시된 HOME 안전 위치 이동과 정지 확인 후 수동 회수만 제공하며 자동 하역·자동 작업 재개는 지원하지 않는다. 운영 절차는 [OPERATIONS §3](OPERATIONS.md).
 - **waypoints:** `map_id`로 필터·저장한다. 다른 데이터가 참조 중이면 삭제가 `409 marker_in_use`로 거부되며, usage 확인 → disable 또는 force-delete로 처리한다. 도킹용 필드로 `scan_waypoint_id`·`aruco_marker_id`·`dock_mode`를 가진다.
-- **pose:** canonical push는 `POST /robots/{robot_id}/pose`다. Main은 `robot_latest_poses`의 최신값을 `GET /robot-poses`로 제공하고 2초 이상 stale이면 Movement live pose를 fallback 조회한다. `/robot-poses/report`와 mission pose는 호환 alias다. 고주기 pose는 운영 이벤트로 누적하지 않는다.
+- **pose:** canonical push는 `POST /robots/{robot_id}/pose` 하나만 사용한다. Main은 최신 pose를 단일 worker 프로세스 메모리에 즉시 반영하고 `GET /robot-poses`는 DB·Movement 호출 없이 메모리 snapshot을 반환한다. 수신 지연, localization 상실, 맵 경계 이탈, 연결 단절의 발생/복구 전이만 운영 이벤트 DB에 기록한다. 재시작 시 이전 위치를 복원하지 않고 새 pose 수신 전까지 `수신 대기`로 표시한다.
 - **maps:** 표시용 메타와 Nav2 runtime 상태(`runtime_*`, `asset_status`, `runtime_match`)를 분리해 담는다. import는 기존 메타를 보존하고, sync는 runtime 정보만 새로 고친다. 에셋 파일은 `image.png`·`map.pgm`·`map.yaml`로 제공하며 로봇 pose 응답에는 맵 경계 안 여부(`in_bounds`)가 포함된다. YAML·PGM은 map root 이탈과 symlink 이탈, 과대 파일·pixel 선언을 거부한다.
 
 ## Vision · teleop

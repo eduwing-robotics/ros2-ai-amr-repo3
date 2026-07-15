@@ -233,7 +233,7 @@ Main은 callback 누락을 가정하고 `GET /robot-commands/{id}`로 보정한�
 
 상세 구현 요구는 [MOVEMENT_SERVER_REQUIREMENTS](MOVEMENT_SERVER_REQUIREMENTS.md)를 따른다.
 
-추가 inbound: `POST /api/v1/movement/results` · `/movement/robots/{name}/status` · pose report (`/robot-poses/report`, `/robots/{id}/pose`, `/movement/missions/{id}/pose`).
+추가 inbound: `POST /api/v1/movement/results` · `/movement/robots/{name}/status` · canonical pose report (`/robots/{id}/pose`).
 
 ### 7.7 이동 전 확인
 

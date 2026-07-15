@@ -140,6 +140,7 @@ erDiagram
 
 ## 설계 요지
 
+- **실시간 pose vs 영구 이력 분리:** 최신 pose는 단일 worker 프로세스 메모리, 품질 이슈/복구만 `evidence_events`에 기록한다. 재시작 시 pose를 DB에서 복구하지 않는다.
 - **현재 상태 vs 영구 이력 분리:** 큐=`tasks`, 레시피=`commands`(실행 로그 아님), 작업 중 버퍼=`evidence_events`, HOLD latch=`safety_stops`, 영구=`task_logs`·`item_change_logs`.
 - **예약 테이블 없음** — active task가 로봇/슬롯/층 점유.
 - `locations`가 zone·scan·dock 흡수(`type` + `marker_id`). 맵은 `maps/`의 단일 YAML·PGM이 원본이며 DB 테이블을 두지 않는다. `cameras`는 업무 FK 없는 인프라.
@@ -151,7 +152,6 @@ erDiagram
 | --- | --- | --- |
 | `items` | `id` | 품목 마스터 |
 | `robots` | `id` · `domain_id` · `status` · `enabled` · `battery_level` | 로봇 운용 의도·current |
-| `robot_latest_poses` | `robot_id` · `map_id` · `x/y/yaw` · `reported_at` | 로봇별 최신 pose 1행 |
 | `locations` | `id` · `type` · `marker_id` · x/y/yaw | 단일 맵의 마커·존·슬롯 |
 | `location_route_steps` | `(target_location_id, step_order)` · `waypoint_id` | 업무 위치로 가기 전 경유 순서 |
 | `inventory` | `(item_id, location_id, floor)` · floor∈{1,2} | 층별 재고 |

@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.db.connection import transaction
 from app.db.postgres import operational_events, robots
+from app.domains.movement.pose_runtime import pose_runtime
 from app.models.common import ApiMessage
 from app.models.robots import Robot, RobotUpsert
 
@@ -40,6 +41,13 @@ def upsert_robot(payload: RobotUpsert) -> ApiMessage:
             message=f"robot upserted: {payload.robot_id}",
             payload=payload.model_dump(),
         )
+    effective_enabled = (
+        payload.enabled if payload.enabled is not None else current.get("enabled", True) if current else True
+    )
+    if effective_enabled:
+        pose_runtime.register_robot(payload.robot_id)
+    else:
+        pose_runtime.unregister_robot(payload.robot_id)
     return ApiMessage(message="robot saved")
 
 
@@ -57,4 +65,5 @@ def delete_robot(robot_id: str) -> ApiMessage:
             message=f"robot deleted: {robot_id}",
             payload={"robot_id": robot_id},
         )
+    pose_runtime.unregister_robot(robot_id)
     return ApiMessage(message="robot deleted")

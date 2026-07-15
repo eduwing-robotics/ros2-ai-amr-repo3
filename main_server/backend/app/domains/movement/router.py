@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -12,22 +11,21 @@ from app.core.api_logs import list_logs as list_api_logs
 from app.core.config import settings
 from app.core.health_cache import clear_cache
 from app.db.connection import transaction
-from app.db.postgres import operational_events, robot_poses
+from app.db.postgres import operational_events
 from app.db.postgres import robots as postgres_robots
 from app.domains.movement import callbacks, missions
 from app.domains.movement.client import MovementClientError, movement_client, set_robot_emergency
 from app.domains.movement.commands import dispatch_robot_command, get_command_status
 from app.domains.movement.health import base_url_for, get_movement_health
 from app.domains.movement.navigation import (
-    get_runtime_map_context,
     localization_snapshot,
     movement_map_state,
     movement_reason,
-    pose_in_bounds,
-    report_pose_for_robot,
     resolve_movement_map_id,
     runtime_map_context_route,
 )
+from app.domains.movement.pose_monitor import pose_runtime_metrics
+from app.domains.movement.pose_runtime import UnknownRobotError, pose_runtime
 from app.domains.movement.teleop import execute_teleop
 from app.domains.records import movement_commands
 from app.models.common import ApiMessage
@@ -41,7 +39,6 @@ from app.models.robot_commands import RobotCommandRequest, RobotCommandResponse
 from app.models.robots import (
     InitialPoseRequest,
     RobotPose,
-    RobotPoseReport,
     RobotPoseUpdate,
     TeleopRequest,
     TeleopResponse,
@@ -112,8 +109,10 @@ def movement_map_state_route() -> dict:
 
 @router.get("/movement/runtime-map-context")
 def movement_runtime_map_context_route() -> dict:
-    """— Nav2 runtime map context (수동 명령·pose overlay 기준)."""
-    return runtime_map_context_route()
+    """Nav2 runtime map context를 반환하고 pose 경계 검사에도 반영한다."""
+    context = runtime_map_context_route()
+    pose_runtime.update_map_context(context)
+    return context
 
 
 @router.get("/movement/sync-status")
@@ -129,6 +128,7 @@ def movement_sync_status() -> dict:
         events = operational_events.list_operational_events(conn, limit=120)
     logs = list_api_logs(service="movement", limit=120)
     map_state = movement_map_state()
+    pose_runtime.update_map_context(map_state)
     rows = []
     for robot_id in robot_ids:
         snapshot = localization_snapshot(robot_id)
@@ -269,9 +269,18 @@ def movement_result(payload: RobotCommandResult, request: Request) -> MovementCa
 def movement_robot_status(robot_name: str, payload: MovementRobotStatusCallback, request: Request) -> ApiMessage:
     """Movement robot status callback을 current robot/pose에 반영한다."""
     require_callback_token(request)
-    with transaction() as conn:
-        callbacks.ingest_robot_status(conn, robot_name, payload.to_payload())
-    return ApiMessage(message="movement robot status saved")
+    body = payload.to_payload()
+    try:
+        callbacks.ingest_robot_status_pose(robot_name, body)
+    except UnknownRobotError as exc:
+        raise HTTPException(status_code=404, detail="robot not registered") from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"invalid pose: {exc}") from exc
+    if callbacks.robot_status_requires_event(body):
+        with transaction() as conn:
+            callbacks.ingest_robot_status(conn, robot_name, body)
+        return ApiMessage(message="movement robot status issue saved")
+    return ApiMessage(message="movement robot status accepted")
 
 
 @router.post("/robots/estop-all")
@@ -311,71 +320,32 @@ def get_robot_command(command_id: str, robot_id: str = Query(...)) -> RobotComma
 
 
 @router.get("/robot-poses", response_model=list[RobotPose])
-def list_robot_poses(map_id: str | None = None) -> list[RobotPose]:
-    """Return cached push poses; refresh stale or missing rows from Movement as fallback."""
-    with transaction() as conn:
-        robot_ids = [r["robot_id"] for r in postgres_robots.list_robots(conn)]
-        cached_by_robot = {row["robot_id"]: row for row in robot_poses.list_latest(conn)}
-    map_state = movement_map_state()
-    active_map_id = map_state.get("active_map_id")
-    ctx = get_runtime_map_context()
-    rows: list[RobotPose] = []
-    for robot_id in robot_ids:
-        row = cached_by_robot.get(robot_id)
-        if not row or row.get("cache_age_sec") is None or float(row["cache_age_sec"]) > 2.0:
-            try:
-                live = movement_client.robot_pose(robot_id)
-                pose = live.get("pose") or {}
-                if live.get("localized") and pose:
-                    update = RobotPoseUpdate(
-                        map_id=map_id or active_map_id or pose.get("frame_id") or "map",
-                        x=float(pose["x"]), y=float(pose["y"]), yaw=float(pose.get("yaw") or 0.0),
-                        linear_velocity=pose.get("linear_velocity"), angular_velocity=pose.get("angular_velocity"),
-                        source=pose.get("source") or "movement_pose",
-                        reported_at=pose.get("reported_at") or live.get("reported_at"),
-                    )
-                    with transaction() as conn:
-                        report_pose_for_robot(conn, robot_id, update)
-                    row = {"robot_id": robot_id, **update.model_dump(), "age_sec": pose.get("age_sec"), "cache_age_sec": 0.0, "received_at": datetime.now(timezone.utc).isoformat()}
-            except MovementClientError:
-                pass
-        if not row:
-            continue
-        display_map_id = map_id or row.get("map_id") or active_map_id or "map"
-        px, py = float(row["x"]), float(row["y"])
-        rows.append(RobotPose(
-            robot_id=robot_id, map_id=display_map_id, x=px, y=py, yaw=float(row.get("yaw") or 0.0),
-            linear_velocity=row.get("linear_velocity"), angular_velocity=row.get("angular_velocity"),
-            source=row.get("source") or "movement_pose", command_id=row.get("command_id"), age_sec=row.get("age_sec"),
-            reported_at=row.get("reported_at"), received_at=row.get("received_at"),
-            in_bounds=pose_in_bounds(px, py, ctx),
-        ))
-    return rows
-
-
-@router.post("/robot-poses/report", response_model=ApiMessage)
-def report_robot_pose(payload: RobotPoseReport) -> ApiMessage:
-    """Movement/Nav 서버 또는 테스트 도구가 최신 pose를 보고한다 (last_seen 갱신만)."""
-    with transaction() as conn:
-        report_pose_for_robot(conn, payload.robot_id, RobotPoseUpdate(**payload.model_dump(exclude={"robot_id"})))
-    return ApiMessage(message="robot pose accepted")
+def list_robot_poses() -> list[RobotPose]:
+    """DB나 Movement 호출 없이 프로세스 메모리의 최신 pose를 반환한다."""
+    return [RobotPose(**row) for row in pose_runtime.list_snapshots()]
 
 
 @router.post("/robots/{robot_id}/pose", response_model=ApiMessage)
 def report_robot_pose_for_robot(robot_id: str, payload: RobotPoseUpdate) -> ApiMessage:
-    """ROS pose bridge가 robot_id별 최신 map pose를 보고한다."""
-    with transaction() as conn:
-        report_pose_for_robot(conn, robot_id, payload)
-    return ApiMessage(message="robot pose accepted")
+    """ROS pose bridge의 canonical 실시간 pose 수신점."""
+    try:
+        accepted = pose_runtime.ingest(
+            robot_id,
+            payload.model_dump(),
+            source_kind="canonical",
+            localized=payload.localized,
+        )
+    except UnknownRobotError as exc:
+        raise HTTPException(status_code=404, detail="robot not registered") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ApiMessage(message="robot pose accepted" if accepted else "older robot pose ignored")
 
 
-@router.post("/movement/missions/{command_id}/pose", response_model=ApiMessage)
-def report_mission_pose(command_id: str, payload: RobotPoseReport) -> ApiMessage:
-    """Legacy mission-scoped alias for canonical robot pose ingestion."""
-    update = RobotPoseUpdate(**payload.model_dump(exclude={"robot_id"}), command_id=command_id)
-    with transaction() as conn:
-        report_pose_for_robot(conn, payload.robot_id, update, source=payload.source or "movement_mission")
-    return ApiMessage(message="mission pose accepted; use /robots/{robot_id}/pose")
+@router.get("/movement/pose-runtime")
+def movement_pose_runtime() -> dict:
+    """실시간 pose 런타임 및 issue writer 진단 지표."""
+    return pose_runtime_metrics()
 
 
 @router.post("/teleop", response_model=TeleopResponse)
@@ -428,18 +398,28 @@ def clear_estop_all_robots(conn) -> list[dict[str, Any]]:
         snapshot = health.get(robot_id) or {}
         online = bool(snapshot.get("ok")) and snapshot.get("robot_online") is not False
         if not online:
-            results.append({
-                "robot_id": robot_id, "ok": False, "attempted": False, "state": "unknown",
-                "error": "robot offline; estop clear unconfirmed",
-            })
+            results.append(
+                {
+                    "robot_id": robot_id,
+                    "ok": False,
+                    "attempted": False,
+                    "state": "unknown",
+                    "error": "robot offline; estop clear unconfirmed",
+                }
+            )
             continue
         try:
             payload = movement_client.clear_estop(robot_id)
             set_robot_emergency(robot_id, False)
-            results.append({"robot_id": robot_id, "ok": True, "attempted": True, "state": "cleared", "response": payload})
+            results.append(
+                {"robot_id": robot_id, "ok": True, "attempted": True, "state": "cleared", "response": payload}
+            )
             operational_events.append(
-                conn, event_type="ROBOT_CLEAR_ESTOP", robot_id=robot_id,
-                message=f"clear estop: {robot_id}", payload=payload,
+                conn,
+                event_type="ROBOT_CLEAR_ESTOP",
+                robot_id=robot_id,
+                message=f"clear estop: {robot_id}",
+                payload=payload,
             )
         except MovementClientError as exc:
             results.append({"robot_id": robot_id, "ok": False, "attempted": True, "state": "failed", "error": str(exc)})

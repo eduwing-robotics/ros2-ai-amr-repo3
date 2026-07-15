@@ -5,13 +5,12 @@ import { useRobotPoses } from "./useRobotPoses";
 /** Header and operator rail connectivity derived from the shared pose cache. */
 export function useRobotConnectivity(robots: Robot[]) {
   const { data: poses = [] } = useRobotPoses(undefined, 2000);
-  const nowMs = Date.now();
   const poseByRobot = new Map(poses.map((p) => [p.robot_id, p]));
 
   const robotFresh = (id: string) => {
     const p = poseByRobot.get(id);
     if (!p) return { online: false, ageSec: null as number | null };
-    const { state, ageSec } = poseFreshness(p.received_at, nowMs, p.age_sec);
+    const { state, ageSec } = poseFreshness(p);
     return { online: state === "live" || state === "stale", ageSec };
   };
 

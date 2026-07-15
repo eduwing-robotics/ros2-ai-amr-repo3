@@ -236,7 +236,7 @@ export function MapGoto({ robots }: { robots: Robot[] }) {
         ) : null}
         <span className="rowcount mono">
           {selectedPose
-            ? `현재 x ${selectedPose.x.toFixed(3)} · y ${selectedPose.y.toFixed(3)} · yaw ${radToDeg(selectedPose.yaw || 0).toFixed(1)}° · age ${selectedPose.age_sec?.toFixed(2) ?? "-"}s`
+            ? `현재 x ${selectedPose.x.toFixed(3)} · y ${selectedPose.y.toFixed(3)} · yaw ${radToDeg(selectedPose.yaw || 0).toFixed(1)}° · 수신 ${selectedPose.receive_age_sec.toFixed(2)}s · 원본 ${selectedPose.source_age_sec?.toFixed(2) ?? "-"}s`
             : "현재 위치 없음"}
         </span>
       </div>

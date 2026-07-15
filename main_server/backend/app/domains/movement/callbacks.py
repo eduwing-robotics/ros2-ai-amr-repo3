@@ -6,8 +6,7 @@ from typing import Any
 
 from app.db.postgres import operational_events, robot_command_records
 from app.domains.execution import orchestrator
-from app.domains.movement.navigation import report_pose_for_robot
-from app.models.robots import RobotPoseUpdate
+from app.domains.movement.pose_runtime import pose_runtime
 
 RESULT_EVENT_MAP = {
     "OK": "DONE",
@@ -105,29 +104,56 @@ def ingest_result(conn, payload: dict[str, Any]) -> dict[str, Any]:
     return {"message": "movement result saved", "duplicate": False, "task_advanced": advanced}
 
 
-def ingest_robot_status(conn, robot_name: str, payload: dict[str, Any]) -> None:
-    """Apply a Movement robot status callback to pose and the event timeline."""
+def ingest_robot_status_pose(robot_name: str, payload: dict[str, Any]) -> bool:
+    """상태 콜백의 pose를 DB 없이 실시간 메모리에 즉시 반영한다."""
     pose = payload.get("pose") or {}
-    if pose and payload.get("localized", True):
-        update = RobotPoseUpdate(
-            map_id=pose.get("frame_id") or "map",
-            x=pose["x"],
-            y=pose["y"],
-            yaw=pose.get("yaw", 0.0),
-            source=pose.get("source") or "movement_status",
-            command_id=payload.get("current_command_id"),
-            reported_at=pose.get("reported_at") or payload.get("reported_at"),
-        )
-        report_pose_for_robot(conn, robot_name, update, source=update.source)
-    message = str(payload.get("state") or "status")
+    if not pose:
+        localized = payload.get("localized")
+        return pose_runtime.update_localization(robot_name, localized) if localized is not None else False
+    update = {
+        "map_id": pose.get("frame_id") or "map",
+        "x": pose["x"],
+        "y": pose["y"],
+        "yaw": pose.get("yaw", 0.0),
+        "linear_velocity": pose.get("linear_velocity"),
+        "angular_velocity": pose.get("angular_velocity"),
+        "source": pose.get("source") or "movement_status",
+        "command_id": payload.get("current_command_id"),
+        "reported_at": pose.get("reported_at") or payload.get("reported_at"),
+        "source_age_sec": pose.get("age_sec"),
+    }
+    return pose_runtime.ingest(
+        robot_name,
+        update,
+        source_kind="status",
+        localized=payload.get("localized"),
+    )
+
+
+def robot_status_requires_event(payload: dict[str, Any]) -> bool:
+    """정상 heartbeat는 버리고 운영자가 확인할 이상 상태만 DB에 남긴다."""
+    state = str(payload.get("state") or "").strip().lower()
+    return payload.get("localized") is False or state in {
+        "error",
+        "fault",
+        "failed",
+        "offline",
+        "disconnected",
+        "estop",
+        "emergency",
+    }
+
+
+def ingest_robot_status(conn, robot_name: str, payload: dict[str, Any]) -> None:
+    """이상 상태 콜백만 운영 이벤트 타임라인에 기록한다."""
+    message = str(payload.get("state") or "status issue")
     if message.lower() == "error":
-        # 상태 하트비트의 "error"만으로는 원인을 알 수 없다 — 직전 실패 메시지를 붙여 준다.
         cause = operational_events.latest_failure_message(conn, robot_name)
         if cause:
             message = f"error — 직전 실패: {cause}"
     operational_events.append(
         conn,
-        event_type="MOVEMENT_ROBOT_STATUS",
+        event_type="MOVEMENT_ROBOT_STATUS_ISSUE",
         robot_id=robot_name,
         command_id=payload.get("current_command_id"),
         message=message,

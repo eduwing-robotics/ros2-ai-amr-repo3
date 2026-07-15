@@ -23,7 +23,8 @@ class ApiRuntimeSmokeTest(unittest.TestCase):
     def setUp(self) -> None:
         self._patches = [
             patch("app.db.connection.require_database_url"),
-            patch("app.db.connection.init_db"),
+            patch("app.main.init_db"),
+            patch("app.main.initialize_pose_runtime"),
             patch("app.main.asyncio.create_task", return_value=MagicMock()),
         ]
         for p in self._patches:

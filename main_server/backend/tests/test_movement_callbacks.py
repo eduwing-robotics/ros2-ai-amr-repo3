@@ -87,9 +87,7 @@ class MovementCallbackServiceTest(unittest.TestCase):
         operational_events.append.side_effect = RuntimeError("event write failed")
 
         with self.assertRaisesRegex(RuntimeError, "event write failed"):
-            callbacks.ingest_command_event(
-                self.conn, {"command_id": "cmd-1", "robot_name": "r1", "event": "DONE"}
-            )
+            callbacks.ingest_command_event(self.conn, {"command_id": "cmd-1", "robot_name": "r1", "event": "DONE"})
 
         handle_event.assert_not_called()
 
@@ -119,10 +117,8 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.event.append.assert_called_once()
         self.movement.record_result.assert_not_called()
 
-    @patch("app.domains.movement.callbacks.report_pose_for_robot")
-    @patch("app.domains.movement.callbacks.operational_events")
-    def test_ingest_robot_status_updates_pose_when_localized(self, operational_events, report_pose) -> None:
-        operational_events.append = self.event.append
+    @patch("app.domains.movement.callbacks.pose_runtime")
+    def test_ingest_robot_status_updates_pose_memory_when_localized(self, pose_runtime) -> None:
         payload = {
             "localized": True,
             "state": "navigating",
@@ -130,35 +126,40 @@ class MovementCallbackServiceTest(unittest.TestCase):
             "pose": {"x": 1.0, "y": 2.0, "yaw": 0.5, "frame_id": "map_a"},
         }
 
-        callbacks.ingest_robot_status(self.conn, "r3", payload)
+        callbacks.ingest_robot_status_pose("r3", payload)
 
-        report_pose.assert_called_once()
-        self.event.append.assert_called_once()
-        self.assertEqual(self.event.append.call_args.kwargs["event_type"], "MOVEMENT_ROBOT_STATUS")
+        pose_runtime.ingest.assert_called_once()
+        self.assertEqual(pose_runtime.ingest.call_args.args[0], "r3")
+        self.assertEqual(pose_runtime.ingest.call_args.kwargs["source_kind"], "status")
+        self.assertFalse(callbacks.robot_status_requires_event(payload))
 
-    @patch("app.domains.movement.callbacks.report_pose_for_robot")
+    @patch("app.domains.movement.callbacks.pose_runtime")
+    def test_localization_only_status_updates_pose_quality(self, pose_runtime) -> None:
+        callbacks.ingest_robot_status_pose("r3", {"localized": False})
+        pose_runtime.update_localization.assert_called_once_with("r3", False)
+
     @patch("app.domains.movement.callbacks.operational_events")
-    def test_ingest_robot_status_error_appends_latest_failure_cause(self, operational_events, report_pose) -> None:
-        operational_events.append = self.event.append
+    def test_normal_robot_status_heartbeat_is_not_an_issue(self, operational_events) -> None:
+        payload = {"state": "navigating", "localized": True}
+        self.assertFalse(callbacks.robot_status_requires_event(payload))
+        operational_events.append.assert_not_called()
+
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_ingest_robot_status_error_appends_latest_failure_cause(self, operational_events) -> None:
         operational_events.latest_failure_message.return_value = "step 0 nav2_pose failed"
 
+        self.assertTrue(callbacks.robot_status_requires_event({"state": "error"}))
         callbacks.ingest_robot_status(self.conn, "r3", {"state": "error"})
 
         operational_events.latest_failure_message.assert_called_once_with(self.conn, "r3")
         self.assertEqual(
-            self.event.append.call_args.kwargs["message"],
+            operational_events.append.call_args.kwargs["message"],
             "error — 직전 실패: step 0 nav2_pose failed",
         )
-
-    @patch("app.domains.movement.callbacks.report_pose_for_robot")
-    @patch("app.domains.movement.callbacks.operational_events")
-    def test_ingest_robot_status_error_without_recent_failure_keeps_message(self, operational_events, report_pose) -> None:
-        operational_events.append = self.event.append
-        operational_events.latest_failure_message.return_value = None
-
-        callbacks.ingest_robot_status(self.conn, "r3", {"state": "error"})
-
-        self.assertEqual(self.event.append.call_args.kwargs["message"], "error")
+        self.assertEqual(
+            operational_events.append.call_args.kwargs["event_type"],
+            "MOVEMENT_ROBOT_STATUS_ISSUE",
+        )
 
     @patch("app.domains.movement.router.movement_client")
     @patch("app.domains.movement.router.operational_events")
@@ -218,7 +219,8 @@ class MovementCallbackRouteTest(unittest.TestCase):
     def setUp(self) -> None:
         self._patches = [
             patch("app.db.connection.require_database_url"),
-            patch("app.db.connection.init_db"),
+            patch("app.main.init_db"),
+            patch("app.main.initialize_pose_runtime"),
             patch("app.main.asyncio.create_task", return_value=MagicMock()),
         ]
         for p in self._patches:
@@ -291,8 +293,9 @@ class MovementCallbackRouteTest(unittest.TestCase):
 
         self.assertEqual(res.status_code, 200)
         body = res.json()
-        self.assertEqual(body["message"], "movement robot status saved")
-        ingest.assert_called_once_with(conn, "tb3_1", {"state": "idle"})
+        self.assertEqual(body["message"], "movement robot status accepted")
+        ingest.assert_not_called()
+        transaction_ctx.assert_not_called()
 
     @patch("app.domains.movement.router.transaction")
     @patch("app.domains.movement.router.estop_all_robots")

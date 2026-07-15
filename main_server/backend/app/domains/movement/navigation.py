@@ -8,11 +8,9 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
-from app.db.postgres import robot_poses, robots
 from app.domains.maps.assets import list_map_asset_records
 from app.domains.movement.client import MovementClientError, movement_client
 from app.domains.movement.health import base_url_for, get_movement_health
-from app.models.robots import RobotPoseUpdate
 
 
 class RuntimeMapContext(BaseModel):
@@ -298,13 +296,3 @@ def localization_snapshot(robot_id: str) -> dict:
         "localization": localization,
         "source": localization_source,
     }
-
-
-def report_pose_for_robot(conn, robot_id: str, payload: RobotPoseUpdate, source: str | None = None) -> None:
-    """Store the canonical latest pose and refresh robot liveness."""
-    if not robots.exists(conn, robot_id):
-        raise HTTPException(status_code=404, detail="robot not found")
-    data = payload.model_dump()
-    data["source"] = source or payload.source
-    robot_poses.upsert_latest(conn, robot_id, data)
-    robots.touch(conn, robot_id)

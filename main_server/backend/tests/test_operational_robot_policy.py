@@ -1,12 +1,12 @@
 """Operational enablement, ESTOP partial-clear, and latest-pose policy tests."""
 
-from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
+from app import main as main_app
+from app.api.routers import robots as robot_routes
 from app.api.routers.system import _estop_summary
-from app.db.postgres import robot_poses
 from app.db.postgres import robots as robot_repository
-from app.domains.movement import navigation, router
+from app.domains.movement import router
 from app.models.robots import Robot, RobotPoseUpdate, RobotUpsert
 
 
@@ -52,9 +52,10 @@ def test_clear_estop_targets_only_enabled_online_robots() -> None:
     clear.assert_called_once_with("r1")
 
 
-def test_pose_report_updates_latest_state_without_per_pose_event() -> None:
-    conn = MagicMock()
-    pose = RobotPoseUpdate(
+def test_pose_report_updates_memory_without_transaction() -> None:
+    router.pose_runtime.reset()
+    router.pose_runtime.configure({"r1"})
+    payload = RobotPoseUpdate(
         map_id="map",
         x=1.0,
         y=2.0,
@@ -63,17 +64,68 @@ def test_pose_report_updates_latest_state_without_per_pose_event() -> None:
         command_id="cmd-1",
         reported_at="2026-07-15T00:00:00Z",
     )
-    with (
-        patch.object(navigation.robots, "exists", return_value=True),
-        patch.object(navigation.robot_poses, "upsert_latest") as upsert,
-        patch.object(navigation.robots, "touch") as touch,
-    ):
-        navigation.report_pose_for_robot(conn, "r1", pose)
 
-    upsert.assert_called_once()
-    assert upsert.call_args.args[1] == "r1"
-    assert upsert.call_args.args[2]["command_id"] == "cmd-1"
-    touch.assert_called_once_with(conn, "r1")
+    with patch.object(router, "transaction") as tx:
+        result = router.report_robot_pose_for_robot("r1", payload)
+
+    tx.assert_not_called()
+    assert result.message == "robot pose accepted"
+    snapshot = router.pose_runtime.list_snapshots()[0]
+    assert snapshot["robot_id"] == "r1"
+    assert snapshot["command_id"] == "cmd-1"
+    router.pose_runtime.reset()
+
+
+def test_pose_list_is_memory_only() -> None:
+    router.pose_runtime.reset()
+    router.pose_runtime.configure({"r1"})
+    router.pose_runtime.ingest("r1", {"map_id": "map", "x": 1.0, "y": 2.0}, source_kind="canonical")
+
+    with (
+        patch.object(router, "transaction") as tx,
+        patch.object(router.movement_client, "robot_pose") as movement_pose,
+    ):
+        rows = router.list_robot_poses()
+
+    assert len(rows) == 1
+    assert rows[0].robot_id == "r1"
+    tx.assert_not_called()
+    movement_pose.assert_not_called()
+    router.pose_runtime.reset()
+
+
+def test_runtime_registry_contains_only_enabled_db_robots() -> None:
+    conn = MagicMock()
+    rows = [
+        {"robot_id": "r1", "enabled": True},
+        {"robot_id": "r2", "enabled": False},
+    ]
+    with (
+        patch.object(main_app, "transaction") as tx,
+        patch.object(main_app.postgres_robots, "list_robots", return_value=rows),
+        patch.object(main_app.pose_runtime, "configure") as configure,
+    ):
+        tx.return_value.__enter__.return_value = conn
+        main_app.initialize_pose_runtime()
+
+    assert configure.call_args.args[0] == ["r1"]
+
+
+def test_disabling_robot_removes_it_from_pose_registry() -> None:
+    conn = MagicMock()
+    payload = RobotUpsert(robot_id="r1", display_name="r1", enabled=False)
+    with (
+        patch.object(robot_routes, "transaction") as tx,
+        patch.object(robot_routes.robots, "get", return_value={"enabled": True}),
+        patch.object(robot_routes.robots, "disable_block_reason", return_value=None),
+        patch.object(robot_routes.robots, "upsert"),
+        patch.object(robot_routes.operational_events, "append"),
+        patch.object(robot_routes.pose_runtime, "unregister_robot") as unregister,
+    ):
+        tx.return_value.__enter__.return_value = conn
+        robot_routes.upsert_robot(payload)
+
+    unregister.assert_called_once_with("r1")
 
 
 def test_robot_upsert_omitted_enabled_preserves_existing_setting() -> None:
@@ -86,15 +138,3 @@ def test_robot_upsert_omitted_enabled_preserves_existing_setting() -> None:
     sql, params = conn.execute.call_args.args
     assert "enabled = COALESCE(%s, robots.enabled)" in sql
     assert params[-1] is None
-
-
-def test_latest_pose_separates_source_age_from_cache_age() -> None:
-    now = datetime.now(timezone.utc)
-    mapped = robot_poses._map({
-        "robot_id": "r1", "map_id": "map", "x": 1.0, "y": 2.0, "yaw": 0.0,
-        "reported_at": now - timedelta(seconds=10),
-        "received_at": now - timedelta(seconds=1),
-    })
-
-    assert 9.0 <= mapped["age_sec"] <= 11.0
-    assert 0.0 <= mapped["cache_age_sec"] <= 2.0

@@ -14,7 +14,6 @@ from app.main import app
 DBML_TABLES = (
     "items",
     "robots",
-    "robot_latest_poses",
     "locations",
     "inventory",
     "tasks",
