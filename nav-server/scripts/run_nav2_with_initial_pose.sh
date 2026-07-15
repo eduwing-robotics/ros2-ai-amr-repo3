@@ -13,6 +13,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="${SMARTFACTORY_REPO_ROOT:-$(cd "$ROOT/.." && pwd)}"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
 TURTLEBOT3_SETUP="${TURTLEBOT3_SETUP:?TURTLEBOT3_SETUP must point to the TurtleBot3 overlay setup.bash}"
 MAP_YAML="${MAP_YAML:-$ROOT/map/robot2_map.yaml}"
@@ -467,6 +468,17 @@ except (TypeError, ValueError, json.JSONDecodeError):
   echo "[nav2_helper] robot scan and odom TF ready"
 }
 
+load_site_credentials() {
+  local helper="$REPO_ROOT/scripts/lib/site_credentials.sh"
+  if [[ ! -r "$helper" ]]; then
+    echo "[nav2_helper] missing site credential loader: $helper" >&2
+    return 1
+  fi
+  # shellcheck source=/dev/null
+  source "$helper"
+  sf_load_site_credentials "$REPO_ROOT"
+}
+
 while (($# > 0)); do
   case "$1" in
     --robot)
@@ -629,6 +641,11 @@ if [[ "$WITH_EKF" == "1" && ! -f "$EKF_PARAMS_FILE" ]]; then
   echo "[nav2_helper] missing EKF params yaml: $EKF_PARAMS_FILE" >&2
   exit 1
 fi
+
+# nav_ops starts the API profile and Nav2 helper from separate operator shells,
+# so the helper must load the shared credential bundle for itself. Validate it
+# before sourcing ROS or starting any robot-facing process.
+load_site_credentials
 
 # shellcheck source=/dev/null
 set +u

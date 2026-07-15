@@ -2,22 +2,65 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
-from pathlib import Path
+import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "run_nav2_with_initial_pose.sh"
 NAV_OPS = ROOT / "scripts" / "nav_ops.sh"
 START_ALL = ROOT / "scripts" / "start_all_tb3_2.sh"
+CREDENTIAL_LIBRARY = ROOT.parent / "scripts" / "lib" / "site_credentials.sh"
 
 
 def _write_executable(path: Path, source: str) -> None:
     path.write_text(source, encoding="utf-8")
     path.chmod(0o755)
+
+
+def _write_site_credentials(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    checkout = tmp_path / "checkout"
+    helper = checkout / "scripts" / "lib" / "site_credentials.sh"
+    helper.parent.mkdir(parents=True)
+    shutil.copy2(CREDENTIAL_LIBRARY, helper)
+
+    movement = "m" * 48
+    vision = "v" * 48
+    gateway = "g" * 48
+    material = b"smartfactory-service-hmac-v1\0" + b"\0".join(
+        value.encode("ascii") for value in (movement, vision, gateway)
+    )
+    credential_set_id = hashlib.sha256(material).hexdigest()[:24]
+    credential_dir = checkout / ".secrets"
+    credential_dir.mkdir(mode=0o700)
+    credential_dir.chmod(0o700)
+    bundle = credential_dir / "service-hmac.env"
+    bundle.write_text(
+        "\n".join(
+            (
+                f"SMARTFACTORY_CREDENTIAL_SET_ID={credential_set_id}",
+                f"LMS_MOVEMENT_HMAC_SECRET={movement}",
+                f"NAV_MAIN_HMAC_SECRET={movement}",
+                f"LMS_VISION_HMAC_SECRET={vision}",
+                f"MAIN_HMAC_SECRET={vision}",
+                f"VISION_GATEWAY_HMAC_SECRET={gateway}",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    bundle.chmod(0o600)
+    return checkout, {
+        "LMS_MOVEMENT_HMAC_SECRET": movement,
+        "NAV_MAIN_HMAC_SECRET": movement,
+        "LMS_VISION_HMAC_SECRET": vision,
+        "MAIN_HMAC_SECRET": vision,
+        "VISION_GATEWAY_HMAC_SECRET": gateway,
+    }
 
 
 def _fake_startup_environment(tmp_path: Path) -> dict[str, str]:
@@ -165,6 +208,7 @@ esac
     params = tmp_path / "params.yaml"
     params.write_text("/**: {}\n", encoding="utf-8")
 
+    checkout, credential_values = _write_site_credentials(tmp_path)
     return os.environ | {
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "EVENT_LOG": str(event_log),
@@ -175,7 +219,8 @@ esac
         "TURTLEBOT3_SETUP": str(setup),
         "MAP_YAML": str(map_yaml),
         "NAV2_PARAMS_FILE": str(params),
-        "NAV_MAIN_HMAC_SECRET": "startup-test-secret",
+        "SMARTFACTORY_REPO_ROOT": str(checkout),
+        **credential_values,
         "RMW_IMPLEMENTATION": "rmw_cyclonedds_cpp",
         "ROS_STATIC_PEERS": "smartfactory-robot1.local",
         "AUTOMATIC_LOCALIZATION_TIMEOUT_SEC": "1",
@@ -248,6 +293,59 @@ def test_automatic_startup_orders_sensor_gate_trigger_localization_and_lifecycle
     assert "navigation-ready: localization and lifecycle gates passed" in result.stdout
     assert not any("topic echo --once /scan" in event for event in events)
     assert not any("/cmd_vel" in event for event in events)
+
+
+def test_standard_startup_loads_site_credentials_without_operator_export(tmp_path: Path) -> None:
+    result, events = _run_startup(
+        tmp_path,
+        env_overrides={
+            "LMS_MOVEMENT_HMAC_SECRET": "",
+            "NAV_MAIN_HMAC_SECRET": "",
+            "LMS_VISION_HMAC_SECRET": "",
+            "MAIN_HMAC_SECRET": "",
+            "VISION_GATEWAY_HMAC_SECRET": "",
+        },
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert any("-X POST" in event for event in events)
+    assert "navigation-ready: localization and lifecycle gates passed" in result.stdout
+    assert not any(value * 48 in result.stdout + result.stderr for value in ("m", "v", "g"))
+
+
+def test_missing_site_bundle_fails_before_ros_or_network_side_effects(tmp_path: Path) -> None:
+    missing_checkout = tmp_path / "missing-checkout"
+    helper = missing_checkout / "scripts" / "lib" / "site_credentials.sh"
+    helper.parent.mkdir(parents=True)
+    shutil.copy2(CREDENTIAL_LIBRARY, helper)
+    result, events = _run_startup(
+        tmp_path,
+        env_overrides={
+            "SMARTFACTORY_REPO_ROOT": str(missing_checkout),
+            "LMS_MOVEMENT_HMAC_SECRET": "",
+            "NAV_MAIN_HMAC_SECRET": "",
+            "LMS_VISION_HMAC_SECRET": "",
+            "MAIN_HMAC_SECRET": "",
+            "VISION_GATEWAY_HMAC_SECRET": "",
+        },
+    )
+
+    assert result.returncode != 0
+    assert "credential bundle is missing" in result.stderr
+    assert events == []
+
+
+def test_mismatched_site_credential_fails_early_without_leaking_value(tmp_path: Path) -> None:
+    stale_secret = "x" * 48
+    result, events = _run_startup(
+        tmp_path,
+        env_overrides={"NAV_MAIN_HMAC_SECRET": stale_secret},
+    )
+
+    assert result.returncode != 0
+    assert "NAV_MAIN_HMAC_SECRET differs from the credential bundle" in result.stderr
+    assert stale_secret not in result.stdout + result.stderr
+    assert events == []
 
 
 def test_transient_amcl_service_rejection_is_retried_within_api_deadline(tmp_path: Path) -> None:

@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import stat
 import subprocess
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LIBRARY = ROOT / "scripts" / "lib" / "site_credentials.sh"
@@ -161,6 +160,7 @@ def test_standard_bootstrap_and_launchers_own_credential_generation_and_loading(
         "bootstrap": ROOT / "main-server/scripts/bootstrap.sh",
         "main": ROOT / "main-server/scripts/real.sh",
         "nav": ROOT / "nav-server/scripts/sf_nav.sh",
+        "nav2": ROOT / "nav-server/scripts/run_nav2_with_initial_pose.sh",
         "vision": ROOT / "ai-server/scripts/vision/sf_vision.sh",
         "preflight": ROOT / "scripts/operator-preflight.sh",
     }
@@ -169,6 +169,8 @@ def test_standard_bootstrap_and_launchers_own_credential_generation_and_loading(
     assert "sf_ensure_site_credentials" in text["bootstrap"]
     assert "sf_load_site_credentials" in text["main"]
     assert "sf_load_site_credentials" in text["nav"]
+    assert "sf_load_site_credentials" in text["nav2"]
+    assert text["nav2"].index("sf_load_site_credentials") < text["nav2"].index('source "$ROS_SETUP"')
     assert "sf_load_site_credentials" in text["vision"]
     assert "sf_load_site_credentials" in text["preflight"]
     assert "required Movement HMAC secret is not set; export" not in text["preflight"]
