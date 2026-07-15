@@ -2,6 +2,11 @@
 set -u -o pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+NAV_PY="${NAV_PY:-${ROOT_DIR}/nav-server/.venv/bin/python}"
+MAIN_PY="${MAIN_PY:-${ROOT_DIR}/main-server/.venv/bin/python}"
+AI_PY="${AI_PY:-${ROOT_DIR}/ai-server/.venv/bin/python}"
+FRONTEND_DIR="${FRONTEND_DIR:-${ROOT_DIR}/main-server/frontend/web}"
+export NAV_PY MAIN_PY AI_PY FRONTEND_DIR
 FAILED=0
 
 echo "[nohardware] field-config: ${ROOT_DIR}/scripts/test-nohardware-config.sh"
@@ -16,17 +21,16 @@ fi
 
 run_pytest() {
   local service="$1"
-  local venv="$2"
+  local python="$2"
   local workdir="$3"
   shift 3
-  local pytest_bin="${ROOT_DIR}/${venv}/bin/pytest"
-  if [[ ! -x "${pytest_bin}" ]]; then
-    echo "[nohardware] ${service}: missing executable ${pytest_bin}" >&2
+  if [[ ! -x "${python}" ]]; then
+    echo "[nohardware] ${service}: missing executable ${python}" >&2
     FAILED=127
     return 0
   fi
-  echo "[nohardware] ${service}: ${pytest_bin} $*"
-  (cd "${ROOT_DIR}/${workdir}" && "${pytest_bin}" "$@")
+  echo "[nohardware] ${service}: ${python} -m pytest $*"
+  (cd "${ROOT_DIR}/${workdir}" && "${python}" -m pytest "$@")
   local status=$?
   if [[ ${status} -ne 0 ]]; then
     echo "[nohardware] ${service}: FAILED (${status})" >&2
@@ -38,16 +42,15 @@ run_pytest() {
 
 run_pytest_glob() {
   local service="$1"
-  local venv="$2"
+  local python="$2"
   local workdir="$3"
   local pattern="$4"
-  local pytest_bin="${ROOT_DIR}/${venv}/bin/pytest"
-  if [[ ! -x "${pytest_bin}" ]]; then
-    echo "[nohardware] ${service}: missing executable ${pytest_bin}" >&2
+  if [[ ! -x "${python}" ]]; then
+    echo "[nohardware] ${service}: missing executable ${python}" >&2
     FAILED=127
     return 0
   fi
-  echo "[nohardware] ${service}: ${pytest_bin} ${pattern}"
+  echo "[nohardware] ${service}: ${python} -m pytest ${pattern}"
   (
     cd "${ROOT_DIR}/${workdir}" || exit 1
     local test_files=()
@@ -58,7 +61,7 @@ run_pytest_glob() {
       echo "[nohardware] ${service}: no tests matched ${pattern}" >&2
       exit 5
     fi
-    "${pytest_bin}" "${test_files[@]}"
+    "${python}" -m pytest "${test_files[@]}"
   )
   local status=$?
   if [[ ${status} -ne 0 ]]; then
@@ -69,13 +72,13 @@ run_pytest_glob() {
   fi
 }
 
-run_pytest "ai-server" "ai-server/.venv" "ai-server" \
+run_pytest "ai-server" "${AI_PY}" "ai-server" \
   tests/test_nohardware_lift_load_contract.py
 
-run_pytest_glob "main-server" "main-server/.venv" "main-server/backend" \
+run_pytest_glob "main-server" "${MAIN_PY}" "main-server/backend" \
   'tests/test_nohardware_*.py'
 
-run_pytest "nav-server" "nav-server/.venv" "nav-server" \
+run_pytest "nav-server" "${NAV_PY}" "nav-server" \
   tests/test_nohardware_robot_command_contract.py
 
 
@@ -88,6 +91,21 @@ if [[ ${FAILED} -eq 0 ]]; then
     FAILED=1
   else
     echo "[nohardware] tcp-smoke: PASSED"
+  fi
+fi
+
+if [[ ${FAILED} -eq 0 ]]; then
+  echo "[nohardware] tcp-lifecycle: staged abort, Ctrl-C, and request-timeout cleanup"
+  "${MAIN_PY}" \
+    "${ROOT_DIR}/tests/nohardware/check_nohardware_runner_lifecycle.py" \
+    --runner "${ROOT_DIR}/scripts/test-nohardware-tcp.sh" \
+    --dependency-root "${ROOT_DIR}"
+  status=$?
+  if [[ ${status} -ne 0 ]]; then
+    echo "[nohardware] tcp-lifecycle: FAILED (${status})" >&2
+    FAILED=1
+  else
+    echo "[nohardware] tcp-lifecycle: PASSED"
   fi
 fi
 
