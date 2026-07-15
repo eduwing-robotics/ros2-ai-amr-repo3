@@ -6,8 +6,7 @@ Use this current procedure after `./scripts/vision/sf_lab.sh low-load` is runnin
 
 The mutation examples below require Main's replay-protected HMAC headers. Run
 them through Main or a trusted signer using `MAIN_HMAC_SECRET`; raw unauthenticated
-`curl` calls are expected to return `401` in production. Do not set
-`AI_DEBUG_MUTATIONS_ENABLED=true` on a live evidence-producing service.
+`curl` calls are expected to return `401` in production.
 
 ## 1. Runtime and source health
 
