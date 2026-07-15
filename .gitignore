@@ -203,8 +203,9 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
-# Local operator notes
+# Local operator notes and integration worklogs
 local_docs/
+main_server/worklog/
 
 # Ruff stuff:
 .ruff_cache/
