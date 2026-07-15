@@ -193,10 +193,9 @@ test("WEB-08 예약 작업이 없으면 배치 실행을 막고 이유를 표시
 test("WEB-09 Movement 오프라인이면 수동 방향 조작을 막는다", async ({ page }) => {
   await mockMainApi(page, { movementOk: false });
   await page.goto("/operate/control");
-  await page.getByRole("button", { name: /수동 조작 · 맵 이동/ }).click();
-  await expect(page.getByRole("button", { name: "▲" })).toBeDisabled();
-  await expect(page.getByText(/Movement 서버에 연결할 수 없습니다/)).toBeVisible();
-  await expect(page.getByText(/Movement 서버에 연결할 수 없습니다/)).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "조작 →", exact: true })).toBeDisabled();
+  await expect(page.getByText(/Movement 서버 오프라인/)).toBeVisible();
+  await expect(page.getByText(/Movement 서버 오프라인/)).toHaveCount(1);
 });
 
 test("WEB-10 맵 편집 액션은 선택한 구역에만 표시한다", async ({ page }) => {
@@ -220,7 +219,7 @@ test("WEB-11 복구는 적재 확인 전 차단하고 두 가지 방식만 제�
     }],
   });
   await page.goto("/operate/control");
-  await expect(page.locator(".task-workspace-summary")).toContainText("복구 1");
+  await expect(page.locator(".operator-kpi-strip .kpi-tile").filter({ hasText: "활성 작업" })).toContainText("복구 1");
   await page.locator(".slim-nav").getByRole("button", { name: /작업/ }).click();
   await expect(page.getByText("안전 위치로 이동", { exact: true })).toBeVisible();
   await expect(page.getByText("작업 종료 및 수동 회수", { exact: true })).toBeVisible();
@@ -233,18 +232,22 @@ test("WEB-11 복구는 적재 확인 전 차단하고 두 가지 방식만 제�
   await expect(page.getByText(/자동 하역 및 기존 작업 재개/)).toBeVisible();
 });
 
-test("WEB-12 데스크톱 드로어는 비모달 패널이고 활성 메뉴에 작업 수를 표시한다", async ({ page }) => {
-  await mockMainApi(page, { tasks: [{ task_id: 9, status: "RUNNING" }] });
+test("WEB-12 데스크톱 실행 버튼은 우측 문맥만 바꾸고 작업 수를 유지한다", async ({ page }) => {
+  await mockMainApi(page, { tasks: [{ task_id: 9, task_type: "INBOUND", priority: 10, status: "RUNNING" }] });
   await page.goto("/operate/control");
-  const inoutNav = page.getByRole("button", { name: "입출고" });
+  const inoutNav = page.getByRole("button", { name: "새 요청 만들기" });
+  const taskNav = page.locator(".slim-nav").getByRole("button", { name: "작업", exact: true });
+  await expect(taskNav).toContainText("1");
+
   await inoutNav.click();
-  await expect(page).toHaveURL(/\/operate\/control\?drawer=inout$/);
-  await expect(inoutNav).toHaveAttribute("aria-current", "page");
+  await expect(page).toHaveURL(new RegExp("/operate/control\\?robot=tb3_1&drawer=inout$"));
+  await expect(inoutNav).not.toHaveAttribute("aria-current", "page");
   await expect(inoutNav).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("region", { name: "입출고" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /작업, 진행 중 1건, 접힘/ })).toBeVisible();
+  await expect(page.locator(".operator-map-stage-wrap")).toBeVisible();
+  await expect(page.getByRole("region", { name: "전역 카메라" })).toBeVisible();
   await page.getByRole("button", { name: "닫기" }).click();
-  await expect(page).toHaveURL(/\/operate\/control$/);
+  await expect(page).toHaveURL(new RegExp("/operate/control\\?robot=tb3_1$"));
   await expect(inoutNav).toBeFocused();
 });
 
@@ -259,7 +262,7 @@ test("WEB-13 좁은 화면 드로어는 배경을 차단하는 모달로 동작�
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("button", { name: "취소" })).toBeFocused();
   await page.locator(".drawer-scrim").click({ position: { x: 800, y: 400 } });
-  await expect(page).toHaveURL(/\/operate\/control$/);
+  await expect(page).toHaveURL(/\/operate\/control\?robot=tb3_1$/);
 });
 
 test("WEB-14 이전 입출고 URL은 canonical 드로어 URL로 교체된다", async ({ page }) => {
@@ -268,69 +271,56 @@ test("WEB-14 이전 입출고 URL은 canonical 드로어 URL로 교체된다", a
   await expect(page).toHaveURL(/\/operate\/control\?drawer=inout$/);
 });
 
-test("WEB-15 작업 메뉴는 하단 워크스페이스를 접고 다시 펼친다", async ({ page }) => {
-  await mockMainApi(page, { tasks: [{ task_id: 9, status: "RUNNING" }] });
+test("WEB-15 작업 메뉴는 중앙 작업 워크스페이스로 전환한다", async ({ page }) => {
+  await mockMainApi(page, { tasks: [{ task_id: 9, task_type: "INBOUND", priority: 10, status: "RUNNING" }] });
   await page.goto("/operate/control");
-  const taskNav = page.locator('.slim-nav button[aria-controls="operator-tasks-workspace"]');
-  const content = page.locator("#operator-tasks-content");
+  const nav = page.locator(".slim-nav");
 
-  await expect(taskNav).toHaveAttribute("aria-expanded", "false");
-  await expect(content).toBeHidden();
-  await taskNav.click();
-  await expect(page).toHaveURL(/\/operate\/control\?panel=tasks$/);
-  await expect(page.locator(".task-workspace-summary")).toBeFocused();
-  await expect(taskNav).toHaveAttribute("aria-expanded", "true");
-  await expect(content).toBeVisible();
+  await nav.getByRole("button", { name: /작업/ }).click();
+  await expect(page).toHaveURL(new RegExp("/operate/tasks$"));
+  await expect(page.locator("#operator-workspace-main")).toHaveAttribute("aria-label", "작업 워크스페이스");
   await expect(page.getByRole("button", { name: "자동 배정" })).toBeVisible();
+  await expect(page.locator(".operator-insight-band")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "전역 카메라" })).toBeVisible();
 
-  await page.locator(".task-workspace-summary").click();
-  await expect(page).toHaveURL(/\/operate\/control$/);
-  await expect(content).toBeHidden();
-  await taskNav.click();
-  await expect(content).toBeVisible();
+  await nav.getByRole("button", { name: "관제", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp("/operate/control$"));
+  await expect(page.locator(".operator-map-stage-wrap")).toBeVisible();
+  await expect(page.getByRole("region", { name: "로봇별 작업 진행과 안전 중지" })).toBeVisible();
 });
 
-test("WEB-17 알람 타일은 이벤트 목록을 펼치고 모두 확인 시 강조·카운트를 지운다", async ({ page }) => {
+test("WEB-17 KPI는 읽기 전용이고 이벤트 명령은 현재 경고 문맥에 둔다", async ({ page }) => {
   await mockMainApi(page, {
     events: [
       { id: 1, created_at: "2026-07-14T09:00:00Z", event_type: "ROBOT_ESTOP", message: "tb3_1 비상 정지" },
       { id: 2, created_at: "2026-07-14T09:01:00Z", event_type: "MOVEMENT_RESULT", message: "이동 timeout" },
-      // 로봇 상태 하트비트는 state=error여도 알람으로 세지 않는다
       { id: 3, created_at: "2026-07-14T09:02:00Z", event_type: "MOVEMENT_ROBOT_STATUS", message: "error" },
-      // 복구 이벤트 메시지에 stale이 포함돼도 신규 알람으로 세지 않는다
       { id: 4, created_at: "2026-07-14T09:03:00Z", event_type: "POSE_RECOVERED", message: "POSE_RECOVERED: stale -> live" },
-      // 기존 3초대 source 지연 이력은 기준 변경 후 미확인 알람에서 제외한다
       { id: 5, created_at: "2026-07-14T09:04:00Z", event_type: "POSE_STALE", message: "POSE_STALE: live -> stale", payload: { pose: { quality_reasons: ["SOURCE_DELAY"], source_age_sec: 3.1 } } },
     ],
   });
   await page.goto("/operate/control");
 
-  const alarmTile = page.locator('.kpi-tile-btn[aria-controls="operator-alarm-panel"]');
-  const panel = page.locator("#operator-alarm-panel");
-
-  // 미확인 알람: 하트비트 제외 카운트 2 + err 강조
+  const alarmTile = page.locator(".operator-kpi-strip .kpi-tile").filter({ hasText: "미확인 알람" });
+  const map = page.locator(".operator-map-stage-wrap");
+  const before = await map.boundingBox();
   await expect(alarmTile).toHaveClass(/err/);
   await expect(alarmTile.locator(".kpi-value")).toHaveText("2");
-  await expect(panel).not.toBeAttached();
+  await expect(alarmTile).not.toHaveAttribute("role", "button");
 
-  // 클릭 → 이벤트 목록 확장
-  await alarmTile.click();
-  await expect(alarmTile).toHaveAttribute("aria-expanded", "true");
-  await expect(panel).toBeVisible();
-  await expect(panel.getByText("비상 정지").first()).toBeVisible();
+  await page.locator(".operator-priority-alert").getByRole("button", { name: "이벤트 보기" }).click();
+  await expect(page).toHaveURL(new RegExp("/operate/events$"));
+  await expect(page.locator("#operator-workspace-main")).toHaveAttribute("aria-label", "이벤트 워크스페이스");
+  await expect(page.getByRole("region", { name: "전역 카메라" })).toBeVisible();
 
-  // 모두 확인 → 빨간 강조·카운트 제거, 행은 확인됨으로 유지
-  await panel.getByRole("button", { name: "모두 확인" }).click();
+  await page.getByRole("button", { name: "관제", exact: true }).click();
+  const returned = await map.boundingBox();
+  expect(returned?.y).toBe(before?.y);
+
+  await page.locator(".operator-priority-alert").getByRole("button", { name: "확인", exact: true }).click();
   await expect(alarmTile).not.toHaveClass(/err|warn/);
   await expect(alarmTile.locator(".kpi-value")).toHaveText("0");
-  await expect(panel.locator(".event-feed-row.acked")).toHaveCount(2);
-  await expect(panel.getByRole("button", { name: "모두 확인" })).toBeDisabled();
-
-  // 다시 클릭 → 접힘
-  await alarmTile.click();
-  await expect(panel).not.toBeAttached();
 });
-
 test("WEB-18 운영 지도와 관리자 Goto는 공통 런타임 캔버스를 사용한다", async ({ page }) => {
   await mockMainApi(page);
 

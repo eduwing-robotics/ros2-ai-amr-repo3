@@ -11,6 +11,8 @@ export const VIEW_REGISTRY: Record<string, ComponentType> = {
   "operate/control": OperatorShell,
   "operate/inout": OperatorShell,
   "operate/tasks": OperatorShell,
+  "operate/inventory": OperatorShell,
+  "operate/events": OperatorShell,
   "admin/map": MapEditor,
   "admin/warehouse": WarehouseAdmin,
   "admin/devices": DevicesAdmin,
