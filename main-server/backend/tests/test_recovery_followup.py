@@ -108,6 +108,39 @@ class RecoveryPhaseGuardTest(unittest.TestCase):
         self.assertEqual(ctx.exception.detail, "recovery_stop_unconfirmed")
         tasks.set_status.assert_not_called()
 
+    def test_manual_abort_unexpected_stop_error_restores_operator_hold(self) -> None:
+        conn = MagicMock()
+        tasks = MagicMock()
+        tasks.get.return_value = {"task_id": 1, "status": "RUNNING", "assigned_robot_id": "r1"}
+        evidence = MagicMock()
+        state = {"phase": "AWAITING_OPERATOR", "recovery": {"reason": "operator_estop"}}
+        evidence.get_orchestration.side_effect = lambda _task_id: copy.deepcopy(state)
+
+        def save(_conn, _task_id, orchestration):
+            state.clear()
+            state.update(copy.deepcopy(orchestration))
+
+        with (
+            patch.object(recovery, "_assert_needs_attention_phase"),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(recovery, "evidence_repo", return_value=evidence),
+            patch.object(recovery.evidence_runtime, "save_orchestration", side_effect=save),
+            patch.object(recovery.movement_client, "manual_stop", side_effect=RuntimeError("unexpected")),
+            self.assertRaisesRegex(RuntimeError, "unexpected"),
+        ):
+            recovery.execute_recovery(
+                conn,
+                1,
+                cargo_state="LOADED",
+                strategy="manual_abort",
+                checks={"ok": True},
+            )
+
+        self.assertEqual(state["phase"], "AWAITING_OPERATOR")
+        self.assertEqual(state["recovery"]["reason"], "physical_stop_unconfirmed")
+        self.assertEqual(state["recovery"]["cargo_state"], "UNKNOWN")
+        tasks.set_status.assert_not_called()
+
     def test_manual_abort_accepts_only_confirmed_robot_stop_response(self) -> None:
         with patch.object(
             recovery.movement_client,

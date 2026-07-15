@@ -346,7 +346,7 @@ def execute_recovery(
 
         try:
             _stop_robot_movement(str(robot_id))
-        except HTTPException:
+        except Exception:
             conn.rollback()
             _hold_unconfirmed_manual_abort(conn, task_id, orch)
             raise
@@ -506,7 +506,7 @@ def _dispatch_persisted_recovery_command(
 
     command_id_mismatch = str(result.command_id) != command_id
     accepted = bool(result.accepted) and not command_id_mismatch
-    finalized = _finalize_recovery_dispatch(
+    finalized, stop_requested = _finalize_recovery_dispatch(
         conn,
         task_id,
         command_id,
@@ -514,6 +514,14 @@ def _dispatch_persisted_recovery_command(
         accepted=accepted,
         command_kind=command_kind,
     )
+    if accepted and finalized and stop_requested:
+        _enforce_stop_requested_during_dispatch(
+            conn,
+            task_id,
+            command_id,
+            robot_id,
+            claimed,
+        )
     if not accepted:
         if finalized:
             # Best-effort remote cleanup happens only after the short finalize
@@ -638,16 +646,17 @@ def _finalize_recovery_dispatch(
     *,
     accepted: bool,
     command_kind: str,
-) -> bool:
+) -> tuple[bool, bool]:
     """Finalize only the exact durable DISPATCHING claim after Movement HTTP."""
     with recovery_command_guard(conn, task_id, command_id, fallback=fallback) as latest:
         if latest is None:
             conn.rollback()
-            return False
+            return False, False
         recovery = dict(latest.get("recovery") or {})
         if recovery.get("dispatch_state") != RECOVERY_DISPATCHING:
             conn.rollback()
-            return False
+            return False, False
+        stop_requested = recovery.get("stop_requested") is True
         if accepted:
             recovery["dispatch_state"] = RECOVERY_DISPATCH_SENT
             latest["recovery"] = recovery
@@ -671,7 +680,97 @@ def _finalize_recovery_dispatch(
             orch_state.set_phase(latest, orch_state.PHASE_AWAITING_OPERATOR)
             evidence_runtime.save_orchestration(conn, task_id, latest)
         conn.commit()
+        return True, stop_requested
+
+
+def _mark_recovery_stop_unconfirmed(
+    conn,
+    task_id: int,
+    command_id: str,
+    fallback: dict[str, Any],
+) -> bool:
+    """Keep the command identity retryable when cancel and E-stop are unknown."""
+    with recovery_command_guard(conn, task_id, command_id, fallback=fallback) as latest:
+        if latest is None:
+            conn.rollback()
+            return False
+        recovery = dict(latest.get("recovery") or {})
+        if recovery.get("stop_requested") is not True:
+            conn.rollback()
+            return False
+        recovery["cargo_state"] = "UNKNOWN"
+        recovery["reason"] = "physical_stop_unconfirmed"
+        recovery["last_recovery_result"] = "STOP_UNCONFIRMED"
+        latest["recovery"] = recovery
+        evidence_runtime.save_orchestration(conn, task_id, latest)
+        conn.commit()
         return True
+
+
+def _enforce_stop_requested_during_dispatch(
+    conn,
+    task_id: int,
+    command_id: str,
+    robot_id: str,
+    fallback: dict[str, Any],
+) -> None:
+    """Close a stop/dispatch race before the dispatching request returns."""
+    cancel_state = "STOP_UNCONFIRMED"
+    cancel_error: str | None = None
+    try:
+        stopped = movement_client.cancel_command(robot_id, command_id)
+        cancel_state = str(stopped.get("state") or "").upper()
+        if cancel_state == "CANCELED" or cancel_state == "STOPPED":
+            cancel_state = "CANCELLED"
+    except MovementClientError as exc:
+        cancel_error = str(exc)
+
+    if cancel_state in RECOVERY_TERMINAL_EVENTS - {"STOP_UNCONFIRMED"}:
+        handle_recovery_command_event(
+            conn,
+            task_id,
+            {"command_id": command_id, "state": cancel_state},
+            source="post_dispatch_stop_race",
+        )
+        raise HTTPException(status_code=409, detail="recovery stop already requested")
+
+    estop_ok = False
+    estop_error: str | None = None
+    try:
+        movement_client.estop(robot_id)
+        estop_ok = True
+    except MovementClientError as exc:
+        estop_error = str(exc)
+
+    if estop_ok:
+        _hold_recovery_dispatch(
+            conn,
+            task_id,
+            command_id,
+            fallback,
+            reason="operator_safe_stop_after_dispatch",
+            result="ESTOP_CONFIRMED",
+            cargo_state="UNKNOWN",
+        )
+    else:
+        _mark_recovery_stop_unconfirmed(conn, task_id, command_id, fallback)
+    evidence_repo(conn).append(
+        task_id=task_id,
+        event_type="RECOVERY_POST_DISPATCH_STOP",
+        source="main_recovery",
+        severity="CRITICAL",
+        trusted=True,
+        data_json={
+            "command_id": command_id,
+            "robot_id": robot_id,
+            "cancel_state": cancel_state,
+            "cancel_error": cancel_error,
+            "estop_ok": estop_ok,
+            "estop_error": estop_error,
+        },
+    )
+    conn.commit()
+    raise HTTPException(status_code=409, detail="recovery stop already requested")
 
 
 def _verify_recovery_safety_gate(conn, task_id: int, robot_id: str) -> dict[str, Any]:

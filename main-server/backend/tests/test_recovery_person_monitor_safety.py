@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from app.models.schemas import RobotCommandResponse
 from app.services import person_hazard, task_recovery
+from app.services.movement import MovementClientError
 
 
 @pytest.fixture(autouse=True)
@@ -94,6 +95,49 @@ def test_recovery_dispatch_arms_person_monitor_before_movement_request() -> None
     assert result.accepted is True
     assert order == ["arm", "dispatch"]
     assert state["recovery"]["dispatch_state"] == "SENT"
+
+
+def test_stop_requested_during_dispatch_is_enforced_before_response_returns() -> None:
+    conn = MagicMock()
+    state = _recovery_orchestration()
+    repo = MagicMock()
+    repo.get_orchestration.side_effect = lambda _task_id: copy.deepcopy(state)
+
+    def save(_conn, _task_id, orchestration):
+        state.clear()
+        state.update(copy.deepcopy(orchestration))
+
+    def dispatch(_conn, payload, request=None):
+        assert request is None
+        state["recovery"]["stop_requested"] = True
+        return RobotCommandResponse(
+            command_id=payload.command_id,
+            robot_id=payload.robot_id,
+            kind=payload.kind,
+            accepted=True,
+        )
+
+    with (
+        patch.object(task_recovery, "evidence_repo", return_value=repo),
+        patch.object(task_recovery.evidence_runtime, "save_orchestration", side_effect=save),
+        patch.object(person_hazard, "arm_physical_motion_monitor", return_value=True),
+        patch.object(task_recovery.command_service, "dispatch_robot_command", side_effect=dispatch),
+        patch.object(
+            task_recovery.movement_client,
+            "cancel_command",
+            side_effect=MovementClientError("first cancel unavailable"),
+        ) as cancel,
+        patch.object(task_recovery.movement_client, "estop", return_value={"estopped": True}) as estop,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        task_recovery._dispatch_persisted_recovery_command(conn, 101, state)
+
+    assert exc_info.value.detail == "recovery stop already requested"
+    cancel.assert_called_once_with("tb3_1", "cmd-recovery")
+    estop.assert_called_once_with("tb3_1")
+    assert state["phase"] == "AWAITING_OPERATOR"
+    assert state["recovery"]["reason"] == "operator_safe_stop_after_dispatch"
+    assert state["recovery"]["cargo_state"] == "UNKNOWN"
 
 
 def test_recovery_monitor_arm_failure_holds_task_without_dispatch() -> None:

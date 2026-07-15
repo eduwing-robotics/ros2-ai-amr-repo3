@@ -165,6 +165,27 @@ class PersonHazardPolicyTest(unittest.TestCase):
         stop_repo.open_from_evidence.assert_called_once_with(22)
         hold.assert_called_once_with(conn, 101, reason="person_monitor_outage", robot_id="tb3_1")
 
+    def test_poll_once_commits_each_robot_before_next_remote_poll(self) -> None:
+        conn = MagicMock()
+        runtimes = [
+            ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101),
+            ph.MonitorRuntime(robot_id="tb3_2", source="tb3_2_picam", task_id=102),
+        ]
+
+        def poll(_conn, runtime):
+            if runtime.robot_id == "tb3_2":
+                self.assertEqual(conn.commit.call_count, 1)
+
+        with (
+            patch.object(ph, "settings", person_hazard_enabled=True),
+            patch.object(ph, "active_monitors", return_value=runtimes),
+            patch.object(ph, "poll_robot", side_effect=poll) as poll_robot,
+        ):
+            self.assertEqual(ph.poll_once(conn), 2)
+
+        self.assertEqual(poll_robot.call_count, 2)
+        self.assertEqual(conn.commit.call_count, 2)
+
     def test_post_dispatch_enable_failure_immediately_fails_safe(self) -> None:
         conn = MagicMock()
         with (

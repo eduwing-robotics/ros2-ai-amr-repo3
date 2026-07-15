@@ -339,6 +339,9 @@ def reconcile_startup_person_hazard_safety(conn) -> int:
             preserve_existing_hold=preserve_existing_hold,
         ):
             held += 1
+            # Release this task's transaction-scoped lock before the next
+            # robot's Vision/E-stop network calls.
+            conn.commit()
     return held
 
 
@@ -577,5 +580,8 @@ def poll_once(conn) -> int:
     polled = 0
     for runtime in list(active_monitors()):
         poll_robot(conn, runtime)
+        # A hazard or monitor outage may have acquired the task advisory lock.
+        # Persist that hold before polling the next robot over the network.
+        conn.commit()
         polled += 1
     return polled

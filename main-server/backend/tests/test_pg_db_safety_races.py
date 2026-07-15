@@ -722,6 +722,119 @@ class PgDbSafetyRaceTest(unittest.TestCase):
         self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
         self.assertEqual(orchestration["recovery"]["reason"], "concurrent_safety_hold")
 
+    def test_stop_racing_delayed_recovery_dispatch_is_enforced_before_return(self) -> None:
+        with write_transaction() as conn:
+            task_id = MvpTaskRepository(conn).create(
+                {"task_type": "INBOUND", "status": "RUNNING", "robot_id": "tb3_1"}
+            )
+            MvpEvidenceRepository(conn).save_orchestration(
+                task_id,
+                {
+                    "phase": "AWAITING_OPERATOR",
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "kind": "move_to_point",
+                            "status": "dispatched",
+                            "command_id": "interrupted-move",
+                        }
+                    ],
+                    "recovery": {"reason": "operator_estop", "robot_id": "tb3_1"},
+                },
+            )
+
+        dispatch_started = threading.Event()
+        first_stop_finished = threading.Event()
+        results: dict[str, object] = {}
+        cancel_calls = 0
+        plan = {
+            "task_id": task_id,
+            "strategy": "safe_move",
+            "cargo_state": "LOADED",
+            "executable": True,
+            "steps": [
+                {
+                    "kind": "move_to_point",
+                    "params": {"map_id": "robot2_map", "x": 0.0, "y": 0.0, "yaw": 0.0},
+                }
+            ],
+        }
+
+        def delayed_dispatch(_conn, payload, request=None):
+            self.assertIsNone(request)
+            dispatch_started.set()
+            if not first_stop_finished.wait(timeout=10):
+                raise TimeoutError("operator stop did not finish before dispatch response")
+            return RobotCommandResponse(
+                command_id=str(payload.command_id),
+                robot_id=payload.robot_id,
+                kind=payload.kind,
+                accepted=True,
+            )
+
+        def cancel(_robot_id, _command_id):
+            nonlocal cancel_calls
+            cancel_calls += 1
+            if cancel_calls == 1:
+                raise task_recovery.MovementClientError("first cancel unavailable")
+            return {"accepted": True, "state": "CANCELLED"}
+
+        def recover() -> None:
+            try:
+                with write_transaction() as conn:
+                    results["recovery"] = task_recovery.execute_recovery(
+                        conn,
+                        task_id,
+                        cargo_state="LOADED",
+                        strategy="safe_move",
+                        checks={"area_clear": True},
+                    )
+            except Exception as exc:
+                results["recovery"] = exc
+
+        def stop() -> None:
+            if not dispatch_started.wait(timeout=10):
+                results["stop"] = TimeoutError("recovery dispatch did not start")
+                first_stop_finished.set()
+                return
+            try:
+                with write_transaction() as conn:
+                    results["stop"] = work_orders_pg.request_work_order_stop(conn, task_id)
+            except Exception as exc:
+                results["stop"] = exc
+            finally:
+                first_stop_finished.set()
+
+        with (
+            patch.object(task_recovery, "preview_recovery_plan", return_value=plan),
+            patch.object(task_recovery, "_verify_recovery_safety_gate", return_value={"confirmed": True}),
+            patch.object(person_hazard, "arm_physical_motion_monitor", return_value=True),
+            patch.object(task_recovery.command_service, "dispatch_robot_command", side_effect=delayed_dispatch),
+            patch.object(task_recovery.movement_client, "cancel_command", side_effect=cancel) as cancel_command,
+        ):
+            threads = [
+                threading.Thread(target=recover, name="delayed-recovery-dispatch"),
+                threading.Thread(target=stop, name="stop-during-recovery-dispatch"),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive(), "stop/dispatch race contender did not finish")
+
+        self.assertIsInstance(results.get("stop"), dict)
+        self.assertFalse(results["stop"]["accepted"])
+        self.assertIsInstance(results.get("recovery"), HTTPException)
+        self.assertEqual(results["recovery"].detail, "recovery stop already requested")
+        self.assertEqual(cancel_command.call_count, 2)
+        with transaction() as conn:
+            task = MvpTaskRepository(conn).get(task_id)
+            orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
+        self.assertEqual(task["status"], "RUNNING")
+        self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
+        self.assertEqual(orchestration["recovery"]["cargo_state"], "UNKNOWN")
+        self.assertNotIn("active_command_id", orchestration["recovery"])
+
     def test_manual_abort_releases_task_lock_during_manual_stop_http(self) -> None:
         with write_transaction() as conn:
             task_id = MvpTaskRepository(conn).create(
@@ -1146,6 +1259,182 @@ class PgDbSafetyRaceTest(unittest.TestCase):
         self.assertEqual(orchestration["recovery"]["reason"], "person_monitor_outage")
         self.assertEqual(orchestration["steps"][0]["command_id"], command_id)
         self.assertEqual(decisions, 1)
+
+    def test_startup_reconciliation_commits_each_hold_before_next_robot_estop(self) -> None:
+        task_ids: list[int] = []
+        with write_transaction() as conn:
+            for robot_id in ("tb3_1", "tb3_2"):
+                task_id = MvpTaskRepository(conn).create(
+                    {"task_type": "MOVE", "status": "RUNNING", "robot_id": robot_id}
+                )
+                task_ids.append(task_id)
+                MvpEvidenceRepository(conn).save_orchestration(
+                    task_id,
+                    {
+                        "phase": "RUNNING",
+                        "step_index": 0,
+                        "steps": [
+                            {
+                                "kind": "move_to_point",
+                                "status": "dispatched",
+                                "command_id": f"move-{robot_id}",
+                            }
+                        ],
+                    },
+                )
+
+        second_estop_started = threading.Event()
+        first_lock_reacquired = threading.Event()
+        results: dict[str, object] = {}
+        estop_calls = 0
+
+        def estop(_robot_id):
+            nonlocal estop_calls
+            estop_calls += 1
+            if estop_calls == 2:
+                second_estop_started.set()
+                if not first_lock_reacquired.wait(timeout=10):
+                    raise TimeoutError("first startup hold lock survived into second robot E-stop")
+            return {"estopped": True}
+
+        def reconcile() -> None:
+            try:
+                with write_transaction() as conn:
+                    results["reconcile"] = person_hazard.reconcile_startup_person_hazard_safety(conn)
+            except Exception as exc:
+                results["reconcile"] = exc
+
+        def reacquire_first_lock() -> None:
+            if not second_estop_started.wait(timeout=10):
+                results["lock"] = TimeoutError("second startup E-stop did not start")
+                first_lock_reacquired.set()
+                return
+            try:
+                with write_transaction() as conn:
+                    MvpEvidenceRepository(conn).lock_orchestration(task_ids[0])
+                results["lock"] = True
+            except Exception as exc:
+                results["lock"] = exc
+            finally:
+                first_lock_reacquired.set()
+
+        with (
+            patch.object(person_hazard, "settings", SimpleNamespace(person_hazard_enabled=True)),
+            patch.object(person_hazard.movement_client, "estop", side_effect=estop),
+        ):
+            threads = [
+                threading.Thread(target=reconcile, name="startup-reconcile-two-robots"),
+                threading.Thread(target=reacquire_first_lock, name="startup-first-lock-check"),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive(), "startup reconciliation lock check did not finish")
+
+        self.assertIs(results.get("lock"), True)
+        self.assertEqual(results.get("reconcile"), 2)
+        with transaction() as conn:
+            phases = [MvpEvidenceRepository(conn).get_orchestration(task_id)["phase"] for task_id in task_ids]
+        self.assertEqual(phases, ["AWAITING_OPERATOR", "AWAITING_OPERATOR"])
+
+    def test_person_poll_commits_first_hazard_before_next_robot_network_call(self) -> None:
+        task_ids: list[int] = []
+        with write_transaction() as conn:
+            for robot_id in ("tb3_1", "tb3_2"):
+                task_id = MvpTaskRepository(conn).create(
+                    {"task_type": "MOVE", "status": "RUNNING", "robot_id": robot_id}
+                )
+                task_ids.append(task_id)
+                MvpEvidenceRepository(conn).save_orchestration(
+                    task_id,
+                    {
+                        "phase": "RUNNING",
+                        "step_index": 0,
+                        "steps": [
+                            {
+                                "kind": "move_to_point",
+                                "status": "dispatched",
+                                "command_id": f"move-{robot_id}",
+                            }
+                        ],
+                    },
+                )
+
+        person_hazard._runtime["tb3_1"] = person_hazard.MonitorRuntime(
+            robot_id="tb3_1",
+            source="tb3_1_picam",
+            task_id=task_ids[0],
+        )
+        person_hazard._runtime["tb3_2"] = person_hazard.MonitorRuntime(
+            robot_id="tb3_2",
+            source="tb3_2_picam",
+            task_id=task_ids[1],
+        )
+        second_fetch_started = threading.Event()
+        first_lock_reacquired = threading.Event()
+        results: dict[str, object] = {}
+        fetch_calls = 0
+
+        def fetch(_robot_id):
+            nonlocal fetch_calls
+            fetch_calls += 1
+            if fetch_calls == 1:
+                return self._fresh_person_advisory(task_ids[0], suffix="poll-first")
+            second_fetch_started.set()
+            if not first_lock_reacquired.wait(timeout=10):
+                raise TimeoutError("first poll hold lock survived into second Vision request")
+            return {"result": "NO_RELEVANT_DETECTION"}
+
+        def poll() -> None:
+            try:
+                with write_transaction() as conn:
+                    results["poll"] = person_hazard.poll_once(conn)
+            except Exception as exc:
+                results["poll"] = exc
+
+        def reacquire_first_lock() -> None:
+            if not second_fetch_started.wait(timeout=10):
+                results["lock"] = TimeoutError("second Vision request did not start")
+                first_lock_reacquired.set()
+                return
+            try:
+                with write_transaction() as conn:
+                    MvpEvidenceRepository(conn).lock_orchestration(task_ids[0])
+                results["lock"] = True
+            except Exception as exc:
+                results["lock"] = exc
+            finally:
+                first_lock_reacquired.set()
+
+        with (
+            patch.object(
+                person_hazard,
+                "settings",
+                SimpleNamespace(
+                    person_hazard_enabled=True,
+                    person_hazard_cooldown_sec=2.0,
+                    person_hazard_stale_sec=2.0,
+                ),
+            ),
+            patch.object(person_hazard, "fetch_person_hazard_latest", side_effect=fetch),
+            patch.object(person_hazard.movement_client, "estop", return_value={"estopped": True}),
+        ):
+            threads = [
+                threading.Thread(target=poll, name="person-poll-two-robots"),
+                threading.Thread(target=reacquire_first_lock, name="person-poll-first-lock-check"),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive(), "person poll lock check did not finish")
+
+        self.assertIs(results.get("lock"), True)
+        self.assertEqual(results.get("poll"), 2)
+        with transaction() as conn:
+            phases = [MvpEvidenceRepository(conn).get_orchestration(task_id)["phase"] for task_id in task_ids]
+        self.assertEqual(phases, ["AWAITING_OPERATOR", "RUNNING"])
 
     def test_poller_recovers_next_step_after_post_finalize_dispatch_error(self) -> None:
         task_id, command_id = self._create_two_step_move_task()
