@@ -127,6 +127,19 @@ def test_new_orchestration_keeps_canonical_and_legacy_keys() -> None:
     assert orchestration["callback_base_url"] == "http://main.example/api/v1"
 
 
+def test_orchestration_lookup_breaks_same_timestamp_ties_by_id() -> None:
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = {
+        "data_json": {"phase": "RUNNING", "step_index": 1},
+    }
+
+    result = runtime_records.get_orchestration(conn, 31)
+
+    sql = conn.execute.call_args.args[0]
+    assert "ORDER BY observed_at DESC, id DESC" in sql
+    assert result == {"phase": "RUNNING", "step_index": 1}
+
+
 def test_command_lookup_reads_legacy_legs() -> None:
     conn = MagicMock()
     conn.execute.return_value.fetchall.return_value = [

@@ -61,6 +61,47 @@ def test_stop_request_is_immediate_and_cargo_aware() -> None:
     assert saved["stop_request"]["accepted"] is True
 
 
+def test_stop_without_active_command_confirms_robot_and_opens_recovery() -> None:
+    conn = MagicMock()
+    task = _task()
+    orch = task["preset_snapshot"]["_orchestration"]
+    orch["step_index"] = 0
+    with (
+        patch.object(safe_stop.evidence, "attach_orchestration", return_value=task),
+        patch.object(safe_stop.evidence, "save_orchestration") as save,
+        patch.object(safe_stop, "movement_client") as movement,
+        patch.object(safe_stop, "operational_events") as events,
+    ):
+        movement.manual_stop.return_value = {"accepted": True}
+        result = safe_stop.request_work_order_stop(conn, 42)
+
+    movement.manual_stop.assert_called_once_with("robot1", {"robot_name": "robot1"})
+    assert result["status"] == "AWAITING_OPERATOR"
+    assert result["command_id"] is None
+    assert result["cargo_state"] == "UNKNOWN"
+    saved = save.call_args.args[2]
+    assert saved["phase"] == "AWAITING_OPERATOR"
+    assert saved["recovery"]["reason"] == "operator_safe_stop_no_active_command"
+    assert events.append.call_args.kwargs["event_type"] == "TASK_AWAITING_OPERATOR"
+
+
+def test_stop_without_active_command_requires_confirmed_robot_stop() -> None:
+    conn = MagicMock()
+    task = _task()
+    task["preset_snapshot"]["_orchestration"]["step_index"] = 0
+    with (
+        patch.object(safe_stop.evidence, "attach_orchestration", return_value=task),
+        patch.object(safe_stop.evidence, "save_orchestration") as save,
+        patch.object(safe_stop, "movement_client") as movement,
+    ):
+        movement.manual_stop.side_effect = safe_stop.MovementClientError("timeout")
+        with pytest.raises(safe_stop.HTTPException) as exc_info:
+            safe_stop.request_work_order_stop(conn, 42)
+
+    assert getattr(exc_info.value, "detail", None) == "work_order_stop_unconfirmed"
+    save.assert_not_called()
+
+
 def test_stop_work_order_facade_delegates_to_execution() -> None:
     conn = MagicMock()
     expected = {"status": "CANCEL_REQUESTED"}

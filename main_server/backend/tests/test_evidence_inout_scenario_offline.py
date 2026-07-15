@@ -47,6 +47,14 @@ def _mock_locations() -> dict[str, dict]:
             "y": 0.0,
             "marker_id": 301,
         },
+        "vehicle_2_approach": {
+            "slot_id": "vehicle_2_approach",
+            "location_id": "vehicle_2_approach",
+            "type": "scan",
+            "x": 0.816,
+            "y": 0.006,
+            "marker_id": 4,
+        },
     }
 
 
@@ -62,7 +70,7 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         repo.list_by_type.side_effect = lambda _conn, t: (
             [data["HOME_01"]]
             if t == "home"
-            else [v for k, v in data.items() if k.startswith("scan_")]
+            else [v for k, v in data.items() if k.startswith("scan_") or v.get("type") == "scan"]
             if t == "scan"
             else []
         )
@@ -86,21 +94,21 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         }
         scenario = evidence.build_scenario_from_task(conn, task)
         steps = scenario["steps"]
-        self.assertEqual(len(steps), 7)
+        self.assertEqual(len(steps), 5)
         self.assertEqual(steps[0]["action_type"], "leave_dock")
         self.assertEqual(steps[1]["action_type"], "move")
         self.assertAlmostEqual(steps[1]["x"], 1.8)
-        self.assertEqual(steps[2]["action_type"], "dock_transfer")
-        self.assertEqual(steps[2]["params"]["action"], "load")
-        self.assertEqual(steps[4]["params"]["action"], "unload")
+        self.assertEqual(steps[1]["transfer_action"], "load")
+        self.assertEqual(steps[2]["transfer_action"], "unload")
+        self.assertNotIn("dock_transfer", [step["action_type"] for step in steps])
         # HOME approach 이동 뒤 무리프트 ArUco 정렬로 주차한다.
-        self.assertEqual(steps[5]["action_type"], "move")
-        self.assertEqual(steps[5]["name"], "scan:scan_HOME_01")
-        self.assertEqual(steps[6]["action_type"], "aruco_align")
-        self.assertEqual(steps[6]["params"], {"aruco_marker_id": 301, "final": "park"})
+        self.assertEqual(steps[3]["action_type"], "move")
+        self.assertEqual(steps[3]["name"], "scan:vehicle_2_approach")
+        self.assertEqual(steps[4]["action_type"], "aruco_align")
+        self.assertEqual(steps[4]["params"], {"aruco_marker_id": 4, "final": "park"})
 
     @patch("app.domains.execution.evidence.locations")
-    def test_inbound1_uses_pre_approach_when_configured(self, location_repo_fn) -> None:
+    def test_inbound1_uses_single_precision_waypoint_when_route_is_configured(self, location_repo_fn) -> None:
         data = _mock_locations()
         data["inbound_slot_1_pre_approach"] = {
             "slot_id": "inbound_slot_1_pre_approach",
@@ -126,11 +134,11 @@ class InOutScenarioOfflineTest(unittest.TestCase):
             },
         )
         steps = scenario["steps"]
-        self.assertEqual(len(steps), 8)
-        self.assertEqual(steps[1]["name"], "transit:inbound_slot_1_pre_approach")
-        self.assertEqual(steps[1]["waypoint_id"], "inbound_slot_1_pre_approach")
-        self.assertEqual(steps[2]["name"], "scan:scan_INBOUND_01")
-        self.assertEqual(steps[3]["action_type"], "dock_transfer")
+        self.assertEqual(len(steps), 5)
+        self.assertEqual(steps[1]["waypoint_id"], "scan_INBOUND_01")
+        self.assertEqual(steps[1]["transfer_action"], "load")
+        self.assertFalse(any(step.get("waypoint_id") == "inbound_slot_1_pre_approach" for step in steps))
+        self.assertFalse(any(step["action_type"] == "dock_transfer" for step in steps))
 
     @patch("app.domains.execution.evidence.locations")
     def test_outbound_builds_home_parking_steps(self, location_repo_fn) -> None:
@@ -150,17 +158,18 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         }
         scenario = evidence.build_scenario_from_task(conn, task)
         steps = scenario["steps"]
-        self.assertEqual(len(steps), 7)
+        self.assertEqual(len(steps), 5)
         self.assertEqual(steps[0]["action_type"], "leave_dock")
-        self.assertEqual(steps[2]["params"]["action"], "load")
-        self.assertEqual(steps[4]["params"]["action"], "unload")
-        self.assertEqual(steps[6]["action_type"], "aruco_align")
+        self.assertEqual(steps[1]["transfer_action"], "load")
+        self.assertEqual(steps[2]["transfer_action"], "unload")
+        self.assertEqual(steps[4]["action_type"], "aruco_align")
 
     @patch("app.domains.execution.evidence.locations")
     def test_home_without_marker_falls_back_to_plain_move(self, location_repo_fn) -> None:
         data = _mock_locations()
         data["HOME_01"]["marker_id"] = None
         data.pop("scan_HOME_01")
+        data.pop("vehicle_2_approach")
         repo = self._repo(data)
         location_repo_fn.get_location = repo.get
         location_repo_fn.route_steps_for_target = repo.route_steps_for_target
@@ -176,7 +185,7 @@ class InOutScenarioOfflineTest(unittest.TestCase):
                 "to_floor": 1,
             },
         )
-        self.assertEqual(len(scenario["steps"]), 6)
+        self.assertEqual(len(scenario["steps"]), 4)
         self.assertEqual(scenario["steps"][-1]["name"], "home:HOME_01")
 
 

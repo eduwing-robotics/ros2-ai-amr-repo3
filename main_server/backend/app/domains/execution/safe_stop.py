@@ -14,30 +14,22 @@ from app.domains.movement.client import MovementClientError, movement_client
 
 
 def _cargo_state(steps: list[dict[str, Any]]) -> str:
-    loaded = False
-    for step in steps:
-        if str(step.get("kind") or "") != "dock_transfer" or str(step.get("status") or "").upper() != "DONE":
-            continue
-        action = str((step.get("params") or {}).get("action") or "").lower()
-        if action == "load":
-            loaded = True
-        elif action == "unload":
-            loaded = False
-    return "LOADED" if loaded else "EMPTY"
+    return orch_state.cargo_state_after_steps(steps)
 
 
 def _response(
     order_id: int,
     *,
-    command_id: str,
+    command_id: str | None,
     cargo_state: str,
     business_completed: bool,
     accepted: bool,
+    status: str = "CANCEL_REQUESTED",
 ) -> dict[str, Any]:
     return {
         "order_id": order_id,
         "task_id": order_id,
-        "status": "CANCEL_REQUESTED",
+        "status": status,
         "accepted": accepted,
         "command_id": command_id,
         "cargo_state": cargo_state,
@@ -60,8 +52,47 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
     step_index = execution.step_index
     step = steps[step_index] if 0 <= step_index < len(steps) else {}
     command_id = step.get("command_id")
-    if not robot_id or not command_id or not orch_state.is_dispatched_robot_task_step(step):
+    if not robot_id:
         raise HTTPException(status_code=409, detail="work_order_has_no_active_command")
+
+    if not command_id or not orch_state.is_dispatched_robot_task_step(step):
+        if execution.phase == orch_state.PHASE_AWAITING_OPERATOR:
+            return _response(
+                order_id,
+                command_id=None,
+                cargo_state=str(execution.recovery.get("cargo_state") or "UNKNOWN"),
+                business_completed=execution.business_completed,
+                accepted=True,
+                status="AWAITING_OPERATOR",
+            )
+        try:
+            movement_response = movement_client.manual_stop(str(robot_id), {"robot_name": str(robot_id)})
+        except MovementClientError as exc:
+            raise HTTPException(status_code=409, detail="work_order_stop_unconfirmed") from exc
+
+        execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
+        execution.replace_recovery({
+            "reason": "operator_safe_stop_no_active_command",
+            "robot_id": str(robot_id),
+            "cargo_state": "UNKNOWN",
+        })
+        evidence.save_orchestration(conn, order_id, orch)
+        operational_events.append(
+            conn,
+            event_type=orch_state.EVENT_AWAITING_OPERATOR,
+            task_id=order_id,
+            robot_id=str(robot_id),
+            message=f"work order {order_id} stopped without an active command — recovery required",
+            payload={"cargo_state": "UNKNOWN", "movement": movement_response, "reason": "missing_active_command"},
+        )
+        return _response(
+            order_id,
+            command_id=None,
+            cargo_state="UNKNOWN",
+            business_completed=execution.business_completed,
+            accepted=True,
+            status="AWAITING_OPERATOR",
+        )
 
     previous = orch.get("stop_request") or {}
     if execution.phase == orch_state.PHASE_CANCEL_REQUESTED and str(previous.get("command_id") or "") == str(command_id):

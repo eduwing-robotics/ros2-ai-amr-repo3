@@ -33,6 +33,8 @@ export const API_ERROR_MESSAGES: Record<string, string> = {
   // 작업오더 · 작업
   work_order_not_found: "작업오더를 찾을 수 없습니다.",
   work_order_running_requires_recovery: "진행 중 작업오더는 복구 패널에서 화물 상태 확인 후 처리하세요.",
+  work_order_has_no_active_command: "활성 Movement 명령이 없습니다. 이미 중단됐는지 복구 상태를 확인하세요.",
+  work_order_stop_requires_running: "진행 중인 작업만 안전 중단할 수 있습니다.",
   "task not found": "작업을 찾을 수 없습니다.",
   "cargo_state UNKNOWN blocks recovery execution": "적재 상태를 먼저 확인하세요.",
   "unsupported recovery strategy": "지원하지 않는 복구 방식입니다. 화면을 새로고침하세요.",

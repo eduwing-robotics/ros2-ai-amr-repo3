@@ -241,6 +241,28 @@ class RobotCommandServiceTest(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertTrue(result.response.get("validated"))
 
+    def test_move_to_point_waypoint_passthrough_omits_coordinates_and_map(self) -> None:
+        payload = RobotCommandRequest(
+            robot_id="robot-a",
+            kind="move_to_point",
+            dry_run=True,
+            params={
+                "waypoint_id": "warehouse_b_approach",
+                "map_id": "must-not-leak",
+                "x": 99.0,
+                "y": 99.0,
+            },
+        )
+        with patch(
+            "app.domains.movement.commands.movement_client.robot_command",
+            return_value={"accepted": True, "command_id": "cmd-waypoint"},
+        ) as robot_command:
+            result = commands._dispatch_move_to_point(MagicMock(), payload, "cmd-waypoint", "")
+
+        sent = robot_command.call_args.args[1]
+        self.assertEqual(sent["params"], {"waypoint_id": "warehouse_b_approach"})
+        self.assertTrue(result.accepted)
+
     def test_move_to_point_requires_map_id(self) -> None:
         payload = RobotCommandRequest(robot_id="robot-a", kind="move_to_point", params={"x": 1.0, "y": 2.0})
         with self.assertRaises(HTTPException) as ctx:

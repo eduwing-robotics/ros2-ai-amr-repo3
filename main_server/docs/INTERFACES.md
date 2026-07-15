@@ -4,7 +4,7 @@
 
 상태: Active
 소유: Integration
-최종 갱신: 2026-07-14 18:28 KST
+최종 갱신: 2026-07-14 20:23 KST
 목적: **Main 서버 기준** 외부 HTTP 계약 — Movement/Vision 경계, robot-commands, 콜백, lift-load evidence.
 
 Main 서버와 다른 서버(Movement·Vision) 사이의 HTTP 계약을 정의한다. Main이 호출하는 API, 수신하는 콜백,
@@ -145,27 +145,29 @@ POST /robot-commands
 GET /robot-commands/{id}
 ```
 
-### 7.3 좌표 이동 요청
+### 7.3 Waypoint 이동 요청
 
-`POST /robot-commands`에 Main이 보내는 command envelope:
+업무 슬롯·입출고·대기장 이동은 좌표가 아니라 Movement의 canonical `waypoint_id`를 보낸다. Main outbound envelope:
 
 ```json
 {
-  "command_id": "coord-20260618T103000-tb3_1",
-  "task_id": null,
-  "robot_name": "tb3_1",
-  "x": 0.0,
-  "y": 1.0,
-  "yaw": 0.0,
-  "waypoint": "operator_clicked_goal",
+  "command_id": "task-342-tb3_2-inbound2-20260714T110000123456",
+  "task_id": 342,
+  "robot_id": "tb3_2",
+  "robot_name": "tb3_2",
+  "kind": "move_to_point",
+  "dry_run": false,
+  "params": {"waypoint_id": "inbound_slot_2_approach"},
   "callback_url": "http://<main>:8088/api/v1/movement/command-events"
 }
 ```
 
-- 접수 시 `ACCEPTED` (또는 동등)
-- 완료는 callback 또는 `GET /robot-commands/{command_id}`
-- `robot_name`/포트 불일치 → `409`
-- localization 미준비 → 명확한 error/reason
+- 정상 상태: `ACCEPTED → RUNNING → ARRIVED`; Main은 `ARRIVED` 뒤에만 다음 step을 보낸다.
+- 슬롯 waypoint는 Movement가 `nav2_pose → aruco_align(0.4m) → wait(3s) → aruco_align(0.2m, straight_insert)`로 확장한다.
+- 자동 입출고는 동일 삽입이 반복되지 않도록 별도 `dock_transfer`를 만들지 않는다.
+- 수동 좌표 이동의 `map_id/x/y/yaw` 입력은 legacy 호환 경계로만 유지한다.
+- `robot_name`/포트 불일치 또는 같은 `command_id`의 다른 payload는 `409`다.
+- localization 미준비는 명확한 error/reason으로 실패한다.
 
 ### 7.4 Command 상태 조회 (Main 폴링)
 
@@ -256,7 +258,7 @@ Main_Control의 `POST /api/v1/robot-commands`는 Robot Command 외부 계약이�
 
 | kind | Main | Movement | 요지 |
 | --- | --- | --- | --- |
-| `move_to_point` | ✅ | `/robot-commands` | ui map_id→runtime map |
+| `move_to_point` | ✅ | `/robot-commands` | 업무 경로는 canonical waypoint_id; 좌표는 legacy |
 | `manual_drive` | ✅ | `/manual/*` | teleop hold |
 | `estop` | ✅ | estop/clear | stop/clear |
 | `dock_transfer` | Movement 지원 여부 반영 | 미지원 응답 → Main `501` | marker/action/level |
@@ -264,12 +266,12 @@ Main_Control의 `POST /api/v1/robot-commands`는 Robot Command 외부 계약이�
 
 ```jsonc
 {
-  "command_id": "task-42-tb3_1-...",
-  "robot_id": "tb3_1",
-  "task_id": 42,
+  "command_id": "task-342-tb3_2-warehouse-d-...",
+  "robot_id": "tb3_2",
+  "task_id": 342,
   "kind": "move_to_point",
   "dry_run": false,
-  "params": { "map_id": "Main_map", "x": 1.2, "y": 3.4, "yaw": 1.57 },
+  "params": { "waypoint_id": "warehouse_d_approach" },
   "callback_url": "http://<main>:8088/api/v1/movement/command-events"
 }
 ```
@@ -292,36 +294,36 @@ API 없으면 Main `movement_initial_pose_api_missing`.
 
 ---
 
-## 10. 게이트 도킹 (확정 결정 요약)
+## 10. Precision waypoint 실행 (확정 결정 요약)
 
-**Active 결정 (공개):**
+**Active 결정:**
 
-- 도킹은 **게이트 2단계** — approach `ARRIVED` 대기 후 `dock_transfer`.
-- 정밀 도킹 블록(ArUco→정밀→리프트→후진)은 Movement **원자 블록**. Main은 마커·동작·층만.
-- 명령 구조 **B안** — `POST /robot-commands` + `kind` 유니온.
-- 시퀀스 소유는 Main. Movement item-route 미사용.
-- 무리프트 정렬: `aruco_align` (주차·충전).
+- 자동 입출고의 슬롯 이동은 `params.waypoint_id`만 사용한다.
+- `move_to_point`의 최종 `ARRIVED`가 정밀 접근과 20cm 직선 삽입 완료 증거다.
+- Main은 load/unload 의미를 step metadata로 보유하며 Movement params에는 누출하지 않는다.
+- 자동 시나리오는 별도 `dock_transfer`를 생성하지 않아 동일 삽입의 이중 실행을 막는다.
+- 실제 리프트 전용 API가 별도 합의되기 전까지 generic/manual `dock_transfer` 호환만 유지한다.
+- 복귀는 `vehicle_2_approach` 뒤 `aruco_align(marker=4, final=park)` 순서다.
 
 ```mermaid
 sequenceDiagram
   participant Main
   participant MV as Movement
-  Main->>MV: move_to_point(approach)
+  Main->>MV: move_to_point(inbound waypoint_id)
+  MV-->>Main: ARRIVED (precision load position)
+  Main->>MV: move_to_point(storage waypoint_id)
+  MV-->>Main: ARRIVED (precision unload position)
+  Main->>Main: 재고 1회 반영
+  Main->>MV: move_to_point(vehicle_2_approach)
   MV-->>Main: ARRIVED
-  Main->>MV: dock_transfer(marker, unload, level)
-  MV-->>Main: DONE (approach 복귀)
-  Main->>MV: move_to_point(home)
+  Main->>MV: aruco_align(marker 4, park)
 ```
 
-입고 예: `move_to_point(inbound_appr) → ARRIVED → dock_transfer(load) → DONE` → storage → home.
-출고: `storage(load) → outbound(unload) → home`.
+입고 예: `inbound_slot_2_approach → warehouse_d_approach → vehicle_2_approach → park`. 각 move는 고유 command ID를 사용하며 `ARRIVED` 전에는 다음 명령을 보내지 않는다.
 
-목적지 `dock_transfer(unload)`의 `DONE`에서 Main은 물류 업무와 재고를 멱등하게 확정한다. 이어지는 `move_to_point(home approach) → aruco_align(final=park)`는 복귀·주차 후처리다. 이 후처리가 실패해도 이미 완료된 입출고는 되돌리지 않으며 Main은 `PARK_FAILED`와 원본 오류를 기록한다.
+적재 후 `FAILED/ABORTED/CANCELLED` 또는 다음 dispatch 실패가 발생하면 Main은 task와 robot 할당을 유지한 채 `AWAITING_OPERATOR(cargo_state=LOADED)`로 전환한다. unload `ARRIVED` 이후 복귀·주차 실패는 이미 완료된 물류를 되돌리지 않고 `PARK_FAILED`로 기록한다.
 
-`dock_transfer` params (Main outbound): `aruco_marker_id` · `action`(`load`\|`unload`) · `level`(`1`\|`2`, 기본 1) · 선택 `lift_height_mm` / `lift_timeout_sec` / `home_on_unload`.
-
-Main은 Movement가 반환하는 `ARRIVED`, `READY`, `ABORTED`, `FAILED{stage}` 상태와 command timeout,
-ESTOP callback을 정규화한다. Movement가 지원하지 않는 kind는 Main이 `501`로 응답한다.
+Movement 조회 결과의 `step_actions`는 슬롯 waypoint에서 `nav2_pose, aruco_align, wait, aruco_align`이어야 한다.
 
 ---
 

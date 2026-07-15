@@ -60,14 +60,10 @@ def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: s
             )
             continue
 
-        waypoint = waypoints.get(step.get("waypoint_id"))
+        waypoint_id = step.get("waypoint_id")
+        waypoint = waypoints.get(waypoint_id)
         if waypoint:
-            params = {
-                "map_id": map_id,
-                "x": waypoint["x"],
-                "y": waypoint["y"],
-                "yaw": waypoint.get("yaw", 0.0),
-            }
+            params = {"waypoint_id": str(waypoint_id)}
             label = step.get("name") or waypoint.get("name") or f"step-{idx}"
         elif step.get("x") is not None and step.get("y") is not None:
             params = {
@@ -79,16 +75,18 @@ def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: s
             label = step.get("name") or f"step-{idx}"
         else:
             raise HTTPException(status_code=409, detail=f"step {idx} has no pose")
-        steps.append(
-            {
-                "seq": idx,
-                "kind": "move_to_point",
-                "label": label,
-                "params": params,
-                "status": "pending",
-                "command_id": None,
-            }
-        )
+        planned_step = {
+            "seq": idx,
+            "kind": "move_to_point",
+            "label": label,
+            "params": params,
+            "status": "pending",
+            "command_id": None,
+        }
+        if step.get("transfer_action") in {"load", "unload"}:
+            planned_step["transfer_action"] = step["transfer_action"]
+            planned_step["transfer_level"] = int(step.get("transfer_level") or 1)
+        steps.append(planned_step)
     return steps
 
 
@@ -158,8 +156,14 @@ def _aruco_marker_for_dock(conn, dock_id: str, scan: dict[str, Any]) -> int:
     return int(marker)
 
 
-def _move_step(scan: dict[str, Any], *, name: str) -> dict[str, Any]:
-    return {
+def _move_step(
+    scan: dict[str, Any],
+    *,
+    name: str,
+    transfer_action: str | None = None,
+    transfer_level: int | None = None,
+) -> dict[str, Any]:
+    step: dict[str, Any] = {
         "action_type": "move",
         "name": name,
         "waypoint_id": scan.get("slot_id") or scan.get("location_id"),
@@ -167,18 +171,10 @@ def _move_step(scan: dict[str, Any], *, name: str) -> dict[str, Any]:
         "y": float(scan["y"]),
         "yaw": float(scan.get("yaw") or 0.0),
     }
-
-
-def _dock_step(conn, dock_id: str, scan: dict[str, Any], action: str, floor: int) -> dict[str, Any]:
-    return {
-        "action_type": "dock_transfer",
-        "name": f"dock:{dock_id}:{action}",
-        "params": {
-            "aruco_marker_id": _aruco_marker_for_dock(conn, dock_id, scan),
-            "action": action,
-            "level": floor,
-        },
-    }
+    if transfer_action:
+        step["transfer_action"] = transfer_action
+        step["transfer_level"] = int(transfer_level or 1)
+    return step
 
 
 def _append_dock_gate(
@@ -190,14 +186,16 @@ def _append_dock_gate(
 ) -> None:
     scan = _resolve_scan_for_dock(conn, dock_id)
     _require_location(conn, dock_id, label="dock")
-    for pre_approach in locations.route_steps_for_target(conn, str(scan.get("location_id") or scan.get("slot_id"))):
-        if pre_approach.get("x") is None or pre_approach.get("y") is None:
-            raise HTTPException(
-                status_code=409, detail=f"route step missing coordinates: {pre_approach.get('location_id')}"
-            )
-        steps.append(_move_step(pre_approach, name=f"transit:{pre_approach.get('location_id')}"))
-    steps.append(_move_step(scan, name=f"scan:{scan.get('slot_id') or dock_id}"))
-    steps.append(_dock_step(conn, dock_id, scan, action, floor))
+    # Movement expands this canonical waypoint into Nav2 + ArUco 0.4m + wait +
+    # straight insert 0.2m. A second dock_transfer would repeat the insertion.
+    steps.append(
+        _move_step(
+            scan,
+            name=f"precision:{scan.get('slot_id') or dock_id}:{action}",
+            transfer_action=action,
+            transfer_level=floor,
+        )
+    )
 
 
 def _append_park_gate(conn, steps: list[dict[str, Any]], dock_id: str) -> None:
@@ -241,14 +239,18 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
     else:
         raise HTTPException(status_code=409, detail=f"unsupported in/out task_type={task_type}")
 
-    home_rows = locations.list_by_type(conn, "home")
-    if not home_rows:
-        raise HTTPException(status_code=409, detail="home location not configured")
-    home = home_rows[0]
+    waiting = locations.get_location(conn, "vehicle_2_approach")
+    if waiting:
+        home = waiting
+    else:
+        home_rows = locations.list_by_type(conn, "home")
+        if not home_rows:
+            raise HTTPException(status_code=409, detail="home location not configured")
+        home = home_rows[0]
     if home.get("x") is None or home.get("y") is None:
         raise HTTPException(status_code=409, detail="home location missing coordinates")
     home_id = str(home.get("slot_id") or home.get("location_id"))
-    # 대기 지역에서 정밀 주차(aruco_align). home에 스캔/마커가 없으면 단순 복귀 이동으로 폴백.
+    # 새 계약은 대기2(vehicle_2)를 canonical 복귀 지점으로 사용한다. 구형 DB만 home으로 폴백한다.
     try:
         _append_park_gate(conn, steps, home_id)
     except HTTPException as exc:

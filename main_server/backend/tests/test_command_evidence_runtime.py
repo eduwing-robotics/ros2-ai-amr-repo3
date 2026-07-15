@@ -132,10 +132,12 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
         with transaction() as conn:
             task_id = self._make_task(conn, {"task_type": "MOVE", "status": "ASSIGNED", "quantity": 1})
             evidence.save_orchestration(conn, task_id, {"steps": [], "step_index": 0, "phase": "RUNNING"})
+            evidence.save_orchestration(conn, task_id, {"steps": [], "step_index": 1, "phase": "RUNNING"})
             orch = runtime_records.get_orchestration(conn, task_id)
             self.assertEqual(orch.get("phase"), "RUNNING")
+            self.assertEqual(orch.get("step_index"), 1)
 
-    def test_inbound_scenario_uses_scan_then_dock_steps(self) -> None:
+    def test_inbound_scenario_uses_precision_waypoint_steps(self) -> None:
         with transaction() as conn:
             task_id = self._make_task(
                 conn,
@@ -152,20 +154,17 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             task = tasks.get_task(conn, task_id) or {}
             scenario = evidence.build_scenario_from_task(conn, task)
             steps = scenario.get("steps") or []
-            self.assertEqual(len(steps), 7)
+            self.assertEqual(len(steps), 5)
             self.assertEqual(steps[0].get("action_type"), "leave_dock")
             self.assertEqual(steps[1].get("action_type"), "move")
-            self.assertIn("scan_INBOUND_01", steps[1].get("name", ""))
-            self.assertEqual(steps[2].get("action_type"), "dock_transfer")
-            self.assertEqual(steps[2]["params"]["action"], "load")
+            self.assertEqual(steps[1].get("transfer_action"), "load")
+            self.assertEqual(steps[2].get("action_type"), "move")
+            self.assertEqual(steps[2].get("transfer_action"), "unload")
+            self.assertFalse(any(step.get("action_type") == "dock_transfer" for step in steps))
             self.assertEqual(steps[3].get("action_type"), "move")
-            self.assertEqual(steps[4].get("action_type"), "dock_transfer")
-            self.assertEqual(steps[4]["params"]["action"], "unload")
-            self.assertEqual(steps[5].get("action_type"), "move")
-            self.assertTrue(str(steps[5].get("name") or "").startswith("scan:"))
-            self.assertEqual(steps[6].get("action_type"), "aruco_align")
-            self.assertEqual(steps[6]["params"]["final"], "park")
-            self.assertIsInstance(steps[6]["params"]["aruco_marker_id"], int)
+            self.assertEqual(steps[4].get("action_type"), "aruco_align")
+            self.assertEqual(steps[4]["params"]["final"], "park")
+            self.assertIsInstance(steps[4]["params"]["aruco_marker_id"], int)
 
     def test_outbound_scenario_step_order(self) -> None:
         with transaction() as conn:
@@ -184,12 +183,12 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             task = tasks.get_task(conn, task_id) or {}
             scenario = evidence.build_scenario_from_task(conn, task)
             steps = scenario.get("steps") or []
-            self.assertEqual(len(steps), 7)
+            self.assertEqual(len(steps), 5)
             self.assertEqual(steps[0].get("action_type"), "leave_dock")
-            self.assertEqual(steps[2]["params"]["action"], "load")
-            self.assertEqual(steps[4]["params"]["action"], "unload")
-            self.assertEqual(steps[5].get("action_type"), "move")
-            self.assertEqual(steps[6].get("action_type"), "aruco_align")
+            self.assertEqual(steps[1].get("transfer_action"), "load")
+            self.assertEqual(steps[2].get("transfer_action"), "unload")
+            self.assertEqual(steps[3].get("action_type"), "move")
+            self.assertEqual(steps[4].get("action_type"), "aruco_align")
 
 
 if __name__ == "__main__":

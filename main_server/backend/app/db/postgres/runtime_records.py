@@ -48,7 +48,7 @@ def save_orchestration(conn, task_id: int, orchestration: dict[str, Any]) -> Non
 def get_orchestration(conn, task_id: int) -> dict[str, Any] | None:
 
     row = conn.execute(
-        "\n            SELECT data_json FROM evidence_events\n            WHERE task_id = %s AND event_type = %s\n            ORDER BY observed_at DESC LIMIT 1\n            ",
+        "\n            SELECT data_json FROM evidence_events\n            WHERE task_id = %s AND event_type = %s\n            ORDER BY observed_at DESC, id DESC LIMIT 1\n            ",
         (task_id, ORCHESTRATION_TYPE),
     ).fetchone()
     if not row:

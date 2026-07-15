@@ -153,13 +153,14 @@ flowchart LR
 `waypoint_type=approach`, DB adapter에서는 `locations(type=scan)`으로 대응한다.
 
 - 도착 상태: 보통 Robot Command의 `ARRIVED`
-- 다음 동작: `dock_transfer` 또는 `aruco_align`
+- 슬롯 업무: waypoint 자체가 정밀 접근·삽입까지 수행하며 최종 상태는 `ARRIVED`
+- 대기장 주차: `vehicle_2_approach` ARRIVED 뒤 `aruco_align`
 - 검수 필요: UI의 “스캔”과 문서의 “대기점/approach” 표시를 하나로 통일할지 결정해야 한다.
 
 ### Dock Point
 
 ArUco 정렬, 적재·하역 또는 최종 주차처럼 정밀 작업이 수행되는 목표 지점이다. Approach Point와 구분하며,
-Main은 approach 도착 확인 후 별도 명령으로 dock 동작을 요청한다.
+자동 입출고에서는 Movement가 waypoint profile 안에서 dock 접근을 수행한다. 리프트 전용 동작은 별도 API 계약이 확정된 경우에만 ARRIVED 이후 요청한다.
 
 - 소유: 좌표·업무 연결은 Main_Control, 정밀 접근과 동작은 Movement
 - 관련 command kind: `dock_transfer`, `aruco_align`

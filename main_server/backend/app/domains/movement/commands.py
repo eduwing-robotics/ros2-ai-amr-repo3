@@ -80,11 +80,33 @@ def _dispatch_move_to_point(
     conn, payload: RobotCommandRequest, command_id: str, callback_url: str
 ) -> RobotCommandResponse:
     p = payload.params
+    waypoint_id = str(p.get("waypoint_id") or "").strip()
+    if waypoint_id:
+        passthrough = RobotCommandRequest(
+            robot_id=payload.robot_id,
+            kind=payload.kind,
+            command_id=payload.command_id,
+            task_id=payload.task_id,
+            dry_run=payload.dry_run,
+            params={"waypoint_id": waypoint_id},
+            callback_url=payload.callback_url,
+        )
+        result = _dispatch_passthrough(passthrough, command_id, callback_url)
+        operational_events.append(
+            conn,
+            event_type="MOVEMENT_COMMAND_WAYPOINT_CONTEXT",
+            robot_id=payload.robot_id,
+            command_id=result.command_id,
+            message=f"waypoint={waypoint_id}",
+            payload={"waypoint_id": waypoint_id},
+        )
+        return result
+
     for key in ("map_id", "x", "y"):
         if key not in p:
             raise HTTPException(status_code=400, detail=f"move_to_point.params.{key} required")
     lms_map_id = str(p["map_id"])
-    movement_map_id, map_state = resolve_movement_map_id(lms_map_id)
+    movement_map_id, map_state = resolve_movement_map_id(lms_map_id, payload.robot_id)
     map_context = {
         "ui_map_id": lms_map_id,
         "runtime_map_id": movement_map_id,

@@ -4,7 +4,7 @@
 
 상태: Active
 소유: Docs
-최종 갱신: 2026-07-14 18:32 KST
+최종 갱신: 2026-07-14 20:23 KST
 목적: Main_Control의 시스템 경계, 주요 업무 흐름, 도메인 책임과 의존 방향을 정의한다.
 
 시스템은 Main_Control·Movement·Vision 세 서버로 나뉜다. **Main_Control**은 운영자 UI와 PostgreSQL을
@@ -96,13 +96,12 @@ sequenceDiagram
   Op->>Main: 입고 요청 품목+수량
   Main->>Main: 슬롯·존 계획 후 작업 생성
   Main->>Main: 작업 단계 동결
-  Main->>Mov: 입고존 접근 이동
-  Mov-->>Main: 도착
-  Main->>Mov: 도킹·적재
-  Mov-->>Main: 완료
-  Main->>Mov: 보관슬롯 접근·하역
-  Mov-->>Main: 완료
-  Main->>Mov: 홈 복귀
+  Main->>Mov: 입고 precision waypoint
+  Mov-->>Main: ARRIVED(정밀 접근·삽입)
+  Main->>Mov: 보관슬롯 precision waypoint
+  Mov-->>Main: ARRIVED(정밀 접근·삽입)
+  Main->>Main: 재고 반영
+  Main->>Mov: vehicle_2 복귀·주차
   Mov-->>Main: 완료
   Main->>Main: 재고 반영
 ```
@@ -128,13 +127,14 @@ flowchart TD
   end
 ```
 
-**게이트:** 로봇은 도킹 지점 바로 앞(대기점)에서 한 번 멈추고(`ARRIVED`), 관제가 `dock_transfer` 명령으로 적재/하역을 따로 지시한다. 마커 정렬부터 리프트 동작까지의 정밀 도킹은 이동 서버가 하나의 원자 블록으로 수행한다.
+**게이트:** 관제는 슬롯별 canonical `waypoint_id`를 보내고, 이동 서버는 Nav2 이동·ArUco 40cm 접근·3초 대기·20cm 직선 삽입을 하나의 `move_to_point`로 수행한다. 관제는 최종 `ARRIVED`에서만 다음 step을 전송하며 자동 입출고에는 중복 `dock_transfer`를 만들지 않는다.
 
 원칙:
 
 - 별도의 업무(WMS) 서버를 두지 않고, 입출고 계층을 관제 서버 안에 둔다.
 - 슬롯·존은 기본적으로 자동 계획하되, 운영자가 직접 지정하면 그 값을 우선한다.
-- 재고는 목적지 `dock_transfer(unload)`가 완료된 시점에 멱등하게 반영한다. 이후 HOME 복귀·주차 실패는 완료된 물류 결과를 되돌리지 않는다.
+- 재고는 목적지 precision waypoint가 `ARRIVED`한 시점에 멱등하게 반영한다. 이후 `vehicle_2_approach` 복귀·주차 실패는 완료된 물류 결과를 되돌리지 않는다.
+- load waypoint 완료 뒤 이동 실패는 `AWAITING_OPERATOR(cargo_state=LOADED)`로 보존하고 자동 재개하지 않는다.
 
 용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **robot task**와 이동/도킹 한 번 단위의 **robot task step**으로 분해된다(§6).
 
@@ -296,6 +296,11 @@ maps/            ROS map asset
 소유한다. Records는 여러 소유 도메인이 생성한 기록의 읽기 projection이며 쓰기 정책을 가져오지 않는다.
 Movement client의 process-local emergency mirror는 외부 서버 상태를 중계하기 위한 캐시이고, 위험 판정과
 ESTOP·자동 재개 금지 정책의 소유자는 Safety다.
+
+예정 변경: fleet 일괄 ESTOP 성공 여부와 로봇별 해제를 분리한다. 관리자가 현장 안전을 확인한 경우 대상 로봇의
+Main 명령 차단 latch만 감사 기록과 함께 해제할 수 있게 하되, 기존 Task는 AWAITING_OPERATOR에 유지하고
+자동 재개하지 않는다. 물리 ESTOP 해제는 대상 로봇의 현장 리셋 또는 Movement ACK로 별도 확인하며, 다른 로봇·
+Camera·Vision 장애가 정상 로봇의 논리 해제를 막지 않게 한다.
 
 ### 10.2 코드 인터페이스 명명 규칙
 

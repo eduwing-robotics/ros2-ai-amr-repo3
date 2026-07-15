@@ -44,6 +44,14 @@ export async function mockMainApi(page: Page, state: State = {}) {
     if (path.startsWith("/waypoints")) return json(route, [inbound, outbound]);
     if (path.startsWith("/work-orders/preview")) return json(route, { operation: "inbound", item_code: item.item_code, quantity: 1, slots: [{ slot_id: "S01", floor: 1, slot_label: "슬롯 1" }], zone: inbound });
     if (path === "/work-orders" && req.method() === "POST") return json(route, { order_id: 101, operation: "inbound", item_code: item.item_code, quantity: 1, status: "QUEUED", tasks: [] });
+    if (/^\/work-orders\/\d+\/stop$/.test(path) && req.method() === "POST") return json(route, {
+      order_id: Number(path.split("/")[2]),
+      status: "CANCEL_REQUESTED",
+      accepted: true,
+      command_id: "cmd-stop-1",
+      cargo_state: "EMPTY",
+      business_completed: false,
+    }, 202);
     if (path.startsWith("/work-orders")) return json(route, state.workOrders ?? []);
     if (path === "/robot/estop" || path === "/robot/clear_estop") return json(route, { ok: true, succeeded: ["tb3_1"], failed: [] });
     if (path.includes("/priority") || path.includes("/cancel")) return json(route, { ok: true });

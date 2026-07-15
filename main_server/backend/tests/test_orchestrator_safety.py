@@ -97,6 +97,52 @@ class AdvanceTaskEstopTest(unittest.TestCase):
         event_types = [c.kwargs.get("event_type") or c[1].get("event_type") for c in operational_events.append.call_args_list]
         self.assertIn("TASK_AWAITING_OPERATOR", event_types)
 
+    def test_failed_after_precision_load_keeps_task_for_operator_recovery(self) -> None:
+        conn = MagicMock()
+        task = {
+            "task_id": 43,
+            "status": "RUNNING",
+            "assigned_robot_id": "robot1",
+            "preset_snapshot": {
+                "_orchestration": {
+                    "phase": "RUNNING",
+                    "step_index": 1,
+                    "steps": [
+                        {
+                            "kind": "move_to_point",
+                            "status": "DONE",
+                            "command_id": "cmd-load",
+                            "transfer_action": "load",
+                        },
+                        {"kind": "move_to_point", "status": "DISPATCHED", "command_id": "cmd-storage"},
+                    ],
+                },
+            },
+        }
+        with (
+            patch.object(orchestrator, "tasks") as postgres_tasks,
+            patch.object(orchestrator, "evidence") as evidence,
+            patch.object(orchestrator, "operational_events") as operational_events,
+            patch.object(orchestrator, "person_hazard") as person_hazard,
+        ):
+            postgres_tasks.get_task.return_value = task
+            evidence.attach_orchestration.side_effect = lambda row, _conn: row
+            evidence.resolve_command_def_id.return_value = "cmddef"
+            result = orchestrator.advance_task(
+                conn,
+                43,
+                {"event": "FAILED", "reason": "nav2_failed", "command_id": "cmd-storage"},
+            )
+
+        self.assertIsNotNone(result)
+        saved_orch = evidence.save_orchestration.call_args[0][2]
+        self.assertEqual(saved_orch["phase"], "AWAITING_OPERATOR")
+        self.assertEqual(saved_orch["recovery"]["cargo_state"], "LOADED")
+        self.assertEqual(saved_orch["recovery"]["reason"], "movement_failure_loaded_cargo")
+        postgres_tasks.set_status.assert_not_called()
+        person_hazard.on_robot_task_terminal.assert_not_called()
+        self.assertEqual(operational_events.append.call_args.kwargs["event_type"], "TASK_AWAITING_OPERATOR")
+
     def test_aborted_non_estop_still_fails_task(self) -> None:
         conn = MagicMock()
         task = {

@@ -7,7 +7,53 @@ test("WEB-01 입고 요청은 중복 제출을 막고 결과를 표시한다", a
   await page.getByLabel("품목").selectOption(item.item_code);
   const execute = page.getByRole("button", { name: "실행", exact: true });
   await execute.click({ force: true });
-  await expect(page.getByText(/작업|요청/).first()).toBeAttached();
+  await expect(page.getByText(/작업 접수됨 · 로봇 배정 대기/).first()).toBeVisible();
+  await expect(page.getByText(/5초마다 자동 재시도/).first()).toBeVisible();
+});
+
+test("WEB-01 자동 시작 성공은 로봇과 command ID를 표시한다", async ({ page }) => {
+  await mockMainApi(page);
+  await page.route("**/api/v1/work-orders", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      order_id: 102,
+      operation: "inbound",
+      item_code: item.item_code,
+      quantity: 1,
+      status: "RUNNING",
+      tasks: [{ task_id: 102, status: "RUNNING", assigned_robot_id: robot.robot_id, command_id: "cmd-102" }],
+      mission_results: [{ command_id: "cmd-102", robot_id: robot.robot_id }],
+    }),
+  }));
+  await page.goto("/operate/control?drawer=inout");
+  await page.getByLabel("품목").selectOption(item.item_code);
+  await page.getByRole("button", { name: "실행", exact: true }).click();
+  await expect(page.getByText(/작업 실행 시작됨/).first()).toBeVisible();
+  await expect(page.getByText(/cmd cmd-102/).first()).toBeVisible();
+  await expect(page.getByText(/robot tb3_1/).first()).toBeVisible();
+});
+
+test("WEB-01 자동 시작 실패는 생성 성공과 실행 실패를 구분한다", async ({ page }) => {
+  await mockMainApi(page);
+  await page.route("**/api/v1/work-orders", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      order_id: 103,
+      operation: "inbound",
+      item_code: item.item_code,
+      quantity: 1,
+      status: "ASSIGNED",
+      tasks: [{ task_id: 103, status: "ASSIGNED", assigned_robot_id: robot.robot_id }],
+      start_failed: [{ task_id: 103, detail: "robot_not_accepting" }],
+    }),
+  }));
+  await page.goto("/operate/control?drawer=inout");
+  await page.getByLabel("품목").selectOption(item.item_code);
+  await page.getByRole("button", { name: "실행", exact: true }).click();
+  await expect(page.getByText(/작업 생성됨 · 자동 시작 실패/).first()).toBeVisible();
+  await expect(page.getByText(/task #103: robot_not_accepting/)).toBeVisible();
 });
 
 test("WEB-02 재고 부족 오류는 입력과 재고 보기 동작을 유지한다", async ({ page }) => {
@@ -33,14 +79,54 @@ test("WEB-03 ESTOP은 운영 명령을 차단하고 해제 확인을 요구한�
   await expect(page.getByRole("alertdialog")).toBeVisible();
 });
 
-test("WEB-04 실행 작업은 안전 중단 확인을 거친다", async ({ page }) => {
+test("WEB-04 실행 작업은 중단 요청 중과 Movement 전달 결과를 표시한다", async ({ page }) => {
   await mockMainApi(page, { workOrders: [{ order_id: 7, operation: "inbound", status: "RUNNING", priority: 10, business_completed: false, tasks: [{ task_id: 8, status: "RUNNING", assigned_robot_id: robot.robot_id }] }] });
+  await page.route("**/api/v1/work-orders/7/stop", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({ order_id: 7, status: "CANCEL_REQUESTED", accepted: true, command_id: "cmd-stop-7", cargo_state: "EMPTY", business_completed: false }),
+    });
+  });
   await page.goto("/operate/tasks");
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toContain("안전 중단");
-    await dialog.dismiss();
+    await dialog.accept();
   });
   await page.getByRole("button", { name: "안전 중단" }).click();
+  await expect(page.getByRole("button", { name: "중단 요청 중…" })).toBeDisabled();
+  await expect(page.getByText(/중단 요청 전달됨 · cmd cmd-stop-7/)).toBeVisible();
+});
+
+test("WEB-04 활성 명령이 유실된 작업은 정지 확인 후 복구 패널을 표시한다", async ({ page }) => {
+  await mockMainApi(page, {
+    workOrders: [{ order_id: 7, operation: "inbound", status: "RUNNING", business_completed: false, tasks: [{ task_id: 7, status: "RUNNING", assigned_robot_id: robot.robot_id }] }],
+    recoveryTasks: [{ task_id: 7, status: "RUNNING", orchestration_phase: "AWAITING_OPERATOR", awaiting_operator: true, assigned_robot_id: robot.robot_id, last_step_kind: "leave_dock" }],
+  });
+  await page.route("**/api/v1/work-orders/7/stop", (route) => route.fulfill({
+    status: 202,
+    contentType: "application/json",
+    body: JSON.stringify({ order_id: 7, status: "AWAITING_OPERATOR", accepted: true, command_id: null, cargo_state: "UNKNOWN", business_completed: false }),
+  }));
+  await page.goto("/operate/tasks");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "안전 중단" }).click();
+  await expect(page.getByText(/로봇 정지 확인됨 · 작업 복구 패널/)).toBeVisible();
+  await expect(page.getByText(/복구 필요.*task #7/)).toBeVisible();
+});
+
+test("WEB-04 중단 전송 실패는 원인을 즉시 표시한다", async ({ page }) => {
+  await mockMainApi(page, { workOrders: [{ order_id: 7, operation: "inbound", status: "RUNNING", business_completed: false, tasks: [{ task_id: 8, status: "RUNNING", assigned_robot_id: robot.robot_id }] }] });
+  await page.route("**/api/v1/work-orders/7/stop", (route) => route.fulfill({
+    status: 502,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "Movement timeout" }),
+  }));
+  await page.goto("/operate/tasks");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "안전 중단" }).click();
+  await expect(page.getByText(/안전 중단 실패: Movement timeout/)).toBeVisible();
 });
 
 test("WEB-05 관리자 품목은 저장 요청 후 목록에 반영된다", async ({ page }) => {

@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Main·Movement Integration
-최종 갱신: 2026-07-14 18:28 KST
+최종 갱신: 2026-07-14 20:23 KST
 목적: 현재 Main 구현을 기준으로 Movement 서버의 명령 callback·상태 보고·재전송 계약을 맞추기 위한 전달 명세.
 
 이 문서는 현재 구현된 callback API의 정본이다. 전체 서버 간 계약은 [INTERFACES](INTERFACES.md), Main의
@@ -39,22 +39,19 @@ Main은 callback URL에 `http` 또는 `https` scheme과 명시적 host를 요구
 Main은 다음 두 값을 동일하게 전송한다.
 
 ```http
-Idempotency-Key: task-42-tb3_1-move_to_point-001
+Idempotency-Key: task-342-tb3_2-inbound2-20260714T110000123456
 ```
 
 ```json
 {
-  "command_id": "task-42-tb3_1-move_to_point-001",
-  "robot_id": "tb3_1",
-  "robot_name": "tb3_1",
-  "task_id": 42,
+  "command_id": "task-342-tb3_2-inbound2-20260714T110000123456",
+  "robot_id": "tb3_2",
+  "robot_name": "tb3_2",
+  "task_id": 342,
   "kind": "move_to_point",
   "dry_run": false,
   "params": {
-    "map_id": "Main_map",
-    "x": 1.2,
-    "y": 3.4,
-    "yaw": 1.57
+    "waypoint_id": "inbound_slot_2_approach"
   },
   "callback_url": "http://smartfactory-main.local:8088/api/v1/movement/command-events"
 }
@@ -64,7 +61,8 @@ Movement 요구사항:
 
 - 같은 `command_id`·같은 payload 재요청은 새 goal을 만들지 않고 기존 command 상태를 반환한다.
 - 같은 `command_id`·다른 payload는 `409`로 거부한다.
-- `GET /robot-commands/{command_id}`는 callback과 같은 상태 문자열을 반환한다.
+- `GET /robot-commands/{command_id}`는 callback과 같은 상태 문자열과 슬롯 waypoint의 `step_actions`를 반환한다.
+- 슬롯 waypoint는 `nav2_pose, aruco_align(0.4m), wait(3s), aruco_align(0.2m, straight_insert)` 순서로 확장하고 최종 상태를 `ARRIVED`로 보낸다.
 - cancel 재요청도 새 동작을 만들지 않는 멱등 API여야 한다.
 
 ## 3. Canonical command callback
@@ -93,7 +91,8 @@ X-Movement-Callback-Token: <shared-token>
 권장 lifecycle 상태:
 
 ```text
-ACCEPTED → RUNNING → DONE
+move_to_point: ACCEPTED → RUNNING → ARRIVED
+other command: ACCEPTED → RUNNING → DONE
                    ↘ FAILED | ABORTED | REJECTED | CANCELLED | STOPPED
 ```
 
@@ -104,8 +103,8 @@ ACCEPTED → RUNNING → DONE
   "command_id": "task-42-tb3_1-move_to_point-001",
   "robot_name": "tb3_1",
   "task_id": 42,
-  "event": "DONE",
-  "message": "goal reached",
+  "event": "ARRIVED",
+  "message": "precision waypoint completed",
   "reported_at": "2026-07-14T08:05:30Z",
   "event_id": "tb3_1:task-42-tb3_1-move_to_point-001:3",
   "sequence": 3
@@ -127,7 +126,7 @@ ACCEPTED → RUNNING → DONE
 | --- | --- |
 | `ok` | callback API 처리 성공 |
 | `message` | 처리 결과 설명 |
-| `duplicate` | 같은 `event_id`가 이미 저장됐는지 여부 |
+| `duplicate` | 같은 `event_id`가 이미 저장됐는지 여부. legacy result는 command/result/reported_at 합성 키 사용 |
 | `task_advanced` | 이 callback으로 Task Step 또는 recovery 상태가 실제 변경됐는지 여부 |
 
 `task_advanced=false`는 callback 실패를 뜻하지 않는다. `ACCEPTED`·`RUNNING`, 이미 terminal인 Step, robot·command

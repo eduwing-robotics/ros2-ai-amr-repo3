@@ -144,7 +144,11 @@ export function WorkOrderQueue() {
   const stopOrder = async (order: WorkOrder) => {
     const label = order.business_completed ? "HOME 복귀·주차를 중단할까요?" : "실행 중 작업을 안전 중단할까요?";
     if (!confirm(`${label}\n\n적재된 화물이 있으면 운영자 복구가 필요합니다.`)) return;
-    await stopWorkOrder.mutateAsync(order.order_id);
+    try {
+      await stopWorkOrder.mutateAsync(order.order_id);
+    } catch {
+      // useStopWorkOrder가 API 오류를 운영자 토스트로 변환한다.
+    }
   };
 
   const showReorder = segment === "queued";
@@ -206,7 +210,8 @@ export function WorkOrderQueue() {
                   onStartMission={(taskId) => void startRobotTask.mutateAsync(taskId)}
                   assignPending={assignTask.isPending}
                   startPending={startRobotTask.isPending}
-                  cancelPending={cancelWorkOrder.isPending || cancelTask.isPending || stopWorkOrder.isPending}
+                  cancelPending={cancelWorkOrder.isPending || cancelTask.isPending}
+                  stopPending={stopWorkOrder.isPending && stopWorkOrder.variables === o.order_id}
                   onToggle={() => setExpanded((cur) => (cur === o.order_id ? null : o.order_id))}
                   onCancelOrder={() => void cancelOrder(o)}
                   onStopOrder={() => void stopOrder(o)}

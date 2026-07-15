@@ -72,10 +72,10 @@ def _from_db_fallback(error: str | None = None) -> RuntimeMapContext:
     )
 
 
-def get_runtime_map_context() -> RuntimeMapContext:
+def get_runtime_map_context(robot_id: str | None = None) -> RuntimeMapContext:
     """Movement map-state를 정규화한다. 실패 시 DB/config fallback."""
     try:
-        payload = movement_client.map_state()
+        payload = movement_client.map_state(robot_id)
         ctx = _from_movement_payload(payload)
         if not ctx.active_map_id:
             return _from_db_fallback("movement_active_map_missing")
@@ -150,9 +150,11 @@ def pose_in_bounds(x: float, y: float, ctx: RuntimeMapContext) -> bool | None:
         return None
 
 
-def resolve_command_map(ui_map_id: str | None) -> tuple[str, RuntimeMapContext, dict[str, Any]]:
+def resolve_command_map(
+    ui_map_id: str | None, robot_id: str | None = None
+) -> tuple[str, RuntimeMapContext, dict[str, Any]]:
     """수동 명령용 map 해석. runtime active map을 우선하고 ui_map_id는 진단용으로 남긴다."""
-    ctx = get_runtime_map_context()
+    ctx = get_runtime_map_context(robot_id)
     if not ctx.ok or not ctx.active_map_id:
         raise HTTPException(
             status_code=502,
@@ -254,9 +256,9 @@ def assert_movement_active_map(map_id: str) -> dict:
     return state
 
 
-def resolve_movement_map_id(lms_map_id: str) -> tuple[str, dict]:
+def resolve_movement_map_id(lms_map_id: str, robot_id: str | None = None) -> tuple[str, dict]:
     """수동 명령용 map 해석. runtime active map을 우선한다."""
-    runtime_map_id, ctx, _info = resolve_command_map(lms_map_id)
+    runtime_map_id, ctx, _info = resolve_command_map(lms_map_id, robot_id)
     return runtime_map_id, ctx.to_map_state()
 
 

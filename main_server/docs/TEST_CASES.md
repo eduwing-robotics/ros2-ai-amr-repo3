@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Frontend · Operations
-최종 갱신: 2026-07-14 18:01 KST
+최종 갱신: 2026-07-14 20:23 KST
 목적: 현재 AMR 입출고 UX의 인수 조건과 실행 가능한 브라우저 검증을 정의한다.
 
 기준 UX는 [UX](UX.md), API 계약은 [API](API.md), 실서버 실행은
@@ -16,7 +16,8 @@
 - API test support: `frontend/web/tests/support/mainApi.ts`
 - 실행: `bash ./scripts/check.sh ux`
 - 방식: 실제 React 화면과 API client를 사용하고 `/api/v1/*` 응답만 통제한다.
-- 건수: WEB-07 오류 4종을 각각 실행해 WEB-01~17을 총 20건으로 검증한다.
+- 건수: WEB-01 생성 결과 3종, WEB-04 중단 결과 3종, WEB-07 오류 4종을 각각 실행해
+  WEB-01~17을 총 24건으로 검증한다.
 
 ## 자동화 경계
 
@@ -51,9 +52,11 @@ PostgreSQL transaction과 재고 멱등성은 DB 통합 테스트가 담당한�
 
 1. `/operate/control?drawer=inout`을 연다.
 2. 품목을 선택하고 실행한다.
-3. 제출 중 동일 버튼의 중복 실행이 발생하지 않고 work order 결과가 표시되는지 확인한다.
+3. 제출 중 동일 버튼의 중복 실행이 발생하지 않는지 확인한다.
+4. 응답을 `QUEUED`, `RUNNING + command_id`, `start_failed`로 나눠 각각 배정 대기·실행 시작·시작 실패로
+   구분해 표시하는지 확인한다.
 
-검증 대상: 품목·슬롯·입고 zone 조회, preview, work order 생성, 결과 표시.
+검증 대상: 품목·슬롯·입고 zone 조회, preview, work order 생성, 자동 재시도 안내, 로봇·command ID와 실패 표시.
 
 ## WEB-02 출고 재고 부족
 
@@ -76,8 +79,11 @@ PostgreSQL transaction과 재고 멱등성은 DB 통합 테스트가 담당한�
 1. `/operate/control?panel=tasks`에 실행 중 work order를 표시한다.
 2. 안전 중단을 누른다.
 3. browser confirm에 안전 중단과 화물 복구 안내가 포함되는지 확인한다.
+4. 응답 전 버튼이 `중단 요청 중…`으로 바뀌고 중복 조작이 차단되는지 확인한다.
+5. `202 CANCEL_REQUESTED`, `202 AWAITING_OPERATOR`, upstream 실패를 각각 Movement 확인 대기,
+   정지 확인·복구 필요, 전송 실패 원인으로 구분해 표시하는지 확인한다.
 
-검증 대상: 실행 상태별 label, 파괴적 동작 확인 절차.
+검증 대상: 실행 상태별 label, 파괴적 동작 확인, 전송 pending, 성공·복구 전환·실패 피드백.
 
 ## WEB-05 관리자 데이터 반영
 
@@ -180,13 +186,14 @@ work order ID·task ID·command ID·최종 task 상태·재고 전후 값·판�
 | HW-02 | 2층 정상 입고 | 도킹 완료 후 재고가 한 번만 증가 | 미검증 |
 | HW-03 | 1층 정상 출고 | 하역 완료 후 재고가 한 번만 감소 | 미검증 |
 | HW-04 | 2층 정상 출고 | 하역 완료 후 재고가 한 번만 감소 | 미검증 |
-| HW-05 | 경유→스캔 이동 | 지정 transit을 거쳐 scan 위치에 도착 | 미검증 |
+| HW-05 | Precision waypoint | params에는 waypoint_id만 존재하고 조회 결과 step_actions가 nav2_pose→aruco_align→wait→aruco_align | 미검증 |
 | HW-06 | Movement 단절 | 이동 조작 차단, 진행 task 원인 보존 | 미검증 |
 | HW-07 | 물리 ESTOP | 실제 로봇 정지, UI 조작 차단, 자동 재개 없음 | 미검증 |
 | HW-08 | Callback 정합성 | token·command·robot·event ID/sequence 일치, 중복 업무 반영 없음 | 미검증 |
 | HW-09 | 적재 중 복구 | cargo 확인 후 안전 위치 이동 또는 수동 종료 | 미검증 |
 | HW-10 | Main 재시작 | 진행 task와 명령 상태 재동기화 | 미검증 |
 | HW-11 | Vision stale | 영상 상태 표시, evidence 오류 기록 | 미검증 |
+| HW-12 | 중복 삽입 방지 | 자동 입출고 단계에 dock_transfer가 없고 ARRIVED 전 다음 command가 전송되지 않음 | 미검증 |
 
 실서버 결과에는 work order ID, robot ID, Movement command ID, 최종 task 상태와 재고 전후 값을 남긴다.
 
@@ -208,4 +215,4 @@ work order ID·task ID·command ID·최종 task 상태·재고 전후 값·판�
 
 ## 완료 기준
 
-브라우저 기준은 WEB-01~17 20건과 PostgreSQL 통합 gate가 모두 통과하는 것이다. 포트폴리오 릴리스는 위 실장비 체크리스트와 운영 환경 설정을 별도로 확인해야 한다.
+브라우저 기준은 WEB-01~17 24건과 PostgreSQL 통합 gate가 모두 통과하는 것이다. 포트폴리오 릴리스는 위 실장비 체크리스트와 운영 환경 설정을 별도로 확인해야 한다.

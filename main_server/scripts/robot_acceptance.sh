@@ -57,13 +57,14 @@ SCENARIOS=(
   "HW-02|2층 정상 입고|2층 경로·도킹 완료 후 재고가 정확히 한 번 증가한다."
   "HW-03|1층 정상 출고|도킹·하역 완료 후 재고가 정확히 한 번 감소한다."
   "HW-04|2층 정상 출고|2층 경로·도킹 완료 후 재고가 정확히 한 번 감소한다."
-  "HW-05|경유→스캔 이동|계획된 transit을 거쳐 지정 scan 위치에 도착하고 좌표계 오류가 없다."
+  "HW-05|Precision waypoint|params에는 waypoint_id만 있고 step_actions가 nav2_pose,aruco_align,wait,aruco_align이다."
   "HW-06|Movement 단절|조작이 차단되고 task·command ID와 실패 원인이 보존되며 임의 재개하지 않는다."
   "HW-07|물리 ESTOP|로봇이 실제 정지하고 UI 조작이 차단되며 해제 후 자동 재개하지 않는다."
   "HW-08|Callback 정합성|token·command·robot·event ID/sequence가 일치하고 중복·역순 callback이 업무를 중복 반영하지 않는다."
   "HW-09|적재 중 복구|cargo 확인 전 실행이 차단되고 확인 후 safe_move 또는 manual_abort만 수행한다."
   "HW-10|Main 재시작|진행 task와 Movement command가 재동기화되고 중복 명령·재고 반영이 없다."
   "HW-11|Vision stale|영상 상태와 evidence 오류가 기록되고 물류·이동 안전 규칙이 유지된다."
+  "HW-12|중복 삽입 방지|자동 입출고에 dock_transfer가 없고 ARRIVED 전에 다음 command가 전송되지 않는다."
 )
 
 if ((DRY_RUN)); then
@@ -180,7 +181,7 @@ for row in "${SCENARIOS[@]}"; do
   echo "통과 조건: $expected"
   case "$id" in
     HW-01|HW-02|HW-03|HW-04) echo "UI에서 해당 층의 작업을 생성·시작하고 완료까지 관찰하십시오. 재고 전후와 ID를 확인합니다." ;;
-    HW-05) echo "작업 상세·Movement에서 계획 경유지, scan waypoint, active map과 실제 도착 위치를 확인하십시오." ;;
+    HW-05) echo "Main payload가 waypoint_id만 포함하고 Movement 조회의 step_actions가 nav2_pose,aruco_align,wait,aruco_align인지 확인하십시오." ;;
     HW-06) echo "안전 정지 상태에서 Movement 연결을 차단하고 UI 차단·원인 보존을 확인한 뒤 연결을 복구하십시오." ;;
     HW-07) echo "저속 안전 시험 중 물리 ESTOP을 작동하십시오. 위험 제거·해제 후 자동 재개가 없는지 확인하십시오." ;;
     HW-08) echo "Movement callback 로그와 Main command trace를 비교하고 동일 event 재전송 시 1회 반영을 확인하십시오." ;;

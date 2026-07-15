@@ -29,6 +29,7 @@ export function WorkOrderQueueRow({
   assignPending,
   startPending,
   cancelPending,
+  stopPending,
   onToggle,
   onCancelOrder,
   onStopOrder,
@@ -53,6 +54,7 @@ export function WorkOrderQueueRow({
   assignPending: boolean;
   startPending: boolean;
   cancelPending: boolean;
+  stopPending: boolean;
   onToggle: () => void;
   onCancelOrder: () => void;
   onStopOrder: () => void;
@@ -122,8 +124,8 @@ export function WorkOrderQueueRow({
               </button>
             ) : null}
             {showRunningRecovery ? (
-              <button type="button" className="rowbtn danger" disabled={cancelPending} onClick={onStopOrder}>
-                {order.business_completed ? "복귀 중단" : "안전 중단"}
+              <button type="button" className="rowbtn danger" disabled={cancelPending || stopPending} onClick={onStopOrder}>
+                {stopPending ? "중단 요청 중…" : order.business_completed ? "복귀 중단" : "안전 중단"}
               </button>
             ) : null}
             {canCancelOrder(order) ? (
@@ -175,8 +177,8 @@ export function WorkOrderQueueRow({
                         </button>
                       ) : null}
                       {status === "RUNNING" ? (
-                        <button type="button" className="rowbtn danger" disabled={cancelPending} onClick={onStopOrder}>
-                          {order.business_completed ? "복귀 중단" : "안전 중단"}
+                        <button type="button" className="rowbtn danger" disabled={cancelPending || stopPending} onClick={onStopOrder}>
+                          {stopPending ? "중단 요청 중…" : order.business_completed ? "복귀 중단" : "안전 중단"}
                         </button>
                       ) : canCancelTask(t) ? (
                         <button type="button" className="rowbtn danger" onClick={() => onCancelTask(t.task_id)}>취소</button>

@@ -23,6 +23,26 @@ RESULT_EVENT_MAP = {
 }
 
 
+def _callback_event_id(payload: dict[str, Any], channel: str) -> str:
+    event_id = str(payload.get("event_id") or "")
+    if event_id:
+        return event_id
+    command_id = str(payload.get("command_id") or "")
+    state = str(payload.get("result") or payload.get("event") or payload.get("state") or "")
+    reported_at = str(payload.get("reported_at") or "")
+    if command_id and state and reported_at:
+        return f"movement:{channel}:{command_id}:{state.upper()}:{reported_at}"
+    return ""
+
+
+def _with_callback_event_id(payload: dict[str, Any], channel: str) -> dict[str, Any]:
+    out = dict(payload)
+    event_id = _callback_event_id(payload, channel)
+    if event_id:
+        out["event_id"] = event_id
+    return out
+
+
 def _is_duplicate_callback(conn, payload: dict[str, Any]) -> bool:
     event_id = str(payload.get("event_id") or "")
     return bool(event_id and operational_events.callback_event_exists(conn, event_id))
@@ -37,6 +57,7 @@ def _event_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist a command callback and advance Execution when applicable."""
+    payload = _with_callback_event_id(payload, "event")
     if _is_duplicate_callback(conn, payload):
         return {"message": "duplicate movement callback ignored", "duplicate": True, "task_advanced": False}
     command_id = payload.get("command_id")
@@ -56,6 +77,7 @@ def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
 
 def ingest_result(conn, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist a result callback and update its command record and Execution."""
+    payload = _with_callback_event_id(payload, "result")
     if _is_duplicate_callback(conn, payload):
         return {"message": "duplicate movement result ignored", "duplicate": True, "task_advanced": False}
     command_id = payload.get("command_id")

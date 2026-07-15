@@ -31,6 +31,14 @@ def _ctx(**kwargs) -> RuntimeMapContext:
 
 
 class ResolveMovementMapIdTest(unittest.TestCase):
+    def test_robot_id_is_forwarded_to_runtime_map_lookup(self) -> None:
+        with patch(
+            "app.domains.movement.navigation.get_runtime_map_context", return_value=_ctx()
+        ) as runtime_context:
+            active, _ = resolve_movement_map_id("map", "tb3_2")
+        self.assertEqual(active, "map")
+        runtime_context.assert_called_once_with("tb3_2")
+
     def test_exact_id_match(self) -> None:
         with patch("app.domains.movement.navigation.get_runtime_map_context", return_value=_ctx()), patch(
             "app.domains.movement.navigation.map_record_by_id",

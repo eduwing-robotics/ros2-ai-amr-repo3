@@ -98,12 +98,25 @@ export function WorkOrderResultNotice({
     floor: t.floor ?? requestedFloor,
   })));
   const startFailed = result.start_failed ?? [];
+  const commandIds = (result.mission_results ?? [])
+    .map((mission) => mission.command_id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  const started = autoStart && (commandIds.length > 0 || result.status.toUpperCase() === "RUNNING");
   const partialStart =
     autoStart && result.tasks.length > (result.mission_results?.length ?? 0) && !startFailed.length;
+  const headline = startFailed.length
+    ? "작업 생성됨 · 자동 시작 실패"
+    : started
+      ? "작업 실행 시작됨"
+      : autoStart
+        ? "작업 접수됨 · 로봇 배정 대기"
+        : "작업 접수됨 · 자동 시작 꺼짐";
 
   return (
-    <div className="inline-alert ok">
-      주문 #{result.order_id} 생성 · {operationLabel(result.operation)} · 상태 {result.status}
+    <div className={`inline-alert ${startFailed.length ? "warn" : started ? "ok" : ""}`} role="status" aria-live="polite">
+      <strong>{headline}</strong>
+      <div>
+      주문 #{result.order_id} · {operationLabel(result.operation)} · 서버 상태 {result.status}
       · task {result.tasks.length}건
       {resultSlotSummary ? ` · 슬롯 ${resultSlotSummary}` : ""}
       {resultPlanLines.length ? (
@@ -113,10 +126,12 @@ export function WorkOrderResultNotice({
           ))}
         </div>
       ) : null}
-      {result.mission_results?.length ? ` · mission ${result.mission_results.length}건 시작` : ""}
+      {result.mission_results?.length ? ` · Movement 시작 ${result.mission_results.length}건` : ""}
+      {commandIds.length ? <span className="mono"> · cmd {commandIds.join(", ")}</span> : null}
       {result.tasks.some((t) => t.assigned_robot_id) ? (
         <span> · 로봇 {result.tasks.map((t) => t.assigned_robot_id).filter(Boolean).join(", ")}</span>
       ) : null}
+      </div>
       {startFailed.length ? (
         <div className="inline-alert warn mt-6">
           자동 시작 실패 {startFailed.length}건 — 작업 큐에서 수동으로 시작하세요.
@@ -127,8 +142,11 @@ export function WorkOrderResultNotice({
       ) : null}
       {partialStart ? (
         <div className="muted mt-6">
-          일부만 즉시 시작됨 — 나머지는 로봇 가용 시 자동 진행됩니다.
+          아직 시작되지 않은 작업은 5초마다 로봇 배정·시작을 다시 시도합니다.
         </div>
+      ) : null}
+      {!started && autoStart && !startFailed.length ? (
+        <div className="muted mt-6">로봇이 준비되면 최대 5초 주기의 백그라운드 폴러가 배정·시작을 재시도합니다.</div>
       ) : null}
       <div className="action-row action-row-tight">
         <Link className="btn secondary" to="/operate/tasks">작업에서 보기</Link>
@@ -137,10 +155,6 @@ export function WorkOrderResultNotice({
   );
 }
 
-
-function resetFormFields() {
-  return { itemCode: "", quantity: "1", zoneId: "" };
-}
 
 function validationMessage({
   disabled,
@@ -228,7 +242,7 @@ export function WorkOrderForm({
     setError(null);
     setErrorCode(null);
     setResult(null);
-  }, [operation, itemCode, quantity, zoneId, requestedFloor]);
+  }, [operation, itemCode, quantity, zoneId, requestedFloor, assignMode, robotId, autoStart, manualSlotId]);
 
   useEffect(() => {
     setManualSlotId("");
@@ -297,7 +311,7 @@ export function WorkOrderForm({
     operation,
     manualSlotMissing,
   });
-  const submitDisabled = formBlocked || create.isPending || items.length === 0 || submitValidation !== null;
+  const submitDisabled = formBlocked || create.isPending || result !== null || items.length === 0 || submitValidation !== null;
 
   const submit = async () => {
     setError(null);
@@ -315,10 +329,6 @@ export function WorkOrderForm({
       }));
       setResult(order);
       onSubmitted?.(order);
-      const reset = resetFormFields();
-      setItemCode(reset.itemCode);
-      setQuantity(reset.quantity);
-      setZoneId(reset.zoneId);
     } catch (e) {
       if (e instanceof ApiError) {
         const detail = parseApiDetail(e.message);

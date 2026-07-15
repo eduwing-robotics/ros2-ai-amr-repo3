@@ -40,6 +40,14 @@ class RuntimeMapContextTest(unittest.TestCase):
         self.assertEqual(ctx.source, "movement")
         self.assertEqual(ctx.confidence, "live")
 
+    def test_runtime_map_context_targets_requested_robot(self) -> None:
+        payload = {"active_map_id": "map", "frame_id": "map"}
+        with patch(
+            "app.domains.movement.navigation.movement_client.map_state", return_value=payload
+        ) as map_state:
+            get_runtime_map_context("tb3_2")
+        map_state.assert_called_once_with("tb3_2")
+
     def test_db_fallback_on_movement_error(self) -> None:
         from app.domains.movement.client import MovementClientError
 

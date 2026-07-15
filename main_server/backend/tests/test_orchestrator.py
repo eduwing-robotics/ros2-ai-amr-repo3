@@ -29,6 +29,8 @@ class OrchestratorStepPlanningTest(unittest.TestCase):
             steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
         self.assertEqual(len(steps), 1)
         self.assertEqual(steps[0]["kind"], "move_to_point")
+        self.assertEqual(steps[0]["params"], {"waypoint_id": "wp1"})
+        self.assertNotIn("map_id", steps[0]["params"])
 
     def test_dock_transfer_step_keeps_dock_transfer_kind(self) -> None:
         conn = MagicMock()
@@ -99,20 +101,18 @@ class SeedStepIndexTest(unittest.TestCase):
     STEPS = [
         {"kind": "leave_dock"},
         {"kind": "move_to_point"},
-        {"kind": "dock_transfer"},
         {"kind": "move_to_point"},
-        {"kind": "dock_transfer"},
         {"kind": "move_to_point"},
         {"kind": "aruco_align"},
     ]
 
     def test_leading_leave_dock_does_not_shift_seed_seq(self) -> None:
-        # step_index=1(첫 move) → 시드 index 0, step_index=5(홈 move) → 시드 index 4
+        # step_index=1(첫 move) → 시드 index 0, step_index=3(홈 move) → 시드 index 2
         self.assertEqual(orchestrator._seed_step_index(self.STEPS, 0), 0)
         self.assertEqual(orchestrator._seed_step_index(self.STEPS, 1), 0)
         self.assertEqual(orchestrator._seed_step_index(self.STEPS, 2), 1)
-        self.assertEqual(orchestrator._seed_step_index(self.STEPS, 5), 4)
-        self.assertEqual(orchestrator._seed_step_index(self.STEPS, 6), 5)
+        self.assertEqual(orchestrator._seed_step_index(self.STEPS, 3), 2)
+        self.assertEqual(orchestrator._seed_step_index(self.STEPS, 4), 3)
 
 
 class CallbackConsistencyTest(unittest.TestCase):
@@ -128,6 +128,72 @@ class CallbackConsistencyTest(unittest.TestCase):
             )
         self.assertIsNone(result)
         advance.assert_not_called()
+
+    def test_matching_callback_repairs_missing_command_link(self) -> None:
+        conn = MagicMock()
+        task = {
+            "task_id": 1,
+            "status": "RUNNING",
+            "assigned_robot_id": "r1",
+            "preset_snapshot": {
+                "_orchestration": {
+                    "phase": "RUNNING",
+                    "step_index": 0,
+                    "steps": [{"kind": "leave_dock", "status": "pending", "command_id": None}],
+                }
+            },
+        }
+        with (
+            patch.object(orchestrator, "_task", return_value=task),
+            patch.object(orchestrator, "evidence") as evidence,
+            patch.object(orchestrator, "operational_events") as events,
+            patch.object(orchestrator, "advance_on_command_event") as advance,
+        ):
+            orchestrator.handle_command_event(conn, {
+                "task_id": 1,
+                "robot_name": "r1",
+                "command_id": "cmd-1",
+                "event": "ACCEPTED",
+                "current_step_index": 0,
+                "current_step_action": "leave_dock",
+            })
+
+        step = task["preset_snapshot"]["_orchestration"]["steps"][0]
+        self.assertEqual(step["status"], "DISPATCHED")
+        self.assertEqual(step["command_id"], "cmd-1")
+        evidence.save_orchestration.assert_called_once()
+        self.assertEqual(events.append.call_args.kwargs["event_type"], "TASK_COMMAND_LINK_REPAIRED")
+        advance.assert_called_once()
+
+    def test_mismatched_callback_does_not_repair_missing_command_link(self) -> None:
+        conn = MagicMock()
+        task = {
+            "task_id": 1,
+            "status": "RUNNING",
+            "assigned_robot_id": "r1",
+            "preset_snapshot": {
+                "_orchestration": {
+                    "phase": "RUNNING",
+                    "step_index": 0,
+                    "steps": [{"kind": "leave_dock", "status": "pending", "command_id": None}],
+                }
+            },
+        }
+        with (
+            patch.object(orchestrator, "_task", return_value=task),
+            patch.object(orchestrator, "evidence") as evidence,
+            patch.object(orchestrator, "advance_on_command_event"),
+        ):
+            orchestrator.handle_command_event(conn, {
+                "task_id": 1,
+                "robot_name": "r1",
+                "command_id": "cmd-foreign",
+                "current_step_index": 1,
+                "current_step_action": "move_to_point",
+            })
+
+        self.assertIsNone(task["preset_snapshot"]["_orchestration"]["steps"][0]["command_id"])
+        evidence.save_orchestration.assert_not_called()
 
     def test_older_sequence_does_not_reapply_command_event(self) -> None:
         conn = MagicMock()

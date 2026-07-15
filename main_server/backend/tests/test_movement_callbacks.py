@@ -62,6 +62,26 @@ class MovementCallbackServiceTest(unittest.TestCase):
 
     @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
     @patch("app.domains.movement.callbacks.operational_events")
+    def test_legacy_result_without_event_id_uses_stable_dedup_key(self, operational_events, handle_event) -> None:
+        operational_events.callback_event_exists.return_value = True
+        result = callbacks.ingest_result(
+            self.conn,
+            {
+                "command_id": "cmd-legacy",
+                "robot_name": "r1",
+                "result": "DONE",
+                "reported_at": "2026-07-14T10:52:51.066727Z",
+            },
+        )
+
+        expected = "movement:result:cmd-legacy:DONE:2026-07-14T10:52:51.066727Z"
+        operational_events.callback_event_exists.assert_called_once_with(self.conn, expected)
+        self.assertTrue(result["duplicate"])
+        operational_events.append.assert_not_called()
+        handle_event.assert_not_called()
+
+    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
+    @patch("app.domains.movement.callbacks.operational_events")
     def test_event_write_failure_does_not_advance_execution(self, operational_events, handle_event) -> None:
         operational_events.callback_event_exists = self.event.callback_event_exists
         operational_events.append.side_effect = RuntimeError("event write failed")

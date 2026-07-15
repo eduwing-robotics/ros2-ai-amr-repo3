@@ -144,6 +144,25 @@ def is_dispatched_robot_task_step(step: dict[str, Any]) -> bool:
     return normalize_robot_task_step_status(step.get("status")) == RobotTaskStepStatus.DISPATCHED
 
 
+def cargo_state_after_steps(steps: list[dict[str, Any]]) -> str:
+    """Derive cargo state from completed transfer steps across old and waypoint flows."""
+
+    loaded = False
+    for step in steps:
+        if normalize_robot_task_step_status(step.get("status")) != "DONE":
+            continue
+        action = str(
+            step.get("transfer_action")
+            or (step.get("params") or {}).get("action")
+            or ""
+        ).lower()
+        if action == "load":
+            loaded = True
+        elif action == "unload":
+            loaded = False
+    return "LOADED" if loaded else "EMPTY"
+
+
 def get_steps(orch: dict[str, Any]) -> list[dict[str, Any]]:
     return RobotTaskExecutionState.wrap(orch).steps
 
