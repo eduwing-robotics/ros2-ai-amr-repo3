@@ -54,6 +54,68 @@ class ApiRuntimeSmokeTest(unittest.TestCase):
         )
         self.assertNotIn("access-control-allow-origin", preflight.headers)
 
+    @patch("app.api.routers.movement.callbacks.estop_all_robots", return_value=[])
+    @patch("app.api.routers.movement.transaction")
+    def test_cross_site_browser_mutations_are_rejected_before_handler(
+        self,
+        transaction_ctx,
+        estop_all_robots,
+    ) -> None:
+        attempts = (
+            {"Origin": "https://evil.example"},
+            {"Sec-Fetch-Site": "cross-site"},
+            {"Origin": "http://testserver", "Sec-Fetch-Site": "same-site"},
+            {"Origin": "https://evil.example", "Sec-Fetch-Site": "same-origin"},
+            {
+                "Host": "smartfactory-main.local:8088",
+                "Origin": "http://localhost:8088",
+                "Sec-Fetch-Site": "same-origin",
+            },
+            {"Host": "invalid host", "Origin": "null"},
+        )
+
+        for headers in attempts:
+            with self.subTest(headers=headers):
+                response = self.client.post("/api/v1/robot/estop", headers=headers)
+                self.assertEqual(response.status_code, 403)
+                transaction_ctx.assert_not_called()
+                estop_all_robots.assert_not_called()
+
+    @patch("app.api.routers.movement.callbacks.estop_all_robots", return_value=[])
+    @patch("app.api.routers.movement.transaction")
+    def test_same_origin_and_headerless_mutations_reach_handler(
+        self,
+        transaction_ctx,
+        estop_all_robots,
+    ) -> None:
+        transaction_ctx.return_value.__enter__.return_value = MagicMock()
+        attempts = (
+            {},
+            {
+                "Host": "smartfactory-main.local:8088",
+                "Origin": "http://smartfactory-main.local:8088",
+                "Sec-Fetch-Site": "same-origin",
+            },
+            {
+                "Host": "localhost:8088",
+                "Origin": "http://localhost:8088",
+                "Sec-Fetch-Site": "same-origin",
+            },
+        )
+
+        for headers in attempts:
+            with self.subTest(headers=headers):
+                response = self.client.post("/api/v1/robot/estop", headers=headers)
+                self.assertEqual(response.status_code, 200)
+
+        self.assertEqual(transaction_ctx.call_count, len(attempts))
+        self.assertEqual(estop_all_robots.call_count, len(attempts))
+
+    def test_read_and_options_requests_are_not_blocked(self) -> None:
+        headers = {"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"}
+        self.assertEqual(self.client.get("/health", headers=headers).status_code, 200)
+        self.assertNotEqual(self.client.options("/api/v1/robot/estop", headers=headers).status_code, 403)
+
     @patch("app.api.routers.system.fetch_camera_health", return_value={})
     @patch("app.api.routers.system.get_movement_health", return_value={})
     @patch("app.api.routers.system.task_repo")

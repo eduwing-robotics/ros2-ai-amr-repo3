@@ -4,8 +4,10 @@ import asyncio
 import contextlib
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -19,6 +21,35 @@ from app.services.pose_monitor import pose_event_writer_loop, pose_fallback_poll
 from app.services.pose_runtime import pose_runtime
 from app.services.runtime_map_context import get_runtime_map_context
 from app.services.task_progress_poller import poll_task_progress_loop
+
+_SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+
+
+def _origin_parts(value: str) -> tuple[str, str, int] | None:
+    """Return the browser origin tuple for a plain HTTP(S) origin."""
+    try:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            return None
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    except ValueError:
+        return None
+    return parsed.scheme.lower(), parsed.hostname.lower(), port
+
+
+def _origin_matches_request(request: Request, origin: str) -> bool:
+    host = request.headers.get("host", "")
+    origin_parts = _origin_parts(origin)
+    request_parts = _origin_parts(f"{request.url.scheme}://{host}")
+    return origin_parts is not None and origin_parts == request_parts
 
 
 class SpaStaticFiles(StaticFiles):
@@ -88,6 +119,17 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """FastAPI 앱 생성."""
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
+
+    @app.middleware("http")
+    async def reject_cross_site_browser_mutations(request: Request, call_next):
+        if request.method.upper() not in _SAFE_HTTP_METHODS:
+            fetch_site = request.headers.get("sec-fetch-site")
+            origin = request.headers.get("origin")
+            wrong_fetch_site = fetch_site is not None and fetch_site.strip().lower() != "same-origin"
+            wrong_origin = origin is not None and not _origin_matches_request(request, origin.strip())
+            if wrong_fetch_site or wrong_origin:
+                return JSONResponse(status_code=403, content={"detail": "cross-site browser mutation rejected"})
+        return await call_next(request)
 
     app.include_router(router, prefix=settings.api_prefix)
 
