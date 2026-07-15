@@ -3,7 +3,7 @@
    2계층 모드 색상·간격·z-레이어 등 의미 토큰을 추가한다. additive — 기존 변수 안 건드림. */
 :root {
   /* 운영/관리 모드 강조색 (와이어프레임: 운영=blue, 관리=purple) */
-  --operator: #2563eb; --operator-dark: #1c4fb0; --operator-soft: #e8f0fe;
+  --operator: #315fe9; --operator-dark: #2448b8; --operator-soft: #eef3ff;
   --admin: #7a4fd4; --admin-dark: #5b3bd4; --admin-soft: #eae6fd;
 
   /* 앱 크롬 (와이어프레임 다크 헤더) */
@@ -11,6 +11,11 @@
 
   /* 간격 스케일 */
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  --radius-lg: 12px;
+  --operator-nav-w: 216px;
+  --operator-context-w: 390px;
+  --control-h-sm: 32px;
+  --control-h: 40px;
 
   /* z 레이어 */
   --z-header: 50; --z-drawer: 40; --z-overlay: 30;

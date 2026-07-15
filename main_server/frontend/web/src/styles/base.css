@@ -1,30 +1,30 @@
     * { box-sizing: border-box; }
     :root {
-      --bg: #eef1f5; --surface: #ffffff; --surface-2: #f9fafb; --surface-3: #f3f4f6;
-      --border: #d1d5db; --border-light: #e5e7eb; --border-strong: #9ca3af;
-      --text: #1f2937; --text-muted: #6b7280; --text-dim: #9ca3af;
+      --bg: #f4f6f8; --surface: #ffffff; --surface-2: #f8fafc; --surface-3: #f1f4f7;
+      --border: #d9e0e8; --border-light: #e8edf2; --border-strong: #aeb8c5;
+      --text: #172033; --text-muted: #667085; --text-dim: #98a2b3;
       --teal: #0f766e; --teal-dark: #115e59; --teal-soft: #e6f4f1;
       --amber: #d97706; --red: #dc2626; --blue: #2563eb;
-      --radius: 6px; --radius-sm: 4px;
-      --shadow: 0 1px 2px rgba(0,0,0,.06); --shadow-md: 0 4px 12px rgba(0,0,0,.10);
+      --radius: 9px; --radius-sm: 7px;
+      --shadow: 0 1px 2px rgba(16,24,40,.04); --shadow-md: 0 12px 30px rgba(16,24,40,.14);
     }
     html, body, #root { height: 100%; }
-    body { margin: 0; min-height: 100dvh; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Pretendard", sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+    body { margin: 0; min-height: 100dvh; font-family: Inter, Pretendard, "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); font-size: 14px; letter-spacing: -.012em; }
     #root { min-height: 100dvh; }
-    .shell { height: 100dvh; min-height: 100dvh; display: grid; grid-template-rows: 58px minmax(0, 1fr); }
+    .shell { height: 100dvh; min-height: 100dvh; display: grid; grid-template-rows: 64px minmax(0, 1fr); }
     .shell[data-mode="operate"] { overflow: hidden; }
     .header-right { display: flex; align-items: center; gap: 12px; }
-    .livestat { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: #eafaf7; background: rgba(255,255,255,.14); padding: 6px 11px; border-radius: 999px; white-space: nowrap; }
+    .livestat { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; color: var(--text-muted); background: transparent; padding: 6px 8px; border-radius: var(--radius-sm); white-space: nowrap; }
     .livestat.err { background: var(--red); color: #fff; }
     .livestat.err .dot { background: #fff; }
     /* 로봇 0/n 연결 등 예외 상태 — 정상은 무채색 유지 (ISA-101) */
     .livestat.warn { background: var(--amber); color: #fff; }
     .livestat.warn .dot { background: #fff; }
     .errorbar { background: var(--err-bg); color: var(--err-fg); border-bottom: 1px solid var(--err-border); padding: 9px 18px; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
-    .header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px; background: var(--teal); border-bottom: 1px solid var(--teal-dark); color: #fff; }
+    .header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); color: var(--text); }
     .brand { display: flex; flex-direction: column; gap: 2px; min-width: 200px; }
-    .brand strong { font-size: 16px; color: #fff; }
-    .brand span { color: #cdeae6; font-size: 12px; }
+    .brand strong { font-size: 14px; color: var(--text); }
+    .brand span { color: var(--text-muted); font-size: 11px; }
     .topnav { display: flex; gap: 6px; flex-wrap: wrap; }
     .topnav button, .side button, .btn, .rowbtn { border: 0; cursor: pointer; font-family: inherit; transition: background .12s, color .12s, box-shadow .12s; }
     .topnav button { padding: 9px 15px; border-radius: var(--radius); background: rgba(255,255,255,.15); color: #fff; font-weight: 600; }
@@ -35,7 +35,7 @@
     .badge.ok { background: var(--ok-bg); color: var(--ok-fg); } .badge.off { background: var(--idle-bg); color: var(--idle-fg); } .badge.warn { background: var(--warn-bg); color: var(--warn-fg); }
     .badge.err { background: var(--err-bg); color: var(--err-fg); }
     /* ISA-101 예외만 색상: 정상 상태 배지는 무채색(quiet) — 색은 warn/err에만 남긴다 */
-    .badge.quiet { background: rgba(255,255,255,.10); color: var(--chrome-dim); font-weight: 500; }
+    .badge.quiet { background: transparent; color: var(--text-muted); font-weight: 500; }
     /* 헤더 이동/카메라 배지: 클릭 재시도 버튼 + 상태 점멸 (Layout) */
     button.badge { border: 0; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; line-height: 1.2; }
     button.badge:hover:not(:disabled) { filter: brightness(0.96); box-shadow: 0 0 0 2px rgba(0,0,0,.06); }

@@ -87,7 +87,7 @@ export function Layout() {
     <div className="shell" data-mode={mode.key}>
       <header className="header chrome">
         <div className="brand">
-          <strong>창고 로봇 관제</strong>
+          <strong>물류센터 A · {mode.title}</strong>
         </div>
         <nav className="mode-tabs">
           {MODES.map((m) => (
@@ -97,9 +97,10 @@ export function Layout() {
           ))}
         </nav>
         <div className="header-right">
-          <ThemeToggle />
-          <EstopControls />
-          {isEmergency ? <span className="badge err emergency-badge"><span className="badge-icon" aria-hidden="true">⛔</span>비상 정지</span> : null}
+          <div className={`livestat${liveOk ? "" : " err"}`}>
+            <span className={`dot ${liveOk ? "on" : "off"}`} aria-hidden="true" />
+            <span>{liveOk ? "Main 정상" : "Main 연결 대기"}</span>
+          </div>
           <div className="badges">
             <button
               type="button"
@@ -120,7 +121,6 @@ export function Layout() {
               <span className="badge-icon" aria-hidden="true">{probeCamera.isPending ? "↻" : cameraIcon}</span>카메라 {probeCamera.isPending ? "확인 중…" : cameraLabel}
             </button>
           </div>
-          <div className="livestat"><Clock /></div>
           <div
             className={`livestat${liveOk ? (robots.length > 0 && onlineCount === 0 ? " warn" : "") : " err"}`}
             title={liveOk ? robotTitle : "서버 응답 없음"}
@@ -128,6 +128,10 @@ export function Layout() {
             <span className={`dot ${liveOk ? (onlineCount > 0 ? "on" : "warn") : "off"}`} aria-hidden="true" />
             <span>{liveOk ? `로봇 ${onlineCount}/${robots.length}` : "연결 대기"}</span>
           </div>
+          <div className="livestat"><Clock /></div>
+          <ThemeToggle />
+          {isEmergency ? <span className="badge err emergency-badge"><span className="badge-icon" aria-hidden="true">⛔</span>비상 정지</span> : null}
+          <EstopControls />
         </div>
       </header>
 

@@ -304,7 +304,7 @@ export function OperatorShell() {
     navigate(panel ? `/operate/control?panel=${panel}` : "/operate/control");
   }, [navigate, searchParams]);
 
-  const drawerTitle = drawer === "inout" ? "입출고" : drawer === "control" ? "수동 조작 · 맵 이동" : "";
+  const drawerTitle = drawer === "inout" ? "입출고 요청" : drawer === "control" ? "수동 조작 · 맵 이동" : "";
 
   const isActiveNav = (route: string) => {
     const base = route.split("?")[0];
@@ -358,6 +358,7 @@ export function OperatorShell() {
     }
     return { err, warn };
   }, [alarmEvents, ackedAlarmKeys]);
+  const firstUnackedAlarm = alarmEvents.find((event) => !ackedAlarmKeys.has(eventKey(event)));
 
   const acknowledgeAlarms = useCallback(() => {
     // 현재 스냅샷의 알람 키만 저장 — 지나간 이벤트 키가 무한히 쌓이지 않게 정리
@@ -403,7 +404,15 @@ export function OperatorShell() {
     <GotoTargetProvider>
       <div className="operator-shell">
         <nav className="slim-nav" aria-label="운영 메뉴">
-          {OPERATE_SLIM_NAV.map((it) => {
+          <div className="operator-nav-brand" aria-label="AMR Control">
+            <span className="operator-nav-mark">AMR</span>
+            <span><strong>AMR Control</strong><small>Warehouse operations</small></span>
+          </div>
+          <div className="operator-site-card" aria-label="현재 사이트">
+            <span className="dot on" aria-hidden="true" />
+            <span><strong>물류센터 A</strong><small>1층 · 운영 중</small></span>
+          </div>
+          {OPERATE_SLIM_NAV.map((it, index) => {
             const active = isActiveNav(it.route);
             const opensDrawer = it.route.includes("drawer=");
             const panelKey = it.route.match(/panel=(\w+)/)?.[1] ?? null;
@@ -423,8 +432,9 @@ export function OperatorShell() {
                   : undefined;
             return (
               <Fragment key={it.key}>
-                {/* 실행(드로어) ↔ 조회(하단 탭) 그룹 경계 */}
-                {it.label === "입출고" || it.label === "작업" ? <span className="slim-nav-sep" aria-hidden="true" /> : null}
+                {index === 0 ? <span className="operator-nav-section">MONITOR</span> : null}
+                {it.label === "입출고" ? <span className="operator-nav-section">ACTION</span> : null}
+                {it.label === "작업" ? <span className="operator-nav-section">REVIEW</span> : null}
                 <button
                   type="button"
                   className={active ? "active" : ""}
@@ -442,6 +452,15 @@ export function OperatorShell() {
               </Fragment>
             );
           })}
+          <span className="operator-nav-spacer" />
+          <button type="button" className="operator-admin-link" onClick={() => navigate("/admin/map")}>
+            <OperatorNavIcon label="관리" />
+            <span className="slim-nav-label">관리 공간</span>
+          </button>
+          <div className="operator-user-chip">
+            <span className="operator-user-avatar">OP</span>
+            <span><strong>운영자</strong><small>현장 제어 권한</small></span>
+          </div>
         </nav>
 
         <div className={`operator-stage${drawer ? " drawer-open" : ""}`} ref={stageRef}>
@@ -502,6 +521,20 @@ export function OperatorShell() {
           ) : null}
 
           <div className="operator-main">
+            <div className="operator-page-head">
+              <div>
+                <h1>운영 개요</h1>
+                <p>현재 플로어 상태와 진행 중인 작업을 한 화면에서 확인합니다.</p>
+              </div>
+              <div className="operator-page-actions">
+                <button type="button" className="btn secondary" onClick={() => refetch()} disabled={isLoading}>
+                  {isLoading ? "갱신 중…" : "새로고침"}
+                </button>
+                <button type="button" className="btn" aria-label="새 요청 만들기" onClick={() => toggleDrawer("inout")}>
+                  입출고 요청
+                </button>
+              </div>
+            </div>
             {emergencyRobots.length > 0 ? (
               <div className="inline-alert err operator-status-banner emergency-banner">
                 비상 정지 활성 — {emergencyRobots.join(", ")} — 해당 로봇의 이동·입출고·수동 조작이 비활성화됩니다.
@@ -515,6 +548,15 @@ export function OperatorShell() {
               </div>
             ) : null}
             {isLoading && !data ? <div className="panel operator-map-loading">맵 불러오는 중…</div> : null}
+            {firstUnackedAlarm ? (
+              <div className={`operator-priority-alert ${eventDotClass(firstUnackedAlarm)}`} role="status">
+                <strong>{eventTypeLabel(firstUnackedAlarm.event_type)}</strong>
+                <span>{firstUnackedAlarm.message ?? "확인이 필요한 이벤트가 있습니다."}</span>
+                <span className="operator-alert-spacer" />
+                <button type="button" className="rowbtn ghost" onClick={acknowledgeAlarms}>확인</button>
+                <button type="button" className="rowbtn ghost" onClick={() => toggleTrayPanel("records")}>이벤트 보기</button>
+              </div>
+            ) : null}
             <OperatorKpiStrip
               robotsTotal={robots.length}
               onlineCount={onlineCount}
@@ -543,25 +585,6 @@ export function OperatorShell() {
                 <div className="operator-map-stage-wrap">
                   <DashboardMap gotoMode={!allRobotsEmergency} />
                 </div>
-                {globalCams.length > 0 ? (
-                  <>
-                    <Resizer
-                      className="layout-resizer--cam"
-                      orientation="horizontal"
-                      storageKey="lms.layout.operator-cam"
-                      cssVar="--operator-cam-w"
-                      containerRef={mapWrapRef}
-                      defaultSize={280}
-                      min={200}
-                      max={1600}
-                      adjacent="trailing"
-                    />
-                    <div className="operator-map-camrail" aria-label="전역 카메라">
-                      <h2 className="operator-map-camrail-head">전역 카메라</h2>
-                      <LiveCamera cameras={globalCams} />
-                    </div>
-                  </>
-                ) : null}
               </div>
               {trayOpen ? (
                 <Resizer
@@ -671,15 +694,15 @@ export function OperatorShell() {
             storageKey="lms.layout.operator-rail"
             cssVar="--operator-rail-w"
             containerRef={stageRef}
-            defaultSize={360}
-            min={220}
+            defaultSize={390}
+            min={360}
             max={720}
             adjacent="trailing"
           />
 
-          <aside className="operator-right-rail">
+          <aside className="operator-right-rail" aria-label="운영 문맥">
             {/* : 좁으면 상/하(카메라 위·알람 아래), 넓으면(≥600px) 좌/우 2컬럼 반응형 */}
-            <div className="operator-rail-split">
+            <div className="operator-rail-split operator-context-area">
               <div className="rail-region rail-region--monitor">
                 <div className="robot-monitor-rail panel">
                   <div className="robot-monitor-rail-head">
@@ -719,6 +742,27 @@ export function OperatorShell() {
                 </CollapsiblePanel>
               </div>
             </div>
+            <section className="operator-global-camera panel" aria-label="전역 카메라">
+              <div className="operator-global-camera-head">
+                <div>
+                  <h2>전역 카메라</h2>
+                  <span className={`operator-camera-state ${cameraOnline ? "online" : "offline"}`}>
+                    {cameraOnline ? "LIVE" : "OFFLINE"}
+                  </span>
+                </div>
+                <span className="muted">관제 중 상시 유지</span>
+              </div>
+              <div className="operator-global-camera-body">
+                {globalCams.length > 0 ? (
+                  <LiveCamera cameras={globalCams} />
+                ) : (
+                  <div className="operator-camera-empty">
+                    <strong>전역 카메라가 등록되지 않았습니다.</strong>
+                    <span>관리 작업공간에서 로봇에 귀속되지 않은 카메라 소스를 등록하세요.</span>
+                  </div>
+                )}
+              </div>
+            </section>
           </aside>
         </div>
       </div>

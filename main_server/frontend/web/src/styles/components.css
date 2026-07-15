@@ -2,9 +2,9 @@
    운영자 지속 셸의 좌측 드로어, 운영/관리 모드 탭 등 재편에 쓰는 새 UI. */
 
 /* 다크 헤더(와이어프레임 크롬) — 기존 teal .header 를 덮어쓴다 */
-.header.chrome { background: var(--chrome-bg); border-bottom: 1px solid #0f141a; color: var(--chrome-fg); }
-.header.chrome .brand strong { color: #fff; }
-.header.chrome .brand span { color: var(--chrome-dim); }
+.header.chrome { background: var(--surface); border-bottom: 1px solid var(--border); color: var(--text); }
+.header.chrome .brand strong { color: var(--text); }
+.header.chrome .brand span { color: var(--text-muted); }
 
 /* 모드별 사이드바 활성색 (운영=blue, 관리=purple) */
 .side.operator button.active { background: var(--operator); border-left-color: var(--operator-dark); color: #fff; }
@@ -12,8 +12,8 @@
 
 /* 운영/관리 모드 탭 (헤더) */
 .mode-tabs { display: inline-flex; gap: 6px; }
-.mode-tab { padding: 6px 14px; border-radius: 999px; border: 1px solid transparent; background: rgba(255,255,255,.12); color: var(--chrome-dim); cursor: pointer; font: inherit; font-size: 13px; font-weight: 600; transition: background .12s, color .12s; }
-.mode-tab:hover { background: rgba(255,255,255,.22); }
+.mode-tab { min-height: 34px; padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); cursor: pointer; font: inherit; font-size: 12px; font-weight: 650; transition: background .12s, color .12s; }
+.mode-tab:hover { background: var(--surface-2); color: var(--text); }
 .mode-tab.operator.active { background: var(--operator); color: #fff; }
 .mode-tab.admin.active { background: var(--admin); color: #fff; }
 
@@ -171,9 +171,9 @@ body.layout-resizing * {
 .confirm-actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
 
 .theme-toggle {
-  border: 1px solid rgba(255,255,255,.2);
-  background: rgba(255,255,255,.08);
-  color: var(--chrome-fg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
   border-radius: var(--radius-sm);
   width: 32px;
   height: 32px;
