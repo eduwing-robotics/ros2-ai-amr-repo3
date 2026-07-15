@@ -12,15 +12,15 @@
 #
 # 사용법:
 #   ./scripts/align_nav_map_robot2.sh
-#   MAIN_BASE=http://smartfactory-main.local:8088 NAV_HOST=192.168.30.4 ./scripts/align_nav_map_robot2.sh
+#   MAIN_BASE=http://smartfactory-main.local:8088 NAV_HOST=smartfactory-nav.local ./scripts/align_nav_map_robot2.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT/.." && pwd)"
-MAIN_BASE="${MAIN_BASE:-http://localhost:8088}"
+MAIN_BASE="${MAIN_BASE:-http://smartfactory-main.local:8088}"
 NAV_PULL_BASE="${NAV_PULL_BASE:-${LMS_PUBLIC_BASE_URL:-http://smartfactory-main.local:8088}}"
 API_BASE="${MAIN_BASE%/}/api/v1"
-NAV_HOST="${NAV_HOST:-192.168.30.4}"
+NAV_HOST="${NAV_HOST:-smartfactory-nav.local}"
 TARGET_MAP="${TARGET_MAP:-robot2_map}"
 # The repository map directory is suitable for local development.  A deployed
 # Nav PC workspace is external to this repository and must be supplied before
@@ -33,9 +33,25 @@ pass() { echo "[align-nav] OK: $*"; }
 warn() { echo "[align-nav] WARN: $*"; }
 info() { echo "[align-nav] $*"; }
 
+require_canonical_host() {
+  local label="$1" value="$2" expected="$3"
+  [[ "$value" == "$expected" ]] || fail "$label must use canonical hostname $expected, got: ${value:-<empty>}"
+}
+
+require_canonical_url() {
+  local label="$1" value="$2" expected_host="$3"
+  local escaped_host="${expected_host//./\\.}"
+  local pattern="^https?://${escaped_host}(:[0-9]+)?(/[^[:space:]]*)?$"
+  [[ "$value" =~ $pattern ]] || fail "$label must use canonical hostname $expected_host, got: ${value:-<empty>}"
+}
+
 need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "$1 is required"; }
 need_cmd curl
 need_cmd "$PY"
+
+require_canonical_url "MAIN_BASE" "$MAIN_BASE" "smartfactory-main.local"
+require_canonical_url "NAV_PULL_BASE" "$NAV_PULL_BASE" "smartfactory-main.local"
+require_canonical_host "NAV_HOST" "$NAV_HOST" "smartfactory-nav.local"
 
 info "MAIN_BASE=$MAIN_BASE NAV_HOST=$NAV_HOST TARGET_MAP=$TARGET_MAP"
 

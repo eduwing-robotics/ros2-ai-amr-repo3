@@ -15,6 +15,7 @@ MAIN_CONFIG = ROOT / "main-server" / "backend" / "app" / "core" / "config.py"
 VISION_PROXY = ROOT / "main-server" / "backend" / "app" / "services" / "vision_proxy.py"
 ENV_EXAMPLE = ROOT / "main-server" / ".env.example"
 BOOTSTRAP = ROOT / "main-server" / "scripts" / "bootstrap.sh"
+ALIGN_NAV_MAP = ROOT / "main-server" / "scripts" / "align_nav_map_robot2.sh"
 
 
 def _source(path: Path) -> str:
@@ -143,6 +144,17 @@ def test_production_endpoint_guards_accept_names_and_reject_direct_ips() -> None
         )
         assert rejected.returncode != 0
         assert "must use canonical hostname" in rejected.stderr
+
+
+def test_map_alignment_uses_only_canonical_service_hostnames() -> None:
+    source = _source(ALIGN_NAV_MAP)
+
+    assert 'MAIN_BASE="${MAIN_BASE:-http://smartfactory-main.local:8088}"' in source
+    assert 'NAV_HOST="${NAV_HOST:-smartfactory-nav.local}"' in source
+    assert 'require_canonical_url "MAIN_BASE" "$MAIN_BASE" "smartfactory-main.local"' in source
+    assert 'require_canonical_url "NAV_PULL_BASE" "$NAV_PULL_BASE" "smartfactory-main.local"' in source
+    assert 'require_canonical_host "NAV_HOST" "$NAV_HOST" "smartfactory-nav.local"' in source
+    assert not re.search(r"(?<![0-9])192\.168\.30\.[0-9]+(?![0-9])", source)
 
 
 def test_dev_launcher_owns_and_reaps_vite_and_api_children() -> None:
