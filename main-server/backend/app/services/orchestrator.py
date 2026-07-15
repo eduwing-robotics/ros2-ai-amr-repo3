@@ -467,6 +467,9 @@ def dispatch_current_step(conn, task_id: int) -> str:
     if step["kind"] in PHYSICAL_MOTION_KINDS and not person_hazard.arm_physical_motion_monitor(
         conn, robot_id, task_id, intended_command_id, str(step["kind"]),
     ):
+        # Persist the trusted stop/hold before the surrounding request
+        # transaction rolls back on this HTTP error.
+        conn.commit()
         raise HTTPException(status_code=503, detail="person_monitor_unavailable")
 
     # Durable claim/command identity is committed before Movement HTTP. A retry

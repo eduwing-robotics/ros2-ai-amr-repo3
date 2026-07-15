@@ -14,6 +14,7 @@ from app.api.routes import router
 from app.core.config import settings
 from app.db.connection import init_db, transaction
 from app.db.repo_bridge import robot_repo
+from app.services import person_hazard
 from app.services.person_hazard_loop import person_hazard_loop
 from app.services.pose_monitor import pose_event_writer_loop, pose_fallback_poller_loop, pose_watchdog_loop
 from app.services.pose_runtime import pose_runtime
@@ -48,6 +49,12 @@ def initialize_pose_runtime() -> None:
     )
 
 
+def initialize_person_hazard_safety() -> int:
+    """Hold persisted in-flight motion before any startup poller can advance it."""
+    with transaction() as conn:
+        return person_hazard.reconcile_startup_person_hazard_safety(conn)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작 시 PostgreSQL DB를 초기화하고 task progress poller를 띄운다."""
@@ -60,6 +67,7 @@ async def lifespan(app: FastAPI):
     require_database_url()
     init_db()
     initialize_pose_runtime()
+    initialize_person_hazard_safety()
     sweep_task = asyncio.create_task(poll_task_progress_loop())
     hazard_task = asyncio.create_task(person_hazard_loop())
     pose_tasks = [

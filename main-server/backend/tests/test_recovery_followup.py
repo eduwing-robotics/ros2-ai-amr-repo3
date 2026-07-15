@@ -21,6 +21,15 @@ from app.services.movement import MovementClientError
 
 
 class RecoveryPhaseGuardTest(unittest.TestCase):
+    def setUp(self) -> None:
+        monitor = patch.object(
+            recovery.person_hazard,
+            "arm_physical_motion_monitor",
+            return_value=True,
+        )
+        monitor.start()
+        self.addCleanup(monitor.stop)
+
     def test_execute_requires_needs_attention_phase(self) -> None:
         conn = MagicMock()
         with patch.object(recovery, "_assert_needs_attention_phase", side_effect=HTTPException(409, "recovery_requires_needs_attention_phase")):

@@ -26,6 +26,12 @@ ROBOT_SOURCE_MAP: dict[str, str] = {
     "tb3_2": "tb3_2_picam",
 }
 
+_PHYSICAL_MOTION_KINDS = frozenset({
+    "move_to_point", "aruco_align", "dock_transfer", "leave_dock",
+})
+_ACTIVE_MOTION_STATES = frozenset({"DISPATCHING", "DISPATCHED", "RUNNING"})
+_ACTIVE_RECOVERY_DISPATCH_STATES = frozenset({"PENDING", "SENT"})
+
 FORBIDDEN_PAYLOAD_KEYS = frozenset({
     "bbox", "bbox_xyxy", "mask", "mask_rle", "polygon", "raw_detections", "detections",
 })
@@ -223,6 +229,100 @@ def mark_running_tasks_needs_attention(conn, *, reason: str) -> int:
     return count
 
 
+def reconcile_startup_person_hazard_safety(conn) -> int:
+    """Fail closed before startup pollers advance persisted physical motion."""
+    if not getattr(settings, "person_hazard_enabled", True):
+        return 0
+
+    held = 0
+    for task in evidence_runtime.list_orchestrated_running(conn):
+        if str(task.get("status") or "").upper() != "RUNNING":
+            continue
+        task_id = int(task["task_id"])
+        orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
+        phase = orch_state.normalize_phase(orch.get("phase"))
+        robot_id = str(task.get("assigned_robot_id") or "")
+        steps = orch_state.get_steps(orch)
+        step_index = orch_state.get_step_index(orch)
+        step = steps[step_index] if 0 <= step_index < len(steps) else {}
+        preserve_existing_hold = False
+
+        if phase == orch_state.PHASE_RUNNING:
+            kind = str(step.get("kind") or "")
+            command_id = str(step.get("command_id") or "")
+            if (
+                kind not in _PHYSICAL_MOTION_KINDS
+                or str(step.get("status") or "").upper() not in _ACTIVE_MOTION_STATES
+            ):
+                continue
+        elif phase == orch_state.PHASE_CANCEL_REQUESTED:
+            stop_request = orch.get("stop_request") or {}
+            robot_id = str(stop_request.get("robot_id") or robot_id)
+            kind = str(step.get("kind") or "cancel_requested")
+            command_id = str(stop_request.get("command_id") or step.get("command_id") or "")
+        elif phase == orch_state.PHASE_RECOVERY_RUNNING:
+            recovery = orch.get("recovery") or {}
+            robot_id = str(recovery.get("active_robot_id") or robot_id)
+            kind = str(recovery.get("active_command_kind") or "move_to_point")
+            command_id = str(recovery.get("active_command_id") or "")
+            if (
+                kind not in _PHYSICAL_MOTION_KINDS
+                or str(recovery.get("dispatch_state") or "").upper()
+                not in _ACTIVE_RECOVERY_DISPATCH_STATES
+            ):
+                continue
+        elif phase == orch_state.PHASE_AWAITING_OPERATOR:
+            recovery = orch.get("recovery") or {}
+            robot_id = str(recovery.get("robot_id") or robot_id)
+            kind = str(step.get("kind") or "")
+            command_id = str(recovery.get("command_id") or step.get("command_id") or "")
+            if (
+                kind not in _PHYSICAL_MOTION_KINDS
+                or str(step.get("status") or "").upper() not in _ACTIVE_MOTION_STATES
+            ):
+                continue
+            preserve_existing_hold = True
+        else:
+            continue
+        if not robot_id:
+            continue
+
+        runtime = _runtime.get(robot_id)
+        if runtime and runtime.task_id == task_id:
+            if runtime.enabled and not runtime.fail_safe_triggered:
+                continue
+            if runtime.fail_safe_triggered:
+                continue
+
+        runtime = MonitorRuntime(
+            robot_id=robot_id,
+            source=robot_source(robot_id),
+            task_id=task_id,
+            enabled=False,
+            last_command_id=command_id or None,
+            last_leg_kind=kind,
+        )
+        _runtime[robot_id] = runtime
+        logger.critical(
+            "Main restart found active physical motion without person monitor "
+            "task=%s robot=%s command=%s kind=%s",
+            task_id,
+            robot_id,
+            command_id,
+            kind,
+        )
+        if fail_safe_monitor_outage(
+            conn,
+            robot_id,
+            task_id,
+            detail="main_restart_active_motion_without_person_monitor",
+            runtime=runtime,
+            preserve_existing_hold=preserve_existing_hold,
+        ):
+            held += 1
+    return held
+
+
 def _parse_observed_at(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -281,6 +381,7 @@ def fail_safe_monitor_outage(
     *,
     detail: str,
     runtime: MonitorRuntime | None = None,
+    preserve_existing_hold: bool = False,
 ) -> bool:
     """Persist an AI-health advisory, then make Main's idempotent trusted stop.
 
@@ -334,7 +435,8 @@ def fail_safe_monitor_outage(
         },
     )
     safety_stop_repo(conn).open_from_evidence(decision_id)
-    mark_task_needs_attention(conn, task_id, reason="person_monitor_outage", robot_id=robot_id)
+    if not preserve_existing_hold:
+        mark_task_needs_attention(conn, task_id, reason="person_monitor_outage", robot_id=robot_id)
     return True
 
 

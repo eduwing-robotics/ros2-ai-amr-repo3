@@ -429,6 +429,28 @@ def _dispatch_persisted_recovery_command(
                 conn.commit()
             raise HTTPException(status_code=409, detail="recovery stop already requested")
 
+        if not person_hazard.arm_physical_motion_monitor(
+            conn,
+            robot_id,
+            task_id,
+            command_id,
+            command_kind,
+        ):
+            # The command was never dispatched. Restore a durable operator hold
+            # without discarding the operator's cargo/strategy decision.
+            latest_recovery.pop("active_command_id", None)
+            latest_recovery.pop("active_command_kind", None)
+            latest_recovery.pop("active_robot_id", None)
+            latest_recovery.pop("active_command_params", None)
+            latest_recovery["dispatch_state"] = "REJECTED"
+            latest_recovery["last_recovery_result"] = "PERSON_MONITOR_UNAVAILABLE"
+            latest_recovery["reason"] = "person_monitor_outage"
+            latest["recovery"] = latest_recovery
+            orch_state.set_phase(latest, orch_state.PHASE_AWAITING_OPERATOR)
+            evidence_runtime.save_orchestration(conn, task_id, latest)
+            conn.commit()
+            raise HTTPException(status_code=503, detail="person_monitor_unavailable")
+
         try:
             result = command_service.dispatch_robot_command(conn, payload, request=None)
         except Exception:
@@ -446,6 +468,7 @@ def _dispatch_persisted_recovery_command(
             latest["recovery"] = latest_recovery
             orch_state.set_phase(latest, orch_state.PHASE_AWAITING_OPERATOR)
             evidence_runtime.save_orchestration(conn, task_id, latest)
+            person_hazard.disable_monitor(robot_id, conn=conn)
             conn.commit()
             if command_id_mismatch:
                 raise HTTPException(status_code=502, detail="recovery command id mismatch")

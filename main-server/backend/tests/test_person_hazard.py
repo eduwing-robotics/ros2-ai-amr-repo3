@@ -170,6 +170,7 @@ class OrchestratorPersonMonitorTest(unittest.TestCase):
             with self.assertRaises(HTTPException) as raised:
                 orchestrator.dispatch_current_step(conn, 101)
         self.assertEqual(raised.exception.status_code, 503)
+        conn.commit.assert_called_once_with()
         dispatch.assert_not_called()
         arm.assert_called_once()
         self.assertEqual(arm.call_args.args[:3], (conn, "tb3_1", 101))
