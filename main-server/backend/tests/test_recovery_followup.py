@@ -410,6 +410,73 @@ class HeldCompleteTaskTest(unittest.TestCase):
         self.assertEqual(result, completed)
         finish.assert_called_once_with(conn, 1, "DONE", "operator")
 
+    def test_move_and_charge_complete_are_blocked_while_orchestration_running(self) -> None:
+        for task_type in ("MOVE", "CHARGE"):
+            with self.subTest(task_type=task_type):
+                conn = MagicMock()
+                task = {"task_id": 1, "task_type": task_type, "status": "RUNNING"}
+                with patch.object(task_service, "task_repo") as task_repo, patch.object(
+                    task_service, "_orchestration_phase", return_value="RUNNING"
+                ), patch.object(task_service, "_finish_task") as finish:
+                    task_repo.return_value.get.return_value = task
+                    with self.assertRaises(HTTPException) as ctx:
+                        task_service.complete_task(conn, 1)
+
+                self.assertEqual(ctx.exception.detail, "orchestrated_task_not_done")
+                finish.assert_not_called()
+
+    def test_move_and_charge_complete_are_allowed_after_orchestration_done(self) -> None:
+        for task_type in ("MOVE", "CHARGE"):
+            with self.subTest(task_type=task_type):
+                conn = MagicMock()
+                task = {"task_id": 1, "task_type": task_type, "status": "RUNNING"}
+                completed = {**task, "status": "DONE"}
+                with patch.object(task_service, "task_repo") as task_repo, patch.object(
+                    task_service, "_orchestration_phase", return_value="DONE"
+                ), patch.object(task_service, "_finish_task", return_value=completed) as finish:
+                    task_repo.return_value.get.return_value = task
+                    result = task_service.complete_task(conn, 1)
+
+                self.assertEqual(result, completed)
+                finish.assert_called_once_with(conn, 1, "DONE", "operator")
+
+    def test_legacy_move_without_orchestration_phase_remains_completable(self) -> None:
+        conn = MagicMock()
+        task = {"task_id": 1, "task_type": "MOVE", "status": "RUNNING"}
+        completed = {**task, "status": "DONE"}
+        with patch.object(task_service, "task_repo") as task_repo, patch.object(
+            task_service, "_orchestration_phase", return_value=None
+        ), patch.object(task_service, "_finish_task", return_value=completed) as finish:
+            task_repo.return_value.get.return_value = task
+            result = task_service.complete_task(conn, 1)
+
+        self.assertEqual(result, completed)
+        finish.assert_called_once_with(conn, 1, "DONE", "operator")
+
+    def test_finish_done_cleans_up_assigned_robot_person_monitor(self) -> None:
+        conn = MagicMock()
+        task = {
+            "task_id": 1,
+            "task_type": "MOVE",
+            "status": "RUNNING",
+            "assigned_robot_id": "tb3_1",
+        }
+        completed = {**task, "status": "DONE"}
+        with patch.object(task_service, "task_repo") as task_repo, patch.object(
+            task_service, "robot_repo"
+        ), patch.object(task_service, "event_repo"), patch.object(
+            task_service.inventory_ops, "apply_on_task_complete"
+        ), patch.object(
+            task_service.evidence_runtime, "finalize_task_log"
+        ), patch(
+            "app.services.person_hazard.on_robot_task_terminal"
+        ) as terminal_cleanup:
+            task_repo.return_value.get.side_effect = [task, completed]
+            result = task_service._finish_task(conn, 1, "DONE", "operator")
+
+        self.assertEqual(result, completed)
+        terminal_cleanup.assert_called_once_with("tb3_1", conn=conn)
+
 
 class ActiveCommandProjectionTest(unittest.TestCase):
     def test_active_command_prefers_recovery_command(self) -> None:
