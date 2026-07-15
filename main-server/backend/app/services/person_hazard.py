@@ -13,7 +13,7 @@ from app.db.mvp.evidence import MvpEvidenceRepository
 from app.db.repo_bridge import evidence_repo, safety_stop_repo
 from app.services import evidence_runtime
 from app.services import orchestration_state as orch_state
-from app.services.movement import MovementClientError, movement_client
+from app.services.movement import movement_client
 from app.services.vision_proxy import (
     VisionUpstreamError,
     fetch_person_hazard_latest,
@@ -396,6 +396,57 @@ def _record_degraded(robot_id: str, detail: str) -> None:
     logger.warning("person hazard degraded robot=%s: %s", robot_id, detail)
 
 
+def _attempt_estop(robot_id: str) -> tuple[bool, str | None]:
+    try:
+        response = movement_client.estop(robot_id)
+    except Exception as exc:
+        logger.error("person hazard E-stop failed robot=%s: %s", robot_id, exc)
+        return False, str(exc)
+    if not isinstance(response, dict):
+        detail = f"invalid estop response: expected object, got {type(response).__name__}"
+        logger.error("person hazard E-stop failed robot=%s: %s", robot_id, detail)
+        return False, detail
+    return True, None
+
+
+def _record_estop_outcome(
+    conn,
+    *,
+    decision_id: int,
+    robot_id: str,
+    task_id: int,
+    reason_code: str,
+    estop_ok: bool,
+    estop_error: str | None,
+) -> None:
+    evidence_repo(conn).append(
+        task_id=task_id,
+        event_type="SAFETY_ESTOP_OUTCOME",
+        source="main_safety_policy",
+        severity="CRITICAL",
+        trusted=True,
+        data_json={
+            "decision_evidence_id": decision_id,
+            "robot_id": robot_id,
+            "task_id": task_id,
+            "reason_code": reason_code,
+            "estop_ok": estop_ok,
+            "estop_error": estop_error,
+        },
+    )
+    conn.commit()
+
+
+def _commit_hold_before_estop(conn, robot_id: str) -> None:
+    try:
+        conn.commit()
+    except Exception:
+        # A database outage must not suppress the physical safety action.  Do
+        # not mark runtime dedup state: the next poll must retry persistence.
+        _attempt_estop(robot_id)
+        raise
+
+
 def fail_safe_monitor_outage(
     conn,
     robot_id: str,
@@ -418,8 +469,6 @@ def fail_safe_monitor_outage(
     if runtime.fail_safe_triggered:
         return False
 
-    runtime.fail_safe_triggered = True
-    runtime.enabled = False
     advisory_id = evidence_repo(conn).append(
         task_id=task_id,
         event_type="PERSON_MONITOR_HEALTH_FAILURE",
@@ -433,14 +482,6 @@ def fail_safe_monitor_outage(
             "reason_code": "AI_MONITOR_UNAVAILABLE",
         },
     )
-    estop_ok = False
-    estop_error: str | None = None
-    try:
-        movement_client.estop(robot_id)
-        estop_ok = True
-    except MovementClientError as exc:
-        estop_error = str(exc)
-
     decision_id = evidence_repo(conn).append(
         task_id=task_id,
         event_type="SAFETY_ESTOP_DECISION",
@@ -452,13 +493,30 @@ def fail_safe_monitor_outage(
             "robot_id": robot_id,
             "task_id": task_id,
             "reason_code": "PERSON_MONITOR_OUTAGE",
-            "estop_ok": estop_ok,
-            "estop_error": estop_error,
+            "estop_ok": None,
+            "estop_error": None,
         },
     )
     safety_stop_repo(conn).open_from_evidence(decision_id)
     if not preserve_existing_hold:
         mark_task_needs_attention(conn, task_id, reason="person_monitor_outage", robot_id=robot_id)
+    # The trusted decision, safety stop, and operator hold must survive even if
+    # Movement returns malformed data or raises an unexpected exception.  This
+    # transaction boundary also releases the task advisory lock before HTTP.
+    _commit_hold_before_estop(conn, robot_id)
+    runtime.fail_safe_triggered = True
+    runtime.enabled = False
+
+    estop_ok, estop_error = _attempt_estop(robot_id)
+    _record_estop_outcome(
+        conn,
+        decision_id=decision_id,
+        robot_id=robot_id,
+        task_id=task_id,
+        reason_code="PERSON_MONITOR_OUTAGE",
+        estop_ok=estop_ok,
+        estop_error=estop_error,
+    )
     return True
 
 
@@ -501,14 +559,6 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
         },
     )
 
-    estop_ok = False
-    estop_error: str | None = None
-    try:
-        movement_client.estop(runtime.robot_id)
-        estop_ok = True
-    except MovementClientError as exc:
-        estop_error = str(exc)
-
     decision_id = evidence_repo(conn).append(
         task_id=runtime.task_id,
         event_type="SAFETY_ESTOP_DECISION",
@@ -521,14 +571,27 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
             "source": runtime.source,
             "task_id": runtime.task_id,
             "dedup_key": dedup,
-            "estop_ok": estop_ok,
-            "estop_error": estop_error,
+            "estop_ok": None,
+            "estop_error": None,
             "observed_at": event.get("observed_at"),
         },
     )
     safety_stop_repo(conn).open_from_evidence(decision_id)
     mark_task_needs_attention(conn, runtime.task_id, reason="person_hazard", robot_id=runtime.robot_id)
+    # Persist Main's safety authority and release its task lock before calling
+    # the untrusted remote movement boundary.
+    _commit_hold_before_estop(conn, runtime.robot_id)
     _set_cooldown(runtime.robot_id, runtime.source, runtime.task_id, dedup)
+    estop_ok, estop_error = _attempt_estop(runtime.robot_id)
+    _record_estop_outcome(
+        conn,
+        decision_id=decision_id,
+        robot_id=runtime.robot_id,
+        task_id=runtime.task_id,
+        reason_code="PERSON_HAZARD",
+        estop_ok=estop_ok,
+        estop_error=estop_error,
+    )
     return estop_ok
 
 

@@ -201,7 +201,7 @@ def test_restart_recovery_motion_estops_and_holds_without_rearm_or_dispatch(
     }
     repo = MagicMock()
     repo.get_orchestration.side_effect = lambda _task_id: copy.deepcopy(orchestration)
-    repo.append.side_effect = [11, 22]
+    repo.append.side_effect = [11, 22, 33]
     stop_repo = MagicMock()
 
     with (

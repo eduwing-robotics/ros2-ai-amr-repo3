@@ -51,7 +51,7 @@ def _task(
 def _reconcile(task: dict):
     conn = MagicMock()
     repo = MagicMock()
-    repo.append.side_effect = [11, 22]
+    repo.append.side_effect = [11, 22, 33]
     repo.get_orchestration.side_effect = lambda _task_id: copy.deepcopy(task["preset_snapshot"]["_orchestration"])
     stop_repo = MagicMock()
     with (
@@ -98,7 +98,7 @@ def test_restart_reconciliation_is_idempotent_even_with_a_stale_task_snapshot() 
     task = _task()
     conn = MagicMock()
     repo = MagicMock()
-    repo.append.side_effect = [11, 22]
+    repo.append.side_effect = [11, 22, 33]
     repo.get_orchestration.side_effect = lambda _task_id: copy.deepcopy(task["preset_snapshot"]["_orchestration"])
     stop_repo = MagicMock()
     with (
@@ -112,7 +112,7 @@ def test_restart_reconciliation_is_idempotent_even_with_a_stale_task_snapshot() 
         assert ph.reconcile_startup_person_hazard_safety(conn) == 0
 
     estop.assert_called_once_with("tb3_1")
-    assert repo.append.call_count == 2
+    assert repo.append.call_count == 3
     assert repo.save_orchestration.call_count == 1
     stop_repo.open_from_evidence.assert_called_once_with(22)
 
@@ -251,7 +251,7 @@ def test_restart_estop_failure_still_persists_operator_hold() -> None:
     task = _task()
     conn = MagicMock()
     repo = MagicMock()
-    repo.append.side_effect = [11, 22]
+    repo.append.side_effect = [11, 22, 33]
     repo.get_orchestration.return_value = copy.deepcopy(task["preset_snapshot"]["_orchestration"])
     stop_repo = MagicMock()
     with (
@@ -264,8 +264,11 @@ def test_restart_estop_failure_still_persists_operator_hold() -> None:
         assert ph.reconcile_startup_person_hazard_safety(conn) == 1
 
     decision = repo.append.call_args_list[1].kwargs["data_json"]
-    assert decision["estop_ok"] is False
-    assert decision["estop_error"] == "down"
+    outcome = repo.append.call_args_list[2].kwargs["data_json"]
+    assert decision["estop_ok"] is None
+    assert decision["estop_error"] is None
+    assert outcome["estop_ok"] is False
+    assert outcome["estop_error"] == "down"
     stop_repo.open_from_evidence.assert_called_once_with(22)
     assert repo.save_orchestration.call_args.args[1]["phase"] == "AWAITING_OPERATOR"
 

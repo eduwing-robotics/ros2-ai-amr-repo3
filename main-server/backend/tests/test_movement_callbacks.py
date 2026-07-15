@@ -120,6 +120,36 @@ class MovementCallbackServiceTest(unittest.TestCase):
         )
         evidence_repo.return_value.get_orchestration.assert_not_called()
 
+    @patch("app.services.movement_callbacks.task_repo")
+    def test_dispatching_cancel_callback_is_orchestration_relevant(self, task_repo) -> None:
+        task_repo.return_value.get.return_value = {
+            "task_id": 42,
+            "status": "RUNNING",
+            "assigned_robot_id": "r1",
+            "preset_snapshot": {
+                "_orchestration": {
+                    "phase": "CANCEL_REQUESTED",
+                    "stop_request": {"command_id": "cmd-dispatching"},
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "status": "dispatching",
+                            "command_id": "cmd-dispatching",
+                        }
+                    ],
+                }
+            },
+        }
+
+        assert callbacks._matches_active_orchestration(
+            self.conn,
+            {
+                "task_id": 42,
+                "robot_name": "r1",
+                "command_id": "cmd-dispatching",
+            },
+        )
+
     @patch("app.services.movement_callbacks.event_repo")
     def test_ingest_robot_status_records_issue_without_updating_pose(self, event_repo) -> None:
         event_repo.return_value = self.event
@@ -149,10 +179,78 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertEqual(len(results), 2)
         self.assertTrue(results[0]["ok"])
         self.assertFalse(results[1]["ok"])
-        self.assertEqual(self.event.append.call_count, 1)
-        self.assertEqual(self.event.append.call_args.kwargs["event_type"], "ROBOT_ESTOP")
+        self.assertEqual(self.event.append.call_count, 2)
+        self.assertEqual(
+            [call.kwargs["event_type"] for call in self.event.append.call_args_list],
+            ["ROBOT_ESTOP", "ROBOT_ESTOP_UNKNOWN"],
+        )
         self.assertTrue(robot_is_emergency("r1"))
         self.assertIsNone(robot_emergency_state("r2"))
+
+    @patch("app.services.movement_callbacks.movement_client")
+    @patch("app.services.movement_callbacks.event_repo")
+    @patch("app.services.movement_callbacks.robot_repo")
+    def test_estop_all_robots_continues_after_unexpected_and_invalid_results(
+        self,
+        robot_repo,
+        event_repo,
+        movement_client,
+    ) -> None:
+        robot_repo.return_value = self.robot
+        event_repo.return_value = self.event
+        self.robot.list.return_value = [{"robot_id": "r1"}, {"robot_id": "r2"}, {"robot_id": "r3"}]
+
+        def estop(robot_id: str):
+            self.assertGreaterEqual(self.conn.commit.call_count, 1)
+            if robot_id == "r1":
+                raise RuntimeError("unexpected movement failure")
+            if robot_id == "r2":
+                return ["invalid"]
+            return {"message": "stopped"}
+
+        movement_client.estop.side_effect = estop
+        with patch(
+            "app.services.person_hazard.mark_running_tasks_needs_attention",
+            return_value=1,
+        ) as hold:
+            results = callbacks.estop_all_robots(self.conn)
+
+        hold.assert_called_once_with(self.conn, reason="operator_estop")
+        self.assertEqual([row["robot_id"] for row in results], ["r1", "r2", "r3"])
+        self.assertEqual([row["ok"] for row in results], [False, False, True])
+        self.assertEqual([row["state"] for row in results], ["unknown", "unknown", "active"])
+        self.assertIsNone(robot_emergency_state("r1"))
+        self.assertIsNone(robot_emergency_state("r2"))
+        self.assertTrue(robot_is_emergency("r3"))
+        self.assertEqual(
+            [call.kwargs["event_type"] for call in self.event.append.call_args_list],
+            ["ROBOT_ESTOP_UNKNOWN", "ROBOT_ESTOP_UNKNOWN", "ROBOT_ESTOP"],
+        )
+
+    @patch("app.services.movement_callbacks.movement_client")
+    @patch("app.services.movement_callbacks.event_repo")
+    @patch("app.services.movement_callbacks.robot_repo")
+    def test_estop_all_robots_continues_after_audit_write_failure(
+        self,
+        robot_repo,
+        event_repo,
+        movement_client,
+    ) -> None:
+        robot_repo.return_value = self.robot
+        event_repo.return_value = self.event
+        self.robot.list.return_value = [{"robot_id": "r1"}, {"robot_id": "r2"}]
+        movement_client.estop.return_value = {"message": "stopped"}
+        self.event.append.side_effect = [RuntimeError("audit unavailable"), None]
+
+        with patch(
+            "app.services.person_hazard.mark_running_tasks_needs_attention",
+            return_value=1,
+        ):
+            results = callbacks.estop_all_robots(self.conn)
+
+        self.assertEqual([row["ok"] for row in results], [True, True])
+        self.assertEqual(movement_client.estop.call_count, 2)
+        self.conn.rollback.assert_called_once_with()
 
     @patch("app.services.movement_callbacks.get_movement_health")
     @patch("app.services.movement_callbacks.movement_client")

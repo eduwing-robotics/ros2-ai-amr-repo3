@@ -437,7 +437,7 @@ class PersonHazardTrustedDecisionNoHardwareTest(unittest.TestCase):
     def test_nohardware_human_detected_advisory_creates_main_trusted_estop_decision(self):
         conn = MagicMock()
         repo = MagicMock()
-        repo.append.side_effect = [101, 202]
+        repo.append.side_effect = [101, 202, 303]
         stop_repo = MagicMock()
         runtime = person_hazard.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=9001)
         runtime.enable_time = datetime.now(timezone.utc) - timedelta(seconds=1)

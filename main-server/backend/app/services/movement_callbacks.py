@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.db.repo_bridge import event_repo, evidence_repo, movement_repo, robot_repo, safety_stop_repo, task_repo
@@ -15,6 +16,18 @@ from app.services.movement import (
     set_robot_emergency,
 )
 from app.services.movement_health import get_movement_health
+
+logger = logging.getLogger(__name__)
+
+
+def _record_fleet_estop_result(conn, events, **event: Any) -> None:
+    """Keep an audit write failure from blocking later physical E-stops."""
+    try:
+        events.append(**event)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception("failed to record fleet E-stop result")
 
 
 def ingest_command_event(conn, payload: dict[str, Any]) -> None:
@@ -54,13 +67,29 @@ def _matches_active_orchestration(conn, payload: dict[str, Any]) -> bool:
         return False
     orch = (task.get("preset_snapshot") or {}).get("_orchestration") or evidence_repo(conn).get_orchestration(int(task_id)) or {}
     recovery = orch.get("recovery") or {}
+    phase = orch_state.normalize_phase(orch.get("phase"))
     if (
-        orch_state.normalize_phase(orch.get("phase")) == orch_state.PHASE_RECOVERY_RUNNING
+        phase == orch_state.PHASE_RECOVERY_RUNNING
         and str(recovery.get("active_command_id") or "") == str(command_id)
     ):
         return True
     steps = orch.get("steps") if isinstance(orch.get("steps"), list) else orch.get("legs") or []
-    active = next((step for step in steps if str(step.get("command_id") or "") == str(command_id) and step.get("status") == "dispatched"), None)
+    stop_request = orch.get("stop_request") or {}
+    active_statuses = {"dispatched"}
+    if (
+        phase == orch_state.PHASE_CANCEL_REQUESTED
+        and str(stop_request.get("command_id") or "") == str(command_id)
+    ):
+        active_statuses.add("dispatching")
+    active = next(
+        (
+            step
+            for step in steps
+            if str(step.get("command_id") or "") == str(command_id)
+            and step.get("status") in active_statuses
+        ),
+        None,
+    )
     return active is not None
 
 
@@ -114,25 +143,46 @@ def estop_all_robots(conn) -> list[dict[str, Any]]:
     from app.services.person_hazard import mark_running_tasks_needs_attention, on_robot_task_terminal
 
     mark_running_tasks_needs_attention(conn, reason="operator_estop")
+    # Make every task hold durable and release transaction-scoped task locks
+    # before the first remote E-stop request.  Keep this boundary explicit even
+    # when there are no running tasks or the hold helper is replaced in tests.
+    conn.commit()
     robots = robot_repo(conn).list()
+    events = event_repo(conn)
     results: list[dict[str, Any]] = []
     stopped_robot_ids: list[str] = []
     for robot in robots:
         robot_id = robot["robot_id"]
         try:
             payload = movement_client.estop(robot_id)
+            if not isinstance(payload, dict):
+                raise ValueError(
+                    f"invalid estop response: expected object, got {type(payload).__name__}"
+                )
+        except Exception as exc:
+            set_robot_emergency(robot_id, None)
+            error = str(exc)
+            results.append({"robot_id": robot_id, "ok": False, "attempted": True, "state": "unknown", "error": error})
+            _record_fleet_estop_result(
+                conn,
+                events,
+                event_type="ROBOT_ESTOP_UNKNOWN",
+                robot_id=robot_id,
+                message=f"estop unconfirmed: {robot_id}",
+                payload={"robot_id": robot_id, "state": "unknown", "error": error},
+            )
+        else:
             set_robot_emergency(robot_id, True)
             stopped_robot_ids.append(str(robot_id))
             results.append({"robot_id": robot_id, "ok": True, "attempted": True, "state": "active", "response": payload})
-            event_repo(conn).append(
+            _record_fleet_estop_result(
+                conn,
+                events,
                 event_type="ROBOT_ESTOP",
                 robot_id=robot_id,
                 message=f"estop: {robot_id}",
                 payload=payload,
             )
-        except MovementClientError as exc:
-            set_robot_emergency(robot_id, None)
-            results.append({"robot_id": robot_id, "ok": False, "attempted": True, "state": "unknown", "error": str(exc)})
     # Remote monitor cleanup is lower priority than physical stop and runs only
     # after every task hold is committed and all fleet E-stop calls finish.
     for robot_id in stopped_robot_ids:

@@ -76,7 +76,7 @@ class PersonHazardPolicyTest(unittest.TestCase):
         runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
         conn = MagicMock()
         repo = MagicMock()
-        repo.append.side_effect = [11, 22]
+        repo.append.side_effect = [11, 22, 33]
         stop_repo = MagicMock()
         with (
             patch("app.services.person_hazard.evidence_repo", return_value=repo),
@@ -88,14 +88,14 @@ class PersonHazardPolicyTest(unittest.TestCase):
         self.assertTrue(ok)
         estop.assert_called_once_with("tb3_1")
         stop_repo.open_from_evidence.assert_called_once_with(22)
-        self.assertEqual(repo.append.call_count, 2)
+        self.assertEqual(repo.append.call_count, 3)
         self.assertFalse(repo.append.call_args_list[0].kwargs.get("trusted", True))
 
     def test_legacy_alternate_action_cannot_suppress_estop(self) -> None:
         runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
         conn = MagicMock()
         repo = MagicMock()
-        repo.append.side_effect = [11, 22]
+        repo.append.side_effect = [11, 22, 33]
         stop_repo = MagicMock()
         with (
             patch("app.services.person_hazard.evidence_repo", return_value=repo),
@@ -130,7 +130,7 @@ class PersonHazardPolicyTest(unittest.TestCase):
         ):
             ph.process_advisory(conn, runtime, _fresh_advisory())
             ph.process_advisory(conn, runtime, _fresh_advisory())
-        self.assertEqual(repo.append.call_count, 2)
+        self.assertEqual(repo.append.call_count, 3)
 
     def test_enable_failure_is_reported_to_the_dispatcher(self) -> None:
         """A move must not be dispatched unless its monitor was armed."""
@@ -145,7 +145,7 @@ class PersonHazardPolicyTest(unittest.TestCase):
         runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
         conn = MagicMock()
         repo = MagicMock()
-        repo.append.side_effect = [11, 22]
+        repo.append.side_effect = [11, 22, 33]
         stop_repo = MagicMock()
         with (
             patch("app.services.person_hazard.evidence_repo", return_value=repo),
@@ -158,12 +158,91 @@ class PersonHazardPolicyTest(unittest.TestCase):
             ph.poll_robot(conn, runtime)
 
         self.assertTrue(runtime.fail_safe_triggered)
-        self.assertEqual(repo.append.call_count, 2)
+        self.assertEqual(repo.append.call_count, 3)
         self.assertFalse(repo.append.call_args_list[0].kwargs["trusted"])
         self.assertTrue(repo.append.call_args_list[1].kwargs["trusted"])
         estop.assert_called_once_with("tb3_1")
         stop_repo.open_from_evidence.assert_called_once_with(22)
         hold.assert_called_once_with(conn, 101, reason="person_monitor_outage", robot_id="tb3_1")
+
+    def test_poll_failure_commits_hold_before_unexpected_estop_error(self) -> None:
+        runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        conn = MagicMock()
+        repo = MagicMock()
+        repo.append.side_effect = [11, 22, 33]
+        stop_repo = MagicMock()
+
+        def unexpected_estop(_robot_id: str):
+            self.assertEqual(conn.commit.call_count, 1)
+            raise RuntimeError("unexpected movement failure")
+
+        with (
+            patch("app.services.person_hazard.evidence_repo", return_value=repo),
+            patch("app.services.person_hazard.safety_stop_repo", return_value=stop_repo),
+            patch("app.services.person_hazard.movement_client.estop", side_effect=unexpected_estop),
+            patch("app.services.person_hazard.mark_task_needs_attention") as hold,
+            patch("app.services.person_hazard.fetch_person_hazard_latest", side_effect=ph.VisionUpstreamError("down")),
+        ):
+            ph.poll_robot(conn, runtime)
+
+        self.assertTrue(runtime.fail_safe_triggered)
+        hold.assert_called_once_with(conn, 101, reason="person_monitor_outage", robot_id="tb3_1")
+        stop_repo.open_from_evidence.assert_called_once_with(22)
+        self.assertEqual(
+            [call.kwargs["event_type"] for call in repo.append.call_args_list],
+            ["PERSON_MONITOR_HEALTH_FAILURE", "SAFETY_ESTOP_DECISION", "SAFETY_ESTOP_OUTCOME"],
+        )
+        outcome = repo.append.call_args_list[2].kwargs["data_json"]
+        self.assertFalse(outcome["estop_ok"])
+        self.assertIn("unexpected movement failure", outcome["estop_error"])
+        self.assertEqual(conn.commit.call_count, 2)
+
+    def test_invalid_estop_response_is_recorded_unknown_after_durable_hazard_hold(self) -> None:
+        runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        conn = MagicMock()
+        repo = MagicMock()
+        repo.append.side_effect = [11, 22, 33]
+        stop_repo = MagicMock()
+        with (
+            patch("app.services.person_hazard.evidence_repo", return_value=repo),
+            patch("app.services.person_hazard.safety_stop_repo", return_value=stop_repo),
+            patch("app.services.person_hazard.movement_client.estop", return_value=["not", "an", "object"]),
+            patch("app.services.person_hazard.mark_task_needs_attention") as hold,
+        ):
+            ok = ph.process_advisory(conn, runtime, _fresh_advisory())
+
+        self.assertFalse(ok)
+        hold.assert_called_once_with(conn, 101, reason="person_hazard", robot_id="tb3_1")
+        stop_repo.open_from_evidence.assert_called_once_with(22)
+        outcome = repo.append.call_args_list[2].kwargs["data_json"]
+        self.assertFalse(outcome["estop_ok"])
+        self.assertIn("invalid estop response", outcome["estop_error"])
+        self.assertEqual(conn.commit.call_count, 2)
+
+    def test_failed_hold_commit_does_not_poison_monitor_retry_state(self) -> None:
+        runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        conn = MagicMock()
+        conn.commit.side_effect = RuntimeError("database commit failed")
+        repo = MagicMock()
+        repo.append.side_effect = [11, 22]
+        with (
+            patch("app.services.person_hazard.evidence_repo", return_value=repo),
+            patch("app.services.person_hazard.safety_stop_repo"),
+            patch("app.services.person_hazard.movement_client.estop") as estop,
+            patch("app.services.person_hazard.mark_task_needs_attention"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "database commit failed"):
+                ph.fail_safe_monitor_outage(
+                    conn,
+                    "tb3_1",
+                    101,
+                    detail="poll_failed",
+                    runtime=runtime,
+                )
+
+        self.assertFalse(runtime.fail_safe_triggered)
+        self.assertTrue(runtime.enabled)
+        estop.assert_called_once_with("tb3_1")
 
     def test_poll_once_commits_each_robot_before_next_remote_poll(self) -> None:
         conn = MagicMock()

@@ -262,7 +262,10 @@ class NoHardwareTaskRecoveryStateMachineTest(unittest.TestCase):
 
             # move step RUNNING -> HUMAN_DETECTED advisory(untrusted)
             self.assertTrue(person_hazard.process_advisory(self.conn, runtime, _fresh_human_detected_payload()))
-            self.assertEqual(self.h.event_types(), ["HUMAN_DETECTED", "SAFETY_ESTOP_DECISION"])
+            self.assertEqual(
+                self.h.event_types(),
+                ["HUMAN_DETECTED", "SAFETY_ESTOP_DECISION", "SAFETY_ESTOP_OUTCOME"],
+            )
             self.assertFalse(self.h.state["evidence"][0]["trusted"])
             self.assertTrue(self.h.state["evidence"][1]["trusted"])
 
@@ -277,7 +280,10 @@ class NoHardwareTaskRecoveryStateMachineTest(unittest.TestCase):
 
             # Duplicate advisory is idempotent: no second advisory, decision, E-stop, or safety_stop.
             self.assertFalse(person_hazard.process_advisory(self.conn, runtime, _fresh_human_detected_payload()))
-            self.assertEqual(self.h.event_types(), ["HUMAN_DETECTED", "SAFETY_ESTOP_DECISION"])
+            self.assertEqual(
+                self.h.event_types(),
+                ["HUMAN_DETECTED", "SAFETY_ESTOP_DECISION", "SAFETY_ESTOP_OUTCOME"],
+            )
             hazard_movement.estop.assert_called_once_with(ROBOT_ID)
             self.h.safety_stop_repo.open_from_evidence.assert_called_once()
 
