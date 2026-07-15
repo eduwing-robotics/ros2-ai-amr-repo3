@@ -938,8 +938,51 @@ def _advance_on_command_event(conn, task_id: int, event: dict[str, Any], source:
                 },
             )
             return result
-        if event_name not in _step_done_events(str(step.get("kind") or "move_to_point")):
-            return None
+        if event_name in _step_done_events(str(step.get("kind") or "move_to_point")):
+            if not event_command_id:
+                return None
+            claimed_orch = _claim_terminal_transition(
+                conn,
+                task_id,
+                str(event_command_id),
+                event_name,
+            )
+            if claimed_orch is None:
+                return None
+            transition_id = _claimed_transition_id(claimed_orch)
+            orch = claimed_orch
+            steps = orch_state.get_steps(orch)
+            step_index = orch_state.get_step_index(orch)
+            step = steps[step_index]
+            step["status"] = "DONE"
+            orch_state.set_steps(orch, steps)
+            cargo_state = str(stop_request.get("cargo_state") or "UNKNOWN")
+            if str(step.get("kind") or "") == "dock_transfer":
+                cargo_state = "UNKNOWN"
+            robot_id = task.get("assigned_robot_id")
+            orch_state.set_phase(orch, orch_state.PHASE_AWAITING_OPERATOR)
+            orch["recovery"] = {
+                "reason": "command_completed_during_stop",
+                "robot_id": robot_id,
+                "cargo_state": cargo_state,
+                "command_id": str(event_command_id),
+            }
+            if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
+                return None
+            event_repo(conn).append(
+                event_type=orch_state.EVENT_AWAITING_OPERATOR,
+                task_id=task_id,
+                robot_id=robot_id,
+                message=f"work order {task_id} command completed during stop; operator review required",
+                payload={
+                    "task_id": task_id,
+                    "event": event,
+                    "step_index": step_index,
+                    "cargo_state": cargo_state,
+                },
+            )
+            return _task(conn, task_id)
+        return None
     terminal_event = event_name in _step_done_events(str(step.get("kind") or "move_to_point")) or event_name in {"FAILED", "ABORTED", "REJECTED", "CANCELLED"}
     transition_id = ""
     if terminal_event:

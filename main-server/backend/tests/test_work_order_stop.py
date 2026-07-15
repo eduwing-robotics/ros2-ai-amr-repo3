@@ -305,7 +305,12 @@ def test_unconfirmed_physical_stop_enters_unknown_awaiting_operator(cancel_resul
     tasks.set_status.assert_not_called()
 
 
-def _run_stop_callback(cargo_state: str, *, step_status: str = "dispatched"):
+def _run_stop_callback(
+    cargo_state: str,
+    *,
+    step_status: str = "dispatched",
+    event_state: str = "STOPPED",
+):
     conn = MagicMock()
     task = _task(loaded=cargo_state == "LOADED", phase="CANCEL_REQUESTED")
     task["preset_snapshot"]["_orchestration"]["stop_request"] = {
@@ -326,15 +331,16 @@ def _run_stop_callback(cargo_state: str, *, step_status: str = "dispatched"):
         patch.object(orchestrator.evidence_runtime, "attach_orchestration", side_effect=lambda row, _conn: row),
         patch.object(orchestrator.evidence_runtime, "save_orchestration") as save,
         patch.object(orchestrator.person_hazard, "on_robot_task_terminal"),
+        patch.object(orchestrator, "dispatch_current_step") as dispatch,
     ):
         result = orchestrator.advance_on_command_event(
-            conn, 42, {"command_id": "cmd-active", "state": "STOPPED"}
+            conn, 42, {"command_id": "cmd-active", "state": event_state}
         )
-    return task, tasks, robots, save, result
+    return task, tasks, robots, save, dispatch, result
 
 
 def test_loaded_stop_callback_enters_awaiting_operator() -> None:
-    task, tasks, _robots, save, result = _run_stop_callback("LOADED")
+    task, tasks, _robots, save, _dispatch, result = _run_stop_callback("LOADED")
     assert result is not None
     assert task["preset_snapshot"]["_orchestration"]["phase"] == "AWAITING_OPERATOR"
     assert save.called
@@ -342,7 +348,7 @@ def test_loaded_stop_callback_enters_awaiting_operator() -> None:
 
 
 def test_unknown_stop_callback_enters_awaiting_operator() -> None:
-    task, tasks, robots, save, result = _run_stop_callback("UNKNOWN")
+    task, tasks, robots, save, _dispatch, result = _run_stop_callback("UNKNOWN")
     assert result is not None
     assert task["preset_snapshot"]["_orchestration"]["phase"] == "AWAITING_OPERATOR"
     assert save.called
@@ -351,7 +357,7 @@ def test_unknown_stop_callback_enters_awaiting_operator() -> None:
 
 
 def test_cancel_callback_closes_dispatching_stop_identity() -> None:
-    task, tasks, _robots, save, result = _run_stop_callback(
+    task, tasks, _robots, save, _dispatch, result = _run_stop_callback(
         "LOADED",
         step_status="dispatching",
     )
@@ -361,8 +367,25 @@ def test_cancel_callback_closes_dispatching_stop_identity() -> None:
     tasks.set_status.assert_not_called()
 
 
+def test_command_completion_during_stop_holds_without_next_dispatch() -> None:
+    task, tasks, _robots, save, dispatch, result = _run_stop_callback(
+        "EMPTY",
+        step_status="dispatching",
+        event_state="DONE",
+    )
+    orch = task["preset_snapshot"]["_orchestration"]
+    assert result is not None
+    assert orch["phase"] == "AWAITING_OPERATOR"
+    assert orch["steps"][1]["status"] == "DONE"
+    assert orch["recovery"]["reason"] == "command_completed_during_stop"
+    assert orch["recovery"]["cargo_state"] == "EMPTY"
+    assert save.called
+    dispatch.assert_not_called()
+    tasks.set_status.assert_not_called()
+
+
 def test_empty_stop_callback_cancels_task_and_releases_robot() -> None:
-    _task_row, tasks, robots, _save, result = _run_stop_callback("EMPTY")
+    _task_row, tasks, robots, _save, _dispatch, result = _run_stop_callback("EMPTY")
     assert result is not None
     tasks.set_status.assert_called_once_with(42, "CANCELLED", clear_robot=True)
     robots.set_task.assert_called_once_with("robot1", "IDLE", None)
