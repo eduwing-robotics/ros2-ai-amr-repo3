@@ -15,6 +15,8 @@ export interface Waypoint {
   yaw: number;
   waypoint_type: ZoneType | string;
   scan_waypoint_id?: string | null;
+  route_target_id?: string | null;
+  approach_waypoint_ids?: string[];
   aruco_marker_id?: number | null;
   dock_mode?: string | null;
   status?: string;

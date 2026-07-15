@@ -60,6 +60,7 @@ def test_route_drawer_work_order_and_recovery_contracts_remain_explicit() -> Non
     result = source("features/operate/WorkOrderResultNotice.tsx")
     queue = source("features/operate/taskQueueModel.ts")
     recovery = source("features/operate/TaskRecoveryPanel.tsx")
+    recovery_api = source("lib/recovery.ts")
 
     assert 'operate/control?drawer=inventory' in menus
     assert 'operate/control?drawer=records' in menus
@@ -72,6 +73,13 @@ def test_route_drawer_work_order_and_recovery_contracts_remain_explicit() -> Non
     assert "checks.site_clear && checks.pose_ok && checks.cargo_ok" in recovery
     assert 'cargo !== "UNKNOWN"' in recovery
     assert 'orchestration_phase === "RECOVERY_RUNNING"' in recovery
+    assert 'RecoveryStrategy = "safe_move" | "manual_abort"' in recovery_api
+    assert 'useState<RecoveryStrategy>("safe_move")' in recovery
+    assert 'id: "safe_move"' in recovery and 'id: "manual_abort"' in recovery
+    assert "기존 작업은 자동으로 재개하지 않습니다" in recovery
+    assert "로봇 정지가 확인된 경우에만 작업을 중단합니다" in recovery
+    assert "safe_replan" not in recovery_api + recovery
+    assert '"restart"' not in recovery_api + recovery
 
 
 def test_drawer_focus_trap_inert_and_label_wiring_target() -> None:
@@ -104,17 +112,31 @@ def test_estop_clear_active_unknown_and_unknown_robot_ui_target() -> None:
     emergency = source("hooks/useEmergency.ts")
     safety = source("lib/safety.ts")
 
-    assert 'state?: "clear" | "partial" | "failed" | "unknown"' in safety
+    assert 'state?: "clear" | "active" | "partial" | "failed" | "unknown"' in safety
     assert "partial?: boolean" in safety and "unknown_robots?: string[]" in safety
+    assert "active_robots?: string[]" in safety
     assert 'apiSend<EstopResult>("/robots/estop-all", "POST")' in safety
     assert 'apiSend<EstopResult>("/robots/clear-estop-all", "POST")' in safety
     assert 'type EstopState = "clear" | "active" | "unknown"' in emergency
-    assert "estop_summary" in emergency
-    assert "const unknownRobots = summary?.unknown_robots ?? []" in emergency
-    assert 'const estopState: EstopState = summary?.state ?? (emergencyRobots.length ? "active" : "clear")' in emergency
-    assert 'const isEmergency = estopState !== "clear"' in emergency
-    assert "estopState, emergencyRobots, unknownRobots" in emergency
-    assert "const { isEmergency, estopState, unknownRobots } = useEmergency()" in controls
+    assert "data?.system?.estop as EstopSummary" in emergency
+    assert 'state: "active" | "clear" | "unknown" | "disabled"' in emergency
+    assert 'row.state === "active"' in emergency
+    assert 'row.state === "unknown"' in emergency
+    assert "const estopPartial = summary?.partial === true" in emergency
+    assert 'summary?.state === "disabled" ? "clear"' in emergency
+    assert "const legacyEmergencyRobots = useMemo" in emergency
+    assert "const legacyUnknownRobots = useMemo" in emergency
+    assert "data?.robots ?? []" in emergency
+    assert "!legacyActiveSet.has(robot.robot_id)" in emergency
+    assert "summary ? reportedRobots.active : legacyEmergencyRobots" in emergency
+    assert "summary ? reportedRobots.unknown : legacyUnknownRobots" in emergency
+    assert 'summary?.state ?? (emergencyRobots.length ? "active" : "unknown")' in emergency
+    assert 'summary?.state ?? (emergencyRobots.length ? "active" : "clear")' not in emergency
+    assert 'const isEmergency = estopState === "active" || estopState === "unknown"' in emergency
+    assert "new Set([...emergencyRobots, ...unknownRobots])" in emergency
+    assert "blockedRobotSet.has(robotId)" in emergency
+    assert "estopState, estopPartial, emergencyRobots, unknownRobots" in emergency
+    assert "const { estopState, estopPartial, unknownRobots } = useEmergency()" in controls
     assert ".filter((r) => !r.ok)" in controls
     assert "비상 정지 요청됨 — 확인 실패" in controls
     assert 'result.state === "partial" || result.partial' in controls
@@ -123,6 +145,13 @@ def test_estop_clear_active_unknown_and_unknown_robot_ui_target() -> None:
     assert "비상 정지 해제됨 — 작업은 복구 선택 필요" in controls
     assert 'estopState === "unknown"' in controls
     assert "ESTOP 미확인 ${unknownRobots.length}" in controls
+    assert "ESTOP 일부 활성" in controls
+    assert "ESTOP 활성 · 미확인 ${unknownRobots.length}" in controls
+    assert 'const canClearEstop = estopState === "active" && unknownRobots.length === 0' in controls
+    assert "{canClearEstop ? (" in controls
+    assert 'onClick={() => void triggerEstop()}' in controls
+    assert '["recovery-needs-attention"]' in controls
+    assert "recovery-awaiting-operator" not in controls
 
 
 def test_map_route_planning_guards_coordinate_mismatch_and_readiness() -> None:
@@ -140,6 +169,23 @@ def test_map_route_planning_guards_coordinate_mismatch_and_readiness() -> None:
     assert 'command: "stop"' in goto and 'source: "operate_goto_stop"' in goto
     assert 'asset_status === "mismatch"' in runtime
     assert "배경은 유지하고 overlay는 참고용으로 표시" in runtime
+
+
+def test_disabled_robots_are_monitored_but_not_offered_for_operations() -> None:
+    shell = source("features/operate/OperatorShell.tsx")
+    work_order = source("features/operate/WorkOrderForm.tsx")
+    queue = source("features/operate/TaskQueue.tsx")
+
+    assert "const enabledRobots = useMemo(() => robots.filter((robot) => robot.enabled), [robots])" in shell
+    assert "enabledRobots.length > 0 && enabledRobots.every" in shell
+    assert "<WorkOrderForm" in shell and "robots={enabledRobots}" in shell
+    assert "<TaskQueue robots={enabledRobots} />" in shell
+    assert "<Teleop" in shell and "<MapGotoOperate" in shell
+    assert shell.count("robots={enabledRobots}") == 4
+    assert "robots.map((r: Robot)" in shell
+    assert "robots: Robot[]" in work_order and "robots: Robot[]" in queue
+    assert "useRobots" not in work_order
+    assert "useRobots" not in queue
 
 
 def test_pose_quality_and_connectivity_are_separate_from_server_health() -> None:
@@ -168,6 +214,11 @@ def test_camera_transport_retry_and_staleness_watchdog_contracts() -> None:
     assert "MJPEG_STALE_THRESHOLD_SEC = 5" in transport
     assert "MJPEG_RECONNECT_DELAYS_MS = [1000, 2000, 4000, 10000]" in transport
     assert "scheduleMjpegReconnect" in camera
+    assert "if (reconnectTimerRef.current) return" in camera
+    assert "const scheduleNext = () =>" in camera
+    assert "beginMjpegPoll(nextAttempt)" in camera
+    assert "scheduleNext()" in camera
+    assert "startMjpegPollTimer" in camera
     assert "mjpegBackoffRef.current = 0" in camera
     assert "sinceLoadSec >= MJPEG_STALE_THRESHOLD_SEC" in camera
     assert "WebRTC 실패 → MJPEG" in camera
@@ -196,3 +247,85 @@ def test_alarm_acknowledgement_is_local_presentation_state_target() -> None:
     assert "ackedKeys.has(eventKey(" in feed
     assert "onClick={onAckAll}" in feed
     assert "모두 확인" in feed and "확인됨" in feed
+
+
+def test_work_order_safe_stop_is_visible_idempotent_and_reports_results() -> None:
+    """F011: active orders expose one guarded stop request and actionable feedback."""
+
+    hooks = source("hooks/useWorkOrders.ts")
+    queue = source("features/operate/TaskQueue.tsx")
+    row = source("features/operate/TaskQueueOrderRow.tsx")
+    types = source("types/warehouse.ts")
+
+    assert "export function useStopWorkOrder()" in hooks
+    assert '`/work-orders/${orderId}/stop`' in hooks
+    assert 'status: "CANCEL_REQUESTED" | "AWAITING_OPERATOR"' in hooks
+    assert "onMutate: (orderId)" in hooks and "안전 중단 요청 전송 중" in hooks
+    assert 'result.status === "AWAITING_OPERATOR"' in hooks
+    assert "result.accepted" in hooks and "중단 요청이 거부되었습니다" in hooks
+    assert '["work-orders"]' in hooks and '["recovery-needs-attention"]' in hooks
+    assert "recovery-awaiting-operator" not in hooks
+    assert "const stopWorkOrder = useStopWorkOrder()" in queue
+    assert "stopWorkOrder.variables === o.order_id" in queue
+    assert "await stopWorkOrder.mutateAsync(order.order_id)" in queue
+    assert "stopPending: boolean" in row
+    assert "disabled={cancelPending || stopPending}" in row
+    assert "중단 요청 중" in row and "안전 중단" in row and "복귀 중단" in row
+    assert "business_completed?: boolean" in types
+
+
+def test_ordered_approach_routes_have_editor_api_types_and_numbered_overlay() -> None:
+    """F018: transit steps round-trip through the route API and retain server order on-map."""
+
+    scenario = source("hooks/useScenarioData.ts")
+    actions = source("features/mapEditor/useMapEditorActions.ts")
+    editor = source("features/mapEditor/MapEditor.tsx")
+    stage = source("features/mapEditor/MapStage.tsx")
+    overlay = source("features/mapEditor/ApproachRouteOverlay.tsx")
+    types = source("types/scenario.ts")
+
+    assert 'apiSend("/waypoint-routes", "POST", body)' in scenario
+    assert 'apiSend(`/waypoint-routes/${encodeURIComponent(id)}`, "DELETE")' in scenario
+    assert "upsertWaypointRoute" in scenario and "deleteWaypointRoute" in scenario
+    assert 'selected?.waypoint_type === "transit"' in actions
+    assert 'z.waypoint_type !== "approach"' in actions
+    assert "m.upsertWaypointRoute.mutateAsync" in actions
+    assert "m.deleteWaypointRoute.mutateAsync(linkScanId)" in editor
+    assert "route_target_id?: string | null" in types
+    assert "approach_waypoint_ids?: string[]" in types
+    assert '<ApproachRouteOverlay map={map} zones={zones} />' in stage
+    assert "target.approach_waypoint_ids ?? []" in overlay
+    assert ".map((stepId, index)" in overlay
+    assert "{index + 1}" in overlay
+    assert 'markerEnd="url(#approachRouteArrow)"' in overlay
+
+
+def test_webrtc_requires_a_decoded_frame_and_retries_visibility_safely() -> None:
+    """F030: media is promoted only after decode, with bounded loss recovery and clean fallback."""
+
+    transport = source("lib/visionTransport.ts")
+    camera = source("features/control/LiveCamera.tsx")
+    styles = source("styles/base.css")
+
+    assert "WEBRTC_FIRST_FRAME_TIMEOUT_MS = 5000" in transport
+    assert "export function waitForFirstVideoFrame" in transport
+    assert "HTMLMediaElement.HAVE_CURRENT_DATA" in transport
+    assert "webrtc_first_frame_timeout" in transport
+    assert "onConnectionLost?: (state: RTCPeerConnectionState)" in transport
+    assert 'pc.connectionState === "disconnected"' in transport
+    assert 'pc.connectionState === "failed"' in transport
+    assert "let cleaned = false" in transport and "if (cleaned) return" in transport
+    assert "WEBRTC_RETRY_DELAYS_MS = [5000, 15000, 30000, 60000]" in camera
+    assert "const [webrtcRetryToken, setWebrtcRetryToken]" in camera
+    assert "const streamKeyRef = useRef" in camera
+    assert "streamKeyRef.current !== streamKey" in camera
+    assert "webrtcRetryAttemptRef.current = 0" in camera
+    assert "await waitForFirstVideoFrame(video)" in camera
+    assert "const handleWebRtcLost" in camera and "WebRTC 연결 끊김 → MJPEG" in camera
+    assert "!visibleRef.current" in camera and "if (!isVisible)" in camera
+    assert "clearWebRtcRetry()" in camera
+    assert 'if (kind !== "overlay") return;' in camera
+    assert 'className={`cam-live cam-live-video${mode === "webrtc" ? " is-active" : ""}`}' in camera
+    assert 'hidden={mode !== "mjpeg"}' in camera
+    assert "video.srcObject = null" not in camera
+    assert "video.cam-live-video:not(.is-active)" in styles

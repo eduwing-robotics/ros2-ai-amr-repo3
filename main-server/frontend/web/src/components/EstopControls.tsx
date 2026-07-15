@@ -15,17 +15,30 @@ function failedRobotSummary(result: EstopResult) {
 }
 
 export function EstopControls() {
-  const { isEmergency } = useEmergency();
+  const { estopState, estopPartial, unknownRobots } = useEmergency();
   const queryClient = useQueryClient();
   const { confirm, toast } = useFeedback();
   const [busy, setBusy] = useState(false);
+  const estopLabel =
+    estopState === "unknown"
+      ? `ESTOP 미확인 ${unknownRobots.length}`
+      : estopPartial
+        ? unknownRobots.length
+          ? `ESTOP 활성 · 미확인 ${unknownRobots.length}`
+          : "ESTOP 일부 활성"
+        : "ESTOP 활성";
+  const canClearEstop = estopState === "active" && unknownRobots.length === 0;
+
+  const refreshSafety = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["status"] });
+    await queryClient.invalidateQueries({ queryKey: ["recovery-needs-attention"] });
+  };
 
   const triggerEstop = async () => {
     setBusy(true);
     try {
       const result = await robotEstopAll();
-      await queryClient.invalidateQueries({ queryKey: ["status"] });
-      await queryClient.invalidateQueries({ queryKey: ["recovery-needs-attention"] });
+      await refreshSafety();
       if (result.ok) {
         toast("비상 정지 — 전 로봇 정지", "err");
       } else {
@@ -49,12 +62,14 @@ export function EstopControls() {
     setBusy(true);
     try {
       const result = await robotClearEstopAll();
-      await queryClient.invalidateQueries({ queryKey: ["status"] });
-      await queryClient.invalidateQueries({ queryKey: ["recovery-needs-attention"] });
-      if (!result.ok) {
+      await refreshSafety();
+      if (result.state === "partial" || result.partial) {
+        toast(`일부 해제 · 상태 미확인: ${(result.unknown_robots ?? []).join(", ") || "unknown"}`, "err");
+      } else if (!result.ok) {
         throw new Error("Movement 해제 실패: " + (failedRobotSummary(result) || "unknown"));
+      } else {
+        toast("비상 정지 해제됨 — 작업은 복구 선택 필요", "ok");
       }
-      toast("비상 정지 해제됨 — 작업은 복구 선택 필요", "ok");
     } catch (e) {
       toast(`해제 실패: ${(e as Error).message}`, "err");
     } finally {
@@ -64,19 +79,25 @@ export function EstopControls() {
 
   return (
     <div className="estop-controls">
-      {isEmergency ? (
+      {canClearEstop ? (
         <button
           type="button"
           className="estop-btn active"
           disabled={busy}
           onClick={() => void clearEstop()}
-          title="클릭하여 해제"
+          title="클릭하여 비상 정지 해제"
         >
-          ESTOP 활성
+          {estopLabel}
         </button>
       ) : (
-        <button type="button" className="estop-btn" disabled={busy} onClick={() => void triggerEstop()} title="전 로봇 즉시 정지">
-          ESTOP
+        <button
+          type="button"
+          className={estopState === "unknown" ? "estop-btn active" : "estop-btn"}
+          disabled={busy}
+          onClick={() => void triggerEstop()}
+          title="전 로봇 즉시 정지"
+        >
+          {estopState === "unknown" ? estopLabel : "ESTOP"}
         </button>
       )}
     </div>

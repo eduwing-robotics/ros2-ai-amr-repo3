@@ -8,6 +8,7 @@ export interface Robot {
   robot_id: string;
   display_name: string;
   status: string;
+  enabled: boolean;
   battery?: number | null;
   current_task_id?: number | null;
   last_command_id?: string | null;
@@ -18,6 +19,7 @@ export interface RobotUpsert {
   robot_id: string;
   display_name: string;
   status?: string;
+  enabled?: boolean;
   battery?: number | null;
 }
 

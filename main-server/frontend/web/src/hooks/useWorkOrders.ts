@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiSend } from "../lib/api";
+import { useFeedback } from "../components/FeedbackProvider";
+import { ApiError, apiGet, apiSend } from "../lib/api";
+import { describeApiError, parseApiDetail } from "../lib/apiErrors";
 import type { WorkOrder, WorkOrderCreate, WorkOrderPreview, WorkOrderPreviewRequest } from "../types";
 
 // --- 조회 ---
@@ -59,6 +61,49 @@ export function useCancelWorkOrder() {
       qc.invalidateQueries({ queryKey: ["tasks"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
       qc.invalidateQueries({ queryKey: ["status"] });
+    },
+  });
+}
+
+export function useStopWorkOrder() {
+  const qc = useQueryClient();
+  const { toast } = useFeedback();
+  return useMutation({
+    mutationFn: (orderId: number) =>
+      apiSend<{
+        order_id: number;
+        status: "CANCEL_REQUESTED" | "AWAITING_OPERATOR";
+        accepted: boolean;
+        command_id: string | null;
+        cargo_state: "EMPTY" | "LOADED" | "UNKNOWN";
+        business_completed: boolean;
+      }>(`/work-orders/${orderId}/stop`, "POST"),
+    onMutate: (orderId) => {
+      toast(`작업 #${orderId} 안전 중단 요청 전송 중…`, "info");
+    },
+    onSuccess: (result) => {
+      void Promise.all([
+        qc.invalidateQueries({ queryKey: ["work-orders"] }),
+        qc.invalidateQueries({ queryKey: ["tasks"] }),
+        qc.invalidateQueries({ queryKey: ["status"] }),
+        qc.invalidateQueries({ queryKey: ["recovery-needs-attention"] }),
+      ]);
+      if (result.status === "AWAITING_OPERATOR") {
+        toast("로봇 정지 확인됨 · 작업 복구 패널에서 화물 상태를 확인하세요", "info");
+      } else if (result.accepted) {
+        toast(`중단 요청 전달됨 · cmd ${result.command_id} · Movement 정지 확인 대기`, "info");
+      } else {
+        toast(`중단 요청이 거부되었습니다 · cmd ${result.command_id}`, "err");
+      }
+    },
+    onError: (error) => {
+      const detail = error instanceof ApiError ? parseApiDetail(error.message) : "";
+      if (detail === "work_order_has_no_active_command") {
+        toast("활성 명령이 없어 중단 상태를 확인하지 못했습니다 · 작업 상태를 새로고침하세요", "err");
+        void qc.invalidateQueries({ queryKey: ["recovery-needs-attention"] });
+        return;
+      }
+      toast(`안전 중단 실패: ${describeApiError(error)}`, "err");
     },
   });
 }

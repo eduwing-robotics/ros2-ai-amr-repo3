@@ -14,9 +14,9 @@ import {
   WORK_ORDER_ERROR_HINTS,
 } from "../../lib/workOrderPlanning";
 import { useItems, useInventory, useStorageSlots } from "../../hooks/useWarehouseData";
-import { useAllWaypoints, useRobots } from "../../hooks/useScenarioData";
+import { useAllWaypoints } from "../../hooks/useScenarioData";
 import { useCreateWorkOrder, useWorkOrderPreview } from "../../hooks/useWorkOrders";
-import type { Operation, WorkOrder } from "../../types";
+import type { Operation, Robot, WorkOrder } from "../../types";
 import {
   MAX_WORK_ORDER_QUANTITY,
   WORK_ORDER_QUANTITY_WARN,
@@ -66,10 +66,12 @@ function validationMessage({
 }
 
 export function WorkOrderForm({
+  robots,
   onClose,
   disabled,
   emergencyRobots = [],
 }: {
+  robots: Robot[];
   onClose?: () => void;
   disabled?: boolean;
   emergencyRobots?: string[];
@@ -78,7 +80,6 @@ export function WorkOrderForm({
   const { data: inventory = [] } = useInventory();
   const { data: slots = [] } = useStorageSlots();
   const { data: waypoints = [] } = useAllWaypoints();
-  const { data: robots = [] } = useRobots();
   const create = useCreateWorkOrder();
 
   const [operation, setOperation] = useState<Operation>("inbound");

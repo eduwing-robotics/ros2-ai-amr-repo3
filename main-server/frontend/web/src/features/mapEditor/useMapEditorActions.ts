@@ -252,7 +252,7 @@ export function useMapEditorActions({
     if (!z) return;
 
     if (!linkScanId) {
-      if (z.waypoint_type === "approach") {
+      if (z.waypoint_type === "approach" || z.waypoint_type === "transit") {
         setLinkScanId(zoneId);
         return;
       }
@@ -260,7 +260,19 @@ export function useMapEditorActions({
         setLinkError("스캔(approach)이 없습니다. 구역 추가 모드에서 스캔을 배치한 뒤, 스캔→helper 순으로 클릭하세요.");
         return;
       }
-      setLinkError("스캔(approach) 또는 helper 마커만 연결할 수 있습니다.");
+      setLinkError("경유(transit), 스캔(approach) 또는 helper 마커만 연결할 수 있습니다.");
+      return;
+    }
+
+    const selected = zoneById(linkScanId);
+    if (selected?.waypoint_type === "transit") {
+      if (z.waypoint_type !== "approach") {
+        setLinkError("경유 지점의 대상은 스캔(approach) 마커여야 합니다.");
+        return;
+      }
+      m.upsertWaypointRoute.mutateAsync({ waypoint_id: selected.waypoint_id, target_location_id: z.waypoint_id })
+        .then(() => { setLinkScanId(null); setLinkError(null); })
+        .catch((e) => setLinkError((e as Error).message));
       return;
     }
 
@@ -278,7 +290,7 @@ export function useMapEditorActions({
       return;
     }
     setLinkError("두 번째 클릭은 helper(입고·출고·선반·대기/복귀·충전) 마커여야 합니다.");
-  }, [linkScanToHelper, setLinkError, setLinkScanId, zoneById]);
+  }, [linkScanToHelper, m.upsertWaypointRoute, setLinkError, setLinkScanId, zoneById]);
 
   const updateScanAruco = useCallback(async (scanId: string, markerId: number) => {
     const scan = zoneById(scanId);

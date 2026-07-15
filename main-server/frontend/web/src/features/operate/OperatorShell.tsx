@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
 import { Resizer } from "../../components/Resizer";
@@ -7,6 +7,7 @@ import { OPERATE_SLIM_NAV, routePath } from "../../app/menus";
 import { useStatus } from "../../hooks/useStatus";
 import { useEmergency } from "../../hooks/useEmergency";
 import { useRobotConnectivity } from "../../hooks/useRobotConnectivity";
+import { eventKey } from "../../lib/format";
 import { camerasForRobot, globalCameras } from "../../lib/cameraMapping";
 import { DashboardMap } from "../dashboard/DashboardMap";
 import { LiveCamera } from "../control/LiveCamera";
@@ -24,6 +25,33 @@ import type { MovementHealth, Robot } from "../../types";
 
 type DrawerKey = "inout" | "records" | "inventory" | null;
 
+const ALARM_ACK_STORAGE_KEY = "lms.alarms.acked";
+
+function loadAckedAlarmKeys(): Set<string> {
+  try {
+    const raw = localStorage.getItem(ALARM_ACK_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function useNarrowOperatorLayout() {
+  const query = "(max-width: 1200px)";
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return matches;
+}
+
 function resolveDrawer(section: string | undefined, drawerParam: string | null): DrawerKey {
   if (section === "inout") return "inout";
   if (drawerParam === "records") return "records";
@@ -36,13 +64,16 @@ export function OperatorShell() {
   const { section } = useParams();
   const [searchParams] = useSearchParams();
   const drawer = resolveDrawer(section, searchParams.get("drawer"));
+  const isNarrowLayout = useNarrowOperatorLayout();
   const { data, isLoading, isError, error, refetch } = useStatus();
   const { emergencyRobots, isRobotEmergency } = useEmergency();
 
-  const robots = data?.robots ?? [];
+  const robots = useMemo(() => data?.robots ?? [], [data?.robots]);
+  const enabledRobots = useMemo(() => robots.filter((robot) => robot.enabled), [robots]);
   const cameras = data?.camera_sources ?? [];
   const tasks = data?.tasks ?? [];
-  const events = data?.events ?? [];
+  const events = useMemo(() => data?.events ?? [], [data?.events]);
+  const [ackedAlarmKeys, setAckedAlarmKeys] = useState<Set<string>>(loadAckedAlarmKeys);
   const globalCams = globalCameras(cameras);
   const { onlineCount } = useRobotConnectivity(robots);
 
@@ -50,7 +81,18 @@ export function OperatorShell() {
     navigate(routePath(route));
   };
 
-  const closeDrawer = () => navigate("/operate/control");
+  const closeDrawer = useCallback(() => navigate("/operate/control"), [navigate]);
+
+  const acknowledgeAlarms = useCallback(() => {
+    const currentKeys = events.map(eventKey);
+    const next = new Set(currentKeys);
+    setAckedAlarmKeys(next);
+    try {
+      localStorage.setItem(ALARM_ACK_STORAGE_KEY, JSON.stringify([...next]));
+    } catch {
+      // Acknowledgement remains valid for this tab when browser storage is unavailable.
+    }
+  }, [events]);
 
   const drawerTitle = drawer === "inout" ? "입출고" : drawer === "records" ? "기록" : drawer === "inventory" ? "재고" : "";
 
@@ -71,7 +113,8 @@ export function OperatorShell() {
   const insightBandRef = useRef<HTMLDivElement>(null);
   const [controlPanelOpen, setControlPanelOpen] = useState(false);
   const [insightTab, setInsightTab] = useState<"tasks" | "inventory">("tasks");
-  const allRobotsEmergency = robots.length > 0 && emergencyRobots.length >= robots.length;
+  const allRobotsEmergency =
+    enabledRobots.length > 0 && enabledRobots.every((robot) => emergencyRobots.includes(robot.robot_id));
   const activeTaskCount = tasks.filter(
     (t) => !["DONE", "COMPLETED", "CANCELLED"].includes(String(t.status || "").toUpperCase()),
   ).length;
@@ -105,10 +148,24 @@ export function OperatorShell() {
         </nav>
 
         <div className={`operator-stage${drawer ? " drawer-open" : ""}`} ref={stageRef}>
+          {drawer && isNarrowLayout ? (
+            <div className="drawer-scrim" aria-hidden="true" onClick={closeDrawer} />
+          ) : null}
           {drawer ? (
-            <Drawer title={drawerTitle} onClose={closeDrawer} className="operator-drawer">
+            <Drawer
+              id="operator-context-drawer"
+              title={drawerTitle}
+              onClose={closeDrawer}
+              className="operator-drawer"
+              modal={isNarrowLayout}
+            >
               {drawer === "inout" ? (
-                <WorkOrderForm onClose={closeDrawer} disabled={allRobotsEmergency} emergencyRobots={emergencyRobots} />
+                <WorkOrderForm
+                  robots={enabledRobots}
+                  onClose={closeDrawer}
+                  disabled={allRobotsEmergency}
+                  emergencyRobots={emergencyRobots}
+                />
               ) : null}
               {drawer === "inventory" ? <InventoryView /> : null}
               {drawer === "records" ? <Records variant="operate" /> : null}
@@ -208,7 +265,7 @@ export function OperatorShell() {
                   {insightTab === "tasks" ? (
                     <>
                       <TaskRecoveryBanner />
-                      <TaskQueue />
+                      <TaskQueue robots={enabledRobots} />
                     </>
                   ) : (
                     <InventoryView compact />
@@ -224,11 +281,11 @@ export function OperatorShell() {
                 >
                   <div className="operator-control-bar-inner">
                     <Teleop
-                      robots={robots}
+                      robots={enabledRobots}
                       isRobotEmergency={isRobotEmergency}
                       keyboardEnabled={controlPanelOpen}
                     />
-                    <MapGotoOperate robots={robots} isRobotEmergency={isRobotEmergency} />
+                    <MapGotoOperate robots={enabledRobots} isRobotEmergency={isRobotEmergency} />
                   </div>
                 </CollapsiblePanel>
               </div>
@@ -284,7 +341,7 @@ export function OperatorShell() {
                   defaultOpen
                   className="robot-monitor-events"
                 >
-                  <EventFeed events={events} />
+                  <EventFeed events={events} ackedKeys={ackedAlarmKeys} onAckAll={acknowledgeAlarms} />
                 </CollapsiblePanel>
               </div>
             </div>

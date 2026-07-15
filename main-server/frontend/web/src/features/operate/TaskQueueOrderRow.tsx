@@ -29,8 +29,10 @@ export function TaskQueueOrderRow({
   assignPending,
   startPending,
   cancelPending,
+  stopPending,
   onToggle,
   onCancelOrder,
+  onStopOrder,
   onCancelTask,
   onMoveUp,
   onMoveDown,
@@ -52,8 +54,10 @@ export function TaskQueueOrderRow({
   assignPending: boolean;
   startPending: boolean;
   cancelPending: boolean;
+  stopPending: boolean;
   onToggle: () => void;
   onCancelOrder: () => void;
+  onStopOrder: () => void;
   onCancelTask: (taskId: number) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -120,7 +124,9 @@ export function TaskQueueOrderRow({
               </button>
             ) : null}
             {showRunningRecovery ? (
-              <span className="muted" title="진행 중 작업은 복구 패널에서 화물 상태 확인 후 처리합니다.">복구 필요</span>
+              <button type="button" className="rowbtn danger" disabled={cancelPending || stopPending} onClick={onStopOrder}>
+                {stopPending ? "중단 요청 중…" : order.business_completed ? "복귀 중단" : "안전 중단"}
+              </button>
             ) : null}
             {canCancelOrder(order) ? (
               <button type="button" className="rowbtn danger" disabled={cancelPending} onClick={onCancelOrder}>취소</button>
@@ -171,7 +177,9 @@ export function TaskQueueOrderRow({
                         </button>
                       ) : null}
                       {status === "RUNNING" ? (
-                        <span className="muted" title="진행 중 작업은 복구 패널에서 화물 상태 확인 후 처리합니다.">복구 필요</span>
+                        <button type="button" className="rowbtn danger" disabled={cancelPending || stopPending} onClick={onStopOrder}>
+                          {stopPending ? "중단 요청 중…" : order.business_completed ? "복귀 중단" : "안전 중단"}
+                        </button>
                       ) : canCancelTask(t) ? (
                         <button type="button" className="rowbtn danger" onClick={() => onCancelTask(t.task_id)}>취소</button>
                       ) : null}

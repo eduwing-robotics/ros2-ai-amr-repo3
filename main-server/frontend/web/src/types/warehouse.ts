@@ -109,6 +109,9 @@ export interface WorkOrderTask {
   target_zone?: string | null;
   selection_reason?: string | null;
   available_qty_at_plan?: number | null;
+  business_completed?: boolean;
+  return_status?: "RETURNING_HOME" | "PARKING" | "PARKED" | "PARK_FAILED" | null;
+  parking_error?: JsonObject | null;
 }
 
 export interface WorkOrder {
@@ -123,6 +126,9 @@ export interface WorkOrder {
   tasks: WorkOrderTask[];
   mission_results?: JsonObject[];
   start_failed?: Array<{ task_id: number; detail: string | unknown }>;
+  business_completed?: boolean;
+  return_status?: "RETURNING_HOME" | "PARKING" | "PARKED" | "PARK_FAILED" | null;
+  parking_error?: JsonObject | null;
 }
 
 export interface WorkOrderCreate {

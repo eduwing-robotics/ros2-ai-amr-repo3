@@ -90,6 +90,10 @@ export function MapEditor() {
     }
     const helper = actions.zoneById(helperId);
     if (!helper) return;
+    if (helper.waypoint_type === "transit" || helper.waypoint_type === "approach") {
+      setLinkScanId(helper.waypoint_id);
+      return;
+    }
     if (helper.scan_waypoint_id) {
       setLinkScanId(helper.scan_waypoint_id);
       return;
@@ -113,7 +117,7 @@ export function MapEditor() {
 
   const stageHint = activeMap
     ? linkMode
-      ? "스캔→helper 마커 클릭=연결 · ArUco #=스캔 선택 후 편집"
+      ? "경유→스캔 또는 스캔→helper 순서로 클릭=연결 · ArUco #=스캔 선택 후 편집"
       : zoneMode
         ? "빈 곳 클릭=구역 추가 · 점 드래그=이동 · 이름은 드래그 안 됨 · 입출고/선반 방향=스캔 지점 · 경유/검사=끝 핸들 · X=삭제"
         : "구역 추가 또는 연결 모드를 켜세요"
@@ -153,9 +157,16 @@ export function MapEditor() {
 
           {linkMode ? (
             <div className="inline-alert warn link-mode-bar">
-              <strong>스캔↔대상 연결</strong> — 스캔(approach) 마커 클릭 → helper 마커 클릭. 신규 스캔은 구역 추가 모드에서 <code>approach</code> 타입으로 배치.
+              <strong>경로 연결</strong> — 경유(transit) → 스캔(approach), 또는 스캔(approach) → helper 순서로 클릭.
               {linkScanId ? <span> · 선택: {actions.zoneById(linkScanId)?.name || linkScanId}</span> : null}
               <span className="action-row" style={{ marginTop: 6 }}>
+                {linkScanId && actions.zoneById(linkScanId)?.waypoint_type === "transit" && actions.zoneById(linkScanId)?.route_target_id ? (
+                  <button type="button" className="rowbtn danger" onClick={() => {
+                    m.deleteWaypointRoute.mutateAsync(linkScanId)
+                      .then(() => { setLinkScanId(null); setLinkError(null); toast("경유 연결을 해제했습니다.", "ok"); })
+                      .catch((e) => setLinkError((e as Error).message));
+                  }}>경유 연결 해제</button>
+                ) : null}
                 <button type="button" className="rowbtn" onClick={() => setLinkScanId(null)}>선택 해제</button>
                 <button type="button" className="rowbtn" onClick={exitLinkMode}>취소</button>
               </span>
@@ -192,7 +203,7 @@ export function MapEditor() {
             isTypeVisible={layers.isVisible}
             showArrows={layers.showArrows} />
 
-          <MarkerLayerControls layers={layers} colors={ZONE_COLOR} arrowLabel="연결 화살표(스캔↔도킹)" showLabelToggle={false} />
+          <MarkerLayerControls layers={layers} colors={ZONE_COLOR} arrowLabel="연결 화살표(경유→스캔→도킹)" showLabelToggle={false} />
 
           <div className="inline-alert">{activeMap ? `${activeMap.name} · ${stageHint}` : stageHint}</div>
         </section>
