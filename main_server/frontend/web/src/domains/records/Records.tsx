@@ -46,7 +46,7 @@ function EventsTab({ rows }: { rows: TimelineEvent[] }) {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
 
   const columns: Column<TimelineEvent>[] = [
-    { header: "", cell: (r) => <span className={`dot ${eventDotClass(r)}`} /> },
+    { header: "등급", cell: (r) => { const level = eventDotClass(r); return <span className={`event-severity event-severity--${level}`}><i aria-hidden="true" />{level === "err" ? "위험" : level === "warn" ? "주의" : "정보"}</span>; } },
     { header: "시각", className: "mono", cell: (r) => <span title={cell(r.created_at)}>{formatServerTime(r.created_at)}</span> },
     { header: "유형", cell: (r) => <span title={cell(r.event_type)}>{eventTypeLabel(r.event_type)}</span> },
     { header: "출처", cell: (r) => cell(r.source ?? r.layer ?? "evidence_events") },
@@ -71,7 +71,7 @@ function EventsTab({ rows }: { rows: TimelineEvent[] }) {
       </div>
       <FilterableTable columns={columns} rows={pageRows} getKey={(r, i) => r.event_id ?? i}
         searchFields={["created_at", "event_type", "message", "robot_id"]} statusField="event_type"
-        emptyText="이벤트 없음" />
+        emptyText="이벤트 없음" rowClassName={(row) => `event-row event-row--${eventDotClass(row)}`} />
       <Pager page={page} total={totalPages} onChange={setPage} />
     </>
   );

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
+import { Resizer } from "../../components/Resizer";
 import { OPERATE_SLIM_NAV, routePath } from "../../app/menus";
 import { useStatus } from "../../hooks/useStatus";
 import { useEmergency } from "../../hooks/useEmergency";
@@ -20,11 +21,9 @@ import { FleetMissionDock } from "./FleetMissionDock";
 import { RobotStatusDetails } from "./RobotStatusCard";
 import { BatteryIndicator } from "../../components/BatteryIndicator";
 import { Pill } from "../../components/Pill";
-import type { CameraHealth, CameraSource, MovementHealth } from "../../types";
+import type { CameraHealth, MovementHealth } from "../../types";
 import { taskLifecycleOf } from "./taskLifecycle";
 
-const globalCameras = (cameras: CameraSource[]) => cameras.filter((camera) => !camera.robot_id);
-const camerasForRobot = (robotId: string, cameras: CameraSource[]) => cameras.filter((camera) => camera.robot_id === robotId);
 
 /* 상단 KPI 글랜스 스트립 (ISA-101 L1: 2초 스캔) — 평상시 무채색, 이상 시에만 좌보더+배경 강조.
    상태는 색+텍스트 병기(색 단독 금지). 값은 비례 숫자(스탯 타일 규격). */
@@ -165,6 +164,8 @@ export function OperatorShell() {
   const { data, isLoading, isError, error, refetch } = useStatus();
   const { emergencyRobots, isRobotEmergency } = useEmergency();
   const { data: recoveryTasks = [] } = useRecoveryAttentionTasks();
+  const liveSplitRef = useRef<HTMLDivElement>(null);
+  const workbenchRef = useRef<HTMLDivElement>(null);
 
   const robots = data?.robots ?? [];
   const cameras = data?.camera_sources ?? [];
@@ -173,8 +174,6 @@ export function OperatorShell() {
   const selectedRobotId = selectedRobot?.robot_id ?? "";
   const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks]);
   const events = useMemo(() => data?.events ?? [], [data?.events]);
-  const globalCams = globalCameras(cameras);
-  const selectedRobotCams = selectedRobotId ? camerasForRobot(selectedRobotId, cameras) : [];
   const cameraOnline = Boolean(((data?.system ?? {}) as { camera_health?: CameraHealth }).camera_health?.ok);
   const { onlineCount } = useRobotConnectivity(robots);
 
@@ -412,7 +411,6 @@ export function OperatorShell() {
             <div className="operator-page-head">
               <div>
                 <h1>{pageMeta.title}</h1>
-                <p>{pageMeta.description}</p>
               </div>
               <div className="operator-page-actions">
                 <button type="button" className="btn secondary" onClick={() => refetch()} disabled={isLoading}>
@@ -456,8 +454,8 @@ export function OperatorShell() {
               errCount={alarmCounts.err}
               warnCount={alarmCounts.warn}
             />
-            <div className="operator-main-workbench">
-              <div className="operator-live-split">
+            <div className="operator-main-workbench" ref={workbenchRef}>
+              <div className="operator-live-split" ref={liveSplitRef}>
                 <div className="operator-primary-workspace">
                   {trayPanel === "tasks" ? (
                     <section className="operator-workspace" id="operator-workspace-main" aria-label="작업 워크스페이스">
@@ -484,16 +482,18 @@ export function OperatorShell() {
                     </div>
                   )}
                 </div>
-                <section className="operator-global-camera panel" aria-label="전역 카메라">
+                <Resizer className="operator-live-resizer" orientation="horizontal" storageKey="lms.layout.operator-map-width" cssVar="--operator-map-w" containerRef={liveSplitRef} defaultSize={720} min={420} max={1100} adjacent="leading" />
+                <section className="operator-global-camera panel" aria-label="전역 카메라 및 전체 카메라 Grid">
                   <div className="operator-global-camera-head">
-                    <div><h2>전역 카메라</h2><span className={`operator-camera-state ${cameraOnline ? "online" : "offline"}`}>{cameraOnline ? "LIVE" : "OFFLINE"}</span></div>
-                    <span className="muted">맵 동시 관제</span>
+                    <div><h2>카메라 관제</h2><span className={`operator-camera-state ${cameraOnline ? "online" : "offline"}`}>{cameraOnline ? "LIVE" : "OFFLINE"}</span></div>
+                    <span className="muted">Grid = 전체 소스</span>
                   </div>
                   <div className="operator-global-camera-body">
-                    {globalCams.length > 0 ? <LiveCamera cameras={globalCams} /> : <div className="operator-camera-empty"><strong>전역 카메라가 등록되지 않았습니다.</strong><span>관리 공간에서 로봇에 귀속되지 않은 카메라 소스를 등록하세요.</span></div>}
+                    {cameras.length > 0 ? <LiveCamera cameras={cameras} /> : <div className="operator-camera-empty"><strong>전역 카메라가 등록되지 않았습니다.</strong><span>관리 공간에서 로봇에 귀속되지 않은 카메라 소스를 등록하세요.</span></div>}
                   </div>
                 </section>
               </div>
+              <Resizer className="operator-dock-resizer" orientation="vertical" storageKey="lms.layout.operator-task-queue-height" cssVar="--operator-dock-h" containerRef={workbenchRef} defaultSize={240} min={170} max={520} adjacent="trailing" />
               <FleetMissionDock robots={robots} selectedRobotId={selectedRobotId} onRobotSelect={selectRobot} />
             </div>
           </div>
@@ -530,12 +530,6 @@ export function OperatorShell() {
                   );
                 })}
               </div>
-              <section className="operator-selected-camera" aria-label="선택 로봇 카메라">
-                <header><strong>{selectedRobot ? `${selectedRobot.display_name || selectedRobot.robot_id} 카메라` : "선택 로봇 카메라"}</strong><span className="muted">선택 문맥</span></header>
-                <div>
-                  {selectedRobotCams.length > 0 ? <LiveCamera cameras={selectedRobotCams} /> : <span className="empty">선택 로봇 카메라 없음</span>}
-                </div>
-              </section>
             </section>
           </aside>
         </div>

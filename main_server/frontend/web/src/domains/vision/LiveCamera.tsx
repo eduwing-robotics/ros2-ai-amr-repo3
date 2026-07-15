@@ -347,6 +347,7 @@ export function CameraTile({
         </div>
       ) : null}
       <div className="live-stage">
+        <span className="cam-name-overlay">{label}</span>
         <video
           ref={videoRef}
           className={`cam-live cam-live-video${mode === "webrtc" ? " is-active" : ""}`}

@@ -109,7 +109,8 @@ export async function mockMainApi(page: Page, state: State = {}) {
       limitations: ["자동 하역 및 기존 작업 재개는 수행하지 않습니다."],
     });
     if (path.startsWith("/comm/logs")) return json(route, { logs: [], movement_commands: [] });
-    if (path.startsWith("/events") || path.startsWith("/api-logs") || path.startsWith("/movement-commands") || path.startsWith("/task-logs") || path.startsWith("/item-change-logs")) return json(route, []);
+    if (path.startsWith("/events")) return json(route, state.events ?? []);
+    if (path.startsWith("/api-logs") || path.startsWith("/movement-commands") || path.startsWith("/task-logs") || path.startsWith("/item-change-logs")) return json(route, []);
     if (path.startsWith("/cameras") || path.startsWith("/camera-sources")) return json(route, []);
     throw new Error(`Unhandled Main API mock: ${req.method()} ${path}`);
   });

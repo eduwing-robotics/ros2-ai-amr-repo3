@@ -37,8 +37,8 @@ test("입출고 우측 문맥을 열어도 맵·전역 카메라·하단 작업 
   await page.goto("/operate/control");
 
   const map = page.locator(".operator-map-stage-wrap");
-  const camera = page.getByRole("region", { name: "전역 카메라" });
-  const missionDock = page.getByRole("region", { name: "로봇별 작업 진행과 안전 중지" });
+  const camera = page.getByRole("region", { name: "전역 카메라 및 전체 카메라 Grid" });
+  const missionDock = page.getByRole("region", { name: "작업 큐, 할당 로봇, 타임라인과 안전 중지" });
   const mapBefore = await map.boundingBox();
   const cameraBefore = await camera.boundingBox();
   const dockBefore = await missionDock.boundingBox();
@@ -72,8 +72,8 @@ test("1440x900에서도 맵과 전역 카메라가 나란히 보이고 작업 �
   await page.goto("/operate/control");
 
   const mapBox = await page.locator(".operator-map-stage-wrap").boundingBox();
-  const cameraBox = await page.getByRole("region", { name: "전역 카메라" }).boundingBox();
-  const dockBox = await page.getByRole("region", { name: "로봇별 작업 진행과 안전 중지" }).boundingBox();
+  const cameraBox = await page.getByRole("region", { name: "전역 카메라 및 전체 카메라 Grid" }).boundingBox();
+  const dockBox = await page.getByRole("region", { name: "작업 큐, 할당 로봇, 타임라인과 안전 중지" }).boundingBox();
   expect(mapBox).not.toBeNull();
   expect(cameraBox).not.toBeNull();
   expect(dockBox).not.toBeNull();
@@ -98,7 +98,7 @@ test("좌측 Activity 버튼은 좌측 문맥과 중앙 목적지를 함께 전�
     await expect(page).toHaveURL(new RegExp(route + "$"));
     await expect(primary).toHaveAttribute("aria-label", context);
     await expect(page.locator("#operator-workspace-main")).toHaveAttribute("aria-label", workspace);
-    await expect(page.getByRole("region", { name: "전역 카메라" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "전역 카메라 및 전체 카메라 Grid" })).toBeVisible();
   }
 });
 
@@ -122,11 +122,11 @@ test("좌측에는 목적지만, 우측에는 모든 로봇과 로봇별 명령�
   await expect(page.getByRole("button", { name: "새 요청 만들기" })).toBeVisible();
 });
 
-test("하단 로봇 행은 실제 Movement 단계와 작업 안전 중지를 제공한다", async ({ page }) => {
+test("하단 작업 큐는 할당 로봇과 실제 Movement 단계 및 안전 중지를 제공한다", async ({ page }) => {
   await mockMainApi(page, { workOrders: [runningOrder] });
   await page.goto("/operate/control");
 
-  const dock = page.getByRole("region", { name: "로봇별 작업 진행과 안전 중지" });
+  const dock = page.getByRole("region", { name: "작업 큐, 할당 로봇, 타임라인과 안전 중지" });
   await expect(dock.getByText("Task #9")).toBeVisible();
   await expect(dock.getByLabel("Task 9 진행도 1/3")).toBeVisible();
   await expect(dock.getByText("적재 이동")).toBeVisible();
@@ -136,4 +136,33 @@ test("하단 로봇 행은 실제 Movement 단계와 작업 안전 중지를 제
   await dock.getByRole("button", { name: "작업 안전 중지" }).click();
   await stopRequest;
   await expect(page.getByText(/안전 중단 요청 전송 중/)).toBeVisible();
+});
+
+
+test("맵·카메라·작업 큐는 크기 조절되고 Grid와 이벤트 등급을 명시한다", async ({ page }) => {
+  await mockMainApi(page, {
+    cameraOnline: true,
+    cameraSources: [
+      globalCamera,
+      { source_id: "CAM_ROBOT_1", label: "AMR 1 전방", robot_id: "tb3_1", status: "ONLINE" },
+    ],
+    workOrders: [runningOrder],
+    events: [
+      { event_id: 1, created_at: "2026-07-15T10:00:00", event_type: "ESTOP", message: "비상 정지" },
+      { event_id: 2, created_at: "2026-07-15T10:01:00", event_type: "POSE_STALE", message: "연결 지연" },
+    ],
+  });
+  await page.goto("/operate/control");
+
+  await expect(page.locator(".operator-live-resizer")).toBeVisible();
+  await expect(page.locator(".operator-dock-resizer")).toBeVisible();
+  await expect(page.locator(".cam-name-overlay", { hasText: "창고 전역" })).toBeVisible();
+  await expect(page.locator(".cam-name-overlay", { hasText: "AMR 1 전방" })).toBeVisible();
+  await expect(page.locator(".operator-selected-camera")).toHaveCount(0);
+
+  await page.getByRole("navigation", { name: "운영 메뉴" }).getByRole("button", { name: "이벤트", exact: true }).click();
+  await expect(page.locator(".event-severity--err").getByText("위험")).toBeVisible();
+  await expect(page.locator(".event-severity--warn").getByText("주의")).toBeVisible();
+  await expect(page.locator(".event-row--err")).toHaveCount(1);
+  await expect(page.locator(".event-row--warn")).toHaveCount(1);
 });

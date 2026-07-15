@@ -286,7 +286,7 @@ test("WEB-15 작업 메뉴는 중앙 작업 워크스페이스로 전환한다",
   await nav.getByRole("button", { name: "관제", exact: true }).click();
   await expect(page).toHaveURL(new RegExp("/operate/control$"));
   await expect(page.locator(".operator-map-stage-wrap")).toBeVisible();
-  await expect(page.getByRole("region", { name: "로봇별 작업 진행과 안전 중지" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "작업 큐, 할당 로봇, 타임라인과 안전 중지" })).toBeVisible();
 });
 
 test("WEB-17 KPI는 읽기 전용이고 이벤트 명령은 현재 경고 문맥에 둔다", async ({ page }) => {
