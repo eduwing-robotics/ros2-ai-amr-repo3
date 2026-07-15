@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from collections import defaultdict
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Any, Literal
 
 from fastapi import HTTPException
@@ -41,6 +43,30 @@ RECOVERY_DISPATCHING = "DISPATCHING"
 RECOVERY_DISPATCH_SENT = "SENT"
 RECOVERY_ABORT_STOP_REQUESTED = "ABORT_STOP_REQUESTED"
 _recovery_command_locks: defaultdict[int, threading.RLock] = defaultdict(threading.RLock)
+
+
+def _orchestration_fingerprint(orchestration: dict[str, Any]) -> str:
+    canonical = json.dumps(
+        orchestration,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _active_task_safety_stops(conn, task_id: int) -> list[dict[str, Any]]:
+    task_evidence_ids = {
+        int(row["id"])
+        for row in evidence_repo(conn).list_for_task(task_id)
+        if row.get("id") is not None
+    }
+    return [
+        row
+        for row in safety_stop_repo(conn).list_active()
+        if row.get("detected_evidence_id") in task_evidence_ids
+        and str(row.get("status") or "").upper() in {"OPEN", "HOLDING"}
+    ]
 
 
 def _claim_recovery_terminal_transition(
@@ -373,7 +399,22 @@ def execute_recovery(
     robot_id = task.get("assigned_robot_id") or task.get("robot_id")
     if not robot_id:
         raise HTTPException(status_code=409, detail="task has no assigned robot")
-    trusted_safety_gate = _verify_recovery_safety_gate(conn, task_id, str(robot_id))
+    held_orchestration = evidence_repo(conn).get_orchestration(task_id) or {}
+    if (
+        orch_state.normalize_phase(held_orchestration.get("phase"))
+        != orch_state.PHASE_AWAITING_OPERATOR
+    ):
+        raise HTTPException(status_code=409, detail="recovery_requires_needs_attention_phase")
+    held_fingerprint = _orchestration_fingerprint(held_orchestration)
+    trusted_safety_gate = dict(
+        _verify_recovery_safety_gate(
+            conn,
+            task_id,
+            str(robot_id),
+            held_orchestration_fingerprint=held_fingerprint,
+        )
+    )
+    trusted_safety_gate["held_orchestration_fingerprint"] = held_fingerprint
     first = next((s for s in plan["steps"] if s.get("kind") == "move_to_point"), None)
     if not first:
         raise HTTPException(status_code=409, detail="no move_to_point step in recovery plan")
@@ -397,6 +438,12 @@ def execute_recovery(
             != orch_state.PHASE_AWAITING_OPERATOR
         ):
             raise HTTPException(status_code=409, detail="recovery_requires_needs_attention_phase")
+        if _active_task_safety_stops(conn, task_id):
+            raise HTTPException(status_code=409, detail="recovery_blocked_active_safety_stop")
+        if _orchestration_fingerprint(orch) != trusted_safety_gate.get(
+            "held_orchestration_fingerprint"
+        ):
+            raise HTTPException(status_code=409, detail="recovery_safety_gate_stale")
         orch = _record_recovery_decision(
             conn,
             task_id,
@@ -612,11 +659,12 @@ def _fail_close_ambiguous_recovery_dispatch(
 ) -> None:
     """E-stop an ambiguous HTTP delivery, then persist an operator hold."""
     estop_ok = False
+    estop_error: str | None = None
     try:
         movement_client.estop(robot_id)
         estop_ok = True
-    except Exception:
-        pass
+    except Exception as exc:
+        estop_error = str(exc)
     held = _hold_recovery_dispatch(
         conn,
         task_id,
@@ -633,7 +681,12 @@ def _fail_close_ambiguous_recovery_dispatch(
             source="main_recovery",
             severity="CRITICAL",
             trusted=True,
-            data_json={"command_id": command_id, "robot_id": robot_id, "estop_ok": estop_ok},
+            data_json={
+                "command_id": command_id,
+                "robot_id": robot_id,
+                "estop_ok": estop_ok,
+                "estop_error": estop_error,
+            },
         )
         conn.commit()
 
@@ -774,24 +827,30 @@ def _enforce_stop_requested_during_dispatch(
     raise HTTPException(status_code=409, detail="recovery stop already requested")
 
 
-def _verify_recovery_safety_gate(conn, task_id: int, robot_id: str) -> dict[str, Any]:
+def _verify_recovery_safety_gate(
+    conn,
+    task_id: int,
+    robot_id: str,
+    *,
+    held_orchestration_fingerprint: str | None = None,
+) -> dict[str, Any]:
     """Require DB stop closure and a fresh, unambiguous non-emergency health response.
 
     Operator-provided checkboxes are intentionally not safety authority.  The
     health probe is forced to bypass SWR cache so a prior clear acknowledgement
     cannot authorize recovery after a newer emergency state.
     """
-    task_evidence_ids = {
-        int(row["id"])
-        for row in evidence_repo(conn).list_for_task(task_id)
-        if row.get("id") is not None
-    }
-    active_stops = [
-        row
-        for row in safety_stop_repo(conn).list_active()
-        if row.get("detected_evidence_id") in task_evidence_ids
-        and str(row.get("status") or "").upper() in {"OPEN", "HOLDING"}
-    ]
+    held_orchestration = evidence_repo(conn).get_orchestration(task_id) or {}
+    if (
+        orch_state.normalize_phase(held_orchestration.get("phase"))
+        != orch_state.PHASE_AWAITING_OPERATOR
+    ):
+        raise HTTPException(status_code=409, detail="recovery_requires_needs_attention_phase")
+    observed_fingerprint = _orchestration_fingerprint(held_orchestration)
+    held_fingerprint = held_orchestration_fingerprint or observed_fingerprint
+    if observed_fingerprint != held_fingerprint:
+        raise HTTPException(status_code=409, detail="recovery_safety_gate_stale")
+    active_stops = _active_task_safety_stops(conn, task_id)
     if active_stops:
         raise HTTPException(status_code=409, detail="recovery_blocked_active_safety_stop")
 
@@ -823,6 +882,7 @@ def _verify_recovery_safety_gate(conn, task_id: int, robot_id: str) -> dict[str,
     }
     gate = {
         "active_safety_stop_ids": [],
+        "held_orchestration_fingerprint": held_fingerprint,
         "live_health": dict(health),
         "clear_acknowledgement": clear_acknowledgement,
     }

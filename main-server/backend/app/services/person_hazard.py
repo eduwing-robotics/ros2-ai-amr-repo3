@@ -469,7 +469,10 @@ def fail_safe_monitor_outage(
     if runtime.fail_safe_triggered:
         return False
 
-    advisory_id = evidence_repo(conn).append(
+    repo = evidence_repo(conn)
+    if isinstance(repo, MvpEvidenceRepository) and getattr(conn, "is_postgres", False) is True:
+        repo.lock_orchestration(task_id)
+    advisory_id = repo.append(
         task_id=task_id,
         event_type="PERSON_MONITOR_HEALTH_FAILURE",
         source="vision_person_monitor",
@@ -482,7 +485,7 @@ def fail_safe_monitor_outage(
             "reason_code": "AI_MONITOR_UNAVAILABLE",
         },
     )
-    decision_id = evidence_repo(conn).append(
+    decision_id = repo.append(
         task_id=task_id,
         event_type="SAFETY_ESTOP_DECISION",
         source="main_safety_policy",
@@ -541,7 +544,10 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
         import json
         data_json = json.loads(data_json)
 
-    advisory_id = evidence_repo(conn).append(
+    repo = evidence_repo(conn)
+    if isinstance(repo, MvpEvidenceRepository) and getattr(conn, "is_postgres", False) is True:
+        repo.lock_orchestration(runtime.task_id)
+    advisory_id = repo.append(
         task_id=runtime.task_id,
         event_type="HUMAN_DETECTED",
         source=str(event.get("source") or runtime.source),
@@ -559,7 +565,7 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
         },
     )
 
-    decision_id = evidence_repo(conn).append(
+    decision_id = repo.append(
         task_id=runtime.task_id,
         event_type="SAFETY_ESTOP_DECISION",
         source="main_safety_policy",

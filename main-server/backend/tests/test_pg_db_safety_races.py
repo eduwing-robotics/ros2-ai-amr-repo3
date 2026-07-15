@@ -722,6 +722,145 @@ class PgDbSafetyRaceTest(unittest.TestCase):
         self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
         self.assertEqual(orchestration["recovery"]["reason"], "concurrent_safety_hold")
 
+    def test_person_advisory_committed_after_safety_gate_blocks_recovery_claim(self) -> None:
+        with write_transaction() as conn:
+            task_id = MvpTaskRepository(conn).create(
+                {"task_type": "MOVE", "status": "RUNNING", "robot_id": "tb3_1"}
+            )
+            MvpEvidenceRepository(conn).save_orchestration(
+                task_id,
+                {
+                    "phase": "AWAITING_OPERATOR",
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "kind": "move_to_point",
+                            "status": "dispatched",
+                            "command_id": "interrupted-move",
+                        }
+                    ],
+                    "recovery": {"reason": "operator_estop", "robot_id": "tb3_1"},
+                },
+            )
+
+        gate_passed = threading.Event()
+        advisory_committed = threading.Event()
+        results: dict[str, object] = {}
+        plan = {
+            "task_id": task_id,
+            "strategy": "safe_move",
+            "cargo_state": "LOADED",
+            "executable": True,
+            "steps": [
+                {
+                    "kind": "move_to_point",
+                    "params": {"map_id": "robot2_map", "x": 0.0, "y": 0.0, "yaw": 0.0},
+                }
+            ],
+        }
+        original_gate = task_recovery._verify_recovery_safety_gate
+
+        def gate_then_wait(conn, claimed_task_id: int, robot_id: str, **kwargs):
+            gate = original_gate(conn, claimed_task_id, robot_id, **kwargs)
+            gate_passed.set()
+            if not advisory_committed.wait(timeout=10):
+                raise TimeoutError("person advisory did not commit after recovery safety gate")
+            return gate
+
+        def recover() -> None:
+            try:
+                with write_transaction() as conn:
+                    results["recovery"] = task_recovery.execute_recovery(
+                        conn,
+                        task_id,
+                        cargo_state="LOADED",
+                        strategy="safe_move",
+                        checks={"area_clear": True},
+                    )
+            except Exception as exc:
+                results["recovery"] = exc
+
+        def commit_advisory() -> None:
+            if not gate_passed.wait(timeout=10):
+                results["advisory"] = TimeoutError("recovery safety gate did not pass")
+                advisory_committed.set()
+                return
+            runtime = person_hazard.MonitorRuntime(
+                robot_id="tb3_1",
+                source="tb3_1_picam",
+                task_id=task_id,
+                enable_time=datetime.now(timezone.utc),
+            )
+            try:
+                with write_transaction() as conn:
+                    results["advisory"] = person_hazard.process_advisory(
+                        conn,
+                        runtime,
+                        self._fresh_person_advisory(task_id, suffix="after-recovery-gate"),
+                    )
+            except Exception as exc:
+                results["advisory"] = exc
+            finally:
+                advisory_committed.set()
+
+        with (
+            patch.object(task_recovery, "preview_recovery_plan", return_value=plan),
+            patch.object(task_recovery, "_verify_recovery_safety_gate", side_effect=gate_then_wait),
+            patch.object(
+                task_recovery,
+                "get_movement_health",
+                return_value={
+                    "tb3_1": {
+                        "ok": True,
+                        "health_endpoint_reached": True,
+                        "is_emergency": False,
+                        "estop_state": "clear",
+                        "mode": "live",
+                        "checked_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                },
+            ),
+            patch.object(person_hazard.movement_client, "estop", return_value={"estopped": True}),
+            patch.object(
+                person_hazard,
+                "arm_physical_motion_monitor",
+                return_value=True,
+            ) as arm_monitor,
+            patch.object(task_recovery.command_service, "dispatch_robot_command") as dispatch,
+        ):
+            threads = [
+                threading.Thread(target=recover, name="recovery-after-clear-gate"),
+                threading.Thread(target=commit_advisory, name="person-advisory-after-clear-gate"),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive(), "recovery/advisory race contender did not finish")
+
+        self.assertIs(results.get("advisory"), True)
+        self.assertIsInstance(results.get("recovery"), HTTPException)
+        self.assertEqual(results["recovery"].status_code, 409)
+        self.assertEqual(results["recovery"].detail, "recovery_blocked_active_safety_stop")
+        arm_monitor.assert_not_called()
+        dispatch.assert_not_called()
+
+        with transaction() as conn:
+            orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
+            active_stops = MvpSafetyStopRepository(conn).list_active()
+            events = MvpEvidenceRepository(conn).list_for_task(task_id, limit=100)
+        self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
+        self.assertEqual(orchestration["recovery"]["reason"], "person_hazard")
+        self.assertNotIn("active_command_id", orchestration["recovery"])
+        self.assertEqual(len(active_stops), 1)
+        self.assertEqual(active_stops[0]["status"], "OPEN")
+        for event_type in (
+            "RECOVERY_DECISION",
+            "RECOVERY_COMMAND_PENDING",
+            "RECOVERY_COMMAND_DISPATCHED",
+        ):
+            self.assertEqual(len([row for row in events if row["event_type"] == event_type]), 0)
+
     def test_work_order_pending_stop_commits_hold_before_manual_stop_http(self) -> None:
         with write_transaction() as conn:
             task_id = MvpTaskRepository(conn).create(

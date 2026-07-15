@@ -182,6 +182,34 @@ def test_recovery_monitor_arm_failure_holds_task_without_dispatch() -> None:
     assert "active_command_id" not in state["recovery"]
 
 
+def test_ambiguous_recovery_dispatch_records_estop_error() -> None:
+    conn = MagicMock()
+    repo = MagicMock()
+
+    with (
+        patch.object(task_recovery, "evidence_repo", return_value=repo),
+        patch.object(task_recovery, "_hold_recovery_dispatch", return_value=True),
+        patch.object(
+            task_recovery.movement_client,
+            "estop",
+            side_effect=RuntimeError("movement estop unavailable"),
+        ),
+    ):
+        task_recovery._fail_close_ambiguous_recovery_dispatch(
+            conn,
+            101,
+            "cmd-recovery",
+            "tb3_1",
+            _recovery_orchestration(dispatch_state="DISPATCHING"),
+        )
+
+    event = repo.append.call_args.kwargs
+    assert event["event_type"] == "RECOVERY_DISPATCH_AMBIGUOUS_STOP"
+    assert event["data_json"]["estop_ok"] is False
+    assert event["data_json"]["estop_error"] == "movement estop unavailable"
+    conn.commit.assert_called_once_with()
+
+
 @pytest.mark.parametrize("dispatch_state", ["PENDING", "DISPATCHING", "SENT"])
 @pytest.mark.parametrize("command_id", ["cmd-recovery", None])
 def test_restart_recovery_motion_estops_and_holds_without_rearm_or_dispatch(

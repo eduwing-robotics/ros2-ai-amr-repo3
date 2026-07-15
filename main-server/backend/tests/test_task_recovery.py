@@ -32,7 +32,10 @@ class TaskRecoveryTest(unittest.TestCase):
         conn = MagicMock()
         evidence = MagicMock()
         evidence.list_for_task.return_value = [{"id": 10}]
-        evidence.get_orchestration.return_value = {}
+        evidence.get_orchestration.return_value = {
+            "phase": "AWAITING_OPERATOR",
+            "recovery": {"reason": "operator_estop"},
+        }
         safety = MagicMock()
         safety.list_active.return_value = stops
         tasks = MagicMock()

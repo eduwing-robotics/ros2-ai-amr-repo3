@@ -44,9 +44,16 @@ class RecoveryPhaseGuardTest(unittest.TestCase):
         conn = MagicMock()
         tasks = MagicMock()
         tasks.get.return_value = {"task_id": 1, "status": "RUNNING", "assigned_robot_id": "r1"}
+        state = {"phase": "AWAITING_OPERATOR", "recovery": {"reason": "operator_estop"}}
         evidence = MagicMock()
+        evidence.get_orchestration.side_effect = lambda _task_id: copy.deepcopy(state)
         plan = {"executable": True, "steps": [{"kind": "move_to_point", "params": {"map_id": "m"}}]}
         rejected = RobotCommandResponse(command_id="c1", robot_id="r1", kind="move_to_point", accepted=False)
+
+        def save(_conn, _task_id, orchestration):
+            state.clear()
+            state.update(copy.deepcopy(orchestration))
+
         with (
             patch.object(recovery, "_assert_needs_attention_phase"),
             patch.object(recovery, "preview_recovery_plan", return_value=plan),
@@ -54,6 +61,7 @@ class RecoveryPhaseGuardTest(unittest.TestCase):
             patch.object(recovery, "save_recovery_decision"),
             patch.object(recovery, "task_repo", return_value=tasks),
             patch.object(recovery, "evidence_repo", return_value=evidence),
+            patch.object(recovery.evidence_runtime, "save_orchestration", side_effect=save),
             patch.object(recovery.command_service, "dispatch_robot_command", return_value=rejected),
             self.assertRaises(HTTPException) as ctx,
         ):
@@ -200,7 +208,10 @@ class RecoveryPhaseGuardTest(unittest.TestCase):
         conn = MagicMock()
         tasks = MagicMock()
         tasks.get.return_value = {"task_id": 1, "status": "RUNNING", "assigned_robot_id": "r1"}
-        state: dict = {}
+        state: dict = {
+            "phase": "AWAITING_OPERATOR",
+            "recovery": {"reason": "operator_estop"},
+        }
         evidence = MagicMock()
         evidence.get_orchestration.side_effect = lambda _task_id: state.copy()
         plan = {
@@ -255,6 +266,67 @@ class RecoveryPhaseGuardTest(unittest.TestCase):
             [call.kwargs["event_type"] for call in evidence.append.call_args_list],
             ["RECOVERY_DECISION", "RECOVERY_COMMAND_PENDING", "RECOVERY_COMMAND_DISPATCHED"],
         )
+
+    def test_new_operator_hold_after_gate_blocks_recovery_claim(self) -> None:
+        conn = MagicMock()
+        tasks = MagicMock()
+        tasks.get.return_value = {
+            "task_id": 1,
+            "status": "RUNNING",
+            "assigned_robot_id": "r1",
+        }
+        state = {
+            "phase": "AWAITING_OPERATOR",
+            "recovery": {"reason": "operator_estop", "marked_at": "before-gate"},
+        }
+        evidence = MagicMock()
+        evidence.get_orchestration.side_effect = lambda _task_id: copy.deepcopy(state)
+        stops = MagicMock()
+        stops.list_active.return_value = []
+        plan = {
+            "executable": True,
+            "steps": [
+                {
+                    "kind": "move_to_point",
+                    "params": {"map_id": "robot2_map", "x": 1.0, "y": 2.0},
+                }
+            ],
+        }
+
+        def gate_then_replace_hold(*_args, **_kwargs):
+            state["recovery"] = {
+                "reason": "person_hazard",
+                "marked_at": "after-gate",
+            }
+            return {}
+
+        with (
+            patch.object(recovery, "_assert_needs_attention_phase"),
+            patch.object(recovery, "preview_recovery_plan", return_value=plan),
+            patch.object(
+                recovery,
+                "_verify_recovery_safety_gate",
+                side_effect=gate_then_replace_hold,
+            ),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(recovery, "evidence_repo", return_value=evidence),
+            patch.object(recovery, "safety_stop_repo", return_value=stops),
+            patch.object(recovery.command_service, "dispatch_robot_command") as dispatch,
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            recovery.execute_recovery(
+                conn,
+                1,
+                cargo_state="LOADED",
+                strategy="safe_move",
+                checks={"ok": True},
+            )
+
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(ctx.exception.detail, "recovery_safety_gate_stale")
+        dispatch.assert_not_called()
+        self.assertEqual(state["phase"], "AWAITING_OPERATOR")
+        self.assertEqual(state["recovery"]["reason"], "person_hazard")
 
     def test_two_safe_move_starts_have_one_claim_and_one_dispatch(self) -> None:
         task_id = 77
