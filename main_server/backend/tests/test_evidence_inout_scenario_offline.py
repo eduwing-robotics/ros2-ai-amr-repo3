@@ -188,6 +188,51 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         self.assertEqual(len(scenario["steps"]), 4)
         self.assertEqual(scenario["steps"][-1]["name"], "home:HOME_01")
 
+    @patch("app.domains.execution.evidence.locations")
+    def test_inbound2_storage_b_floor2_tb3_2_uses_one_movement_scenario(self, location_repo) -> None:
+        location_repo.list_map_markers.return_value = []
+        task = {
+            "task_id": 344,
+            "task_type": "INBOUND",
+            "status": "ASSIGNED",
+            "assigned_robot_id": "tb3_2",
+            "from_location_id": "INBOUND_02",
+            "to_location_id": "STORAGE_01",
+            "from_floor": 1,
+            "to_floor": 2,
+        }
+        with patch.object(evidence, "settings") as contract:
+            contract.inbound2_storage_b_scenario_enabled = True
+            contract.inbound2_storage_b_scenario_id = "inbound2-storage-b"
+            contract.inbound2_storage_b_scenario_version = 1
+            contract.inbound2_storage_b_plan_hash = "verified-plan-hash"
+            contract.inbound2_storage_b_skip_lift = False
+            contract.movement_active_map_id = "robot2_map"
+            scenario = evidence.build_scenario_from_task(MagicMock(), task)
+
+        self.assertEqual(len(scenario["steps"]), 1)
+        raw = scenario["steps"][0]
+        self.assertEqual(raw["action_type"], "scenario")
+        self.assertEqual(
+            raw["params"],
+            {
+                "scenario_id": "inbound2-storage-b",
+                "scenario_version": 1,
+                "expected_plan_hash": "verified-plan-hash",
+                "skip_lift": False,
+            },
+        )
+        steps = evidence.plan_command_steps(MagicMock(), scenario, task_id=344, robot_id="tb3_2")
+        self.assertEqual(len(steps), 1)
+        self.assertEqual(steps[0]["kind"], "scenario")
+
+    def test_inbound2_storage_b_wrong_floor_does_not_match_contract(self) -> None:
+        task = {
+            "task_type": "INBOUND", "assigned_robot_id": "tb3_2",
+            "from_location_id": "INBOUND_02", "to_location_id": "STORAGE_01", "to_floor": 1,
+        }
+        self.assertFalse(evidence._is_inbound2_storage_b_contract(task))
+
 
 if __name__ == "__main__":
     unittest.main()

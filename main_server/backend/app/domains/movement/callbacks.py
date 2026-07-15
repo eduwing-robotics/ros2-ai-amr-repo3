@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import zlib
 from typing import Any
 
+from app.db.connection import MOVEMENT_CALLBACK_LOCK_NAMESPACE, advisory_xact_lock_for_key
 from app.db.postgres import operational_events, robot_command_records
 from app.domains.execution import orchestrator
 from app.domains.movement.pose_runtime import pose_runtime
@@ -47,6 +49,16 @@ def _is_duplicate_callback(conn, payload: dict[str, Any]) -> bool:
     return bool(event_id and operational_events.callback_event_exists(conn, event_id))
 
 
+def _lock_callback_event(conn, payload: dict[str, Any]) -> None:
+    event_id = str(payload.get("event_id") or "")
+    if not event_id:
+        return
+    key = zlib.crc32(event_id.encode("utf-8"))
+    if key >= 2**31:
+        key -= 2**32
+    advisory_xact_lock_for_key(conn, MOVEMENT_CALLBACK_LOCK_NAMESPACE, key)
+
+
 def _event_payload(payload: dict[str, Any]) -> dict[str, Any]:
     out = dict(payload)
     if payload.get("event_id"):
@@ -57,6 +69,7 @@ def _event_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist a command callback and advance Execution when applicable."""
     payload = _with_callback_event_id(payload, "event")
+    _lock_callback_event(conn, payload)
     if _is_duplicate_callback(conn, payload):
         return {"message": "duplicate movement callback ignored", "duplicate": True, "task_advanced": False}
     command_id = payload.get("command_id")
@@ -67,6 +80,7 @@ def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
         event_type=f"MOVEMENT_COMMAND_{event}",
         robot_id=robot_id,
         command_id=command_id,
+        task_id=payload.get("task_id"),
         message=payload.get("message") or str(event),
         payload=_event_payload(payload),
     )
@@ -77,6 +91,7 @@ def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
 def ingest_result(conn, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist a result callback and update its command record and Execution."""
     payload = _with_callback_event_id(payload, "result")
+    _lock_callback_event(conn, payload)
     if _is_duplicate_callback(conn, payload):
         return {"message": "duplicate movement result ignored", "duplicate": True, "task_advanced": False}
     command_id = payload.get("command_id")
@@ -87,6 +102,7 @@ def ingest_result(conn, payload: dict[str, Any]) -> dict[str, Any]:
         event_type=f"MOVEMENT_RESULT_{result}",
         robot_id=robot_id,
         command_id=command_id,
+        task_id=payload.get("task_id"),
         message=payload.get("message") or str(result),
         payload=_event_payload(payload),
     )

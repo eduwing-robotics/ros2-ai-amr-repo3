@@ -111,6 +111,40 @@ class HttpMovementClientTest(unittest.TestCase):
                 self.client.robot_command("tb3_1", {"command_id": "large", "kind": "move_to_point"})
         self.assertEqual(ctx.exception.status_code, 502)
 
+    def test_scenario_contract_paths_and_idempotency_header(self) -> None:
+        body = {
+            "command_id": "main-task-344-tb3_2-contract-001",
+            "task_id": 344,
+            "robot_name": "tb3_2",
+            "scenario_version": 1,
+            "dry_run": False,
+            "skip_lift": False,
+            "callback_url": "http://main/callback",
+        }
+        responses = [
+            b'{"executable":true,"blocking_reasons":[],"plan_hash":"h"}',
+            b'{"accepted":true}',
+            b'{"state":"RUNNING"}',
+            b'{"accepted":true}',
+        ]
+        requests = []
+
+        def open_request(req, timeout):
+            requests.append(req)
+            return BytesIO(responses[len(requests) - 1])
+
+        with patch("app.domains.movement.client.urlopen", side_effect=open_request):
+            self.client.scenario_preview("tb3_2", "inbound2-storage-b", body)
+            self.client.scenario_command("tb3_2", "inbound2-storage-b", body)
+            self.client.scenario_command_status("tb3_2", body["command_id"])
+            self.client.scenario_safe_stop("tb3_2", body["command_id"])
+
+        self.assertEqual(requests[0].full_url, "http://nav.local:8002/movement-api/v1/scenarios/inbound2-storage-b/preview")
+        self.assertEqual(requests[1].full_url, "http://nav.local:8002/movement-api/v1/scenarios/inbound2-storage-b/commands")
+        self.assertEqual(requests[1].get_header("Idempotency-key"), body["command_id"])
+        self.assertEqual(requests[2].full_url, f"http://nav.local:8002/movement-api/v1/commands/{body['command_id']}")
+        self.assertEqual(requests[3].full_url, f"http://nav.local:8002/movement-api/v1/commands/{body['command_id']}/safe-stop")
+
 
 if __name__ == "__main__":
     unittest.main()

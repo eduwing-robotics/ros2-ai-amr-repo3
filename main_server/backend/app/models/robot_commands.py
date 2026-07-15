@@ -13,6 +13,7 @@ class RobotCommandKind(StrEnum):
     ESTOP = "estop"
     ARUCO_ALIGN = "aruco_align"
     LEAVE_DOCK = "leave_dock"
+    SCENARIO = "scenario"
 
 
 class RobotCommandState(StrEnum):

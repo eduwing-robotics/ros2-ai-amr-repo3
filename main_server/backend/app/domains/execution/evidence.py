@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.db.postgres import locations, robot_command_definitions, runtime_records, safety_stops, tasks
+from app.domains.movement.client import movement_robot_key
 from app.domains.movement.commands import normalize_dock_transfer_params
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,18 @@ def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: s
     steps: list[dict[str, Any]] = []
     for idx, step in enumerate(raw_steps, start=1):
         action_type = str(step.get("action_type") or "move")
+        if action_type == "scenario":
+            steps.append(
+                {
+                    "seq": idx,
+                    "kind": "scenario",
+                    "label": step.get("name") or "movement-owned-scenario",
+                    "params": dict(step.get("params") or {}),
+                    "status": "pending",
+                    "command_id": None,
+                }
+            )
+            continue
         if action_type == "dock_transfer":
             params = dict(step.get("params") or {})
             normalized = normalize_dock_transfer_params(
@@ -264,10 +277,49 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
     return {"map_id": map_id, "steps": steps}
 
 
+def _is_inbound2_storage_b_contract(task: dict[str, Any]) -> bool:
+    if not settings.inbound2_storage_b_scenario_enabled:
+        return False
+    robot_id = str(task.get("assigned_robot_id") or "")
+    try:
+        to_floor = int(task.get("to_floor") or 0)
+    except (TypeError, ValueError):
+        return False
+    return (
+        str(task.get("task_type") or "").upper() == "INBOUND"
+        and str(task.get("from_location_id") or "").upper() == "INBOUND_02"
+        and str(task.get("to_location_id") or "").upper() == "STORAGE_01"
+        and to_floor == 2
+        and movement_robot_key(robot_id) == "tb3_2"
+    )
+
+
+def _build_inbound2_storage_b_contract() -> dict[str, Any]:
+    """문서 검증본: Main은 한 명령만 보내고 Movement가 내부 9단계를 소유한다."""
+    return {
+        "map_id": settings.movement_active_map_id,
+        "steps": [
+            {
+                "action_type": "scenario",
+                "name": "inbound2-storage-b",
+                "params": {
+                    "scenario_id": settings.inbound2_storage_b_scenario_id,
+                    "scenario_version": settings.inbound2_storage_b_scenario_version,
+                    "expected_plan_hash": settings.inbound2_storage_b_plan_hash,
+                    "skip_lift": settings.inbound2_storage_b_skip_lift,
+                },
+            }
+        ],
+    }
+
+
 def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
     snap = task.get("preset_snapshot") or {}
     if snap.get("steps") or snap.get("map_id"):
         return snap
+
+    if _is_inbound2_storage_b_contract(task):
+        return _build_inbound2_storage_b_contract()
 
     task_type = str(task.get("task_type") or "").upper()
     if task_type in {"INBOUND", "OUTBOUND"}:

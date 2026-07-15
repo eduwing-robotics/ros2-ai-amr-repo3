@@ -2,10 +2,10 @@
 
 상태: Active
 소유: Docs
-최종 갱신: 2026-07-14 12:30 KST
+최종 갱신: 2026-07-15 KST
 목적: GitHub 공개 정본 목차와 권장 읽기 순서.
 
-공개 문서는 아래 11개가 전부다. 상세 설계 노트·의사결정 기록(ADR)·팀 정책 문서는 팀 내부에서 관리한다.
+공개 문서는 아래 12개가 전부다. 상세 설계 노트·의사결정 기록(ADR)·팀 정책 문서는 팀 내부에서 관리한다.
 
 ## 공개 정본
 
@@ -18,15 +18,17 @@
 | 5 | [DATABASE](DATABASE.md) | PostgreSQL SoT · ERD |
 | 6 | [INTERFACES](INTERFACES.md) | Main_Control↔Movement/Vision 계약 |
 | 7 | [UX](UX.md) | 페르소나·IA·라우트·화면 구성 |
-| 8 | [API](API.md) | Main_Control REST 규칙 + 엔드포인트 |
-| 9 | [OPERATIONS](OPERATIONS.md) | 실행·게이트·ESTOP·Git |
-| 10 | [TEST_CASES](TEST_CASES.md) | 핵심 UX 인수 조건·자동화·실서버 검증 범위 |
-| 11 | [MOVEMENT_SERVER_REQUIREMENTS](MOVEMENT_SERVER_REQUIREMENTS.md) | Movement 팀 전달용 명령·콜백·실시간 안전 요구 |
+| 8 | [운영자 버튼 빠른 안내](OPERATOR_BUTTON_GUIDE.md) | 운영 버튼·소기능 15초 요약 + 흐름도 |
+| 9 | [API](API.md) | Main_Control REST 규칙 + 엔드포인트 |
+| 10 | [OPERATIONS](OPERATIONS.md) | 실행·게이트·ESTOP·Git |
+| 11 | [TEST_CASES](TEST_CASES.md) | 핵심 UX 인수 조건·자동화·실서버 검증 범위 |
+| 12 | [MOVEMENT_SERVER_REQUIREMENTS](MOVEMENT_SERVER_REQUIREMENTS.md) | Movement 팀 전달용 명령·콜백·실시간 안전 요구 |
 ## 독자별 읽기 순서
 
 | 목적 | 먼저 읽을 문서 | 다음 문서 |
 | --- | --- | --- |
 | 프로젝트 평가 | [README](../README.md) | [UX](UX.md) · [TEST_CASES](TEST_CASES.md) |
+| 현장 버튼 빠른 확인 | [운영자 버튼 빠른 안내](OPERATOR_BUTTON_GUIDE.md) | [UX](UX.md) · [OPERATIONS](OPERATIONS.md) |
 | 로컬 실행·장애 대응 | [OPERATIONS](OPERATIONS.md) | [Database](DATABASE.md) |
 | 시스템 구조 파악 | [GLOSSARY](GLOSSARY.md) | [ARCHITECTURE](ARCHITECTURE.md) · [INTERFACES](INTERFACES.md) |
 | API 연동 | [API](API.md) | [INTERFACES](INTERFACES.md) · [Movement 요구서](MOVEMENT_SERVER_REQUIREMENTS.md) |

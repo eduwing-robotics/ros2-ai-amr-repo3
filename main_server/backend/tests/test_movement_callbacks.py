@@ -60,6 +60,32 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.event.append.assert_not_called()
         handle_event.assert_not_called()
 
+    @patch("app.domains.movement.callbacks.advisory_xact_lock_for_key")
+    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_event_id_is_locked_and_task_id_is_linked(
+        self, operational_events, handle_event, advisory_lock
+    ) -> None:
+        operational_events.callback_event_exists.return_value = False
+        handle_event.return_value = None
+        callbacks.ingest_command_event(
+            self.conn,
+            {
+                "event_id": "exec-344:6:completed",
+                "command_id": "cmd-344",
+                "task_id": 344,
+                "robot_name": "tb3_2",
+                "event": "STEP_COMPLETED",
+            },
+        )
+
+        lock_args = advisory_lock.call_args.args
+        self.assertIs(lock_args[0], self.conn)
+        self.assertEqual(lock_args[1], callbacks.MOVEMENT_CALLBACK_LOCK_NAMESPACE)
+        self.assertIsInstance(lock_args[2], int)
+        self.assertEqual(operational_events.append.call_args.kwargs["task_id"], 344)
+        handle_event.assert_called_once()
+
     @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
     @patch("app.domains.movement.callbacks.operational_events")
     def test_legacy_result_without_event_id_uses_stable_dedup_key(self, operational_events, handle_event) -> None:

@@ -264,6 +264,7 @@ Main_Control의 `POST /api/v1/robot-commands`는 Robot Command 외부 계약이�
 | `estop` | ✅ | estop/clear | stop/clear |
 | `dock_transfer` | Movement 지원 여부 반영 | 미지원 응답 → Main `501` | marker/action/level |
 | `aruco_align` | Movement 지원 여부 반영 | 미지원 응답 → Main `501` | marker/final/tolerance |
+| `scenario` | ✅ (내부 실행 kind) | `/scenarios/{id}/*` | 한 command로 Movement가 내부 전체 단계를 소유 |
 
 ```jsonc
 {
@@ -277,7 +278,24 @@ Main_Control의 `POST /api/v1/robot-commands`는 Robot Command 외부 계약이�
 }
 ```
 
-`preview`는 kind가 아니라 `dry_run` 플래그. 시퀀스는 **Main 오케스트레이터**가 step으로 펼침.
+일반 `robot-commands`의 preview는 kind가 아니라 `dry_run` 플래그이고 시퀀스는 Main 오케스트레이터가
+step으로 펼친다. 단, `INBOUND_02 → STORAGE_01`, `to_floor=2`, `tb3_2` 작업은 검증된
+`inbound2-storage-b` 예외 계약을 사용한다. Main에는 단일 `scenario` step만 있고 Movement가 내부 9단계를 소유한다.
+
+이 예외 흐름은 다음 순서를 지킨다.
+
+1. `POST /movement-api/v1/scenarios/inbound2-storage-b/preview`
+2. `executable=true`, 빈 `blocking_reasons`, 설정된 `plan_hash` 일치 확인
+3. 같은 body와 `Idempotency-Key=command_id`로 `POST .../commands`
+4. callback 유실 시 `GET /movement-api/v1/commands/{command_id}`로 보정
+5. 운영자 중단 시 `POST .../commands/{command_id}/safe-stop`
+
+불확실한 Command POST 실패는 새 ID를 만들지 않는다. 같은 ID를 먼저 조회하고 404일 때만 동일 body를 한 번
+재전송한다. Movement가 `business_completed=true`, `cargo_state=EMPTY`, `last_completed_step_index>=6`을 보고하면
+재고를 확정하지만 작업은 계속 RUNNING이다. 최종 DONE은 `PARK_COMPLETE`, `last_completed_step_index>=8`,
+`navigator_status=IDLE`, `is_emergency=false`, `authority_owner=MAIN`, `authority_released=true`를 모두 확인한 뒤에만 처리한다.
+
+운영 기본값은 `skip_lift=false`다. `skip_lift=true`는 명시적으로 승인된 실물 검증에만 사용한다.
 
 ---
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from app.core.api_logs import begin_call, finish_call
@@ -144,6 +145,22 @@ class MovementClient:
         """네이티브 POST /robot-commands envelope 패스스루."""
         raise NotImplementedError
 
+    def scenario_preview(self, robot_id: str, scenario_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Movement 소유 시나리오의 실행 가능 여부와 plan hash를 검증한다."""
+        raise NotImplementedError
+
+    def scenario_command(self, robot_id: str, scenario_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Movement 소유 시나리오 전체를 한 번에 실행한다."""
+        raise NotImplementedError
+
+    def scenario_command_status(self, robot_id: str, command_id: str) -> dict[str, Any]:
+        """Movement 소유 시나리오 실행 상태를 조회한다."""
+        raise NotImplementedError
+
+    def scenario_safe_stop(self, robot_id: str, command_id: str) -> dict[str, Any]:
+        """Movement 소유 시나리오에 안전 정지를 요청한다."""
+        raise NotImplementedError
+
 
 class HttpMovementClient(MovementClient):
     """Movement 수동 조작 API를 호출하는 client."""
@@ -276,6 +293,64 @@ class HttpMovementClient(MovementClient):
                     body,
                     kind="robot_command",
                     headers={"Idempotency-Key": str(body.get("command_id") or "")},
+                )
+            except MovementClientError as exc:
+                if exc.status_code is not None:
+                    raise
+                last_error = exc
+        raise last_error or MovementClientError("movement unreachable")
+
+    def scenario_preview(self, robot_id: str, scenario_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        scenario = quote(scenario_id, safe="")
+        return self._post_json_for_robot(
+            robot_id,
+            f"/scenarios/{scenario}/preview",
+            body,
+            kind="scenario_preview",
+        )
+
+    def scenario_command(self, robot_id: str, scenario_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        scenario = quote(scenario_id, safe="")
+        last_error: MovementClientError | None = None
+        for base in self._bases_for(robot_id):
+            try:
+                return self._post_json(
+                    f"{base}/scenarios/{scenario}/commands",
+                    body,
+                    kind="scenario_command",
+                    headers={"Idempotency-Key": str(body.get("command_id") or "")},
+                )
+            except MovementClientError as exc:
+                if exc.status_code is not None:
+                    raise
+                last_error = exc
+        raise last_error or MovementClientError("movement unreachable")
+
+    def scenario_command_status(self, robot_id: str, command_id: str) -> dict[str, Any]:
+        command = quote(command_id, safe="")
+        last_error: MovementClientError | None = None
+        for base in self._bases_for(robot_id):
+            try:
+                return self._get_json(
+                    f"{base}/commands/{command}",
+                    robot_id,
+                    kind="scenario_command_status",
+                )
+            except MovementClientError as exc:
+                if exc.status_code is not None:
+                    raise
+                last_error = exc
+        raise last_error or MovementClientError("movement unreachable")
+
+    def scenario_safe_stop(self, robot_id: str, command_id: str) -> dict[str, Any]:
+        command = quote(command_id, safe="")
+        last_error: MovementClientError | None = None
+        for base in self._bases_for(robot_id):
+            try:
+                return self._post_json(
+                    f"{base}/commands/{command}/safe-stop",
+                    {},
+                    kind="scenario_safe_stop",
                 )
             except MovementClientError as exc:
                 if exc.status_code is not None:

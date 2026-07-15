@@ -105,13 +105,23 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
         )
 
     try:
-        movement_response = movement_client.cancel_command(str(robot_id), str(command_id))
+        if str(step.get("kind")) == "scenario":
+            movement_response = movement_client.scenario_safe_stop(str(robot_id), str(command_id))
+        else:
+            movement_response = movement_client.cancel_command(str(robot_id), str(command_id))
     except MovementClientError as exc:
         if exc.status_code == 404:
             raise HTTPException(status_code=501, detail="movement_command_cancel_api_missing") from exc
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    cargo_state = "EMPTY" if execution.business_completed else _cargo_state(steps)
+    scenario_progress = step.get("scenario_progress") or {}
+    reported_cargo = str(scenario_progress.get("cargo_state") or "").upper()
+    if execution.business_completed:
+        cargo_state = "EMPTY"
+    elif reported_cargo in {"EMPTY", "LOADED"}:
+        cargo_state = reported_cargo
+    else:
+        cargo_state = _cargo_state(steps)
     accepted = bool(movement_response.get("accepted", True))
     execution.transition_to(orch_state.PHASE_CANCEL_REQUESTED)
     orch["stop_request"] = {

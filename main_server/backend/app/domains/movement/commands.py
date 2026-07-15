@@ -69,6 +69,8 @@ def dispatch_robot_command(conn, payload: RobotCommandRequest, request: Request 
         return _dispatch_aruco_align(payload, command_id, callback_url)
     if payload.kind == "leave_dock":
         return _dispatch_leave_dock(payload, command_id, callback_url)
+    if payload.kind == "scenario":
+        return _dispatch_scenario(payload, command_id, callback_url)
 
     raise HTTPException(status_code=400, detail=f"unsupported kind={payload.kind}")
 
@@ -328,6 +330,161 @@ def _dispatch_leave_dock(payload: RobotCommandRequest, command_id: str, callback
             response={"validated": True, "message": "dry_run ok", "params": dict(payload.params)},
         )
     return _dispatch_passthrough(payload, command_id, callback_url)
+
+
+def _send_scenario_command(
+    robot_id: str,
+    scenario_id: str,
+    body: dict[str, Any],
+    preview_hash: str,
+) -> tuple[dict[str, Any], bool]:
+    """불확실한 POST 실패에는 같은 ID를 조회하고, 404일 때만 같은 body를 재전송한다."""
+    try:
+        return movement_client.scenario_command(robot_id, scenario_id, body), False
+    except MovementClientError as post_error:
+        if post_error.status_code is not None:
+            raise
+        try:
+            status = movement_client.scenario_command_status(robot_id, str(body["command_id"]))
+        except MovementClientError as lookup_error:
+            if lookup_error.status_code != 404:
+                raise post_error
+            return movement_client.scenario_command(robot_id, scenario_id, body), False
+
+    recovered = dict(status)
+    recovered.setdefault("command_id", body["command_id"])
+    recovered.setdefault("scenario_id", scenario_id)
+    recovered.setdefault("scenario_version", body["scenario_version"])
+    recovered.setdefault("plan_hash", preview_hash)
+    recovered["accepted"] = True
+    recovered["recovered_after_timeout"] = True
+    return recovered, True
+
+
+def _scenario_acceptance_mismatches(
+    response: dict[str, Any],
+    *,
+    command_id: str,
+    scenario_id: str,
+    scenario_version: int,
+    preview_hash: str,
+    recovered: bool,
+) -> list[str]:
+    mismatches: list[str] = []
+    expected = {
+        "command_id": command_id,
+        "scenario_id": scenario_id,
+        "scenario_version": scenario_version,
+        "plan_hash": preview_hash,
+    }
+    for field, value in expected.items():
+        if response.get(field) != value:
+            mismatches.append(field)
+    if response.get("accepted") is not True:
+        mismatches.append("accepted")
+    if not str(response.get("execution_id") or ""):
+        mismatches.append("execution_id")
+    state = str(response.get("state") or "").upper()
+    recovered_states = {"ACCEPTED", "RUNNING", "DONE", "FAILED", "ABORTED", "STOPPED", "CANCELLED"}
+    if (not recovered and state != "ACCEPTED") or (recovered and state not in recovered_states):
+        mismatches.append("state")
+    owner = str(response.get("authority_owner") or "").upper()
+    if owner != "MOVEMENT" and not (recovered and owner == "MAIN" and state in {"DONE", "FAILED", "ABORTED", "STOPPED", "CANCELLED"}):
+        mismatches.append("authority_owner")
+    return mismatches
+
+
+def _dispatch_scenario(
+    payload: RobotCommandRequest, command_id: str, callback_url: str
+) -> RobotCommandResponse:
+    """Preview 검증 후 동일 body로 Movement 소유 시나리오 전체를 한 번 실행한다."""
+    params = dict(payload.params)
+    scenario_id = str(params.get("scenario_id") or "").strip()
+    expected_hash = str(params.get("expected_plan_hash") or "").strip()
+    if not scenario_id:
+        raise HTTPException(status_code=400, detail="scenario.params.scenario_id required")
+    if not expected_hash:
+        raise HTTPException(status_code=400, detail="scenario.params.expected_plan_hash required")
+    try:
+        scenario_version = int(params.get("scenario_version"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="scenario.params.scenario_version must be an integer") from exc
+    skip_lift = params.get("skip_lift", False)
+    if not isinstance(skip_lift, bool):
+        raise HTTPException(status_code=400, detail="scenario.params.skip_lift must be a boolean")
+
+    body: dict[str, Any] = {
+        "command_id": command_id,
+        "task_id": payload.task_id,
+        "robot_name": movement_robot_key(payload.robot_id),
+        "scenario_version": scenario_version,
+        "dry_run": payload.dry_run,
+        "skip_lift": skip_lift,
+        "callback_url": callback_url,
+    }
+    try:
+        preview = movement_client.scenario_preview(payload.robot_id, scenario_id, body)
+    except (NotImplementedError, MovementClientError) as exc:
+        if isinstance(exc, MovementClientError):
+            raise _map_movement_client_error(exc, kind="scenario") from exc
+        raise HTTPException(status_code=501, detail="movement_scenario_api_missing") from exc
+
+    blockers = preview.get("blocking_reasons") or []
+    preview_hash = str(preview.get("plan_hash") or "")
+    if preview.get("executable") is not True or blockers:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "scenario_preview_blocked", "blocking_reasons": blockers},
+        )
+    if preview_hash != expected_hash:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "scenario_plan_hash_mismatch",
+                "expected_plan_hash": expected_hash,
+                "actual_plan_hash": preview_hash,
+            },
+        )
+    if payload.dry_run:
+        return RobotCommandResponse(
+            command_id=command_id,
+            robot_id=payload.robot_id,
+            kind="scenario",
+            dry_run=True,
+            accepted=True,
+            response={"validated": True, "preview": preview, "request_body": body},
+        )
+
+    try:
+        response, recovered = _send_scenario_command(
+            payload.robot_id, scenario_id, body, preview_hash
+        )
+    except (NotImplementedError, MovementClientError) as exc:
+        if isinstance(exc, MovementClientError):
+            raise _map_movement_client_error(exc, kind="scenario") from exc
+        raise HTTPException(status_code=501, detail="movement_scenario_api_missing") from exc
+
+    mismatches = _scenario_acceptance_mismatches(
+        response,
+        command_id=command_id,
+        scenario_id=scenario_id,
+        scenario_version=scenario_version,
+        preview_hash=preview_hash,
+        recovered=recovered,
+    )
+    if mismatches:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "scenario_acceptance_contract_mismatch", "fields": mismatches},
+        )
+    return RobotCommandResponse(
+        command_id=command_id,
+        robot_id=payload.robot_id,
+        kind="scenario",
+        dry_run=False,
+        accepted=True,
+        response={**response, "preview": preview},
+    )
 
 
 def _dispatch_passthrough(payload: RobotCommandRequest, command_id: str, callback_url: str) -> RobotCommandResponse:

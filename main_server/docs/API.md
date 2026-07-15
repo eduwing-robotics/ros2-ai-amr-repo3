@@ -199,6 +199,7 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | `estop` | ✅ | stop/clear |
 | `dock_transfer` | ⚠️ | marker/action/level(+lift override). dry_run OK; 실실행 404→501, 409→409 · [INTERFACES §10](INTERFACES.md) |
 | `aruco_align` | ⚠️ | marker/final/tolerance`{xy_m,yaw_deg}` · 동일 501/409 |
+| `scenario` | 내부 전용 | INBOUND_02→STORAGE_01 2층 tb3_2에서 Preview 검증 후 Movement 소유 9단계를 한 번에 실행 |
 
 명령 상태는 `GET /robot-commands/{id}?robot_id=`로 조회한다. Movement의 진행 콜백은 `POST /movement/command-events`로 들어와 orchestrator에 전달된다.
 
@@ -206,6 +207,8 @@ Command callback은 `command_id`, robot, event/state가 필수이며 누락 시 
 `LMS_MOVEMENT_CALLBACK_TOKEN`을 설정하면 `X-Movement-Callback-Token`이 필수다. `event_id` 중복은
 `200 duplicate=true`이고, legacy result에 `event_id`가 없으면 command/result/reported_at 조합으로 멱등 키를 만든다.
 작은/equal `sequence`는 task 상태에 재적용하지 않는다. 상세 계약은 [Movement 요구서](MOVEMENT_SERVER_REQUIREMENTS.md)를 따른다.
+
+전용 `scenario`의 HTTP 경로, plan hash, timeout 멱등 복구와 최종 완료 게이트는 [INTERFACES §8](INTERFACES.md)를 따른다.
 
 ## Work orders · recovery · waypoints · maps
 

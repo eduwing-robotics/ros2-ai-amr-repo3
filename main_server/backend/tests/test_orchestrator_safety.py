@@ -200,6 +200,176 @@ class AdvanceTaskEstopTest(unittest.TestCase):
         evidence.save_orchestration.assert_not_called()
 
 
+
+class MovementOwnedScenarioTest(unittest.TestCase):
+    @staticmethod
+    def _task(*, business_completed: bool = False) -> dict:
+        return {
+            "task_id": 344,
+            "task_type": "INBOUND",
+            "status": "RUNNING",
+            "assigned_robot_id": "tb3_2",
+            "preset_snapshot": {
+                "_orchestration": {
+                    "phase": "RUNNING",
+                    "step_index": 0,
+                    "business_completed": business_completed,
+                    "steps": [
+                        {
+                            "kind": "scenario",
+                            "status": "DISPATCHED",
+                            "command_id": "main-task-344-scenario-001",
+                            "params": {"scenario_id": "inbound2-storage-b"},
+                        }
+                    ],
+                }
+            },
+        }
+
+    @staticmethod
+    def _patches(task: dict):
+        return (
+            patch.object(orchestrator.tasks, "get_task", return_value=task),
+            patch.object(orchestrator.evidence, "attach_orchestration", side_effect=lambda row, _conn: row),
+            patch.object(orchestrator.evidence, "resolve_command_def_id", return_value=None),
+            patch.object(orchestrator.evidence, "record_movement_evidence"),
+            patch.object(orchestrator.evidence, "save_orchestration"),
+            patch.object(orchestrator, "operational_events"),
+            patch.object(orchestrator, "person_hazard"),
+        )
+
+    def test_storage_unload_marks_business_complete_but_keeps_task_running(self) -> None:
+        conn = MagicMock()
+        task = self._task()
+        patches = self._patches(task)
+        with (
+            patches[0], patches[1], patches[2], patches[3], patches[4] as save,
+            patches[5], patches[6],
+            patch.object(orchestrator, "inventory_ops") as inventory,
+        ):
+            result = orchestrator.advance_on_command_event(
+                conn,
+                344,
+                {
+                    "command_id": "main-task-344-scenario-001",
+                    "event": "BUSINESS_COMPLETED",
+                    "sequence": 15,
+                    "execution_id": "exec-344",
+                    "scenario_id": "inbound2-storage-b",
+                    "current_step_index": 6,
+                    "current_step_code": "STORAGE_UNLOAD_COMPLETE",
+                    "last_completed_step_index": 6,
+                    "cargo_state": "EMPTY",
+                    "business_completed": True,
+                    "authority_owner": "MOVEMENT",
+                    "authority_released": False,
+                },
+            )
+
+        self.assertIsNone(result)
+        inventory.settle_inventory_for_completed_task.assert_called_once_with(conn, 344)
+        orch = task["preset_snapshot"]["_orchestration"]
+        self.assertTrue(orch["business_completed"])
+        self.assertEqual(orch["return_status"], "RETURNING_HOME")
+        self.assertEqual(orch["step_index"], 0)
+        save.assert_called()
+
+    def test_command_done_without_final_safety_fields_is_held(self) -> None:
+        conn = MagicMock()
+        task = self._task(business_completed=True)
+        patches = self._patches(task)
+        with (
+            patches[0], patches[1], patches[2], patches[3], patches[4] as save,
+            patches[5] as events, patches[6],
+            patch.object(orchestrator, "finalize_running_task_as_done") as finalize,
+        ):
+            result = orchestrator.advance_on_command_event(
+                conn,
+                344,
+                {
+                    "command_id": "main-task-344-scenario-001",
+                    "event": "COMMAND_DONE",
+                    "current_step_code": "PARK_COMPLETE",
+                    "last_completed_step_index": 8,
+                    "cargo_state": "EMPTY",
+                    "business_completed": True,
+                    "authority_owner": "MAIN",
+                    "authority_released": True,
+                },
+            )
+
+        self.assertIsNone(result)
+        finalize.assert_not_called()
+        errors = task["preset_snapshot"]["_orchestration"]["steps"][0]["completion_gate_errors"]
+        self.assertEqual(set(errors), {"navigator_status", "is_emergency"})
+        self.assertEqual(events.append.call_args.kwargs["event_type"], "TASK_SCENARIO_DONE_GATE_BLOCKED")
+        save.assert_called()
+
+    def test_full_park_complete_contract_finishes_task(self) -> None:
+        conn = MagicMock()
+        task = self._task(business_completed=True)
+        patches = self._patches(task)
+        with (
+            patches[0], patches[1], patches[2], patches[3], patches[4] as save,
+            patches[5], patches[6],
+            patch.object(orchestrator, "finalize_running_task_as_done", return_value={"status": "DONE"}) as finalize,
+        ):
+            result = orchestrator.advance_on_command_event(
+                conn,
+                344,
+                {
+                    "command_id": "main-task-344-scenario-001",
+                    "state": "DONE",
+                    "event": "COMMAND_DONE",
+                    "current_step_code": "PARK_COMPLETE",
+                    "last_completed_step_index": 8,
+                    "cargo_state": "EMPTY",
+                    "business_completed": True,
+                    "authority_owner": "MAIN",
+                    "authority_released": True,
+                    "navigator_status": "IDLE",
+                    "is_emergency": False,
+                },
+            )
+
+        self.assertEqual(result, {"status": "DONE"})
+        finalize.assert_called_once_with(conn, 344, source="callback")
+        saved = save.call_args.args[2]
+        self.assertEqual(saved["phase"], "DONE")
+        self.assertEqual(saved["return_status"], "PARKED")
+        self.assertEqual(saved["steps"][0]["status"], "DONE")
+
+    def test_command_failed_with_reported_loaded_cargo_requires_operator(self) -> None:
+        conn = MagicMock()
+        task = self._task()
+        patches = self._patches(task)
+        with (
+            patches[0], patches[1], patches[2], patches[3], patches[4] as save,
+            patches[5], patches[6],
+        ):
+            result = orchestrator.advance_on_command_event(
+                conn,
+                344,
+                {
+                    "command_id": "main-task-344-scenario-001",
+                    "event": "COMMAND_FAILED",
+                    "current_step_code": "STORAGE_PRECISION_APPROACH",
+                    "last_completed_step_index": 4,
+                    "cargo_state": "LOADED",
+                    "business_completed": False,
+                    "authority_owner": "MAIN",
+                    "authority_released": True,
+                    "reason": "aruco timeout",
+                },
+            )
+
+        self.assertIsNotNone(result)
+        saved = save.call_args.args[2]
+        self.assertEqual(saved["phase"], "AWAITING_OPERATOR")
+        self.assertEqual(saved["recovery"]["cargo_state"], "LOADED")
+        self.assertEqual(task["status"], "RUNNING")
+
+
 class PollRunningTasksGateTest(unittest.TestCase):
     def test_poll_skips_awaiting_operator_tasks(self) -> None:
         conn = MagicMock()
