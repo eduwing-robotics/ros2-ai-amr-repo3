@@ -10,12 +10,15 @@
 
 AI evidence/advisory는 `trusted=false`다. Main이 trusted gate와 safety decision을 기록한다.
 
-## Control plane과 service 인증
+## Human/UI와 machine 인증
 
-- Main mutation API는 Bearer RBAC를 사용한다. operator mutation은 `LMS_OPERATOR_TOKEN`, admin mutation은 `LMS_ADMIN_TOKEN`을 요구한다.
+이 절이 Main·Nav·AI 사이 인증 경계의 단일 정본이다.
+
+- 현장 운영 UI와 사람이 직접 호출하는 Main write API는 application Bearer 없이 사용한다. 이 정책은 `main-server/scripts/real.sh`가 `smartfactory-main.local`의 로컬 `192.168.30.x` interface에만 Main을 bind한 신뢰 site-LAN에 한정한다. 운영자는 요청마다 token이나 secret을 붙이지 않는다.
+- 위 human/UI 경계는 다른 interface, 현장 LAN 밖, service 간 machine ingress에 적용하지 않는다.
 - Main↔Nav mutation/callback은 `LMS_MOVEMENT_HMAC_SECRET`/`NAV_MAIN_HMAC_SECRET`을 공유한다.
-- Main↔AI mutation은 `LMS_VISION_HMAC_SECRET`/`MAIN_HMAC_SECRET`을 공유한다.
-- HMAC 요청은 method, canonical path, body hash, timestamp, nonce를 서명한다. missing secret, invalid signature, stale timestamp, replay는 fail closed 한다.
+- Main↔AI mutation은 `LMS_VISION_HMAC_SECRET`/`MAIN_HMAC_SECRET`을 공유하고, frame gateway ingress는 `VISION_GATEWAY_HMAC_SECRET`을 사용한다.
+- Machine HMAC 요청은 method, canonical path, body hash, timestamp, nonce를 서명한다. missing secret, invalid signature, stale timestamp, replay는 fail closed 한다.
 
 ## Nav ingress와 lock API
 
@@ -25,7 +28,9 @@ Traffic/zone lock의 diagnostic GET은 read-only다. lock acquire/release mutati
 
 ## Callback SSRF 경계
 
-Main callback URL은 request host나 caller override에서 만들지 않는다. `LMS_CALLBACK_BASE_URL`과 allowlist를 사용하며 canonical scheme/path와 public DNS/IP를 검사한다. HTTP/private destination은 명시적인 nohardware allowlist 외에는 허용하지 않는다.
+Main callback URL은 server-configured `LMS_CALLBACK_BASE_URL`과 `LMS_CALLBACK_ALLOWLIST`로만 결정한다. request host, request body, caller override로 destination을 바꾸지 않는다. production origin은 canonical `smartfactory-main.local`이고 DNS 결과 전체가 `192.168.30.x`에 속해야 한다. HTTP는 `LMS_CALLBACK_ALLOW_HTTP=true`로 명시한 경우에만 허용한다.
+
+Loopback callback은 `LMS_NOHARDWARE=true`이고 해당 origin이 `LMS_NOHARDWARE_CALLBACK_ALLOWLIST`에 명시된 nohardware 실행에서만 허용한다.
 
 Nav는 configured Main origin과 고정 Movement callback path만 허용하고 redirect를 따르지 않는다. callback도 HMAC으로 서명한다.
 
@@ -51,7 +56,7 @@ Nav의 현재 `robot2_map` 현장 시험 후보 scan approach는 다음과 같�
 - INBOUND reservation은 slot/floor, OUTBOUND reservation은 item/location/floor 자원을 PostgreSQL advisory transaction lock으로 직렬화한다.
 - Task별 advisory lock은 step dispatch, terminal transition, recovery terminal claim이 같은 stale orchestration snapshot을 소비하지 못하게 한다.
 - Outgoing command identity와 orchestration phase를 DB에 기록한 뒤 Movement HTTP를 호출한다.
-- Callback과 poller가 같은 terminal state를 관찰해도 한 claim만 progression 또는 recovery resume을 수행한다.
+- Callback과 poller가 같은 terminal state를 관찰해도 한 atomic claim만 상태 전이를 적용한다. Recovery terminal은 `AWAITING_OPERATOR`로 돌아가며 중단된 business step을 재개하지 않는다.
 
 ## Evidence와 recovery
 
@@ -59,14 +64,8 @@ Load 완료 뒤 Main stage `POST_PICK_UP`이 AI wire operation `PICK_UP` evidenc
 
 TB2의 보정 카메라 경로는 `move_to_point`가 마커 법선의 약 0.40m 실제 map pose를 `ARRIVED` gate에 저장하고, `dock_transfer`가 같은 marker를 다시 확인한 뒤 0.18~0.20m까지 조향 없이 진입한다. lift/load 또는 drop을 끝내면 저장한 pose로 직선 후진한다. 이 경로는 구현·nohardware 검증이 끝난 후보지만 robot-scoped `metric_docking.live_enabled=false`가 기본이며, camera-to-base offset 측정과 실물 commissioning 전에는 활성화되지 않는다. TB1은 TB2 intrinsics를 빌리지 않으며 `tb1-synthetic-hil`에서 실제 base/Nav 경로와 별개의 virtual-lift backend만 사용한다. 해당 실행은 항상 `nonphysical`이다.
 
-Person advisory 또는 monitor outage는 Main trusted safety stop과 `AWAITING_OPERATOR`를 만든다. E-stop clear만으로 재개하지 않으며 DB recovery state, live Movement health, recovery physical-motion monitor가 모두 안전해야 `safe_replan`을 실행한다. 현재 recovery move는 person monitor를 다시 arm하지 않으므로 사람 발견 실물 시험에서는 `restart` 또는 `manual_abort`만 사용하고 `safe_replan`을 PASS 근거로 사용하지 않는다.
+Person advisory 또는 monitor outage는 Main trusted safety stop과 `AWAITING_OPERATOR`를 만든다. E-stop clear만으로 재개하지 않는다. 운영자는 화물 상태와 현장 안전 확인 뒤 `safe_move` 또는 `manual_abort`만 선택한다. `safe_move`는 configured safe location으로 이동하는 동안 `RECOVERY_RUNNING`이며 terminal 결과 뒤 다시 `AWAITING_OPERATOR`가 된다. 중단된 business step을 자동 재개하지 않는다. `manual_abort`는 로봇 정지를 확인한 뒤 task를 종료한다.
 
 ## 검증 경계
 
-Root nohardware suite는 authoritative field binding, enabled map profile audit, actual signed gateway frame ingress, signed Main↔Nav/Main↔AI TCP, `PRE_DROP_OFF` PASS, AI person advisory→Main trusted stop→Nav E-stop/clear/recovery, PostgreSQL reservation·orchestration·recovery concurrency를 검증한다. 실행 범위와 제외 항목은 [nohardware suite README](../../tests/nohardware/README.md)를 따른다.
-
-Physical lift/fork, camera quality/calibration, 현장 network reachability와 DDS transport는 별도 현장 검증이 필요하다. Gazebo 결과는 현재 acceptance가 아닌 [과거 verification record](../history/verification/ros-simulation-verification.md)다.
-
-## No-hardware profile
-
-`nav-server/config/robots.nohardware.json` is the explicit simulation fixture used by `scripts/test-nohardware-tcp.sh`; it does not redefine the production profile. It preserves production map IDs, includes content-bound map-state smoke for every enabled profile, and never treats `robot2_map` as commissioned for inbound/outbound field coordinates.
+Root nohardware suite는 software merge proof다. 조립 대상, 상태 계약, lifecycle·cleanup, test credential, 물리 제외 범위는 [nohardware suite README](../../tests/nohardware/README.md)가 소유한다. 이 proof를 physical DDS, localization, motion, ArUco, docking, real imagery, lift의 합격 근거로 사용하지 않는다. Gazebo 결과는 현재 acceptance가 아닌 [과거 verification record](../history/verification/ros-simulation-verification.md)다.

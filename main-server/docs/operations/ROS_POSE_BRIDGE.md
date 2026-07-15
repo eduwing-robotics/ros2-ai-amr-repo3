@@ -2,86 +2,97 @@
 
 상태: Active
 소유: Integration
-최종 갱신: 2026-06-22 14:25 KST
-목적: ROS pose bridge 도구의 설정과 실행 방법을 설명한다.
+최종 갱신: 2026-07-15 KST
+목적: ROS pose를 signed Main API로 전송하는 production 절차를 설명한다.
 
-ROS 2 의 `map -> base_link` TF(또는 `/amcl_pose`)를 읽어 Main 서버의
-pose API 로 주기적으로 push 하는 독립 노드다. 브라우저/대시보드는 Main API 만
-보고 ROS/DDS 에 직접 붙지 않는다.
+ROS 2의 `map -> base_link` TF와 선택적 odometry를 읽어 Main의 pose API로 전송한다. Browser는 Main API만 보고 ROS/DDS에 직접 연결하지 않는다.
 
 ```text
-ROS 2 TF (map->base_link)
+ROS 2 TF/odom
  -> ros_pose_bridge.py
- -> POST /api/v1/robots/{robot_id}/pose (Main FastAPI)
- -> robot_poses (current pose DB)
- -> React Dashboard 맵 마커
+ -> signed POST /api/v1/robots/{robot_id}/pose
+ -> Main PostgreSQL
+ -> Main UI robot marker
 ```
 
-## 의존성
+## 준비
 
-- 실 모드: ROS 2 (`rclpy`, `tf2_ros`). velocity 보고 시 `nav_msgs`. pip 추가 설치 없음.
-- HTTP 전송은 표준 라이브러리 `urllib` 만 사용한다.
-- `--simulate` 모드는 ROS 없이 동작한다(데모/엔드투엔드 점검용).
+- [운영 네트워크와 호스트명](../../../docs/operations/network-hostnames.md)의 공통 매핑이 적용돼 있어야 한다.
+- Main은 [Server Run Commands](SERVER_RUN_COMMANDS.md)에 따라 `main-server/scripts/real.sh`로 시작한다.
+- `main-server/.env`의 `LMS_MOVEMENT_HMAC_SECRET`과 `nav-server/.env`의 `NAV_MAIN_HMAC_SECRET`은 같은 운영 비밀값이어야 한다.
+- Bridge shell은 ROS 2 환경과 `nav-server/.env`를 로드한다. Secret을 CLI나 로그에 넣지 않는다.
 
 ## 실행
 
-ROS 2 환경을 source 한 뒤:
+터미널 1 — 저장소 루트에서 Main 시작:
 
 ```bash
-# 단일 로봇, 기본 frame(map -> base_link)
-python3 ros_pose_bridge.py --robot-id tb3_1 --api-base http://localhost:8088/api/v1
-
-# frame/토픽을 직접 지정
-python3 ros_pose_bridge.py --robot-id tb3_1 \
- --map-frame map --base-frame tb3_1/base_link \
- --odom-topic /tb3_1/odom --rate 2
-
-# 여러 로봇을 JSON 설정으로
-python3 ros_pose_bridge.py --config config.json
+cd <repository-root>
+main-server/scripts/real.sh
 ```
 
-`config.json` 형식은 [`config.example.json`](../../tools/ros_pose_bridge/config.example.json) 참고. CLI 인자는 config 값을 덮어쓴다.
-
-## ROS 없이 점검 (--simulate)
-
-ROS 가 없는 PC 에서 Main API + 대시보드까지 흐름을 확인할 때 쓴다. 원형 궤적
-합성 pose 를 보낸다.
+터미널 2 — ROS 환경과 Nav env를 로드한 뒤 TB1 bridge 시작:
 
 ```bash
-python3 ros_pose_bridge.py --robot-id tb3_1 --simulate --rate 2
+cd <repository-root>
+source /opt/ros/jazzy/setup.bash
+set -a
+source nav-server/.env
+set +a
+python3 main-server/tools/ros_pose_bridge/ros_pose_bridge.py \
+  --robot-id tb3_1 \
+  --api-base http://smartfactory-main.local:8088/api/v1
 ```
 
-> `robot_id` 와 `map_id` 는 Main 서버에 이미 등록돼 있어야 한다(없으면 404).
+Frame과 odometry topic을 지정할 때만 옵션을 추가한다.
+
+```bash
+python3 main-server/tools/ros_pose_bridge/ros_pose_bridge.py \
+  --robot-id tb3_1 \
+  --api-base http://smartfactory-main.local:8088/api/v1 \
+  --map-frame map \
+  --base-frame tb3_1/base_link \
+  --odom-topic /tb3_1/odom \
+  --rate 2
+```
+
+여러 로봇은 [`config.example.json`](../../tools/ros_pose_bridge/config.example.json)을 복사해 local config를 만든 뒤 `--config <path>`로 실행한다. CLI 인자가 config 값을 덮어쓴다.
+
+## 확인과 종료
+
+```bash
+curl http://smartfactory-main.local:8088/health
+```
+
+1. Bridge가 pose 전송 성공을 보고하는지 확인한다.
+2. Main UI에서 같은 robot의 위치·방향과 freshness를 확인한다.
+3. Bridge terminal에서 `Ctrl+C`로 종료하고 UI가 stale/lost로 전환되는지 확인한다.
+
+Main health 실패, HMAC 누락·불일치, unknown robot/map 응답이면 운영을 계속하지 않는다. Production에서 direct `uvicorn`, unsigned pose, IP/loopback endpoint를 사용하지 않는다.
 
 ## 동작
 
-- `map -> base_link` TF 를 `--rate` Hz 로 lookup 한다.
-- quaternion 을 map 평면 yaw(rad)로 변환한다.
-- `--odom-topic` 지정 시 `nav_msgs/Odometry` 의 linear.x / angular.z 를 같이 보고한다.
-- TF lookup 실패나 POST 실패는 5초 throttle 로그만 남기고 계속 동작한다.
-- SIGINT/SIGTERM 으로 깔끔히 종료한다.
+- `map -> base_link` TF를 `--rate` Hz로 조회한다.
+- Quaternion을 map 평면 yaw(rad)로 변환한다.
+- `--odom-topic` 지정 시 `nav_msgs/Odometry`의 linear.x/angular.z도 보고한다.
+- TF 조회나 POST 실패는 throttle log를 남기고 다음 주기에 재시도한다.
+- SIGINT/SIGTERM으로 종료한다.
 
-## API 계약
+## API body
 
-`POST /api/v1/robots/{robot_id}/pose` (body: `RobotPoseUpdate`)
+`POST /api/v1/robots/{robot_id}/pose`:
 
 ```json
 {
- "map_id": "map",
- "x": 1.23,
- "y": -0.45,
- "yaw": 1.57,
- "linear_velocity": 0.1,
- "angular_velocity": 0.0,
- "source": "ros_tf",
- "reported_at": "2026-06-17T12:00:00Z"
+  "map_id": "robot2_map",
+  "x": 1.23,
+  "y": -0.45,
+  "yaw": 1.57,
+  "linear_velocity": 0.1,
+  "angular_velocity": 0.0,
+  "source": "ros_tf",
+  "reported_at": "2026-07-15T12:00:00Z"
 }
 ```
 
-## 데모 시나리오
-
-1. Main 서버 실행 (`uvicorn app.main:app --port 8088`)
-2. `python3 ros_pose_bridge.py --robot-id tb3_1 --simulate`
-3. 대시보드에서 로봇 위치/방향 표시 확인 (live)
-4. bridge 중지 → 마커가 stale → lost 로 전환
-5. bridge 재시작 → live 복귀
+`--simulate`은 synthetic 개발 기능이며 production pose나 physical E2E 근거로 사용하지 않는다. Software-only 검증 범위는 [nohardware suite](../../../tests/nohardware/README.md)가 소유한다.

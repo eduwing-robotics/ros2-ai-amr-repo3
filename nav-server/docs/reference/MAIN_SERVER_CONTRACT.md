@@ -3,7 +3,7 @@
 상태: Active
 분류: Reference
 작성: 2026-06-25 00:00 KST
-최종 갱신: 2026-07-02 11:20 KST
+최종 갱신: 2026-07-15 KST
 목적: 메인 GUI/DB 서버와 `slam_nav_ws` Movement 서버 사이의 현재 계약을 정의한다.
 
 이 문서는 메인 GUI/DB 서버와 `slam_nav_ws` Movement 서버 사이의 현재 계약을 정의한다.
@@ -27,18 +27,21 @@
 
 로봇 1대당 Nav/Movement API 프로세스 1개를 실행한다.
 
-| robot_id | robot_name | Nav API URL | ROS_DOMAIN_ID | bridge_robot_id | robot_fixed_ip |
-| --- | --- | --- | --- | --- | --- |
-| `tb3_burger_01` | `tb3_1` | `http://smartfactory-nav.local:8001` | `2` | `tb3_1` | `null` |
-| `tb3_burger_02` | `tb3_2` | `http://smartfactory-nav.local:8002` | `5` | `tb3_2` | `192.168.30.102` |
+| robot_id | robot_name | Nav API URL | ROS_DOMAIN_ID | bridge_robot_id |
+| --- | --- | --- | --- | --- |
+| `tb3_burger_01` | `tb3_1` | `http://smartfactory-nav.local:8001` | `2` | `tb3_1` |
+| `tb3_burger_02` | `tb3_2` | `http://smartfactory-nav.local:8002` | `5` | `tb3_2` |
 
 규칙:
 
 - 메인 서버는 `robot_id`로 라우팅한다.
 - Nav HTTP 계약은 hostname-first다.
 - 운영 중에는 `smartfactory-nav.local`을 기준 URL로 사용한다.
-- DHCP IP는 fallback 용도로만 쓴다.
-- `robot_fixed_ip`는 로봇 장비 자체 IP다. 현재 로봇2(`tb3_2`)는 `192.168.30.102`로 고정한다.
+- DHCP·fixed IP URL fallback은 사용하지 않는다. hostname resolve 실패는 다른 endpoint 선택이 아니라 연결 실패다.
+
+### 1.1 인증 경계
+
+Nav mutation과 Nav→Main callback·pose/status report는 machine HMAC ingress다. Secret pair, 서명 검증, human/UI trust 경계는 [root E2E 계약](../../../docs/integration/e2e-contract.md#humanui와-machine-인증)이 소유한다. Production callback origin은 `smartfactory-main.local`이며 IP fallback을 사용하지 않는다.
 
 ## 2. Endpoint Discovery
 
@@ -56,18 +59,26 @@ GET /movement-api/v1/endpoints
   "active_robot_id": "tb3_burger_01",
   "active_robot_name": "tb3_1",
   "active_ros_domain_id": 2,
-  "robot_fixed_ip": null,
-  "robot_fixed_ips": {"tb3_burger_02": "192.168.30.102", "tb3_2": "192.168.30.102"},
   "nav_pc_host": "smartfactory-nav.local",
   "nav_api_url": "http://smartfactory-nav.local:8001",
-  "nav_api_fallback_url": "http://<operator-configured-nav-lan-ip>:8001",
+  "main_public_base_url": "http://smartfactory-main.local:8088",
+  "main_api_base": "http://smartfactory-main.local:8088/api/v1",
+  "command_events_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
+  "movement_results_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/results",
+  "robot_status_endpoint_template": "http://smartfactory-main.local:8088/api/v1/movement/robots/{robot_name}/status",
   "webhook_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
-  "fallback_policy": {
-    "use_fallback_only_when": ["hostname_unresolved", "health_timeout", "status_non_2xx"],
-    "do_not_hardcode_dhcp_ip": true
-  }
+  "resolution": {
+    "nav_pc_host": {"hostname": "smartfactory-nav.local", "resolved": true, "addresses": ["<resolved-address>"]},
+    "webhook_host": {"hostname": "smartfactory-main.local", "resolved": true, "addresses": ["<resolved-address>"]}
+  },
+  "robots": [
+    {"robot_id": "tb3_burger_01", "nav_api_url": "http://smartfactory-nav.local:8001", "ros_domain_id": 2, "bridge_robot_id": "tb3_1"},
+    {"robot_id": "tb3_burger_02", "nav_api_url": "http://smartfactory-nav.local:8002", "ros_domain_id": 5, "bridge_robot_id": "tb3_2"}
+  ]
 }
 ```
+
+`resolution`은 DNS 상태 진단이며 IP endpoint fallback을 선택하지 않는다. endpoint discovery에는 IP/fallback 선택 필드가 없다.
 
 ## 3. Latest Command Contract
 
@@ -635,11 +646,13 @@ Movement 서버는 `callback_url`이 있으면 명령 상태 이벤트를 보고
 
 ```http
 POST /api/v1/movement/command-events
-POST /movement/results
-POST /movement/robots/{robot_name}/status
+POST /api/v1/movement/results
+POST /api/v1/movement/robots/{robot_name}/status
 ```
 
 Main 서버는 `command_id` 기준으로 이벤트를 idempotent하게 저장해야 한다.
+
+Main recovery의 `safe_move`는 서명된 `move_to_point`로 실행된다. Nav가 terminal callback을 보내면 Main task는 다시 `AWAITING_OPERATOR`로 돌아가며 중단된 business step을 자동 재개하지 않는다. 다른 운영자 선택지는 로봇 정지가 확인된 뒤 task를 종료하는 `manual_abort`뿐이다.
 
 ## 8. Smoke Tests
 
@@ -651,4 +664,4 @@ scripts/smoke_nav_servers.sh
 scripts/smoke_movement_api.sh
 ```
 
-`smoke_movement_api.sh`는 repository의 서명된 Main↔Nav↔AI no-hardware TCP E2E를 호출하는 호환 진입점이다.
+`smoke_movement_api.sh`는 repository의 actual full-stack nohardware proof를 호출하는 호환 진입점이다. 조립 대상·정리·제외 범위는 [nohardware suite README](../../../tests/nohardware/README.md)가 소유한다.

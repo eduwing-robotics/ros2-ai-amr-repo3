@@ -20,17 +20,17 @@
 | camera | AI source가 참조하는 camera stream과 ArUco가 필요한 docking의 marker view |
 | network | Main↔Nav, Main↔AI, ROS/DDS 통신이 가능한 address·port·firewall 구성 |
 
-## 환경 변수와 secret
+## Profile, 환경 변수와 machine credential
 
-local `.env`는 각 서비스의 `.env.example`을 기준으로 설정한다. secret은 문서·로그·command history에 넣지 않는다.
+Local `.env`는 각 서비스의 `.env.example`을 기준으로 설정하고 Nav는 선택 profile과 함께 사용한다. Launcher가 machine credential을 service process에 내부 전달한다. 운영자는 API 명령마다 token이나 secret을 붙이지 않으며 값은 문서·로그·command history에 넣지 않는다.
 
 | 위치 | 필수 연결 값 |
 | --- | --- |
-| `main-server/.env` | `LMS_DATABASE_URL`, `LMS_MOVEMENT_HMAC_SECRET`, Movement/AI URL, timeout |
+| `main-server/.env` | `LMS_DATABASE_URL`, `LMS_MOVEMENT_HMAC_SECRET`, `LMS_VISION_HMAC_SECRET`, Movement/AI URL, timeout |
 | `nav-server/.env` | `NAV_MAIN_HMAC_SECRET`, `NAV_MAIN_HMAC_CLOCK_SKEW_SEC`, callback timeout |
-| `ai-server/.env` | `AI_SERVER_HOST`, `AI_SERVER_PORT`, `MAIN_HMAC_SECRET`/`LMS_VISION_HMAC_SECRET`, `VISION_GATEWAY_HMAC_SECRET`, vision public host/CORS, source/ROS 환경 |
+| `ai-server/.env` | `AI_SERVER_HOST`, `AI_SERVER_PORT`, `MAIN_HMAC_SECRET`, `VISION_GATEWAY_HMAC_SECRET`, vision public host/CORS, source/ROS 환경 |
 
-Preflight는 Movement HMAC, Vision HMAC, frame gateway HMAC의 세 secret을 요구한다. `LMS_MOVEMENT_HMAC_SECRET`와 `NAV_MAIN_HMAC_SECRET`, `LMS_VISION_HMAC_SECRET`와 `MAIN_HMAC_SECRET`은 각각 같은 비밀값이어야 한다. 값이 없거나 다르면 mutation/callback 또는 gateway ingress를 거부한다.
+Preflight는 준비된 profile/env에서 Movement HMAC, Vision HMAC, frame gateway HMAC의 존재만 확인하며 값을 출력하지 않는다. Secret pairing과 fail-closed 동작은 [E2E 계약](../integration/e2e-contract.md#humanui와-machine-인증)이 소유한다.
 
 ## 시작 전 중지 조건
 

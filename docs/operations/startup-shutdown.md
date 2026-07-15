@@ -2,7 +2,7 @@
 
 ## 시작 순서
 
-1. local environment와 Movement, Vision, frame gateway HMAC의 세 secret을 [운영 역할과 준비](operator-overview.md)에 맞게 설정한다.
+1. [운영 역할과 준비](operator-overview.md)에 따라 service `.env`와 선택 Nav profile을 준비한다. Launcher가 Movement, Vision, frame gateway machine credential을 service process에 내부 전달한다. 운영자는 health나 mutation 명령마다 token 또는 secret을 붙이지 않는다.
    모든 서버에서 [운영 네트워크와 호스트명](network-hostnames.md)의 공통
    `192.168.30.x` 매핑을 먼저 확인한다.
 
@@ -42,9 +42,9 @@
 7. 선택 profile과 Main·AI health를 확인한 뒤 [TB1 우선 실물 E2E 실행 체크리스트](physical-e2e-checklist.md)의 빠른 순서로 진행한다.
 
    ```bash
-   curl "${LMS_VISION_API_BASE_URL}/api/v1/health"
-   curl http://localhost:8088/health
-   curl http://<nav-host>:8001/movement-api/v1/health
+   curl http://smartfactory-vision.local:8100/api/v1/health
+   curl http://smartfactory-main.local:8088/health
+   curl http://smartfactory-nav.local:8001/movement-api/v1/health
    cd nav-server && scripts/sf_nav.sh --profile tb1-live smoke
    ```
 

@@ -84,7 +84,7 @@ git branch -d feat/work-order-ui
 git switch main && git pull # 원격이 있으면
 git switch -c feat/<주제> # 작업 브랜치 생성
 # ... 작업 + 논리 단위 커밋 ...
-./scripts/check_all.sh # 검증 (DEVELOPMENT_GUIDE 7장)
+./scripts/check_all.sh # 검증 (QUALITY_GATE 기준)
 git switch main
 git merge --no-ff feat/<주제>
 git branch -d feat/<주제>
@@ -102,7 +102,7 @@ git rm --cached -- '*.db' 2>/dev/null || true
 - DB 파일, `.env`, 빌드 산출물, 캐시, 오피스 lock 파일은 추적하지 않는다.
 - `.pytest_cache/`, `frontend/web/dist/`, `frontend/web/node_modules/`는 항상 local-only다.
 - runtime DB 삭제가 `git status`에 `D`로 보이는 것은 index 제거 의도다. 실제 파일 보존은 `test -e data/lms_control.db`로 확인한다.
-- 커밋 전 점검 항목은 `DEVELOPMENT_GUIDE.md` 8장을 따른다.
+- 커밋 전 점검 항목은 [DEVELOPMENT_GUIDE](../contributing/DEVELOPMENT_GUIDE.md)를 따른다.
 
 ## 7. 대규모 정리 분류
 

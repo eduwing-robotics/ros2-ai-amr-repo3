@@ -1,10 +1,13 @@
 # Movement map_id 정렬 (Nav2 active map 기준)
 
-상태: Active
+상태: Superseded
 소유: Integration
 작성: 2026-06-24 18:45 KST
 최종 갱신: 2026-06-25 10:46 KST
+대체 표기: 2026-07-15 KST
 목적: LMS 맵 ID·메타데이터를 Movement Nav2 active map과 맞추는 정책을 고정한다.
+
+> 이 문서는 2026-06-24 당시 결정 기록이다. 현재 dispatch는 map asset·geometry·digest를 exact match로 검증하고 legacy route fallback을 사용하지 않는다. 현재 계약은 [Main·Nav·AI E2E 계약](../../../docs/integration/e2e-contract.md)과 [Main Server Integration Contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md)를 따른다.
 
 ## Decision
 

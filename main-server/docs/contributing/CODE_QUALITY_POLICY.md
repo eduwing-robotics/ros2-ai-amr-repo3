@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Docs
-최종 갱신: 2026-07-09 18:15 KST
+최종 갱신: 2026-07-15 KST
 목적: 프론트·백엔드 작성 규약을 한 문서에 둔다. **검증 명령**은 [QUALITY_GATE](../operations/QUALITY_GATE.md).
 
 ## 1. 우선순위
@@ -16,7 +16,7 @@
 ## 2. 도메인 명령·상태
 
 - kind는 닫힌 allowlist. 미지원은 400/409.
-- 실물 동작 kind는 fallback 실행 금지(문서화된 `move_to_point` route fallback만 예외).
+- 실물 동작 kind는 fallback 실행 금지.
 - 새 kind는 schema·dispatcher·orchestrator·FE type·API 문서를 같은 변경에.
 - terminal event(`FAILED`/`ABORTED`/`REJECTED`/`ESTOPPED`) 의미를 접지 않는다.
 - `dry_run` 성공 ≠ 실행 성공.
