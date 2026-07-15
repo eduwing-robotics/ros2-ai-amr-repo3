@@ -19,8 +19,8 @@ ROS 2 TF/odom
 
 - [운영 네트워크와 호스트명](../../../docs/operations/network-hostnames.md)의 공통 매핑이 적용돼 있어야 한다.
 - Main은 [Server Run Commands](SERVER_RUN_COMMANDS.md)에 따라 `main-server/scripts/real.sh`로 시작한다.
-- `main-server/.env`의 `LMS_MOVEMENT_HMAC_SECRET`과 `nav-server/.env`의 `NAV_MAIN_HMAC_SECRET`은 같은 운영 비밀값이어야 한다.
-- Bridge shell은 ROS 2 환경과 `nav-server/.env`를 로드한다. Secret을 CLI나 로그에 넣지 않는다.
+- Main과 Nav launcher/preflight가 같은 repository-level `.secrets/service-hmac.env` credential-set ID를 보고해야 한다.
+- Bridge shell은 ROS 2 환경과 공통 credential loader를 사용한다. Secret을 CLI나 로그에 넣지 않는다.
 
 ## 실행
 
@@ -36,9 +36,8 @@ main-server/scripts/real.sh
 ```bash
 cd <repository-root>
 source /opt/ros/jazzy/setup.bash
-set -a
-source nav-server/.env
-set +a
+source scripts/lib/site_credentials.sh
+sf_load_site_credentials "$PWD"
 python3 main-server/tools/ros_pose_bridge/ros_pose_bridge.py \
   --robot-id tb3_1 \
   --api-base http://smartfactory-main.local:8088/api/v1

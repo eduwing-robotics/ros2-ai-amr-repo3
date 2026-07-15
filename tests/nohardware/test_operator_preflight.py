@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "operator-preflight.sh"
+CREDENTIAL_LIBRARY = ROOT / "scripts" / "lib" / "site_credentials.sh"
 
 
 def _write_executable(path: Path, content: str) -> None:
@@ -37,9 +39,59 @@ def _environment(temp: Path) -> dict[str, str]:
     return env
 
 
-def _run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _checkout(temp: Path, *, with_credentials: bool) -> tuple[Path, dict[str, str]]:
+    checkout = temp / "checkout"
+    (checkout / "scripts/lib").mkdir(parents=True)
+    shutil.copy2(SCRIPT, checkout / "scripts/operator-preflight.sh")
+    shutil.copy2(CREDENTIAL_LIBRARY, checkout / "scripts/lib/site_credentials.sh")
+    _write_executable(checkout / "scripts/test-nohardware-config.sh", "#!/usr/bin/env bash\nexit 0\n")
+    for service in ("ai-server", "main-server", "nav-server"):
+        bin_dir = checkout / service / ".venv/bin"
+        bin_dir.mkdir(parents=True)
+        _write_executable(bin_dir / "python", "#!/usr/bin/env bash\nexit 0\n")
+        _write_executable(bin_dir / "pip", "#!/usr/bin/env bash\nexit 0\n")
+    nav_scripts = checkout / "nav-server/scripts"
+    nav_scripts.mkdir(parents=True)
+    _write_executable(nav_scripts / "run_nav_servers.sh", "#!/usr/bin/env bash\nexit 0\n")
+    for relative in (
+        "config/robots.json",
+        "config/main_server_routes.json",
+        "map/robot1_map.yaml",
+        "map/robot2_map.yaml",
+        "map/robot1_map.pgm",
+        "map/robot2_map.pgm",
+    ):
+        path = checkout / "nav-server" / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n", encoding="utf-8")
+    if not with_credentials:
+        return checkout / "scripts/operator-preflight.sh", {}
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'source "{checkout}/scripts/lib/site_credentials.sh"; sf_ensure_site_credentials "{checkout}"',
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    values = {}
+    for line in (checkout / ".secrets/service-hmac.env").read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#"):
+            key, value = line.split("=", 1)
+            values[key] = value
+    return checkout / "scripts/operator-preflight.sh", values
+
+
+def _run(
+    *args: str,
+    env: dict[str, str] | None = None,
+    script: Path = SCRIPT,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [str(SCRIPT), *args], cwd=ROOT, env=env, text=True, capture_output=True, check=False
+        [str(script), *args], cwd=script.parents[1], env=env, text=True, capture_output=True, check=False
     )
 
 
@@ -54,41 +106,41 @@ def test_software_json_does_not_leak_hmac_secrets_and_uses_no_motion_commands():
     with tempfile.TemporaryDirectory() as directory:
         temp = Path(directory)
         env = _environment(temp)
-        movement_secret = "operator-preflight-movement-secret-must-not-appear"
-        vision_secret = "operator-preflight-vision-secret-must-not-appear"
-        gateway_secret = "operator-preflight-gateway-secret-must-not-appear"
-        env["NAV_MAIN_HMAC_SECRET"] = movement_secret
-        env["MAIN_HMAC_SECRET"] = vision_secret
-        env["VISION_GATEWAY_HMAC_SECRET"] = gateway_secret
-        result = _run("--software", "--json", env=env)
+        script, values = _checkout(temp, with_credentials=True)
+        result = _run("--software", "--json", env=env, script=script)
 
     assert result.returncode == 0, result.stderr
-    assert movement_secret not in result.stdout
-    assert movement_secret not in result.stderr
-    assert vision_secret not in result.stdout
-    assert vision_secret not in result.stderr
-    assert gateway_secret not in result.stdout
-    assert gateway_secret not in result.stderr
+    for key, value in values.items():
+        if key == "SMARTFACTORY_CREDENTIAL_SET_ID":
+            continue
+        assert value not in result.stdout
+        assert value not in result.stderr
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
+    assert next(item for item in payload["checks"] if item["name"] == "site_credential_bundle")["status"] == "PASS"
     assert all("motion" not in item["message"].lower() for item in payload["checks"])
 
 
 def test_software_fails_clearly_when_hmac_secrets_are_missing():
     with tempfile.TemporaryDirectory() as directory:
-        env = _environment(Path(directory))
+        temp = Path(directory)
+        env = _environment(temp)
+        script, _ = _checkout(temp, with_credentials=False)
         env.pop("NAV_MAIN_HMAC_SECRET", None)
         env.pop("LMS_MOVEMENT_HMAC_SECRET", None)
         env.pop("MAIN_HMAC_SECRET", None)
         env.pop("LMS_VISION_HMAC_SECRET", None)
         env.pop("VISION_GATEWAY_HMAC_SECRET", None)
-        result = _run("--software", "--json", env=env)
+        result = _run("--software", "--json", env=env, script=script)
 
     assert result.returncode == 3
     payload = json.loads(result.stdout)
+    bundle_check = next(item for item in payload["checks"] if item["name"] == "site_credential_bundle")
+    assert bundle_check["status"] == "FAIL"
+    assert "bundle" in bundle_check["message"].lower()
     secret_checks = [item for item in payload["checks"] if item["name"] in {"movement_hmac_secret", "vision_hmac_secret", "vision_gateway_hmac_secret"}]
     assert [item["status"] for item in secret_checks] == ["FAIL", "FAIL", "FAIL"]
-    assert all("secret" in item["message"].lower() for item in secret_checks)
+    assert all("credential" in item["message"].lower() or "hmac" in item["message"].lower() for item in secret_checks)
 
 
 def test_script_contains_no_motion_or_service_start_commands():

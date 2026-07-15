@@ -76,7 +76,7 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 - [ ] TB1을 실제 맵의 알려진 시작 위치에 놓고 물리 정지 수단과 짧은 주행 공간만 확인한다.
 - [ ] `./scripts/install-smartfactory-hosts.sh --check`가 모든 server의 hostname-first `192.168.30.x` 설정을 통과한다.
 - [ ] `smartfactory-main.local`이 이 PC의 canonical `192.168.30.x` interface로 해석되고 `main-server/scripts/real.sh`의 bind 검사를 통과한다.
-- [ ] 선택한 profile/service env가 Movement, Vision, frame gateway machine credential을 내부에서 로드한다. 운영자 명령마다 token이나 secret을 붙이지 않는다.
+- [ ] 각 host의 preflight credential-set ID가 같고, 선택한 표준 launcher가 `.secrets/service-hmac.env`의 Movement, Vision, frame gateway credential을 내부 로드한다. 운영자 명령마다 token이나 secret을 붙이지 않는다.
 - [ ] 주행 구역의 사람·장애물을 통제하고 정지 담당자를 정한다.
 - [ ] `robot2_map` field dispatch가 아직 차단된 상태임을 확인한다. 이 단계에서 boolean을 임의로 해제하지 않는다.
 

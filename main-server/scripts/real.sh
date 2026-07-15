@@ -94,6 +94,10 @@ if [[ ! -f "$ROOT/.env" ]]; then
   cp "$ROOT/.env.example" "$ROOT/.env"
 fi
 
+# shellcheck source=/dev/null
+source "$REPO_ROOT/scripts/lib/site_credentials.sh"
+sf_load_site_credentials "$REPO_ROOT"
+
 if [[ ! -x "$BACKEND/.venv/bin/uvicorn" ]]; then
   echo "[real] backend/.venv 가 없다. 먼저:"
   echo "  cd $BACKEND && python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt"

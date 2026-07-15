@@ -37,10 +37,14 @@ Expected: a JPEG image. If the endpoint returns `404`, that PiCam has not ingest
 The person hazard route is advisory only. It reports perception evidence for Main/Safety to decide on; it does not stop or move a robot.
 AI Server monitor events keep `trusted=false` by contract, even when confidence is high.
 
-Set a lab-only task ID and provide the shared secret through the shell environment; do not place it in shell history. The following standard-library helper signs each exact JSON body before it enables the monitor, refreshes it, and disables it again.
+Set a lab-only task ID and load the deployment credential bundle without printing
+the value. The following standard-library helper signs each exact JSON body
+before it enables the monitor, refreshes it, and disables it again.
 
 ```bash
-export MAIN_HMAC_SECRET='set-in-current-shell-only'
+REPO_ROOT="$(cd .. && pwd)"
+source "$REPO_ROOT/scripts/lib/site_credentials.sh"
+sf_load_site_credentials "$REPO_ROOT"
 export LAB_TASK_ID="${LAB_TASK_ID:-1}"
 
 python3 - <<'PY'

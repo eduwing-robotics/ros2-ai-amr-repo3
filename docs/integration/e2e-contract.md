@@ -19,6 +19,8 @@ AI evidence/advisory는 `trusted=false`다. Main이 trusted gate와 safety decis
 - Main↔Nav mutation/callback은 `LMS_MOVEMENT_HMAC_SECRET`/`NAV_MAIN_HMAC_SECRET`을 공유한다.
 - Main↔AI mutation은 `LMS_VISION_HMAC_SECRET`/`MAIN_HMAC_SECRET`을 공유하고, frame gateway ingress는 `VISION_GATEWAY_HMAC_SECRET`을 사용한다.
 - Machine HMAC 요청은 method, canonical path, body hash, timestamp, nonce를 서명한다. missing secret, invalid signature, stale timestamp, replay는 fail closed 한다.
+- `main-server/scripts/bootstrap.sh`가 세 범위를 서로 다른 고엔트로피 값으로 한 번 생성하고, alias pair와 credential material에서 계산한 비밀이 아닌 set ID를 저장소에서 제외된 `.secrets/service-hmac.env` 한 파일에 `0600`으로 기록한다. `main-server/scripts/real.sh`, `nav-server/scripts/sf_nav.sh`, `ai-server/scripts/vision/sf_vision.sh`는 시작 때 같은 파일을 자동 로드하며 누락, 권한 오류, ID/material 불일치, pair 불일치, service `.env`/process env의 오래된 값 충돌을 시작 전에 거부한다.
+- 서로 다른 host checkout 사이에 비밀을 안전하게 전달할 SSH identity, 배포 경로, secret manager는 이 저장소가 소유하지 않는다. 따라서 최초 trusted deployment가 Main bootstrap이 만든 **같은 파일**을 Git 밖에서 각 checkout에 배치하는 것이 1회 전제다. 애플리케이션은 이를 대신하려고 결정론적 기본키, 무인증 pairing endpoint, 새 SSH 배포 wrapper를 만들지 않는다. 이후 정상 시작과 API 호출에는 secret export/copy가 필요 없다.
 
 ## Nav ingress와 lock API
 

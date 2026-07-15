@@ -2,14 +2,16 @@
 
 ## 시작 순서
 
-1. [운영 역할과 준비](operator-overview.md)에 따라 service `.env`와 선택 Nav profile을 준비한다. Launcher가 Movement, Vision, frame gateway machine credential을 service process에 내부 전달한다. 운영자는 health나 mutation 명령마다 token 또는 secret을 붙이지 않는다.
+1. 최초 설치에서만 authoritative checkout의 `main-server/scripts/bootstrap.sh --skip-db`가 `.secrets/service-hmac.env`를 생성한다. Main, Nav, AI가 별도 host checkout이면 trusted deployment가 같은 `0600` 파일을 Git 밖에서 각 checkout에 한 번 배치한다. 이후 표준 launcher가 Movement, Vision, frame gateway credential을 자동 로드하므로 정상 시작이나 health/mutation 명령에 secret export는 없다.
    모든 서버에서 [운영 네트워크와 호스트명](network-hostnames.md)의 공통
    `192.168.30.x` 매핑을 먼저 확인한다.
 
    ```bash
+   cd main-server && ./scripts/bootstrap.sh --skip-db   # 최초 authoritative checkout에서만
+   cd ..
    ./scripts/install-smartfactory-hosts.sh --check
    ```
-2. 첫 설치, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 read-only [operator preflight](../../scripts/operator-preflight.sh)를 실행한다. 정상 반복 운용에서는 이 단계를 건너뛴다. 이 명령은 service를 시작하거나 robot motion을 명령하지 않는다.
+2. 첫 설치, credential deployment, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 read-only [operator preflight](../../scripts/operator-preflight.sh)를 각 host에서 실행한다. 출력된 credential-set ID가 모두 같아야 한다. 누락, `0600` 위반, pair/기존 env 충돌은 명확히 실패한다. 정상 반복 운용에서는 이 단계를 건너뛴다. 이 명령은 service를 시작하거나 robot motion을 명령하지 않는다.
 
    ```bash
    ./scripts/operator-preflight.sh --software

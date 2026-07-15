@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
 BACKEND="$ROOT/backend"
 FRONTEND="$ROOT/frontend/web"
 STATE_DIR="$ROOT/.bootstrap"
@@ -103,6 +104,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
     echo "[bootstrap] WARN: .env.example 없음"
   fi
 fi
+
+# One bootstrap owns generation/pairing. Ordinary service launchers only load
+# this ignored 0600 bundle and never ask an operator for request-time secrets.
+# shellcheck source=/dev/null
+source "$REPO_ROOT/scripts/lib/site_credentials.sh"
+sf_ensure_site_credentials "$REPO_ROOT"
 
 VENV_PY="$BACKEND/.venv/bin/python"
 VENV_PIP="$BACKEND/.venv/bin/pip"

@@ -6,7 +6,7 @@
 
 정상 반복 운용은 선택 profile의 통신·health·localization과 한 번의 짧은 Main 주행만 확인한다. 아래 상세 진단은 관련 gate가 실패했거나 해당 기능을 이번 세션에서 검증할 때만 수행한다.
 
-[operator-preflight.sh](../../scripts/operator-preflight.sh)의 `--software`와 `--hardware-checklist`는 service를 시작하거나 robot motion을 명령하지 않는 검사 mode다. `--nohardware`는 process-local test secret을 생성하고 software 검사를 수행한 뒤 ephemeral Main·Nav·AI·PostgreSQL·built UI proof를 기동하며, runner가 해당 process·container·listener를 정리한다. preflight는 service `.env`를 직접 로드하지 않는다. `--software`/`--hardware-checklist`에 필요한 machine credential은 profile 준비 후 현재 shell에 먼저 export하며, preflight는 값을 출력하지 않고 존재만 확인한다.
+[operator-preflight.sh](../../scripts/operator-preflight.sh)의 `--software`와 `--hardware-checklist`는 service를 시작하거나 robot motion을 명령하지 않는 검사 mode다. 표준 mode는 `.secrets/service-hmac.env`를 자동 로드해 `0600`, pair와 local stale env 충돌을 확인하고 비밀값 대신 credential-set ID만 표시한다. `--nohardware`는 production bundle을 읽지 않고 process-local test credential을 생성한 뒤 ephemeral Main·Nav·AI·PostgreSQL·built UI proof를 기동하며, runner가 해당 process·container·listener를 정리한다.
 
 ## 공통
 
@@ -14,7 +14,7 @@
 - [ ] 첫 설치, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 `./scripts/operator-preflight.sh --software`를 실행한다.
 - [ ] `./scripts/operator-preflight.sh --hardware-checklist`는 config의 모든 enabled robot을 점검하므로 TB1 단독 운용이 아니라 전체 fleet 현장 점검 때만 실행한다.
 - [ ] `smartfactory-main.local`이 이 PC의 canonical `192.168.30.x` interface로 해석되고 `main-server/scripts/real.sh`의 bind 검사를 통과한다.
-- [ ] `--software`/`--hardware-checklist` 전 현재 shell에 [E2E 계약](../integration/e2e-contract.md#humanui와-machine-인증)의 machine HMAC pair와 frame gateway credential을 export한다. preflight가 service `.env`를 로드할 것으로 가정하지 않는다.
+- [ ] 각 service host의 preflight가 credential bundle PASS를 보고하고 같은 credential-set ID를 표시한다. 누락/불일치 때 shell export로 우회하지 않는다.
 - [ ] Main, Nav, AI health가 성공한다.
 - [ ] Nav health의 robot ID, ROS domain, capability, lift 값이 profile과 일치한다.
 - [ ] physical mode에서 `dry_run=false`, `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false`다.
