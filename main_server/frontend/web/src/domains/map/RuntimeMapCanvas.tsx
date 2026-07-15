@@ -132,6 +132,7 @@ interface GotoTargetMarkerProps {
   markerPx?: number;
   onMovePointerDown: PointerEventHandler<SVGCircleElement>;
   onYawPointerDown: PointerEventHandler<SVGCircleElement>;
+  phase?: "draft" | "active";
 }
 
 /** Shared draggable position/yaw marker; pointer tracking remains owned by each screen. */
@@ -142,6 +143,7 @@ export function GotoTargetMarker({
   markerPx = 7,
   onMovePointerDown,
   onYawPointerDown,
+  phase = "draft",
 }: GotoTargetMarkerProps) {
   if (!target) return null;
   const point = worldToPixel(map, target.x, target.y);
@@ -153,7 +155,7 @@ export function GotoTargetMarker({
   const handleY = point.y - handleLen * Math.sin(target.yaw);
 
   return (
-    <g data-goto-target>
+    <g data-goto-target data-goto-phase={phase} className={`goto-target goto-target--${phase}`}>
       <line className="goto-yaw" x1={point.x} y1={point.y} x2={handleX} y2={handleY} />
       <circle className="goto-yaw-handle" cx={handleX} cy={handleY} r={handleR} onPointerDown={onYawPointerDown} />
       <circle className="goto-ring" cx={point.x} cy={point.y} r={ringR} onPointerDown={onMovePointerDown} />

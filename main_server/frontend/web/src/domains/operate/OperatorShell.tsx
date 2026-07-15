@@ -172,6 +172,9 @@ export function OperatorShell() {
   const selectedRobotParam = searchParams.get("robot");
   const selectedRobot = robots.find((robot) => robot.robot_id === selectedRobotParam) ?? robots[0] ?? null;
   const selectedRobotId = selectedRobot?.robot_id ?? "";
+  const [cameraRobotId, setCameraRobotId] = useState<string | null>(null);
+  const cameraRobot = robots.find((robot) => robot.robot_id === cameraRobotId) ?? null;
+  const cameraRobotSources = cameraRobotId ? cameras.filter((camera) => camera.robot_id === cameraRobotId) : [];
   const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks]);
   const events = useMemo(() => data?.events ?? [], [data?.events]);
   const cameraOnline = Boolean(((data?.system ?? {}) as { camera_health?: CameraHealth }).camera_health?.ok);
@@ -511,7 +514,7 @@ export function OperatorShell() {
                   const selected = selectedRobotId === robot.robot_id;
                   return (
                     <article className={`operator-fleet-card${selected ? " selected" : ""}${robotEmergency(robot.robot_id) ? " emergency" : ""}`} key={robot.robot_id}>
-                      <button type="button" className="operator-fleet-select" onClick={() => selectRobot(robot.robot_id)}>
+                      <button type="button" className="operator-fleet-select" onClick={() => { selectRobot(robot.robot_id); setCameraRobotId(robot.robot_id); }}>
                         <span><strong>{robot.display_name || robot.robot_id}</strong><small className="mono">{robot.robot_id}</small></span>
                         {robotEmergency(robot.robot_id) ? <span className="pill err">ESTOP</span> : <Pill status={robot.status} />}
                         <BatteryIndicator value={robot.battery} />
@@ -532,6 +535,12 @@ export function OperatorShell() {
               </div>
             </section>
           </aside>
+          {cameraRobot ? (
+            <section className="operator-robot-camera-drawer panel" role="region" aria-label={`${cameraRobot.display_name || cameraRobot.robot_id} 카메라`}>
+              <header><div><span className="operator-eyebrow">ROBOT CAMERA</span><h2>{cameraRobot.display_name || cameraRobot.robot_id}</h2></div><button type="button" className="rowbtn" aria-label="로봇 카메라 닫기" onClick={() => setCameraRobotId(null)}>닫기</button></header>
+              <div className="operator-robot-camera-content">{cameraRobotSources.length ? <LiveCamera cameras={cameraRobotSources} /> : <div className="operator-camera-empty"><strong>등록된 로봇 카메라가 없습니다.</strong><span>관리 · 로봇 & 카메라에서 {cameraRobot.robot_id} 귀속 소스를 등록하세요.</span></div>}</div>
+            </section>
+          ) : null}
         </div>
       </div>
     </GotoTargetProvider>

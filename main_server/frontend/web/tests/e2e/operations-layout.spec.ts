@@ -192,3 +192,62 @@ test("Adobe Industrial Signal 토큰과 위험·주의 비색상 단서가 적�
   await expect(page.locator(".event-row--warn .event-severity", { hasText: "주의" })).toBeVisible();
   await expect(page.locator(".event-row--err td").first()).toHaveCSS("box-shadow", /rgb/);
 });
+
+
+test("하단 기본 큐는 진행·예약만 강조하고 종료 작업은 기록 탭으로 분리한다", async ({ page }) => {
+  const queuedOrder = { order_id: 42, operation: "outbound", item_code: "nut", quantity: 2, status: "QUEUED", tasks: [] };
+  const completedOrder = { ...runningOrder, order_id: 40, status: "COMPLETED", tasks: [{ ...runningOrder.tasks[0], order_id: 40, task_id: 8, status: "COMPLETED", progress: { ...runningOrder.tasks[0].progress, phase: "COMPLETED" } }] };
+  await mockMainApi(page, { workOrders: [completedOrder, queuedOrder, runningOrder] });
+  await page.goto("/operate/control");
+
+  const dock = page.getByRole("region", { name: "작업 큐, 할당 로봇, 타임라인과 안전 중지" });
+  await expect(dock.getByText("작업 #41")).toBeVisible();
+  await expect(dock.getByText("작업 #42")).toBeVisible();
+  await expect(dock.getByText("작업 #40")).toHaveCount(0);
+  await expect(dock.locator(".fleet-mission-row.is-running")).toHaveCount(1);
+  await expect(dock.getByText("LIVE")).toBeVisible();
+
+  await dock.getByRole("tab", { name: "작업 기록" }).click();
+  await expect(dock.getByText("작업 #40")).toBeVisible();
+  await expect(dock.getByText("작업 #41")).toHaveCount(0);
+  await expect(dock.locator(".fleet-mission-row.is-history")).toHaveCount(1);
+});
+
+test("전체 로봇 선택은 큰 로봇 카메라 문맥을 열고 수동 조작은 중복 선택기를 두지 않는다", async ({ page }) => {
+  await mockMainApi(page, {
+    cameraSources: [{ source_id: "CAM_ROBOT_1", label: "AMR 1 전방", robot_id: "tb3_1", status: "ONLINE" }],
+  });
+  await page.goto("/operate/control");
+
+  await page.locator(".operator-fleet-select").click();
+  const camera = page.getByRole("region", { name: "AMR 1 카메라" });
+  await expect(camera).toBeVisible();
+  await expect(camera.locator(".cam-name-overlay", { hasText: "AMR 1 전방" })).toBeVisible();
+  await camera.getByRole("button", { name: "로봇 카메라 닫기" }).click();
+  await expect(camera).toHaveCount(0);
+
+  await page.getByRole("button", { name: "조작 →" }).click();
+  const manual = page.getByRole("region", { name: /수동 조작/ });
+  await expect(manual.locator(".teleop-target")).toContainText("AMR 1");
+  await expect(manual.locator(".teleop-target select")).toHaveCount(0);
+});
+
+test("맵 Goto 목표는 창을 닫아도 이동 중 임시 마커로 유지되고 도착 시 제거된다", async ({ page }) => {
+  const state = { movementOk: true, navMissionStatus: "" };
+  await mockMainApi(page, state);
+  await page.goto("/operate/control");
+  await page.getByRole("button", { name: "조작 →" }).click();
+
+  const map = page.locator(".operator-map-stage-wrap .map-stage");
+  const box = await map.boundingBox();
+  expect(box).not.toBeNull();
+  await map.click({ position: { x: Math.floor(box!.width * .55), y: Math.floor(box!.height * .45) } });
+  await expect(page.locator("[data-goto-phase='draft']")).toBeVisible();
+  await page.locator(".map-goto-minimal").getByRole("button", { name: "이동", exact: true }).click();
+  await expect(page.locator("[data-goto-phase='active']")).toBeVisible();
+
+  await page.getByRole("region", { name: "수동 조작 · 맵 이동" }).getByRole("button", { name: "닫기" }).click();
+  await expect(page.locator("[data-goto-phase='active']")).toBeVisible();
+  state.navMissionStatus = "SUCCEEDED";
+  await expect(page.locator("[data-goto-target]")).toHaveCount(0, { timeout: 7000 });
+});

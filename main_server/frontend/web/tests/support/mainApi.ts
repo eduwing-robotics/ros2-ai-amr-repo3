@@ -22,6 +22,7 @@ type State = {
   events?: unknown[];
   robotBattery?: number | null;
   robots?: Array<typeof robot>;
+  navMissionStatus?: string;
 };
 
 function json(route: Route, body: unknown, status = 200) {
@@ -93,7 +94,9 @@ export async function mockMainApi(page: Page, state: State = {}) {
       robot_online: state.movementOk ?? true,
       command_accepting: state.movementOk ?? true,
       localized: true,
+      mission_status: state.navMissionStatus ?? null,
     });
+    if (path === "/robot-commands" && req.method() === "POST") return json(route, { robot_id: responseRobot.robot_id, command_id: "cmd-goto-1", response: { accepted: true } });
     if (path === "/vision/streams") return json(route, {
       stream_transports: [{ kind: "webrtc", configured: false, status: "not_configured" }],
     });

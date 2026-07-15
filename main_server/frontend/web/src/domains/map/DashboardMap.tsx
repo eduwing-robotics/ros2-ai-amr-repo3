@@ -329,6 +329,7 @@ export function DashboardMap({
                 map={renderMap}
                 target={gotoCtx?.target ?? null}
                 scale={u}
+                phase={gotoCtx?.phase ?? "draft"}
                 onYawPointerDown={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
