@@ -8,6 +8,7 @@ from api_test_helpers import aruco_png_bytes, client, get_settings, main_module
 
 from app.config import REPO_ROOT
 from app.zone_roi import (
+    ZoneRoi,
     find_zone_by_id,
     load_zone_roi_config,
     load_zone_roi_config_cached,
@@ -133,6 +134,64 @@ def test_zone_roi_draft_config_exposes_operator_location_aliases() -> None:
         "storage_1": "storage_upper_static_item_zone",
         "storage_2": "storage_lower_static_item_zone",
     }
+
+
+def test_zone_roi_draft_uses_wall_floor_calibration_inside_map_roi() -> None:
+    path = REPO_ROOT / "config" / "vision" / "zone_rois" / "global_cam_01_lab_draft.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    zones = {zone["zone_id"]: zone for zone in data["zones"]}
+
+    expected_y_bounds = {
+        "outbound_static_item_zone": (0.095, 0.409259),
+        "charging_reference_zone": (0.409259, 0.740741),
+        "inbound_static_item_zone": (0.740741, 0.918519),
+        "storage_upper_static_item_zone": (0.418519, 0.633519),
+        "storage_lower_static_item_zone": (0.668519, 0.918519),
+    }
+    expected_label_y = {
+        "outbound_static_item_zone": 0.145,
+        "charging_reference_zone": 0.464259,
+        "inbound_static_item_zone": 0.810741,
+        "storage_upper_static_item_zone": 0.473519,
+        "storage_lower_static_item_zone": 0.738519,
+    }
+    expected_x_values = {
+        "outbound_static_item_zone": [0.19, 0.43, 0.43, 0.225],
+        "charging_reference_zone": [0.225, 0.43, 0.43, 0.245],
+        "inbound_static_item_zone": [0.255, 0.43, 0.43, 0.26],
+        "storage_upper_static_item_zone": [0.485, 0.705, 0.705, 0.485],
+        "storage_lower_static_item_zone": [0.485, 0.705, 0.705, 0.485],
+    }
+    map_roi = ZoneRoi(
+        zone_id="map_roi",
+        label="map roi",
+        role="diagnostic",
+        natural_item_location=False,
+        polygon_normalized=tuple(
+            (float(x), float(y)) for x, y in data["map_roi"]["polygon_normalized"]
+        ),
+    )
+
+    for zone_id, (minimum_y, maximum_y) in expected_y_bounds.items():
+        polygon = zones[zone_id]["polygon_normalized"]
+        assert [point[0] for point in polygon] == expected_x_values[zone_id]
+        assert [point[1] for point in polygon] == pytest.approx(
+            [minimum_y, minimum_y, maximum_y, maximum_y]
+        )
+        assert zones[zone_id]["overlay_label_anchor_normalized"][1] == pytest.approx(
+            expected_label_y[zone_id]
+        )
+        for x, y in polygon:
+            assert zone_contains_pixel(
+                map_roi, x=x * 1920, y=y * 1080, image_width=1920, image_height=1080
+            )
+
+    assert expected_y_bounds["storage_upper_static_item_zone"][1] - expected_y_bounds[
+        "storage_upper_static_item_zone"
+    ][0] == pytest.approx(0.215)
+    assert expected_y_bounds["storage_lower_static_item_zone"][1] - expected_y_bounds[
+        "storage_lower_static_item_zone"
+    ][0] == pytest.approx(0.25)
 
 
 def test_zone_roi_rejects_location_aliases_pointing_to_unknown_zones(tmp_path) -> None:
