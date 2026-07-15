@@ -39,6 +39,11 @@
    ./scripts/real.sh --dev
    ```
 
+   Person safety가 활성화된 Main은 시작 시 남아 있는 physical·cancel·recovery·callback
+   전이 상태를 poller보다 먼저 확인한다. 중단된 이동 상태는 E-stop과
+   `AWAITING_OPERATOR`로 고정되므로 재시작만으로 clear하거나 자동 재개하지 말고
+   [ESTOP 복구 절차](../../main-server/docs/operations/ESTOP_RECOVERY_PLAYBOOK.md)를 따른다.
+
 7. 선택 profile과 Main·AI health를 확인한 뒤 [TB1 우선 실물 E2E 실행 체크리스트](physical-e2e-checklist.md)의 빠른 순서로 진행한다.
 
    ```bash

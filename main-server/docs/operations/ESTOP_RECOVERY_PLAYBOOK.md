@@ -33,6 +33,9 @@ Pose fallback은 연결성·관측 진단일 뿐 E-stop clear 또는 physical re
 3. 체크리스트(현장 해소·pose·화물) 확인 후 **복구 실행**.
 4. `safe_move`가 `RECOVERY_RUNNING`이면 이동 완료까지 대기 → 다시 `AWAITING_OPERATOR`로 돌아와 다음 결정을 내린다.
 
+`safe_move`는 Movement 명령을 보내기 전에 person monitor를 먼저 활성화한다. Monitor를
+활성화하지 못하면 Nav 명령을 보내지 않고 task를 `AWAITING_OPERATOR`에 유지한다.
+
 `UNKNOWN`은 실행을 차단한다. TB1 무화물 person 시험은 `EMPTY`를 선택한다. 안전지점 이동이 필요한 경우 `safe_move` 완료 뒤 `AWAITING_OPERATOR`를 확인하고, 작업을 끝낼 때는 별도 `manual_abort`를 실행한다.
 
 API: `POST /tasks/{id}/recovery/preview` · `POST /tasks/{id}/recovery/execute`.
