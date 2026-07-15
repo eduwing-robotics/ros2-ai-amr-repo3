@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from app.db.mvp_repositories import (
     DEFAULT_FLOOR,
     MvpEventRepository,
+    MvpEvidenceRepository,
     MvpItemRepository,
     MvpLocationRepository,
     MvpTaskRepository,
@@ -148,6 +149,69 @@ def _stop_response(
     }
 
 
+def _locked_orchestration(
+    conn,
+    order_id: int,
+    fallback: dict[str, Any],
+) -> dict[str, Any]:
+    """Read the latest orchestration under the shared task claim lock."""
+    if getattr(conn, "is_postgres", False) is True:
+        locked = MvpEvidenceRepository(conn).lock_orchestration(order_id)
+        return locked if isinstance(locked, dict) else {}
+    return fallback
+
+
+def _manual_stop_from_durable_hold(
+    conn,
+    order_id: int,
+    *,
+    robot_id: str,
+    command_id: str | None,
+    business_completed: bool,
+    fallback: dict[str, Any],
+) -> dict[str, Any]:
+    movement: dict[str, Any] = {}
+    error: str | None = None
+    try:
+        response = movement_client.manual_stop(robot_id, {"robot_name": robot_id})
+        if isinstance(response, dict):
+            movement = response
+    except Exception as exc:
+        error = str(exc)
+
+    confirmed = movement.get("accepted") is True and movement.get("stopped") is True
+    MvpEventRepository(conn).append(
+        event_type="WORK_ORDER_MANUAL_STOP_RESULT",
+        task_id=order_id,
+        robot_id=robot_id,
+        message=f"work order {order_id} manual stop {'confirmed' if confirmed else 'unconfirmed'}",
+        payload={
+            "command_id": command_id,
+            "cargo_state": "UNKNOWN",
+            "confirmed": confirmed,
+            "state": movement.get("state"),
+            "error": error,
+        },
+    )
+    if confirmed:
+        latest = _locked_orchestration(conn, order_id, fallback)
+        if orch_state.normalize_phase(latest.get("phase")) == orch_state.PHASE_AWAITING_OPERATOR:
+            recovery = dict(latest.get("recovery") or {})
+            if recovery.get("reason") == "operator_safe_stop_no_active_command":
+                recovery["stop_confirmed"] = True
+                latest["recovery"] = recovery
+                evidence_runtime.save_orchestration(conn, order_id, latest)
+    conn.commit()
+    return _stop_response(
+        order_id,
+        command_id=command_id,
+        cargo_state="UNKNOWN",
+        business_completed=business_completed,
+        accepted=confirmed,
+        status="AWAITING_OPERATOR",
+    )
+
+
 def _request_recovery_work_order_stop(
     conn,
     order_id: int,
@@ -255,19 +319,25 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
     task = evidence_runtime.attach_orchestration(tasks.get(order_id), conn)
     if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
         raise HTTPException(status_code=404, detail="work order not found")
+    fallback = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
+    orch = _locked_orchestration(conn, order_id, fallback)
+    if getattr(conn, "is_postgres", False) is True:
+        task = tasks.get(order_id)
+    if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
+        raise HTTPException(status_code=404, detail="work order not found")
     if str(task.get("status") or "").upper() != "RUNNING":
         raise HTTPException(status_code=409, detail="work_order_stop_requires_running")
 
     robot_id = task.get("assigned_robot_id") or task.get("robot_id")
     if not robot_id:
         raise HTTPException(status_code=409, detail="work_order_has_no_active_command")
-    orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
+    robot_id = str(robot_id)
     business_completed = bool(orch.get("business_completed"))
     if orch_state.normalize_phase(orch.get("phase")) == orch_state.PHASE_RECOVERY_RUNNING:
         return _request_recovery_work_order_stop(
             conn,
             order_id,
-            robot_id=str(robot_id),
+            robot_id=robot_id,
             orch=orch,
             business_completed=business_completed,
         )
@@ -275,49 +345,64 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
     step_index = orch_state.get_step_index(orch)
     step = steps[step_index] if 0 <= step_index < len(steps) else {}
     command_id = step.get("command_id")
-
-    if not command_id or not orch_state.is_dispatched_robot_task_step(step):
-        recovery = dict(orch.get("recovery") or {})
-        if orch_state.normalize_phase(orch.get("phase")) == orch_state.PHASE_AWAITING_OPERATOR:
+    command_id_text = str(command_id) if command_id else None
+    recovery = dict(orch.get("recovery") or {})
+    phase = orch_state.normalize_phase(orch.get("phase"))
+    if phase == orch_state.PHASE_AWAITING_OPERATOR:
+        if (
+            recovery.get("reason") != "operator_safe_stop_no_active_command"
+            or recovery.get("stop_confirmed") is True
+        ):
+            conn.rollback()
             return _stop_response(
                 order_id,
-                command_id=str(command_id) if command_id else None,
+                command_id=command_id_text,
                 cargo_state=str(recovery.get("cargo_state") or "UNKNOWN"),
                 business_completed=business_completed,
-                accepted=True,
+                accepted=recovery.get("stop_confirmed") is not False,
                 status="AWAITING_OPERATOR",
             )
-        try:
-            movement = movement_client.manual_stop(str(robot_id), {"robot_name": str(robot_id)})
-        except MovementClientError as exc:
-            raise HTTPException(status_code=409, detail="work_order_stop_unconfirmed") from exc
-        if (
-            not isinstance(movement, dict)
-            or movement.get("accepted") is not True
-            or movement.get("stopped") is not True
-        ):
-            raise HTTPException(status_code=409, detail="work_order_stop_unconfirmed")
+        conn.commit()
+        return _manual_stop_from_durable_hold(
+            conn,
+            order_id,
+            robot_id=robot_id,
+            command_id=command_id_text,
+            business_completed=business_completed,
+            fallback=orch,
+        )
+
+    step_status = str(step.get("status") or "").upper()
+    exact_command_active = bool(command_id_text) and step_status in {
+        "DISPATCHING",
+        "DISPATCHED",
+        "RUNNING",
+    }
+    if not exact_command_active:
         orch_state.set_phase(orch, orch_state.PHASE_AWAITING_OPERATOR)
         orch["recovery"] = {
             "reason": "operator_safe_stop_no_active_command",
-            "robot_id": str(robot_id),
+            "robot_id": robot_id,
             "cargo_state": "UNKNOWN",
+            "stop_requested": True,
+            "stop_confirmed": False,
         }
         evidence_runtime.save_orchestration(conn, order_id, orch)
         MvpEventRepository(conn).append(
             event_type=orch_state.EVENT_AWAITING_OPERATOR,
             task_id=order_id,
-            robot_id=str(robot_id),
-            message=f"work order {order_id} stopped without an active command",
-            payload={"cargo_state": "UNKNOWN", "movement": movement},
+            robot_id=robot_id,
+            message=f"work order {order_id} held before manual stop",
+            payload={"cargo_state": "UNKNOWN", "command_id": command_id_text},
         )
-        return _stop_response(
+        conn.commit()
+        return _manual_stop_from_durable_hold(
+            conn,
             order_id,
-            command_id=None,
-            cargo_state="UNKNOWN",
+            robot_id=robot_id,
+            command_id=command_id_text,
             business_completed=business_completed,
-            accepted=True,
-            status="AWAITING_OPERATOR",
+            fallback=orch,
         )
 
     previous = orch.get("stop_request") or {}
@@ -367,8 +452,9 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
         conn.commit()
 
     try:
-        movement = movement_client.cancel_command(str(robot_id), str(command_id))
-    except MovementClientError as exc:
+        response = movement_client.cancel_command(robot_id, str(command_id))
+        movement = response if isinstance(response, dict) else {}
+    except Exception as exc:
         movement = {
             "accepted": False,
             "state": "STOP_UNCONFIRMED",
@@ -376,11 +462,13 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
         }
 
     movement_state = str(movement.get("state") or "").upper()
-    accepted = movement.get("accepted", True) is True
+    accepted = movement.get("accepted") is True or movement_state in {
+        "CANCELED",
+        "CANCELLED",
+        "STOPPED",
+    }
     if not accepted or movement_state == "STOP_UNCONFIRMED":
-        latest_task = evidence_runtime.attach_orchestration(tasks.get(order_id), conn)
-        latest_orch = (latest_task.get("preset_snapshot") or {}).get("_orchestration") if latest_task else None
-        latest_orch = latest_orch if isinstance(latest_orch, dict) else orch
+        latest_orch = _locked_orchestration(conn, order_id, orch)
         latest_phase = orch_state.normalize_phase(latest_orch.get("phase"))
 
         # A synchronous callback may already have completed the stop. Never
@@ -388,6 +476,7 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
         # CANCEL_REQUESTED snapshot.
         if latest_phase != orch_state.PHASE_CANCEL_REQUESTED:
             recovery = latest_orch.get("recovery") or {}
+            conn.rollback()
             return _stop_response(
                 order_id,
                 command_id=str(command_id),
@@ -420,6 +509,30 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
                 "movement": movement,
             },
         )
+        conn.commit()
+
+        estop_ok = False
+        estop_error: str | None = None
+        try:
+            response = movement_client.estop(robot_id)
+            estop_ok = isinstance(response, dict)
+            if not estop_ok:
+                estop_error = "invalid_estop_response"
+        except Exception as exc:
+            estop_error = str(exc)
+        MvpEventRepository(conn).append(
+            event_type="WORK_ORDER_ESTOP_RESULT",
+            task_id=order_id,
+            robot_id=robot_id,
+            message=f"work order {order_id} fail-closed E-stop {'confirmed' if estop_ok else 'unconfirmed'}",
+            payload={
+                "command_id": command_id,
+                "cargo_state": "UNKNOWN",
+                "estop_ok": estop_ok,
+                "error": estop_error,
+            },
+        )
+        conn.commit()
         return _stop_response(
             order_id,
             command_id=str(command_id),

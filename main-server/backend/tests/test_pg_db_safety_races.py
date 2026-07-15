@@ -722,6 +722,177 @@ class PgDbSafetyRaceTest(unittest.TestCase):
         self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
         self.assertEqual(orchestration["recovery"]["reason"], "concurrent_safety_hold")
 
+    def test_work_order_pending_stop_commits_hold_before_manual_stop_http(self) -> None:
+        with write_transaction() as conn:
+            task_id = MvpTaskRepository(conn).create(
+                {"task_type": "INBOUND", "status": "RUNNING", "robot_id": "tb3_1"}
+            )
+            MvpEvidenceRepository(conn).save_orchestration(
+                task_id,
+                {
+                    "phase": "RUNNING",
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "kind": "move_to_point",
+                            "status": "pending",
+                            "params": {
+                                "map_id": "robot2_map",
+                                "x": 0.0,
+                                "y": 0.0,
+                                "yaw": 0.0,
+                            },
+                        }
+                    ],
+                },
+            )
+
+        manual_stop_started = threading.Event()
+        dispatch_checked = threading.Event()
+        results: dict[str, object] = {}
+
+        def blocked_manual_stop(_robot_id, _payload):
+            with transaction() as check_conn:
+                current = MvpEvidenceRepository(check_conn).get_orchestration(task_id)
+            self.assertEqual(current["phase"], "AWAITING_OPERATOR")
+            manual_stop_started.set()
+            if not dispatch_checked.wait(timeout=10):
+                raise TimeoutError("dispatch did not observe the durable work-order hold")
+            return {"accepted": True, "stopped": True, "state": "STOPPED"}
+
+        def stop() -> None:
+            try:
+                with write_transaction() as conn:
+                    results["stop"] = work_orders_pg.request_work_order_stop(conn, task_id)
+            except Exception as exc:
+                results["stop"] = exc
+
+        def dispatch() -> None:
+            if not manual_stop_started.wait(timeout=10):
+                results["dispatch"] = TimeoutError("manual stop did not start")
+                dispatch_checked.set()
+                return
+            try:
+                with write_transaction() as conn:
+                    results["dispatch"] = orchestrator.dispatch_current_step(conn, task_id)
+            except Exception as exc:
+                results["dispatch"] = exc
+            finally:
+                dispatch_checked.set()
+
+        with (
+            patch.object(work_orders_pg.movement_client, "manual_stop", side_effect=blocked_manual_stop),
+            patch.object(orchestrator.person_hazard, "arm_physical_motion_monitor", return_value=True),
+            patch.object(orchestrator.command_service, "dispatch_robot_command") as send,
+        ):
+            threads = [
+                threading.Thread(target=stop, name="pending-work-order-stop"),
+                threading.Thread(target=dispatch, name="dispatch-after-work-order-hold"),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive(), "work-order pending stop race did not finish")
+
+        self.assertIsInstance(results.get("stop"), dict)
+        self.assertTrue(results["stop"]["accepted"])
+        self.assertEqual(results.get("dispatch"), "")
+        send.assert_not_called()
+
+    def test_stop_racing_delayed_work_order_dispatch_reissues_exact_cancel(self) -> None:
+        with write_transaction() as conn:
+            task_id = MvpTaskRepository(conn).create(
+                {"task_type": "INBOUND", "status": "RUNNING", "robot_id": "tb3_1"}
+            )
+            MvpEvidenceRepository(conn).save_orchestration(
+                task_id,
+                {
+                    "phase": "RUNNING",
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "kind": "move_to_point",
+                            "status": "pending",
+                            "params": {
+                                "map_id": "robot2_map",
+                                "x": 0.0,
+                                "y": 0.0,
+                                "yaw": 0.0,
+                            },
+                        }
+                    ],
+                },
+            )
+
+        dispatch_started = threading.Event()
+        stop_finished = threading.Event()
+        results: dict[str, object] = {}
+        cancel_ids: list[str] = []
+
+        def delayed_dispatch(_conn, payload, request=None):
+            self.assertIsNone(request)
+            dispatch_started.set()
+            if not stop_finished.wait(timeout=10):
+                raise TimeoutError("operator stop did not finish before dispatch response")
+            return RobotCommandResponse(
+                command_id=str(payload.command_id),
+                robot_id=payload.robot_id,
+                kind=payload.kind,
+                accepted=True,
+            )
+
+        def cancel(_robot_id, command_id):
+            cancel_ids.append(str(command_id))
+            return {"accepted": True}
+
+        def dispatch() -> None:
+            try:
+                with write_transaction() as conn:
+                    results["dispatch"] = orchestrator.dispatch_current_step(conn, task_id)
+            except Exception as exc:
+                results["dispatch"] = exc
+
+        def stop() -> None:
+            if not dispatch_started.wait(timeout=10):
+                results["stop"] = TimeoutError("work-order dispatch did not start")
+                stop_finished.set()
+                return
+            try:
+                with write_transaction() as conn:
+                    results["stop"] = work_orders_pg.request_work_order_stop(conn, task_id)
+            except Exception as exc:
+                results["stop"] = exc
+            finally:
+                stop_finished.set()
+
+        with (
+            patch.object(person_hazard, "arm_physical_motion_monitor", return_value=True),
+            patch.object(orchestrator.command_service, "dispatch_robot_command", side_effect=delayed_dispatch),
+            patch.object(work_orders_pg.movement_client, "cancel_command", side_effect=cancel),
+        ):
+            threads = [
+                threading.Thread(target=dispatch, name="delayed-work-order-dispatch"),
+                threading.Thread(target=stop, name="stop-during-work-order-dispatch"),
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive(), "work-order dispatch stop race did not finish")
+
+        self.assertIsInstance(results.get("stop"), dict)
+        self.assertTrue(results["stop"]["accepted"])
+        self.assertIsInstance(results.get("dispatch"), HTTPException)
+        self.assertEqual(results["dispatch"].detail, "work_order_stop_already_requested")
+        self.assertEqual(len(cancel_ids), 2)
+        self.assertEqual(cancel_ids[0], cancel_ids[1])
+        with transaction() as conn:
+            orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
+        self.assertEqual(orchestration["phase"], "CANCEL_REQUESTED")
+        self.assertEqual(orchestration["steps"][0]["status"], "dispatched")
+        self.assertEqual(orchestration["stop_request"]["command_id"], cancel_ids[0])
+
     def test_stop_racing_delayed_recovery_dispatch_is_enforced_before_return(self) -> None:
         with write_transaction() as conn:
             task_id = MvpTaskRepository(conn).create(
@@ -976,6 +1147,47 @@ class PgDbSafetyRaceTest(unittest.TestCase):
             orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
         self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
         self.assertEqual(orchestration["recovery"]["reason"], "operator_estop")
+
+    def test_person_hazard_commits_hold_before_unexpected_estop_error(self) -> None:
+        task_id, _command_id = self._create_two_step_move_task()
+        runtime = person_hazard.MonitorRuntime(
+            robot_id="tb3_1",
+            source="tb3_1_picam",
+            task_id=task_id,
+            enable_time=datetime.now(timezone.utc),
+        )
+        observed_at = datetime.now(timezone.utc).isoformat()
+        payload = self._fresh_person_advisory(task_id, suffix="pre-estop-hold")
+        payload["event"]["observed_at"] = observed_at
+        phase_seen_during_estop: list[str] = []
+
+        def unexpected_estop(_robot_id: str):
+            with transaction() as check_conn:
+                orchestration = MvpEvidenceRepository(check_conn).get_orchestration(task_id)
+            phase_seen_during_estop.append(orchestration["phase"])
+            raise RuntimeError("unexpected movement failure")
+
+        with patch.object(person_hazard.movement_client, "estop", side_effect=unexpected_estop):
+            with write_transaction() as conn:
+                result = person_hazard.process_advisory(conn, runtime, payload)
+
+        self.assertFalse(result)
+        self.assertEqual(phase_seen_during_estop, ["AWAITING_OPERATOR"])
+        with transaction() as conn:
+            orchestration = MvpEvidenceRepository(conn).get_orchestration(task_id)
+            events = conn.execute(
+                """
+                SELECT event_type, data_json FROM evidence_events
+                WHERE task_id = %s
+                  AND event_type IN ('SAFETY_ESTOP_DECISION', 'SAFETY_ESTOP_OUTCOME')
+                ORDER BY id
+                """,
+                (task_id,),
+            ).fetchall()
+        self.assertEqual(orchestration["phase"], "AWAITING_OPERATOR")
+        self.assertEqual([row["event_type"] for row in events], ["SAFETY_ESTOP_DECISION", "SAFETY_ESTOP_OUTCOME"])
+        self.assertIs(events[1]["data_json"]["estop_ok"], False)
+        self.assertIn("unexpected movement failure", events[1]["data_json"]["estop_error"])
 
     def test_person_hold_committed_before_terminal_claim_blocks_callback_advance(self) -> None:
         task_id, results, dispatch = self._race_terminal_callback_with_person_hold(

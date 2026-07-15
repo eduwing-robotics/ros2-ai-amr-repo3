@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.models.schemas import RobotCommandResponse
 from app.services import orchestrator, work_orders, work_orders_pg
 from app.services.movement import MovementClientError
 
@@ -112,26 +113,37 @@ def test_stop_during_dispatched_transfer_records_unknown_cargo(
     save.assert_called_once()
 
 
-def test_stop_without_active_command_requires_confirmed_manual_stop() -> None:
+def test_stop_without_active_command_holds_before_failed_manual_stop() -> None:
     conn = MagicMock()
     task = _task()
     task["preset_snapshot"]["_orchestration"]["step_index"] = 0
     tasks = MagicMock()
     tasks.get.return_value = task
+    events = MagicMock()
     with (
         patch.object(work_orders_pg, "MvpTaskRepository", return_value=tasks),
         patch.object(work_orders_pg.evidence_runtime, "attach_orchestration", return_value=task),
         patch.object(work_orders_pg.evidence_runtime, "save_orchestration") as save,
+        patch.object(work_orders_pg, "MvpEventRepository", return_value=events),
         patch.object(work_orders_pg, "movement_client") as movement,
     ):
-        movement.manual_stop.side_effect = MovementClientError("timeout")
-        with pytest.raises(work_orders_pg.HTTPException) as exc:
-            work_orders_pg.request_work_order_stop(conn, 42)
-    assert exc.value.status_code == 409
-    save.assert_not_called()
+        def fail_after_hold(_robot_id: str, _payload: dict) -> dict:
+            orch = task["preset_snapshot"]["_orchestration"]
+            assert orch["phase"] == "AWAITING_OPERATOR"
+            assert orch["recovery"]["cargo_state"] == "UNKNOWN"
+            assert conn.commit.called
+            raise RuntimeError("unexpected transport failure")
+
+        movement.manual_stop.side_effect = fail_after_hold
+        result = work_orders_pg.request_work_order_stop(conn, 42)
+
+    assert result["status"] == "AWAITING_OPERATOR"
+    assert result["accepted"] is False
+    save.assert_called_once()
+    events.append.assert_called()
 
 
-def test_stop_without_active_command_rejects_unconfirmed_manual_stop_response() -> None:
+def test_stop_without_active_command_keeps_hold_on_unconfirmed_response() -> None:
     conn = MagicMock()
     task = _task()
     task["preset_snapshot"]["_orchestration"]["step_index"] = 0
@@ -148,15 +160,119 @@ def test_stop_without_active_command_rejects_unconfirmed_manual_stop_response() 
             "stopped": False,
             "state": "STOP_UNCONFIRMED",
         }
+        result = work_orders_pg.request_work_order_stop(conn, 42)
+
+    assert result["status"] == "AWAITING_OPERATOR"
+    assert result["accepted"] is False
+    save.assert_called_once()
+
+
+def test_stop_during_dispatching_uses_exact_command_after_durable_intent() -> None:
+    conn = MagicMock()
+    task = _task()
+    orch = task["preset_snapshot"]["_orchestration"]
+    orch["steps"][1]["status"] = "dispatching"
+    tasks = MagicMock()
+    tasks.get.return_value = task
+    events = MagicMock()
+    with (
+        patch.object(work_orders_pg, "MvpTaskRepository", return_value=tasks),
+        patch.object(
+            work_orders_pg.evidence_runtime,
+            "attach_orchestration",
+            side_effect=lambda row, _conn: row,
+        ),
+        patch.object(work_orders_pg.evidence_runtime, "save_orchestration") as save,
+        patch.object(work_orders_pg, "MvpEventRepository", return_value=events),
+        patch.object(work_orders_pg, "movement_client") as movement,
+    ):
+        def cancel_after_intent(robot_id: str, command_id: str) -> dict:
+            assert orch["phase"] == "CANCEL_REQUESTED"
+            assert orch["stop_request"]["command_id"] == "cmd-active"
+            assert conn.commit.called
+            assert robot_id == "robot1"
+            assert command_id == "cmd-active"
+            return {"accepted": True}
+
+        movement.cancel_command.side_effect = cancel_after_intent
+        result = work_orders_pg.request_work_order_stop(conn, 42)
+
+    assert result["status"] == "CANCEL_REQUESTED"
+    movement.cancel_command.assert_called_once_with("robot1", "cmd-active")
+    movement.manual_stop.assert_not_called()
+    save.assert_called_once()
+
+
+def test_delayed_dispatch_response_reissues_exact_persisted_cancel() -> None:
+    conn = MagicMock()
+    task = _task()
+    orch = task["preset_snapshot"]["_orchestration"]
+    step = orch["steps"][1]
+    step["status"] = "dispatching"
+    step["command_id"] = "cmd-active"
+    tasks = MagicMock()
+    tasks.get.return_value = task
+    events = MagicMock()
+
+    def dispatch_after_stop_intent(_conn, payload, request=None):
+        assert request is None
+        orch["phase"] = "CANCEL_REQUESTED"
+        orch["stop_request"] = {
+            "command_id": "cmd-active",
+            "robot_id": "robot1",
+            "cargo_state": "EMPTY",
+            "business_completed": False,
+            "accepted": True,
+        }
+        return RobotCommandResponse(
+            command_id=str(payload.command_id),
+            robot_id=payload.robot_id,
+            kind=payload.kind,
+            accepted=True,
+        )
+
+    with (
+        patch.object(orchestrator, "task_repo", return_value=tasks),
+        patch.object(orchestrator, "event_repo", return_value=events),
+        patch.object(orchestrator, "evidence_repo", return_value=MagicMock()),
+        patch.object(
+            orchestrator.evidence_runtime,
+            "attach_orchestration",
+            side_effect=lambda row, _conn: row,
+        ),
+        patch.object(orchestrator.evidence_runtime, "resolve_command_def_id", return_value=11),
+        patch.object(orchestrator.evidence_runtime, "save_orchestration"),
+        patch.object(orchestrator.evidence_runtime, "record_movement_evidence"),
+        patch.object(orchestrator.person_hazard, "arm_physical_motion_monitor", return_value=True),
+        patch.object(orchestrator, "_claim_step_dispatch", return_value=orch),
+        patch.object(
+            orchestrator.command_service,
+            "dispatch_robot_command",
+            side_effect=dispatch_after_stop_intent,
+        ),
+        patch.object(
+            orchestrator.movement_client,
+            "cancel_command",
+            return_value={"accepted": True},
+        ) as cancel_command,
+    ):
         with pytest.raises(work_orders_pg.HTTPException) as exc:
-            work_orders_pg.request_work_order_stop(conn, 42)
+            orchestrator.dispatch_current_step(conn, 42)
 
     assert exc.value.status_code == 409
-    assert exc.value.detail == "work_order_stop_unconfirmed"
-    save.assert_not_called()
+    assert exc.value.detail == "work_order_stop_already_requested"
+    cancel_command.assert_called_once_with("robot1", "cmd-active")
 
 
-def test_unconfirmed_physical_stop_enters_unknown_awaiting_operator() -> None:
+@pytest.mark.parametrize(
+    "cancel_result",
+    [
+        {"accepted": False, "state": "STOP_UNCONFIRMED"},
+        {},
+        ["invalid"],
+    ],
+)
+def test_unconfirmed_physical_stop_enters_unknown_awaiting_operator(cancel_result) -> None:
     conn = MagicMock()
     task = _task()
     tasks = MagicMock()
@@ -173,10 +289,7 @@ def test_unconfirmed_physical_stop_enters_unknown_awaiting_operator() -> None:
         patch.object(work_orders_pg, "MvpEventRepository", return_value=events),
         patch.object(work_orders_pg, "movement_client") as movement,
     ):
-        movement.cancel_command.return_value = {
-            "accepted": False,
-            "state": "STOP_UNCONFIRMED",
-        }
+        movement.cancel_command.return_value = cancel_result
         result = work_orders_pg.request_work_order_stop(conn, 42)
 
     orch = task["preset_snapshot"]["_orchestration"]
@@ -187,17 +300,19 @@ def test_unconfirmed_physical_stop_enters_unknown_awaiting_operator() -> None:
     assert orch["recovery"]["reason"] == "physical_stop_unconfirmed"
     assert orch["recovery"]["cargo_state"] == "UNKNOWN"
     assert save.call_count == 2
-    assert events.append.call_count == 2
+    assert events.append.call_count == 3
+    movement.estop.assert_called_once_with("robot1")
     tasks.set_status.assert_not_called()
 
 
-def _run_stop_callback(cargo_state: str):
+def _run_stop_callback(cargo_state: str, *, step_status: str = "dispatched"):
     conn = MagicMock()
     task = _task(loaded=cargo_state == "LOADED", phase="CANCEL_REQUESTED")
     task["preset_snapshot"]["_orchestration"]["stop_request"] = {
         "cargo_state": cargo_state,
         "business_completed": False,
     }
+    task["preset_snapshot"]["_orchestration"]["steps"][1]["status"] = step_status
     tasks = MagicMock()
     tasks.get.return_value = task
     events = MagicMock()
@@ -233,6 +348,17 @@ def test_unknown_stop_callback_enters_awaiting_operator() -> None:
     assert save.called
     tasks.set_status.assert_not_called()
     robots.set_task.assert_not_called()
+
+
+def test_cancel_callback_closes_dispatching_stop_identity() -> None:
+    task, tasks, _robots, save, result = _run_stop_callback(
+        "LOADED",
+        step_status="dispatching",
+    )
+    assert result is not None
+    assert task["preset_snapshot"]["_orchestration"]["phase"] == "AWAITING_OPERATOR"
+    assert save.called
+    tasks.set_status.assert_not_called()
 
 
 def test_empty_stop_callback_cancels_task_and_releases_robot() -> None:

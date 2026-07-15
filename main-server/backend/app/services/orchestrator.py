@@ -92,7 +92,11 @@ def _lock_step_dispatch_for_finalize(
     claimed: dict[str, Any],
 ) -> dict[str, Any] | None:
     current = _locked_current_orchestration(conn, task_id, claimed)
-    if current is None or orch_state.normalize_phase(current.get("phase")) != orch_state.PHASE_RUNNING:
+    if current is None:
+        return None
+    phase = orch_state.normalize_phase(current.get("phase"))
+    stop_after_dispatch = _matches_persisted_step_stop(current, command_id)
+    if phase != orch_state.PHASE_RUNNING and not stop_after_dispatch:
         return None
     steps = orch_state.get_steps(current)
     if orch_state.get_step_index(current) != step_index or step_index >= len(steps):
@@ -101,6 +105,109 @@ def _lock_step_dispatch_for_finalize(
     if str(step.get("command_id") or "") != command_id or str(step.get("status") or "") != "dispatching":
         return None
     return current
+
+
+def _matches_persisted_step_stop(orch: dict[str, Any], command_id: str) -> bool:
+    phase = orch_state.normalize_phase(orch.get("phase"))
+    if phase not in {orch_state.PHASE_CANCEL_REQUESTED, orch_state.PHASE_AWAITING_OPERATOR}:
+        return False
+    stop_request = orch.get("stop_request") or {}
+    recovery = orch.get("recovery") or {}
+    persisted_command = stop_request.get("command_id") or recovery.get("command_id")
+    return str(persisted_command or "") == command_id
+
+
+def _enforce_persisted_stop_after_dispatch(
+    conn,
+    task_id: int,
+    robot_id: str,
+    command_id: str,
+    fallback: dict[str, Any],
+) -> None:
+    """Reissue an exact cancel after a delayed dispatch response."""
+    cancel: dict[str, Any] = {}
+    cancel_error: str | None = None
+    try:
+        response = movement_client.cancel_command(robot_id, command_id)
+        if isinstance(response, dict):
+            cancel = response
+        else:
+            cancel_error = "invalid_cancel_response"
+    except Exception as exc:
+        cancel_error = str(exc)
+
+    cancel_state = str(cancel.get("state") or cancel.get("status") or "").upper()
+    cancel_confirmed = cancel.get("accepted") is True and cancel_state != "STOP_UNCONFIRMED"
+    if cancel_confirmed:
+        evidence_repo(conn).append(
+            task_id=task_id,
+            event_type="WORK_ORDER_POST_DISPATCH_STOP",
+            source="orchestrator",
+            severity="WARNING",
+            trusted=True,
+            data_json={
+                "command_id": command_id,
+                "robot_id": robot_id,
+                "cancel_accepted": True,
+                "cancel_state": cancel_state,
+            },
+        )
+        conn.commit()
+        return
+
+    current = _locked_current_orchestration(conn, task_id, fallback)
+    if current is not None and _matches_persisted_step_stop(current, command_id):
+        orch_state.set_phase(current, orch_state.PHASE_AWAITING_OPERATOR)
+        recovery = dict(current.get("recovery") or {})
+        recovery.update(
+            {
+                "reason": "physical_stop_unconfirmed",
+                "robot_id": robot_id,
+                "cargo_state": "UNKNOWN",
+                "command_id": command_id,
+            }
+        )
+        current["recovery"] = recovery
+        evidence_runtime.save_orchestration(conn, task_id, current)
+    evidence_repo(conn).append(
+        task_id=task_id,
+        event_type="WORK_ORDER_POST_DISPATCH_STOP",
+        source="orchestrator",
+        severity="CRITICAL",
+        trusted=True,
+        data_json={
+            "command_id": command_id,
+            "robot_id": robot_id,
+            "cancel_accepted": False,
+            "cancel_state": cancel_state,
+            "cancel_error": cancel_error,
+        },
+    )
+    conn.commit()
+
+    estop_ok = False
+    estop_error: str | None = None
+    try:
+        response = movement_client.estop(robot_id)
+        estop_ok = isinstance(response, dict)
+        if not estop_ok:
+            estop_error = "invalid_estop_response"
+    except Exception as exc:
+        estop_error = str(exc)
+    evidence_repo(conn).append(
+        task_id=task_id,
+        event_type="WORK_ORDER_POST_DISPATCH_ESTOP",
+        source="orchestrator",
+        severity="CRITICAL",
+        trusted=True,
+        data_json={
+            "command_id": command_id,
+            "robot_id": robot_id,
+            "estop_ok": estop_ok,
+            "estop_error": estop_error,
+        },
+    )
+    conn.commit()
 
 
 def _fail_close_current_terminal_claim(conn, task_id: int, event: dict[str, Any]) -> None:
@@ -168,7 +275,10 @@ def _claim_terminal_transition(conn, task_id: int, command_id: str, event_name: 
         if index >= len(steps):
             return None
         step = steps[index]
-        if str(step.get("command_id") or "") != command_id or step.get("status") not in {"dispatched", "RUNNING"}:
+        valid_statuses = {"dispatched", "RUNNING"}
+        if orch_state.normalize_phase(orch.get("phase")) == orch_state.PHASE_CANCEL_REQUESTED:
+            valid_statuses.add("dispatching")
+        if str(step.get("command_id") or "") != command_id or step.get("status") not in valid_statuses:
             return None
         step["status"] = "transition_claimed"
         step["transition_id"] = f"{task_id}:{index}:{command_id}:{event_name}"
@@ -631,7 +741,18 @@ def dispatch_current_step(conn, task_id: int) -> str:
     orch = current_orch
     steps = orch_state.get_steps(orch)
     step = steps[step_index]
+    stop_after_dispatch = _matches_persisted_step_stop(orch, command_id)
     if not result.accepted:
+        if stop_after_dispatch:
+            conn.commit()
+            _enforce_persisted_stop_after_dispatch(
+                conn,
+                task_id,
+                str(robot_id),
+                command_id,
+                orch,
+            )
+            raise HTTPException(status_code=409, detail="work_order_stop_already_requested")
         step["status"] = "FAILED"
         orch_state.set_phase(orch, orch_state.PHASE_FAILED)
         orch_state.set_steps(orch, steps)
@@ -652,6 +773,16 @@ def dispatch_current_step(conn, task_id: int) -> str:
         event_type="DISPATCHED",
         data_json={"command_id": result.command_id, "robot_id": robot_id, "kind": step["kind"], "commands_id": command_def_id},
     )
+    if stop_after_dispatch:
+        conn.commit()
+        _enforce_persisted_stop_after_dispatch(
+            conn,
+            task_id,
+            str(robot_id),
+            command_id,
+            orch,
+        )
+        raise HTTPException(status_code=409, detail="work_order_stop_already_requested")
     return result.command_id
 
 
@@ -1056,12 +1187,16 @@ def poll_running_tasks(conn) -> int:
         if step_index >= len(steps):
             continue
         step = steps[step_index]
-        if step.get("status") in {"pending", "dispatching"}:
+        phase = orch_state.normalize_phase(orch.get("phase"))
+        if step.get("status") in {"pending", "dispatching"} and phase == orch_state.PHASE_RUNNING:
             # Recover either side of the durable dispatch claim. Deterministic
             # command ids keep the retry idempotent.
             dispatch_current_step(conn, int(task["task_id"]))
             continue
-        if step.get("status") not in {"dispatched", "RUNNING"} or not step.get("command_id"):
+        status_pollable = {"dispatched", "RUNNING"}
+        if phase == orch_state.PHASE_CANCEL_REQUESTED:
+            status_pollable.add("dispatching")
+        if step.get("status") not in status_pollable or not step.get("command_id"):
             continue
         robot_id = task.get("assigned_robot_id")
         if not robot_id:

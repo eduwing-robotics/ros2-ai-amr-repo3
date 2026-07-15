@@ -121,14 +121,18 @@ class MvpEvidenceRepository:
         orchestration = self.lock_orchestration(task_id)
         if orchestration is None:
             return None
-        if str(orchestration.get("phase") or "") not in {"RUNNING", "CANCEL_REQUESTED"}:
+        phase = str(orchestration.get("phase") or "")
+        if phase not in {"RUNNING", "CANCEL_REQUESTED"}:
             return None
         steps = orchestration.get("steps") if isinstance(orchestration.get("steps"), list) else orchestration.get("legs") or []
         index = int(orchestration.get("step_index", orchestration.get("cursor", 0)) or 0)
         if index >= len(steps):
             return None
         step = steps[index]
-        if str(step.get("command_id") or "") != str(command_id) or step.get("status") not in {"dispatched", "RUNNING"}:
+        valid_statuses = {"dispatched", "RUNNING"}
+        if phase == "CANCEL_REQUESTED":
+            valid_statuses.add("dispatching")
+        if str(step.get("command_id") or "") != str(command_id) or step.get("status") not in valid_statuses:
             return None
         transition_id = f"{task_id}:{index}:{command_id}:{event_name}"
         step["status"] = "transition_claimed"

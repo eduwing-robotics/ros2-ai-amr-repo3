@@ -159,6 +159,47 @@ class PollRunningTasksGateTest(unittest.TestCase):
             source="task_progress_poller",
         )
 
+    def test_poll_reconciles_dispatching_cancel_after_dispatcher_restart(self) -> None:
+        conn = MagicMock()
+        task = {
+            "task_id": 12,
+            "assigned_robot_id": "robot1",
+            "preset_snapshot": {
+                "_orchestration": {
+                    "phase": "CANCEL_REQUESTED",
+                    "stop_request": {"command_id": "cmd-dispatching"},
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "kind": "move_to_point",
+                            "status": "dispatching",
+                            "command_id": "cmd-dispatching",
+                        }
+                    ],
+                }
+            },
+        }
+        with (
+            patch.object(orchestrator, "evidence_runtime") as evidence_runtime,
+            patch.object(orchestrator, "movement_client") as movement_client,
+            patch.object(orchestrator, "advance_on_command_event") as advance,
+            patch.object(orchestrator, "dispatch_current_step") as dispatch,
+        ):
+            evidence_runtime.list_orchestrated_running.return_value = [task]
+            movement_client.command_status.return_value = {"state": "CANCELED"}
+            advance.return_value = {"task_id": 12}
+
+            advanced = orchestrator.poll_running_tasks(conn)
+
+        self.assertEqual(advanced, 1)
+        dispatch.assert_not_called()
+        advance.assert_called_once_with(
+            conn,
+            12,
+            {"command_id": "cmd-dispatching", "state": "CANCELED"},
+            source="task_progress_poller",
+        )
+
     def test_poll_reconciles_unconfirmed_stop_after_main_restart(self) -> None:
         conn = MagicMock()
         task = {
