@@ -191,9 +191,9 @@ export function MapEditor() {
           storageKey="lms.layout.scenario-side"
           cssVar="--scenario-side-w"
           containerRef={layoutRef}
-          defaultSize={460}
-          min={320}
-          max={640}
+          defaultSize={560}
+          min={420}
+          max={900}
           adjacent="trailing"
         />
 

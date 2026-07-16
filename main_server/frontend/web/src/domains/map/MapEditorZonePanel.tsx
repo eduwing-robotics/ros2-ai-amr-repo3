@@ -175,15 +175,15 @@ function ZoneRow({ z, editing, selected, dockPair, linkActive, linkedHelperName,
           ) : null}
         </td>
         <td>
-          {selected && (isDockWaypoint(z) || isTransit || isApproach) ? (
+          {(isDockWaypoint(z) || isTransit || isApproach) ? (
             <>
               <button className={`rowbtn${linkActive ? " primary" : ""}`} onClick={onStartLink}>연결</button>
               {/* 해제는 재연결 가능한 동작 — solid red는 삭제에만 남긴다 (주의 피로 방지) */}
               {(dockPair || z.scan_waypoint_id || z.route_target_id) ? <button className="rowbtn" onClick={onClearScan}>{isTransit ? "연결 해제" : "페어 해제"}</button> : null}
             </>
           ) : null}
-          {selected ? <button className="rowbtn" onClick={onEdit}>수정</button> : null}
-          {selected ? <ConfirmButton onConfirm={onDelete} title="이 구역을 삭제" /> : null}
+          <button className="rowbtn" onClick={onEdit}>수정</button>
+          <ConfirmButton onConfirm={onDelete} title="이 구역을 삭제" />
         </td>
       </tr>
     );

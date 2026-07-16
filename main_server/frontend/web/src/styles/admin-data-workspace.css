@@ -2,7 +2,7 @@
  * Admin data workspace — dense spreadsheet-like surface.
  * Scroll ownership: shell stays fixed; each sheet owns one data viewport.
  */
-.admin-shell{--admin-rail-width:60px;--admin-context-width:clamp(188px,15vw,232px);grid-template-columns:var(--admin-rail-width) var(--admin-context-width) minmax(0,1fr)}
+.admin-shell{--admin-rail-width:240px;--admin-context-width:clamp(188px,15vw,232px);grid-template-columns:var(--admin-rail-width) var(--admin-context-width) minmax(0,1fr)}
 .admin-activity-rail button{min-height:52px}
 .admin-context-pane{min-width:0;padding:20px 16px;border-right:1px solid var(--border)}
 .admin-context-head h1{font-size:20px}.admin-context-head p,.admin-context-note p{font-size:12px;line-height:1.55}.admin-context-section li{font-size:12px}
@@ -31,10 +31,12 @@
 .admin-workbench .system-db-tables{padding:4px;overflow:auto;border-right:1px solid var(--border);background:var(--surface-1)}
 .admin-workbench .system-db-tables .card{margin:0;padding:8px;border:0;border-bottom:1px solid var(--border);border-radius:0}.admin-workbench .system-db-tables .card.active{box-shadow:inset 3px 0 var(--accent);background:var(--accent-soft)}
 .admin-workbench .system-db-rows{min-width:0;min-height:0;display:flex;flex-direction:column}.admin-workbench .system-db-rows .table-wrap{flex:1 1 0}
-.admin-workbench .devices-admin{overflow:auto}.admin-workbench .devices-panels{display:grid;grid-template-columns:repeat(2,minmax(420px,1fr));gap:8px}
-.admin-workbench .devices-panels>.panel{display:flex;min-height:360px;flex-direction:column;overflow:hidden}.admin-workbench .devices-panels .form-grid.compact{grid-template-columns:minmax(140px,1fr) minmax(180px,1.4fr) auto}
+.admin-workbench .devices-admin{overflow:hidden}.admin-workbench .devices-panels{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:repeat(2,minmax(420px,1fr));gap:8px}
+.admin-workbench .devices-panels>.panel{display:flex;min-height:0;flex-direction:column;overflow:hidden}.admin-workbench .devices-panels .form-grid.compact{grid-template-columns:minmax(140px,1fr) minmax(180px,1.4fr) auto}
 .admin-workbench .devices-logs{display:flex;min-height:300px;max-height:44vh;flex-direction:column}.admin-workbench .devices-logs .table-wrap{flex:1 1 0}
 .admin-workbench [class*="warehouse"] .table-wrap{max-height:none}.admin-workbench [class*="warehouse"] .panel{min-width:0}
 .admin-workbench .scenario-page{display:flex;flex-direction:column;gap:8px}.admin-workbench .scenario-page .scenario-layout{flex:1 1 auto;min-height:0}.admin-workbench .scenario-page .scenario-map-stage{min-height:0}
 @media(max-width:1180px){.admin-shell{grid-template-columns:var(--admin-rail-width) minmax(0,1fr)}.admin-workbench .system-admin-grid{grid-template-columns:1fr;overflow:auto}.admin-workbench .system-admin-grid>.panel:first-child{max-height:240px}.admin-workbench .devices-panels{grid-template-columns:1fr}}
 @media(max-width:760px){.admin-workbench>:is(.ops-page,.records-page,.scenario-page){padding:8px}.admin-workbench{overflow:auto}.admin-workbench .records-page,.admin-workbench .ops-page{min-height:720px}.admin-workbench .system-db-panel{grid-template-columns:132px minmax(0,1fr)}.admin-workbench .devices-panels{grid-template-columns:minmax(620px,1fr)}}
+
+@media(max-width:760px){.admin-shell{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}}

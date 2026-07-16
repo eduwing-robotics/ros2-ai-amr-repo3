@@ -5,18 +5,21 @@ import { FilterableTable } from "../../components/FilterableTable";
 import { Pill } from "../../components/Pill";
 import { cell, eventDotClass, eventTypeLabel, formatServerTime, shortId } from "../../lib/format";
 import { useEvents, useItemChangeLogs, useMovementCommandRecords, useTaskLogs } from "./useEvents";
+import { useCommLogs } from "../../hooks/useCommLogs";
+import type { CommLog } from "../../hooks/useCommLogs";
 import type { ItemChangeLogRecord, RobotCommandRecord, TaskLogRecord } from "../../types";
 import type { TimelineEvent } from "./useEvents";
 
 const PAGE_SIZE = 25;
 
-type TabKey = "events" | "tasks" | "movement" | "inventory";
+type TabKey = "events" | "tasks" | "movement" | "inventory" | "communications";
 
 const TAB_LABELS: Record<TabKey, string> = {
   events: "감사 이벤트",
   tasks: "작업 완료 (task_logs)",
   movement: "이동 증거",
   inventory: "재고 변경",
+  communications: "통신 기록",
 };
 
 function paginate<T>(rows: T[], page: number) {
@@ -149,6 +152,29 @@ function InventoryChangesTab() {
   );
 }
 
+function CommunicationsTab() {
+  const [service, setService] = useState("");
+  const { data, isLoading } = useCommLogs(service, 200);
+  const rows = data?.logs ?? [];
+  const columns: Column<CommLog>[] = [
+    { header: "시각", className: "mono", cell: (r) => <span title={cell(r.finished_at || r.started_at)}>{formatServerTime(r.finished_at || r.started_at)}</span> },
+    { header: "서비스", cell: (r) => cell(r.service) },
+    { header: "결과", cell: (r) => <><Pill status={r.ok ? "ok" : "error"} /> {cell(r.status)}</> },
+    { header: "응답 시간", className: "mono", cell: (r) => <>{cell(r.elapsed_ms)} ms</> },
+    { header: "URL", className: "mono", cell: (r) => <span title={cell(r.url)}>{cell(r.url)}</span> },
+  ];
+  return <>
+    <div className="toolbar records-filters">
+      <input className="search" placeholder="서비스 이름으로 필터" value={service} onChange={(e) => setService(e.target.value)} />
+      <span className="rowcount">최근 {rows.length}건</span>
+    </div>
+    {isLoading ? <div className="empty">불러오는 중…</div> : <FilterableTable columns={columns} rows={rows}
+      getKey={(r, i) => [r.started_at, r.service, i].join("-")}
+      searchFields={["started_at", "finished_at", "service", "status", "url"]} statusField="status"
+      emptyText="통신 기록 없음" />}
+  </>;
+}
+
 function Pager({ page, total, onChange }: { page: number; total: number; onChange: (p: number) => void }) {
   if (total <= 1) return null;
   return (
@@ -170,7 +196,7 @@ export function Records({
   const [searchParams, setSearchParams] = useSearchParams();
   const tabs: TabKey[] = variant === "operate"
     ? ["events", "tasks"]
-    : ["events", "tasks", "movement", "inventory"];
+    : ["events", "tasks", "movement", "inventory", "communications"];
   const tabParam = (searchParams.get("tab") ?? initialTab ?? "events") as TabKey;
   const tab = tabs.includes(tabParam) ? tabParam : tabs[0];
 
@@ -189,7 +215,7 @@ export function Records({
         <div className="ops-heading">
           <div>
             <h2>기록</h2>
-            <p>감사 이벤트·작업 완료·이동 증거·재고 변경 — DB source 테이블 기반 read-only 조회</p>
+            <p>감사 이벤트·작업 완료·이동 증거·재고 변경·통신 기록 — DB source 테이블 기반 read-only 조회</p>
           </div>
         </div>
       ) : null}
@@ -205,6 +231,7 @@ export function Records({
         {tab === "tasks" && <TasksTab />}
         {tab === "movement" && <MovementTab rows={movements} />}
         {tab === "inventory" && <InventoryChangesTab />}
+        {tab === "communications" && <CommunicationsTab />}
       </div>
     </div>
   );

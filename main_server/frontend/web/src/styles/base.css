@@ -459,3 +459,22 @@
     .chipbtn { border: 1px solid var(--border); background: var(--surface-2); color: var(--text); padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; cursor: pointer; }
     .chipbtn:hover { background: var(--accent-soft); border-color: var(--accent); }
     .chipbtn .muted { font-size: 11px; }
+
+
+/* 맵 라벨은 지도 이미지 명도와 UI 테마에 무관하게 고대비로 유지 */
+.map-stage .marker-label-pill{fill:rgba(15,23,42,.92);stroke:rgba(255,255,255,.8)}
+.map-stage .marker-label-text{fill:#fff;stroke:rgba(15,23,42,.96);stroke-width:2.5px}
+.map-stage .dock-scan-badge,.map-stage .scan-badge{fill:#fbbf24;stroke:#111827;stroke-width:2.5px}
+
+/* 구역 목록은 드래그로 넓힐 수 있고, 핵심 액션은 가로 스크롤과 무관하게 노출 */
+.scenario-layout{grid-template-columns:minmax(520px,1fr) 8px var(--scenario-side-w,560px)}
+.layout-resizer--scenario{cursor:col-resize;background:var(--border-light)}
+.layout-resizer--scenario:hover,.layout-resizer--scenario:focus{background:var(--accent)}
+.scenario-side{min-width:420px}
+.zone-list-card:last-child{min-height:0;display:flex;flex-direction:column}
+.zone-list-card:last-child .compact-table{max-height:none;min-height:260px;flex:1 1 auto}
+.zone-list-card .compact-table th:last-child,.zone-list-card .compact-table td:last-child{position:sticky;right:0;z-index:2;min-width:148px;background:var(--surface)}
+.zone-list-card .compact-table th:last-child{z-index:4;background:var(--surface-2)}
+.zone-list-card .compact-table tr:hover td:last-child,.zone-list-card .compact-table tr.selected td:last-child{background:var(--accent-soft)}
+.zone-list-card .compact-table td:first-child{max-width:180px;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:1280px){.scenario-layout{grid-template-columns:1fr}.scenario-layout .layout-resizer--scenario{display:none}.scenario-layout .scenario-stage-panel,.scenario-layout .scenario-side{grid-column:1}.scenario-side{min-width:0}.zone-list-card:last-child .compact-table{max-height:520px}}
