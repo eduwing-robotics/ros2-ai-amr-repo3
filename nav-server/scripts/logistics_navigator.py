@@ -2175,6 +2175,110 @@ class LogisticsNavigator(Node):
             self.status = "IDLE" if previous_status == "IDLE" else previous_status
             self.manual_stop_event.clear()
 
+    def publish_velocity_for_distance(
+        self,
+        linear_x=0.0,
+        distance_m=0.0,
+        rate_hz=10.0,
+        forward_margin_m=None,
+        max_duration_sec=None,
+        tolerance_m=0.005,
+        stop_condition=None,
+    ):
+        """Drive straight until odom/map feedback reaches ``distance_m``."""
+        if self.safety.estop:
+            return {"ok": False, "distance_m": 0.0, "reason": "estop", "feedback": False}
+
+        linear_x = float(linear_x)
+        distance_m = max(0.0, float(distance_m))
+        if abs(linear_x) <= 0.001 or distance_m <= 0.0005:
+            return {"ok": True, "distance_m": 0.0, "reason": "noop", "feedback": True}
+
+        if linear_x > 0.001:
+            margin = self._forward_clearance_margin_m(forward_margin_m=forward_margin_m)
+            if margin >= 0.0:
+                front = self.front_min_range()
+                if front is not None and front < margin:
+                    return {
+                        "ok": False,
+                        "distance_m": 0.0,
+                        "reason": "front_clearance",
+                        "feedback": True,
+                    }
+
+        def _distance_pose_xy():
+            try:
+                transform = self.tf_buffer.lookup_transform("odom", "base_link", Time())
+                translation = transform.transform.translation
+                return float(translation.x), float(translation.y), "odom_tf"
+            except (LookupException, ConnectivityException, ExtrapolationException):
+                pose = self.get_current_pose()
+                if pose is None:
+                    return None
+                try:
+                    return float(pose["x"]), float(pose["y"]), str(pose.get("source", "pose"))
+                except (KeyError, TypeError, ValueError):
+                    return None
+
+        start_xy = _distance_pose_xy()
+        if start_xy is None:
+            return {"ok": False, "distance_m": 0.0, "reason": "pose_unavailable", "feedback": False}
+        start_x, start_y, feedback_source = start_xy
+
+        rate_hz = max(1.0, float(rate_hz))
+        interval = 1.0 / rate_hz
+        if max_duration_sec is None:
+            max_duration_sec = distance_m / max(0.01, abs(linear_x)) * 2.0 + 0.5
+        deadline = time.monotonic() + max(0.1, float(max_duration_sec))
+        target_distance = max(0.0, distance_m - max(0.0, float(tolerance_m)))
+        previous_status = self.status
+        self.status = "MANUAL"
+        self.manual_stop_event.clear()
+
+        twist = TwistStamped()
+        twist.header.frame_id = "base_link"
+        twist.twist.linear.x = linear_x
+        measured = 0.0
+        reason = "timeout"
+        ok = False
+        try:
+            while time.monotonic() < deadline:
+                if self.safety.estop:
+                    reason = "estop"
+                    break
+                if self.manual_stop_event.is_set():
+                    reason = "manual_stop"
+                    ok = False
+                    break
+                current_xy = _distance_pose_xy()
+                if current_xy is not None:
+                    current_x, current_y, _ = current_xy
+                    measured = math.hypot(current_x - start_x, current_y - start_y)
+                    if measured >= target_distance:
+                        reason = "distance_reached"
+                        ok = True
+                        break
+                if stop_condition is not None:
+                    stop_reason = stop_condition()
+                    if stop_reason:
+                        reason = str(stop_reason)
+                        break
+                twist.header.stamp = self.get_clock().now().to_msg()
+                self.cmd_vel_pub.publish(twist)
+                time.sleep(interval)
+            return {
+                "ok": bool(ok),
+                "distance_m": float(measured),
+                "target_m": float(distance_m),
+                "reason": reason,
+                "feedback": True,
+                "feedback_source": feedback_source,
+            }
+        finally:
+            self._publish_stop_velocity()
+            self.status = "IDLE" if previous_status == "IDLE" else previous_status
+            self.manual_stop_event.clear()
+
 
 def main():
     rclpy.init()

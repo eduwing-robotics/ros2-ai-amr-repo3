@@ -337,7 +337,10 @@ GET /movement-api/v1/aruco/latest?marker_id=0
   - 서버 기동 직후 등 미상 → `None`
 - `leave_dock` 처리
   - 상태가 `False`(대기 도킹 아님이 확실)이고 `force`가 아니면 → **후진 생략(no-op), 즉시 `DONE`**. 열린 공간에서 엉뚱하게 뒤로 가는 사고 방지.
+  - 상태가 `False`여도 요청한 대기 marker가 0.40m 안에서 최신 검출되면 물리 증거를 우선해 후진.
   - `True` 또는 `None`이면 → 후방 라이다 클리어런스를 확인한 뒤 후진.
+  - marker가 최신이면 현재 marker 거리에서 0.40m가 될 만큼만 후진하고, 없으면 저장한 삽입 거리 또는 0.20m fallback을 사용한다.
+  - 후진은 시간 추정만으로 성공 처리하지 않고 odom/map 이동 거리로 완료를 판정한다.
   - **후방 클리어런스**: 후진 전 `/scan`의 후방 원호 최소거리를 확인. 여유가 목표 후진거리보다 작으면 그만큼 **후진거리를 자동 축소**하고, 뒤가 막혀 있으면(`여유 ≤ margin`) `FAILED(stage=leave_dock, reason=rear_blocked)`로 안전 중단. `/scan`이 없거나 오래됐으면 체크를 생략하고 기존처럼 후진.
 
 ```json
@@ -355,9 +358,12 @@ GET /movement-api/v1/aruco/latest?marker_id=0
 
 | 필드 | 값 |
 | --- | --- |
-| `distance_m` | 선택. 후진 거리. 기본 `LEAVE_DOCK_REVERSE_DISTANCE_M=0.35` |
+| `aruco_marker_id` | 선택. 대기 marker. 최신 검출 시 0.40m 이격거리를 계산하고 stale 주차 상태보다 우선함 |
+| `distance_m` | 선택. 명시 후진 거리. marker 기반 계산보다 우선함 |
 | `speed_mps` | 선택. 후진 속도. 기본 `LEAVE_DOCK_REVERSE_SPEED=0.05` |
 | `duration_sec` | 선택. 지정하면 거리 대신 시간 기준으로 후진 |
+| `reverse_clearance_marker_distance_m` | 선택. marker 기준 목표 이격거리. 기본 0.40m |
+| `reverse_clearance_fallback_m` | 선택. marker·저장 거리 부재 시 fallback. 기본 0.20m |
 | `max_duration_sec` | 선택. 안전 상한. 기본 `LEAVE_DOCK_MAX_DURATION_SEC=10.0` |
 | `force` | 선택(기본 false). true면 상태 게이트를 무시하고 강제 후진(클리어런스 체크는 유지) |
 | `ignore_clearance` | 선택(기본 false). true면 후방 클리어런스 체크를 건너뜀 |

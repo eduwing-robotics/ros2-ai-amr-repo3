@@ -67,6 +67,12 @@
         "metric_distance_tolerance_m": 0.02
       },
       "lift_levels_mm": {
+        "1": {
+          "pre_insert_mm": 0,
+          "load_height_mm": 6,
+          "unload_height_mm": 0,
+          "carry_height_mm": 6
+        },
         "2": {
           "pre_insert_mm": 50,
           "unload_height_mm": 43
@@ -409,6 +415,7 @@
         "1": {
           "pre_insert_mm": 0,
           "load_height_mm": 6,
+          "unload_height_mm": 0,
           "carry_height_mm": 6
         }
       },

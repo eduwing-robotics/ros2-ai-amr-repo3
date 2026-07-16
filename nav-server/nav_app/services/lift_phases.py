@@ -50,7 +50,9 @@ def resolve_pre_insert_height_mm(action: str, level: int, payload: Dict[str, Any
     """insert 전 리프트 목표. None이면 삽입 먼저(바닥 픽업 등)."""
     if payload.get("pre_insert_lift_mm") is not None:
         value = float(payload["pre_insert_lift_mm"])
-        return value if value > 0.0 else None
+        if value < 0.0:
+            raise ValueError("pre_insert_lift_mm must not be negative")
+        return value
     if not _as_bool(payload.get("pre_insert_lift"), True):
         return None
     if payload.get("pre_insert_mm") is not None:

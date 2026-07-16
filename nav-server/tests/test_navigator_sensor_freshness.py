@@ -36,7 +36,19 @@ def navigator_class(monkeypatch):
     _module(monkeypatch, "rcl_interfaces.srv", GetParameters=object, SetParameters=object)
     _module(monkeypatch, "tf2_ros", Buffer=object, ConnectivityException=Exception, ExtrapolationException=Exception, LookupException=Exception, TransformListener=object)
     _module(monkeypatch, "geometry_msgs")
-    _module(monkeypatch, "geometry_msgs.msg", PoseStamped=object, PoseWithCovarianceStamped=object, TwistStamped=object)
+    _module(
+        monkeypatch,
+        "geometry_msgs.msg",
+        PoseStamped=object,
+        PoseWithCovarianceStamped=object,
+        TwistStamped=lambda: SimpleNamespace(
+            header=SimpleNamespace(frame_id="", stamp=None),
+            twist=SimpleNamespace(
+                linear=SimpleNamespace(x=0.0),
+                angular=SimpleNamespace(z=0.0),
+            ),
+        ),
+    )
     _module(monkeypatch, "lifecycle_msgs")
     _module(monkeypatch, "lifecycle_msgs.srv", GetState=object)
     _module(monkeypatch, "nav2_simple_commander")
@@ -428,3 +440,32 @@ def test_nav2_readiness_fails_closed_when_a_lifecycle_node_is_unavailable(
     assert navigator.ensure_nav2_ready() is False
     assert navigator.nav2_ready is False
     assert navigator.last_nav_failure == "bt_navigator lifecycle is not active"
+
+
+def test_distance_drive_stops_from_measured_feedback(navigator_class):
+    navigator = navigator_class.__new__(navigator_class)
+    navigator.safety = SimpleNamespace(estop=False)
+    navigator.status = "IDLE"
+    navigator.manual_stop_event = threading.Event()
+    navigator.cmd_vel_pub = Mock()
+    navigator._publish_stop_velocity = Mock()
+
+    def transform(x: float):
+        return SimpleNamespace(transform=SimpleNamespace(
+            translation=SimpleNamespace(x=x, y=0.0),
+        ))
+
+    navigator.tf_buffer = Mock()
+    navigator.tf_buffer.lookup_transform.side_effect = [transform(0.0), transform(0.205)]
+
+    result = navigator.publish_velocity_for_distance(
+        linear_x=-0.05,
+        distance_m=0.20,
+        max_duration_sec=1.0,
+        tolerance_m=0.005,
+    )
+
+    assert result["ok"] is True
+    assert result["reason"] == "distance_reached"
+    assert result["distance_m"] == pytest.approx(0.205)
+    navigator._publish_stop_velocity.assert_called_once()

@@ -62,7 +62,6 @@ from nav_app.settings import (
     LEAVE_DOCK_MAX_DURATION_SEC,
     LEAVE_DOCK_REAR_ARC_DEG,
     LEAVE_DOCK_REAR_SCAN_MAX_AGE_SEC,
-    LEAVE_DOCK_REVERSE_DISTANCE_M,
     LEAVE_DOCK_REVERSE_SPEED,
     METRIC_DOCK_REVERSE_MAX_DURATION_SEC,
     METRIC_DOCK_REVERSE_MAX_SPEED_MPS,
@@ -2163,14 +2162,37 @@ def hold_fork_insert_enabled(payload: Dict[str, Any]) -> bool:
 
 
 def resolve_leave_dock_distance_m(payload: Dict[str, Any]) -> float:
-    """leave_dock 후진 거리: 명시값 → hold 주차 insert 실측 → env 기본."""
+    """leave_dock 후진 거리: 명시값 → 마커 40cm 이격 → 저장값 → 검증 fallback."""
     for key in ("distance_m", "reverse_distance_m"):
         if payload.get(key) is not None:
             return abs(float(payload[key]))
+
+    marker_id = payload.get("aruco_marker_id")
+    if marker_id is not None and runtime.navigator:
+        detection = runtime.navigator.get_latest_aruco_detection(
+            int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
+        )
+        if detection and detection.get("estimated_distance_m") is not None:
+            try:
+                current_marker_distance = float(detection["estimated_distance_m"])
+                clearance_m = max(
+                    0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40))
+                )
+                if math.isfinite(current_marker_distance) and current_marker_distance >= 0.0:
+                    distance = max(0.0, clearance_m - current_marker_distance)
+                    print(
+                        f"[leave_dock] marker={int(marker_id)} current={current_marker_distance:.3f}m "
+                        f"clearance={clearance_m:.3f}m reverse={distance:.3f}m"
+                    )
+                    return distance
+            except (TypeError, ValueError):
+                pass
     stored = runtime.get_standby_park_reverse_distance_m()
     if stored is not None and stored > 0.0:
         return stored
-    return LEAVE_DOCK_REVERSE_DISTANCE_M
+    fallback_m = max(0.05, float(payload.get("reverse_clearance_fallback_m", 0.20)))
+    print(f"[leave_dock] marker unavailable; calibrated fallback={fallback_m:.3f}m")
+    return fallback_m
 
 
 def leave_dock_motion_params(payload: Dict[str, Any]):
@@ -2215,19 +2237,61 @@ def execute_leave_dock_step(step: MovementStep):
     force = bool(payload.get("force", False))
     parked = runtime.get_standby_parked()
 
+    # Process-local parking state can be stale after recovery or a physical
+    # reposition. A fresh close marker is stronger evidence that reverse-out is
+    # still required than the old in-memory False flag.
+    marker_requires_reverse = False
+    marker_id = payload.get("aruco_marker_id")
+    if parked is False and marker_id is not None:
+        detection = runtime.navigator.get_latest_aruco_detection(
+            int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
+        )
+        if detection and detection.get("estimated_distance_m") is not None:
+            try:
+                marker_distance = float(detection["estimated_distance_m"])
+                clearance_m = max(
+                    0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40))
+                )
+                marker_requires_reverse = (
+                    math.isfinite(marker_distance)
+                    and marker_distance >= 0.0
+                    and marker_distance < clearance_m - 0.005
+                )
+            except (TypeError, ValueError):
+                marker_requires_reverse = False
+            if marker_requires_reverse:
+                print(
+                    f"[leave_dock] stale standby_parked=False overridden by fresh "
+                    f"marker={int(marker_id)} distance={marker_distance:.3f}m"
+                )
+
     # 상태 게이트: '대기 도킹이 아님(False)'을 확실히 아는 경우에만 후진을 건너뛴다.
     # None(기동 직후 등 미상)은 대기 상태일 수 있으므로 후방 안전체크를 거쳐 후진한다.
-    if parked is False and not force:
+    if parked is False and not force and not marker_requires_reverse:
         print("[leave_dock] 대기-도킹 상태가 아님(standby_parked=False) → 후진 생략(no-op). "
               "강제하려면 params.force=true")
         return True
 
-    speed, duration = leave_dock_motion_params(payload)
+    duration_requested = (
+        payload.get("duration_sec") is not None or payload.get("reverse_duration_sec") is not None
+    ) and payload.get("distance_m") is None and payload.get("reverse_distance_m") is None
+    if duration_requested:
+        # Preserve the public API contract: an explicit duration remains a
+        # time-based request even though the actuator now stops by measured distance.
+        speed, duration = leave_dock_motion_params(payload)
+        requested_distance = speed * duration
+    else:
+        requested_distance = resolve_leave_dock_distance_m(payload)
+        speed, duration = leave_dock_motion_params({**payload, "distance_m": requested_distance})
+    if requested_distance <= 0.005:
+        print("[leave_dock] marker clearance already satisfied; handoff=Nav2")
+        runtime.navigator.publish_stop_velocity()
+        runtime.set_standby_parked(False)
+        return True
     try:
         _require_docking_motion_or_abort(payload, "leave_dock")
     except Exception as exc:
         raise StageError("leave_dock", str(exc)) from exc
-    requested_distance = speed * duration
     stored = runtime.get_standby_park_reverse_distance_m()
     if stored is not None and payload.get("distance_m") is None and payload.get("reverse_distance_m") is None:
         print(f"[leave_dock] using hold-park insert distance {stored:.3f}m for reverse")
@@ -2258,15 +2322,31 @@ def execute_leave_dock_step(step: MovementStep):
                     f"뒤 공간 부족으로 후진 중단",
                 )
             if allowed < requested_distance:
-                duration = allowed / speed
+                requested_distance = allowed
+                duration = requested_distance / speed
                 print(f"[leave_dock] 후방 여유 {rear:.2f}m → 후진거리 {allowed:.2f}m 로 제한")
 
-    print(f"[leave_dock] reversing out speed={speed:.3f}m/s duration={duration:.2f}s "
+    print(f"[leave_dock] reversing out speed={speed:.3f}m/s distance={requested_distance:.3f}m "
           f"(parked={parked}, force={force})")
-    result = _publish_docking_velocity(payload, "leave_dock", linear_x=-speed, angular_z=0.0, duration_sec=duration)
+    try:
+        result = runtime.navigator.publish_velocity_for_distance(
+            linear_x=-speed,
+            distance_m=requested_distance,
+            max_duration_sec=duration * 2.0 + 0.5,
+            tolerance_m=float(payload.get("reverse_tolerance_m", 0.005)),
+            stop_condition=lambda: (
+                _require_docking_motion_or_abort(payload, "leave_dock", require_aruco=True) or None
+            ),
+        )
+    except Exception:
+        _abort_docking_motion()
+        raise
     runtime.navigator.publish_stop_velocity()
-    runtime.set_standby_parked(False)
-    return result
+    print(f"[leave_dock] reverse result={result}; handoff=Nav2")
+    if isinstance(result, dict) and result.get("ok"):
+        runtime.set_standby_parked(False)
+        return True
+    return False
 
 
 def raise_if_estop(stage: str):

@@ -42,7 +42,13 @@ METRIC_DOCKING_RESERVED_FIELDS = {
     "require_pose_quality",
     "max_reprojection_error_px",
 }
-METRIC_DOCKING_CLIENT_FIELDS = frozenset({"aruco_marker_id", "action", "level"})
+METRIC_DOCKING_CLIENT_FIELDS = frozenset({
+    "aruco_marker_id",
+    "action",
+    "level",
+    "pre_insert_lift_mm",
+    "pre_insert_force_move",
+})
 
 
 def normalize_aruco_final_payload(payload: Dict[str, Any]) -> None:

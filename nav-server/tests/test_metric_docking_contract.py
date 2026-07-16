@@ -170,6 +170,8 @@ def test_metric_robot_command_uses_server_owned_motion_and_freshness_limits(monk
             "reverse_target_max_duration_sec": float("inf"),
             "reverse_control_period_sec": 100.0,
             "lift_height_mm": 999.0,
+            "pre_insert_lift_mm": 0,
+            "pre_insert_force_move": True,
         },
     )
 
@@ -179,6 +181,8 @@ def test_metric_robot_command_uses_server_owned_motion_and_freshness_limits(monk
     assert payload["aruco_marker_id"] == 7
     assert payload["action"] == "load"
     assert payload["level"] == 1
+    assert payload["pre_insert_lift_mm"] == 0
+    assert payload["pre_insert_force_move"] is True
     assert payload["control_period_sec"] == 0.10
     assert payload["docking_freshness_segment_sec"] == 0.10
     assert payload["scan_max_age_sec"] == 1.0

@@ -23,6 +23,14 @@ class LiftPhaseTests(unittest.TestCase):
         self.assertIsNone(resolve_pre_insert_height_mm("load", 1, {}, ROBOT_LIFT_CONFIG))
         self.assertAlmostEqual(resolve_post_insert_height_mm("load", 1, {}, ROBOT_LIFT_CONFIG), 43.0)
 
+    def test_explicit_floor_pickup_home_is_a_real_zero_mm_target(self):
+        self.assertEqual(
+            resolve_pre_insert_height_mm(
+                "load", 1, {"pre_insert_lift_mm": 0}, ROBOT_LIFT_CONFIG
+            ),
+            0.0,
+        )
+
     def test_level2_pre_insert_before_insert(self):
         self.assertAlmostEqual(
             resolve_pre_insert_height_mm("unload", 2, {}, ROBOT_LIFT_CONFIG),
