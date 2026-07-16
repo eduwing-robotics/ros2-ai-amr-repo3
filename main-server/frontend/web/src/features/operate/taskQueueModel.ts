@@ -1,12 +1,13 @@
 import { formatPlanSummaryLine } from "../../lib/workOrderLabels";
-import type { WorkOrder, WorkOrderTask } from "../../types";
+import type { WorkOrder, WorkOrderRobotTask } from "../../types";
+import { taskLifecycleOf } from "./taskLifecycle";
 
 export type Segment = "all" | "queued" | "running" | "closed";
 
 export function segmentOf(status: string): Segment {
-  const s = status.toUpperCase();
-  if (s === "CREATED" || s === "QUEUED" || s === "ASSIGNED") return "queued";
-  if (s === "RUNNING" || s === "IN_PROGRESS") return "running";
+  const lifecycle = taskLifecycleOf(status);
+  if (lifecycle === "queued") return "queued";
+  if (lifecycle === "running" || lifecycle === "recovery") return "running";
   return "closed";
 }
 
@@ -23,19 +24,19 @@ export function ordersForSegment(orders: WorkOrder[], segment: Segment): WorkOrd
   return segment === "all" ? orders : orders.filter((o) => segmentOf(o.status) === segment);
 }
 
-export function canCancelTask(t: WorkOrderTask): boolean {
+export function canCancelTask(t: WorkOrderRobotTask): boolean {
   const s = String(t.status || "QUEUED").toUpperCase();
   return s === "QUEUED" || s === "ASSIGNED";
 }
 
-export function cancellableOrderTasks(order: WorkOrder): WorkOrderTask[] {
+export function cancellableOrderTasks(order: WorkOrder): WorkOrderRobotTask[] {
   return order.tasks.filter((t) => {
     const s = String(t.status || "QUEUED").toUpperCase();
     return s === "QUEUED" || s === "ASSIGNED";
   });
 }
 
-export function runningOrderTasks(order: WorkOrder): WorkOrderTask[] {
+export function runningOrderTasks(order: WorkOrder): WorkOrderRobotTask[] {
   return order.tasks.filter((t) => String(t.status || "").toUpperCase() === "RUNNING");
 }
 
@@ -49,7 +50,7 @@ export function cancelOrderConfirmMessage(order: WorkOrder): string {
   return msg;
 }
 
-export function primaryTask(order: WorkOrder): WorkOrderTask | undefined {
+export function primaryTask(order: WorkOrder): WorkOrderRobotTask | undefined {
   return order.tasks[0];
 }
 
@@ -90,14 +91,14 @@ export function canCancelOrder(order: WorkOrder): boolean {
   return cancellableOrderTasks(order).length > 0;
 }
 
-export function taskCanAssign(task: WorkOrderTask | undefined, idleRobotCount: number): boolean {
+export function taskCanAssign(task: WorkOrderRobotTask | undefined, idleRobotCount: number): boolean {
   return String(task?.status || "").toUpperCase() === "QUEUED" && idleRobotCount > 0;
 }
 
-export function taskCanStart(task: WorkOrderTask | undefined): boolean {
+export function taskCanStart(task: WorkOrderRobotTask | undefined): boolean {
   return String(task?.status || "").toUpperCase() === "ASSIGNED";
 }
 
-export function taskIsRunning(task: WorkOrderTask | undefined): boolean {
+export function taskIsRunning(task: WorkOrderRobotTask | undefined): boolean {
   return String(task?.status || "").toUpperCase() === "RUNNING";
 }

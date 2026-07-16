@@ -6,23 +6,23 @@ import { App } from "./App";
 import { FeedbackProvider } from "./components/FeedbackProvider";
 // 디자인 토큰(모드 색상·간격 등) — base 보다 먼저 로드.
 import "./styles/tokens.css";
-// 기본 관제 UI 스타일(구 legacy styles.css, 컷오버 시 web 프로젝트로 이전).
+// 기본 관제 UI 스타일.
 import "./styles/base.css";
 // 콕핏 등 관제 레이아웃 보완 스타일.
-import "./styles/cockpit.css";
 // 프리미티브/신규 컴포넌트 스타일(드로어·모드 탭 등).
 import "./styles/components.css";
-import "./styles/operator-shell.css";
 import "./styles/admin-shell.css";
+import "./styles/operator-shell.css";
 import "./styles/operations-enhancements.css";
+import "./styles/motion.css";
 import "./styles/adobe-theme.css";
 import "./styles/queue-camera-enhancements.css";
+import "./styles/status-surfaces.css";
 import "./styles/admin-data-workspace.css";
 import "./styles/inout-navigation.css";
 import "./styles/camera-video-wall.css";
 import "./styles/unified-shell.css";
 import "./styles/compact-density.css";
-import "./styles/motion.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

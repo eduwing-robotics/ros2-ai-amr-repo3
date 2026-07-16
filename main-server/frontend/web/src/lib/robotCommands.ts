@@ -1,4 +1,4 @@
-// Robot command envelope (PHASE_12-B) — 이동·수동조작·estop 단일 API.
+// Robot command envelope — 이동·수동조작·estop 단일 API.
 import { apiGet, apiSend } from "./api";
 import type { JsonObject, TeleopRequest, TeleopResponse } from "../types";
 
@@ -27,7 +27,7 @@ export type EstopOp = (typeof ESTOP_OPS)[number];
 export const DEFAULT_ALIGN_TOLERANCE_XY = 0.02;
 export const DEFAULT_ALIGN_TOLERANCE_YAW = 2;
 
-/** kind별 명령 입력 — 운영 미션과 관리 기능이 공유한다. */
+/** 운영 제어에서 사용하는 robot command 입력. */
 export interface RobotCommandFormValues {
   mapId: string;
   x: string;

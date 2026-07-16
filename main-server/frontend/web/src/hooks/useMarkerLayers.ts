@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { MARKER_LAYER_TYPES, layerKeyForType } from "../features/mapEditor/constants";
 
-/** 맵 마커 레이어 가시성 상태 (PHASE_41). 타입별 표시/숨김 + 연결 화살표 토글, localStorage 영속. */
+/** 맵 마커 레이어 가시성 상태. 타입별 표시/숨김 + 연결 화살표 토글, localStorage 영속. */
 interface Stored {
   hidden: string[];
   arrows: boolean;

@@ -67,8 +67,6 @@ export interface MapRecord {
   runtime_frame_id?: string | null;
 }
 
-export type MapUpsert = Omit<MapRecord, "created_at" | "updated_at">;
-
 // --- 로봇 pose (맵 좌표계) ---
 export interface RobotPose {
   robot_id: string;
@@ -79,13 +77,18 @@ export interface RobotPose {
   linear_velocity?: number | null;
   angular_velocity?: number | null;
   source: string;
-  frame_id?: string | null;
-  child_frame_id?: string | null;
-  age_sec?: number | null;
-  covariance?: JsonObject | null;
-  reported_at?: string | null;
-  received_at?: string | null;
+  command_id?: string | null;
+  source_reported_at?: string | null;
+  received_at: string;
+  source_age_sec?: number | null;
+  receive_age_sec: number;
+  source_state: "fresh" | "stale" | "lost" | "unknown" | "clock_invalid";
+  receive_state: "live" | "stale" | "lost";
+  pose_state: "live" | "stale" | "lost" | "none";
+  localized?: boolean | null;
   in_bounds?: boolean | null;
+  quality_reasons: string[];
+  version: number;
 }
 
 // --- Movement 진단 ---
@@ -138,7 +141,7 @@ export interface RobotNavState {
 }
 
 // --- 이동 명령 기록 ---
-export interface MovementCommand {
+export interface RobotCommandRecord {
   command_id: string;
   robot_id: string;
   command_type: string;
@@ -149,8 +152,8 @@ export interface MovementCommand {
   created_at: string;
 }
 
-// --- 작업(task) ---
-export interface Task {
+// --- 로봇 작업 ---
+export interface RobotTask {
   task_id: number;
   task_type: string;
   preset_name?: string | null;
@@ -164,7 +167,7 @@ export interface Task {
   updated_at?: string | null;
 }
 
-export interface TaskCreate {
+export interface RobotTaskCreate {
   task_type?: string;
   preset_id?: string | null;
   preset_name?: string | null;
@@ -198,7 +201,7 @@ export interface MovementCommandTrace {
   command_id: string;
   robot_id?: string | null;
   state?: string | null;
-  command?: MovementCommand | null;
+  command?: RobotCommandRecord | null;
   callbacks: JsonObject[];
   callback_count: number;
   last_callback_at?: string | null;

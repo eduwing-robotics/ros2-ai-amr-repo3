@@ -10,15 +10,12 @@ function normalizeOrderIds(local: number[], server: number[]): number[] {
   return next;
 }
 
-/** 예약 행 순서 재배치 — HTML5 drag + ▲▼ + 키보드(↑↓). PHASE_16 dry-run. */
+/** 예약 행 순서 재배치 — HTML5 drag + ▲▼ + 키보드(↑↓).  dry-run. */
 export function useQueuedOrderReorder(queuedOrders: WorkOrder[]) {
   const [localOrderIds, setLocalOrderIds] = useState<number[] | null>(null);
   const dragId = useRef<number | null>(null);
 
-  const serverIds = useMemo(
-    () => queuedOrders.map((order) => order.order_id),
-    [queuedOrders],
-  );
+  const serverIds = useMemo(() => queuedOrders.map((o) => o.order_id), [queuedOrders]);
   const serverKey = serverIds.join(",");
   const orderIds = localOrderIds ?? serverIds;
   const dirty = localOrderIds !== null && localOrderIds.join(",") !== serverIds.join(",");

@@ -12,7 +12,7 @@ export const DOCK_WAYPOINT_TYPES = new Set([
   "dropoff",
 ]);
 
-/** 스캔(ArUco) 연결 대상이 될 수 있는 helper 타입 (PHASE_40: home·charge 추가). */
+/** 스캔(ArUco) 연결 대상이 될 수 있는 helper 타입. */
 export const HELPER_WAYPOINT_TYPES = new Set(["inbound", "outbound", "storage", "home", "charge"]);
 
 export function isDockWaypoint(wp: Waypoint): boolean {
@@ -27,7 +27,7 @@ export function scanWaypointIdFor(dockWaypointId: string): string {
   return `scan_${dockWaypointId}`;
 }
 
-/** DB waypoints에서 scan↔helper 페어를 도출한다(PHASE_29). */
+/** DB waypoints에서 scan↔helper 페어를 도출한다. */
 export function pairsFromWaypoints(zones: Waypoint[]): DockPair[] {
   const byId = new Map(zones.map((z) => [z.waypoint_id, z]));
   const pairs: DockPair[] = [];

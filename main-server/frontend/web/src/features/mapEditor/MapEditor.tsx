@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ZoneType } from "../../types";
 import { Resizer } from "../../components/Resizer";
 import { useFeedback } from "../../components/FeedbackProvider";
@@ -11,17 +11,13 @@ import { MapStage } from "./MapStage";
 import { MapEditorZonePanel } from "./MapEditorZonePanel";
 import { useMapEditorActions } from "./useMapEditorActions";
 
-const SE_MAP_KEY = "se.selectedMapId";
-const readStoredMap = () => { try { return localStorage.getItem(SE_MAP_KEY) || ""; } catch { return ""; } };
-const storeMap = (id: string) => { try { if (id) localStorage.setItem(SE_MAP_KEY, id); } catch { /* 무시 */ } };
-
 export function MapEditor() {
-  const [selectedMapId, setSelectedMapId] = useState(readStoredMap);
   const [zoneMode, setZoneMode] = useState(false);
   const [linkMode, setLinkMode] = useState(false);
   const [linkScanId, setLinkScanId] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [editZoneId, setEditZoneId] = useState("");
+  const [selectedZoneId, setSelectedZoneId] = useState("");
   const layers = useMarkerLayers("se.markerLayers");
   const { toast, confirm } = useFeedback();
 
@@ -31,6 +27,8 @@ export function MapEditor() {
   const layoutRef = useRef<HTMLDivElement>(null);
 
   const { data: maps = [] } = useMaps();
+  const activeMap = maps[0] ?? null;
+  const selectedMapId = activeMap?.map_id ?? "";
   const { data: zones = [] } = useWaypoints(selectedMapId);
   const m = useScenarioMutations();
 
@@ -49,17 +47,6 @@ export function MapEditor() {
     feedback: { toast, confirm },
   });
 
-  useEffect(() => {
-    if (!maps.length) return;
-    setSelectedMapId((cur) => {
-      const next = cur && maps.some((x) => x.map_id === cur) ? cur : maps[0].map_id;
-      storeMap(next);
-      return next;
-    });
-  }, [maps]);
-  useEffect(() => { storeMap(selectedMapId); }, [selectedMapId]);
-
-  const activeMap = useMemo(() => maps.find((x) => x.map_id === selectedMapId) ?? maps[0] ?? null, [maps, selectedMapId]);
   const dockZones = useMemo(() => zones.filter(isDockWaypoint), [zones]);
   const mapDockPairs = useMemo(
     () => pairsFromWaypoints(zones).filter((p) => dockZones.some((z) => z.waypoint_id === p.dock_waypoint_id)),
@@ -102,13 +89,6 @@ export function MapEditor() {
     setLinkError(`「${helper.name}」에 스캔이 없습니다. 구역 추가 모드에서 스캔(approach)을 배치한 뒤 연결하세요.`);
   };
 
-  const requestMapChange = (newId: string) => {
-    if (!newId || newId === selectedMapId) return;
-    setSelectedMapId(newId);
-    setEditZoneId("");
-    exitLinkMode();
-  };
-
   const importMaps = () => {
     m.importMaps.mutateAsync()
       .then((r) => toast(mapImportMessage(r), "ok"))
@@ -117,7 +97,7 @@ export function MapEditor() {
 
   const stageHint = activeMap
     ? linkMode
-      ? "경유→스캔 또는 스캔→helper 순서로 클릭=연결 · ArUco #=스캔 선택 후 편집"
+      ? "경유→스캔 또는 스캔→helper 순서로 클릭해 연결"
       : zoneMode
         ? "빈 곳 클릭=구역 추가 · 점 드래그=이동 · 이름은 드래그 안 됨 · 입출고/선반 방향=스캔 지점 · 경유/검사=끝 핸들 · X=삭제"
         : "구역 추가 또는 연결 모드를 켜세요"
@@ -133,10 +113,7 @@ export function MapEditor() {
           <p>맵 위 작업 구역(waypoint)을 배치·편집합니다. helper(입고·출고·선반)는 스캔 <code>approach</code> waypoint를 연결합니다.</p>
         </div>
         <div className="scenario-top-actions">
-          <select className="filter compact-select" value={selectedMapId} onChange={(e) => requestMapChange(e.target.value)}>
-            {maps.map((mp) => <option key={mp.map_id} value={mp.map_id}>{mp.name}</option>)}
-          </select>
-          <button type="button" className="rowbtn" onClick={importMaps}>맵 폴더 불러오기</button>
+          <button type="button" className="rowbtn" onClick={importMaps}>맵 불러오기</button>
         </div>
       </div>
 
@@ -159,7 +136,7 @@ export function MapEditor() {
             <div className="inline-alert warn link-mode-bar">
               <strong>경로 연결</strong> — 경유(transit) → 스캔(approach), 또는 스캔(approach) → helper 순서로 클릭.
               {linkScanId ? <span> · 선택: {actions.zoneById(linkScanId)?.name || linkScanId}</span> : null}
-              <span className="action-row" style={{ marginTop: 6 }}>
+              <span className="action-row action-row-compact">
                 {linkScanId && actions.zoneById(linkScanId)?.waypoint_type === "transit" && actions.zoneById(linkScanId)?.route_target_id ? (
                   <button type="button" className="rowbtn danger" onClick={() => {
                     m.deleteWaypointRoute.mutateAsync(linkScanId)
@@ -203,7 +180,7 @@ export function MapEditor() {
             isTypeVisible={layers.isVisible}
             showArrows={layers.showArrows} />
 
-          <MarkerLayerControls layers={layers} colors={ZONE_COLOR} arrowLabel="연결 화살표(경유→스캔→도킹)" showLabelToggle={false} />
+          <MarkerLayerControls layers={layers} colors={ZONE_COLOR} arrowLabel="연결 화살표(스캔↔도킹)" showLabelToggle={false} />
 
           <div className="inline-alert">{activeMap ? `${activeMap.name} · ${stageHint}` : stageHint}</div>
         </section>
@@ -214,9 +191,9 @@ export function MapEditor() {
           storageKey="lms.layout.scenario-side"
           cssVar="--scenario-side-w"
           containerRef={layoutRef}
-          defaultSize={460}
-          min={320}
-          max={640}
+          defaultSize={560}
+          min={420}
+          max={900}
           adjacent="trailing"
         />
 
@@ -225,12 +202,17 @@ export function MapEditor() {
           mapDockPairs={mapDockPairs}
           pairByDock={pairByDock}
           linkMode={linkMode}
+          selectedZoneId={selectedZoneId}
           editZoneId={editZoneId}
+          onSelect={setSelectedZoneId}
           onStartLink={startLinkMode}
           onEdit={setEditZoneId}
           onCancelEdit={() => setEditZoneId("")}
           onDelete={(id) => actions.deleteZoneNow(id).catch(actions.notifyError)}
           onClearPair={(id) => actions.clearDockPair(id).catch(actions.notifyError)}
+          onClearRoute={(id) => m.deleteWaypointRoute.mutateAsync(id)
+            .then(() => { setLinkScanId(null); toast("경유 연결을 해제했습니다.", "ok"); })
+            .catch(actions.notifyError)}
           onUpdateAruco={(scanId, markerId) => actions.updateScanAruco(scanId, markerId).catch(actions.notifyError)}
           onSave={actions.saveZoneRow}
           onValidationError={(msg) => toast(msg, "info")}

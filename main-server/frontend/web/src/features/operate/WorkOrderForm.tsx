@@ -4,32 +4,157 @@ import { Panel } from "../../components/Panel";
 import { Field } from "../../components/Field";
 import { Button } from "../../components/Button";
 import { ApiError } from "../../lib/api";
+import { API_ERROR_MESSAGES, parseApiDetail } from "../../lib/apiErrors";
 import { pairsFromWaypoints } from "../../lib/dockPairs";
-import { operationLabel, zoneTypeForOperation } from "../../lib/workOrderLabels";
+import { formatPlanSummaryLine, operationLabel, slotSummary, zoneTypeForOperation } from "../../lib/workOrderLabels";
 import {
   emptySlotCount,
-  parseWorkOrderApiDetail,
   slotCandidatesForOperation,
   stockOnHandForItem,
-  WORK_ORDER_ERROR_HINTS,
 } from "../../lib/workOrderPlanning";
 import { useItems, useInventory, useStorageSlots } from "../../hooks/useWarehouseData";
-import { useAllWaypoints } from "../../hooks/useScenarioData";
+import { useAllWaypoints, useRobots } from "../../hooks/useScenarioData";
 import { useCreateWorkOrder, useWorkOrderPreview } from "../../hooks/useWorkOrders";
-import type { Operation, Robot, WorkOrder } from "../../types";
+import type { Operation, WorkOrder, WorkOrderCreate, WorkOrderPreview, WorkOrderPreviewRequest } from "../../types";
 import {
   MAX_WORK_ORDER_QUANTITY,
   WORK_ORDER_QUANTITY_WARN,
 } from "../../types/warehouse";
-import { WorkOrderPreviewPanel } from "./WorkOrderPreviewPanel";
-import { WorkOrderResultNotice } from "./WorkOrderResultNotice";
-import { buildWorkOrderCreateBody, buildWorkOrderPreviewBody } from "./workOrderFormPayload";
-
 type AssignMode = "auto" | "manual";
 
-function resetFormFields() {
-  return { itemCode: "", quantity: "1", zoneId: "" };
+export interface WorkOrderPayloadInput {
+  operation: Operation;
+  itemCode: string;
+  quantity: number;
+  floor?: number;
+  autoStart?: boolean;
+  inboundWaypointId?: string | null;
+  outboundWaypointId?: string | null;
+  robotId?: string;
+  priority?: number;
+  createdBy?: string;
+  slotId?: string;
 }
+
+function waypointPayload(input: Pick<WorkOrderPayloadInput, "operation" | "inboundWaypointId" | "outboundWaypointId">) {
+  return {
+    inbound_waypoint_id: input.operation === "inbound" && input.inboundWaypointId ? input.inboundWaypointId : null,
+    outbound_waypoint_id: input.operation === "outbound" && input.outboundWaypointId ? input.outboundWaypointId : null,
+  };
+}
+
+export function buildWorkOrderPreviewBody(input: WorkOrderPayloadInput): WorkOrderPreviewRequest {
+  return {
+    operation: input.operation,
+    item_code: input.itemCode,
+    quantity: input.quantity,
+    ...(input.floor ? { floor: input.floor } : {}),
+    ...waypointPayload(input),
+    ...(input.slotId ? { slot_id: input.slotId } : {}),
+  };
+}
+
+export function buildWorkOrderCreateBody(input: WorkOrderPayloadInput): WorkOrderCreate {
+  return {
+    ...buildWorkOrderPreviewBody(input),
+    auto_start: input.autoStart,
+    ...(input.robotId ? { robot_id: input.robotId } : {}),
+    ...(input.priority ? { priority: input.priority } : {}),
+    ...(input.createdBy?.trim() ? { created_by: input.createdBy.trim() } : {}),
+  };
+}
+
+
+export function WorkOrderPreviewPanel({ preview }: { preview: WorkOrderPreview }) {
+  return (
+    <div className="inline-alert mt-8">
+      <strong>실행 전 계획</strong>
+      <div className="muted">
+        {preview.slots.map((s) => (
+          <div key={`${s.slot_id}:${s.floor ?? 1}`}>
+            {formatPlanSummaryLine(s, preview.operation) || slotSummary([s])}
+          </div>
+        ))}
+        {preview.zone ? ` · ${operationLabel(preview.operation)} 존 ${preview.zone.name}` : ""}
+      </div>
+    </div>
+  );
+}
+
+
+export function WorkOrderResultNotice({
+  result,
+  autoStart,
+  requestedFloor,
+}: {
+  result: WorkOrder;
+  autoStart: boolean;
+  requestedFloor?: number;
+}) {
+  const resultPlanLines = result.tasks.map((t) => formatPlanSummaryLine(t, result.operation)).filter(Boolean);
+  const resultSlotSummary = slotSummary(result.tasks.map((t) => ({
+    slot_id: t.slot_id || "-",
+    slot_label: t.slot_label || t.slot_id || undefined,
+    floor: t.floor ?? requestedFloor,
+  })));
+  const startFailed = result.start_failed ?? [];
+  const commandIds = (result.mission_results ?? [])
+    .map((mission) => mission.command_id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  const started = autoStart && (commandIds.length > 0 || result.status.toUpperCase() === "RUNNING");
+  const partialStart =
+    autoStart && result.tasks.length > (result.mission_results?.length ?? 0) && !startFailed.length;
+  const headline = startFailed.length
+    ? "작업 생성됨 · 자동 시작 실패"
+    : started
+      ? "작업 실행 시작됨"
+      : autoStart
+        ? "작업 접수됨 · 로봇 배정 대기"
+        : "작업 예약 완료 · 시작 대기";
+
+  return (
+    <div className={`inline-alert ${startFailed.length ? "warn" : started ? "ok" : ""}`} role="status" aria-live="polite">
+      <strong>{headline}</strong>
+      <div>
+      주문 #{result.order_id} · {operationLabel(result.operation)} · 서버 상태 {result.status}
+      · task {result.tasks.length}건
+      {resultSlotSummary ? ` · 슬롯 ${resultSlotSummary}` : ""}
+      {resultPlanLines.length ? (
+        <div className="muted mt-6">
+          {resultPlanLines.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      ) : null}
+      {result.mission_results?.length ? ` · Movement 시작 ${result.mission_results.length}건` : ""}
+      {commandIds.length ? <span className="mono"> · cmd {commandIds.join(", ")}</span> : null}
+      {result.tasks.some((t) => t.assigned_robot_id) ? (
+        <span> · 로봇 {result.tasks.map((t) => t.assigned_robot_id).filter(Boolean).join(", ")}</span>
+      ) : null}
+      </div>
+      {startFailed.length ? (
+        <div className="inline-alert warn mt-6">
+          자동 시작 실패 {startFailed.length}건 — 작업 큐에서 수동으로 시작하세요.
+          {startFailed.map((f) => (
+            <div key={f.task_id} className="muted">task #{f.task_id}: {String(f.detail)}</div>
+          ))}
+        </div>
+      ) : null}
+      {partialStart ? (
+        <div className="muted mt-6">
+          아직 시작되지 않은 작업은 5초마다 로봇 배정·시작을 다시 시도합니다.
+        </div>
+      ) : null}
+      {!started && autoStart && !startFailed.length ? (
+        <div className="muted mt-6">로봇이 준비되면 최대 5초 주기의 백그라운드 폴러가 배정·시작을 재시도합니다.</div>
+      ) : null}
+      <div className="action-row action-row-tight">
+        <Link className="btn secondary" to="/operate/tasks">작업에서 보기</Link>
+      </div>
+    </div>
+  );
+}
+
 
 function validationMessage({
   disabled,
@@ -57,7 +182,7 @@ function validationMessage({
   if (disabled) return "비상 정지 중 — 입출고 실행 불가";
   if (!itemCode) return "품목을 선택하세요.";
   if (!Number.isFinite(qty) || qty < 1) return "수량은 1 이상이어야 합니다.";
-  if (quantityOverMax) return WORK_ORDER_ERROR_HINTS.quantity_exceeds_limit;
+  if (quantityOverMax) return API_ERROR_MESSAGES.quantity_exceeds_limit;
   if (quantityOverStock) return `보유 재고(${stockOnHand})를 초과할 수 없습니다.`;
   if (noEmptySlot) return "빈 슬롯이 없습니다.";
   if (needsZone) return `${operationLabel(operation)} 존을 선택하세요.`;
@@ -66,20 +191,27 @@ function validationMessage({
 }
 
 export function WorkOrderForm({
-  robots,
   onClose,
+  onSlotFocus,
+  onZoneFocus,
   disabled,
   emergencyRobots = [],
+  onSubmitted,
 }: {
-  robots: Robot[];
   onClose?: () => void;
+  onSlotFocus?: (waypointId: string | null) => void;
+  onZoneFocus?: (waypointId: string | null) => void;
   disabled?: boolean;
   emergencyRobots?: string[];
+  /** 생성 성공 시 호출 — 예약이면 셸이 작업 큐를 열어 다음 행동을 잇는다. */
+  onSubmitted?: (order: WorkOrder, autoStart: boolean) => void;
 }) {
   const { data: items = [], isLoading: itemsLoading, isError: itemsError } = useItems();
   const { data: inventory = [] } = useInventory();
   const { data: slots = [] } = useStorageSlots();
   const { data: waypoints = [] } = useAllWaypoints();
+  const { data: allRobots = [] } = useRobots();
+  const robots = useMemo(() => allRobots.filter((robot) => robot.enabled), [allRobots]);
   const create = useCreateWorkOrder();
 
   const [operation, setOperation] = useState<Operation>("inbound");
@@ -115,7 +247,7 @@ export function WorkOrderForm({
     setError(null);
     setErrorCode(null);
     setResult(null);
-  }, [operation, itemCode, quantity, zoneId, requestedFloor]);
+  }, [operation, itemCode, quantity, zoneId, requestedFloor, assignMode, robotId, autoStart, manualSlotId]);
 
   useEffect(() => {
     setManualSlotId("");
@@ -150,8 +282,11 @@ export function WorkOrderForm({
   );
 
   const manualSlotReady = assignMode === "manual" && manualSlotId.length > 0;
-
   const selectedZoneMissingScan = !!zoneId && !linkedDockPairs.some((p) => p.dock_waypoint_id === zoneId && p.dock_mode === "aruco");
+
+  useEffect(() => {
+    if (selectedZoneMissingScan) setAutoStart(false);
+  }, [selectedZoneMissingScan]);
   const needsZone = zoneOptions.length > 0 && !zoneId;
   const manualSlotMissing = assignMode === "manual" && !manualSlotReady;
 
@@ -172,6 +307,19 @@ export function WorkOrderForm({
       : null;
 
   const preview = useWorkOrderPreview(previewBody);
+  const previewSlotId = preview.data?.slots?.[0]?.slot_id;
+  const focusedSlotId = manualSlotReady ? manualSlotId : previewSlotId;
+  const focusedSlot = slots.find((slot) => slot.slot_id === focusedSlotId);
+
+  useEffect(() => {
+    onSlotFocus?.(focusedSlot?.waypoint_id ?? null);
+    return () => onSlotFocus?.(null);
+  }, [focusedSlot?.waypoint_id, onSlotFocus]);
+
+  useEffect(() => {
+    onZoneFocus?.(zoneId || null);
+    return () => onZoneFocus?.(null);
+  }, [zoneId, onZoneFocus]);
   const submitValidation = validationMessage({
     disabled,
     itemCode,
@@ -184,7 +332,7 @@ export function WorkOrderForm({
     operation,
     manualSlotMissing,
   });
-  const submitDisabled = formBlocked || create.isPending || items.length === 0 || submitValidation !== null;
+  const submitDisabled = formBlocked || create.isPending || result !== null || items.length === 0 || submitValidation !== null;
 
   const submit = async () => {
     setError(null);
@@ -201,15 +349,12 @@ export function WorkOrderForm({
         robotId,
       }));
       setResult(order);
-      const reset = resetFormFields();
-      setItemCode(reset.itemCode);
-      setQuantity(reset.quantity);
-      setZoneId(reset.zoneId);
+      onSubmitted?.(order, autoStart);
     } catch (e) {
       if (e instanceof ApiError) {
-        const detail = parseWorkOrderApiDetail(e.message);
+        const detail = parseApiDetail(e.message);
         setErrorCode(detail);
-        setError(WORK_ORDER_ERROR_HINTS[detail] || detail || `요청 실패 (HTTP ${e.status})`);
+        setError(API_ERROR_MESSAGES[detail] || detail || `요청 실패 (HTTP ${e.status})`);
       } else {
         setError((e as Error).message);
       }
@@ -218,29 +363,30 @@ export function WorkOrderForm({
 
 
   return (
-    <Panel title="입출고 요청">
+    <Panel title="입출고 요청" className="work-order-panel">
+      <div className="work-order-form-body">
       {error ? (
         <div className="inline-alert warn">
           {error}
           {errorCode === "insufficient_inventory" ? (
-            <div className="action-row" style={{ marginTop: 8 }}>
+            <div className="action-row action-row-tight">
               <Link className="btn secondary" to="/admin/warehouse">재고 보기</Link>
             </div>
           ) : null}
           {errorCode === "no_available_slot" ? (
-            <div className="action-row" style={{ marginTop: 8 }}>
+            <div className="action-row action-row-tight">
               <Link className="btn secondary" to="/admin/warehouse">슬롯 보기</Link>
             </div>
           ) : null}
         </div>
       ) : null}
       {result ? <WorkOrderResultNotice result={result} autoStart={autoStart} requestedFloor={requestedFloor} /> : null}
-      <div className="toolbar">
-        <Button variant={operation === "inbound" ? "primary" : "secondary"} onClick={() => setOperation("inbound")}>입고</Button>
-        <Button variant={operation === "outbound" ? "primary" : "secondary"} onClick={() => setOperation("outbound")}>출고</Button>
+      <div className="toolbar work-order-operation-switch" role="group" aria-label="요청 유형">
+        <Button variant={operation === "inbound" ? "primary" : "secondary"} aria-pressed={operation === "inbound"} onClick={() => setOperation("inbound")}>입고 <small>재고 배치</small></Button>
+        <Button variant={operation === "outbound" ? "primary" : "secondary"} aria-pressed={operation === "outbound"} onClick={() => setOperation("outbound")}>출고 <small>재고 반출</small></Button>
       </div>
-      <div className="toolbar" style={{ marginTop: 8 }}>
-        <span className="muted">슬롯 할당</span>
+      <div className="toolbar mt-8 work-order-assignment-switch">
+        <span className="work-order-section-label">슬롯 할당</span>
         <Button variant={assignMode === "auto" ? "primary" : "secondary"} onClick={() => setAssignMode("auto")}>자동</Button>
         <Button variant={assignMode === "manual" ? "primary" : "secondary"} onClick={() => setAssignMode("manual")}>직접 지정</Button>
       </div>
@@ -305,6 +451,7 @@ export function WorkOrderForm({
                 <option key={z.waypoint_id} value={z.waypoint_id}>{z.name} ({z.waypoint_id})</option>
               ))}
             </select>
+            {zoneId ? <span className="work-order-map-reference"><span aria-hidden="true">⌖</span> 맵에서 {operationLabel(operation)} 존 위치 강조 중</span> : null}
           </Field>
         ) : (
           <p className="muted">
@@ -312,11 +459,12 @@ export function WorkOrderForm({
           </p>
         )}
         {zoneId && selectedZoneMissingScan ? (
-          <p className="muted" style={{ marginTop: 4 }}>
+          <p className="muted mt-4">
             선택한 {operationLabel(operation)} 존에 ArUco 스캔 페어가 없습니다. <Link to="/admin/map">맵 편집</Link>에서 스캔 마커를 연결하세요.
           </p>
         ) : null}
         {assignMode === "manual" && itemCode ? (
+          <>
           <Field label="보관 슬롯">
             {slotCandidates.length === 0 ? (
               <span className="pill err">선택 가능한 슬롯이 없습니다.</span>
@@ -331,6 +479,8 @@ export function WorkOrderForm({
               </select>
             )}
           </Field>
+          {focusedSlot ? <span className="work-order-map-reference"><span aria-hidden="true">⌖</span> 맵에서 {focusedSlot.label} 위치 강조 중</span> : null}
+          </>
         ) : null}
         <Field label="로봇 배정">
           <select value={robotId} onChange={(e) => setRobotId(e.target.value)}>
@@ -349,30 +499,40 @@ export function WorkOrderForm({
       </div>
       {preview.data ? <WorkOrderPreviewPanel preview={preview.data} /> : null}
       {preview.isError ? (
-        <div className="inline-alert warn" style={{ marginTop: 8 }}>
+        <div className="inline-alert warn mt-8">
           계획 미리보기 실패 — 실행 시 서버에서 다시 검증합니다.
         </div>
       ) : null}
-      <div className="action-row">
-        <label className="switch-line">
-          <input
-            type="checkbox"
-            checked={autoStart}
-            onChange={(e) => setAutoStart(e.target.checked)}
-            disabled={selectedZoneMissingScan}
-          />
-          생성 후 자동 시작
-        </label>
-        {selectedZoneMissingScan ? (
-          <span className="muted">스캔 페어 없음 — 자동 시작 불가, 생성만 가능</span>
-        ) : null}
-        {onClose ? <Button variant="secondary" onClick={onClose}>닫기</Button> : null}
-        <Button
-          onClick={submit}
-          disabled={submitDisabled}
-        >
-          {create.isPending ? "요청 중" : "실행"}
-        </Button>
+      </div>
+      <div className="work-order-footer">
+        <div className="work-order-auto-start">
+          <label className="switch-line">
+            <input
+              type="checkbox"
+              checked={autoStart}
+              onChange={(e) => setAutoStart(e.target.checked)}
+              disabled={selectedZoneMissingScan}
+            />
+            생성 후 자동 시작
+          </label>
+          {!autoStart ? (
+            <span className="muted">예약만 생성하며 로봇은 출발하지 않습니다.</span>
+          ) : null}
+          {selectedZoneMissingScan ? (
+            <span className="muted">스캔 페어 없음 — 자동 시작 불가, 생성만 가능</span>
+          ) : null}
+        </div>
+        <div className="action-row work-order-actions">
+          {onClose ? <Button variant="secondary" onClick={onClose}>취소</Button> : null}
+          <Button
+            onClick={submit}
+            disabled={submitDisabled}
+          >
+            {create.isPending
+              ? (autoStart ? "요청 중" : "예약 중")
+              : `${operationLabel(operation)} ${autoStart ? "요청 실행" : "예약"}`}
+          </Button>
+        </div>
       </div>
     </Panel>
   );

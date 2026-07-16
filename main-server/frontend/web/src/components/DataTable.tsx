@@ -11,10 +11,11 @@ interface DataTableProps<T> {
   rows: T[];
   getKey: (row: T, index: number) => string | number;
   emptyText?: string;
+  rowClassName?: (row: T) => string | undefined;
 }
 
 // 레거시의 table-wrap + table 마크업을 재현한 제네릭 테이블.
-export function DataTable<T>({ columns, rows, getKey, emptyText = "기록 없음" }: DataTableProps<T>) {
+export function DataTable<T>({ columns, rows, getKey, emptyText = "기록 없음", rowClassName }: DataTableProps<T>) {
   return (
     <div className="table-wrap">
       <table>
@@ -34,7 +35,7 @@ export function DataTable<T>({ columns, rows, getKey, emptyText = "기록 없음
             </tr>
           ) : (
             rows.map((row, i) => (
-              <tr key={getKey(row, i)}>
+              <tr key={getKey(row, i)} className={rowClassName?.(row)}>
                 {columns.map((c) => (
                   <td key={c.header} className={c.className}>
                     {c.cell(row)}

@@ -3,20 +3,23 @@ import { useSearchParams } from "react-router-dom";
 import { type Column } from "../../components/DataTable";
 import { FilterableTable } from "../../components/FilterableTable";
 import { Pill } from "../../components/Pill";
-import { cell, eventDotClass, shortId } from "../../lib/format";
+import { cell, eventDotClass, eventTypeLabel, formatServerTime, shortId } from "../../lib/format";
 import { useEvents, useItemChangeLogs, useMovementCommandRecords, useTaskLogs } from "../../hooks/useEvents";
-import type { ItemChangeLogRecord, MovementCommand, TaskLogRecord } from "../../types";
+import { useCommLogs } from "../../hooks/useCommLogs";
+import type { CommLog } from "../../hooks/useCommLogs";
+import type { ItemChangeLogRecord, RobotCommandRecord, TaskLogRecord } from "../../types";
 import type { TimelineEvent } from "../../hooks/useEvents";
 
 const PAGE_SIZE = 25;
 
-type TabKey = "events" | "tasks" | "movement" | "inventory";
+type TabKey = "events" | "tasks" | "movement" | "inventory" | "communications";
 
 const TAB_LABELS: Record<TabKey, string> = {
   events: "감사 이벤트",
   tasks: "작업 완료 (task_logs)",
   movement: "이동 증거",
   inventory: "재고 변경",
+  communications: "통신 기록",
 };
 
 function paginate<T>(rows: T[], page: number) {
@@ -46,9 +49,9 @@ function EventsTab({ rows }: { rows: TimelineEvent[] }) {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
 
   const columns: Column<TimelineEvent>[] = [
-    { header: "", cell: (r) => <span className={`dot ${eventDotClass(r)}`} /> },
-    { header: "시각", cell: (r) => cell(r.created_at) },
-    { header: "유형", cell: (r) => cell(r.event_type) },
+    { header: "등급", cell: (r) => { const level = eventDotClass(r); return <span className={`event-severity event-severity--${level}`}><i aria-hidden="true" />{level === "err" ? "위험" : level === "warn" ? "주의" : "정보"}</span>; } },
+    { header: "시각", className: "mono", cell: (r) => <span title={cell(r.created_at)}>{formatServerTime(r.created_at)}</span> },
+    { header: "유형", cell: (r) => <span title={cell(r.event_type)}>{eventTypeLabel(r.event_type)}</span> },
     { header: "출처", cell: (r) => cell(r.source ?? r.layer ?? "evidence_events") },
     { header: "로봇", cell: (r) => cell(r.robot_id) },
     { header: "메시지", cell: (r) => cell(r.message) },
@@ -57,11 +60,11 @@ function EventsTab({ rows }: { rows: TimelineEvent[] }) {
   return (
     <>
       <div className="toolbar records-filters">
-        <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}>
+        <select className="filter" value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}>
           <option value="">유형: 전체</option>
-          {types.map((t) => <option key={t} value={t}>{t}</option>)}
+          {types.map((t) => <option key={t} value={t}>{eventTypeLabel(t)}</option>)}
         </select>
-        <select value={robotFilter} onChange={(e) => { setRobotFilter(e.target.value); setPage(1); }}>
+        <select className="filter" value={robotFilter} onChange={(e) => { setRobotFilter(e.target.value); setPage(1); }}>
           <option value="">로봇: 전체</option>
           {robots.map((id) => <option key={id} value={id!}>{id}</option>)}
         </select>
@@ -71,7 +74,7 @@ function EventsTab({ rows }: { rows: TimelineEvent[] }) {
       </div>
       <FilterableTable columns={columns} rows={pageRows} getKey={(r, i) => r.event_id ?? i}
         searchFields={["created_at", "event_type", "message", "robot_id"]} statusField="event_type"
-        emptyText="이벤트 없음" />
+        emptyText="이벤트 없음" rowClassName={(row) => `event-row event-row--${eventDotClass(row)}`} />
       <Pager page={page} total={totalPages} onChange={setPage} />
     </>
   );
@@ -87,7 +90,7 @@ function TasksTab() {
     { header: "유형", cell: (r) => r.task_type },
     { header: "결과", cell: (r) => <Pill status={r.result} /> },
     { header: "요약", cell: (r) => cell(r.summary) },
-    { header: "완료", cell: (r) => cell(r.finished_at) },
+    { header: "완료", className: "mono", cell: (r) => <span title={cell(r.finished_at)}>{formatServerTime(r.finished_at)}</span> },
   ];
   if (isLoading) return <div className="empty">불러오는 중…</div>;
   return (
@@ -100,15 +103,15 @@ function TasksTab() {
   );
 }
 
-function MovementTab({ rows }: { rows: MovementCommand[] }) {
+function MovementTab({ rows }: { rows: RobotCommandRecord[] }) {
   const [page, setPage] = useState(1);
   const pageRows = paginate(rows, page);
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const columns: Column<MovementCommand>[] = [
-    { header: "시각", cell: (r) => r.created_at },
-    { header: "robot", cell: (r) => r.robot_id },
-    { header: "command", cell: (r) => r.command },
-    { header: "status", cell: (r) => <Pill status={r.status} /> },
+  const columns: Column<RobotCommandRecord>[] = [
+    { header: "시각", className: "mono", cell: (r) => <span title={r.created_at}>{formatServerTime(r.created_at)}</span> },
+    { header: "로봇", cell: (r) => r.robot_id },
+    { header: "명령", cell: (r) => r.command },
+    { header: "상태", cell: (r) => <Pill status={r.status} /> },
     { header: "id", className: "mono", cell: (r) => shortId(r.command_id) },
   ];
   return (
@@ -128,11 +131,11 @@ function InventoryChangesTab() {
   const pageRows = paginate(rows, page);
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const columns: Column<ItemChangeLogRecord>[] = [
-    { header: "시각", cell: (r) => cell(r.changed_at) },
+    { header: "시각", className: "mono", cell: (r) => <span title={cell(r.changed_at)}>{formatServerTime(r.changed_at)}</span> },
     { header: "품목", cell: (r) => cell(r.item_code) },
     { header: "슬롯", cell: (r) => cell(r.slot_id) },
     { header: "층", cell: (r) => cell(r.floor ?? 1) },
-    { header: "유형", cell: (r) => cell(r.event_type) },
+    { header: "유형", cell: (r) => <span title={cell(r.event_type)}>{eventTypeLabel(r.event_type)}</span> },
     { header: "이전", cell: (r) => cell(r.quantity_before) },
     { header: "이후", cell: (r) => cell(r.quantity_after) },
     { header: "사유", cell: (r) => cell(r.reason) },
@@ -147,6 +150,67 @@ function InventoryChangesTab() {
       <Pager page={page} total={totalPages} onChange={setPage} />
     </>
   );
+}
+
+const heartbeatLabel = (status?: string | number) => ({
+  initial_connected: "최초 연결",
+  initial_unreachable: "최초 실패",
+  recovered: "연결 복구",
+  unreachable: "연결 끊김",
+} as Record<string, string>)[String(status || "")] || String(status || "—");
+
+const communicationResultLabel = (row: CommLog) => {
+  if (row.heartbeat) return heartbeatLabel(row.status);
+  const code = typeof row.status === "number" ? row.status : Number(row.status);
+  if (code >= 200 && code < 300) return "요청 성공";
+  if (code === 400) return "잘못된 요청";
+  if (code === 401) return "인증 필요";
+  if (code === 403) return "접근 거부";
+  if (code === 404) return "대상을 찾을 수 없음";
+  if (code === 408) return "응답 시간 초과";
+  if (code === 409) return "요청 충돌";
+  if (code === 429) return "요청 한도 초과";
+  if (code >= 500) return "연동 서버 오류";
+  const status = String(row.status || "");
+  if (status === "unreachable") return "서버 연결 실패";
+  if (status === "timeout") return "응답 시간 초과";
+  if (status === "invalid_json" || status === "invalid_response") return "잘못된 서버 응답";
+  return row.ok ? "요청 성공" : "요청 실패";
+};
+
+const communicationTargetLabel = (row: CommLog) => ({
+  image: "영상 이미지",
+  overlay: "영상 분석 정보",
+  frame_stream: "원본 영상 스트림",
+  overlay_stream: "분석 영상 스트림",
+  heartbeat: "연결 상태",
+} as Record<string, string>)[String(row.target || "")] || String(row.source || row.target || "—");
+
+function CommunicationsTab() {
+  const [service, setService] = useState("");
+  const { data, isLoading } = useCommLogs(service, 200);
+  const rows = data?.logs ?? [];
+  const columns: Column<CommLog>[] = [
+    { header: "시각", className: "mono", cell: (r) => <span title={cell(r.finished_at || r.started_at)}>{formatServerTime(r.finished_at || r.started_at)}</span> },
+    { header: "서비스", cell: (r) => cell(r.service) },
+    { header: "대상", cell: (r) => <span title={cell(r.source || r.target)}>{communicationTargetLabel(r)}</span> },
+    { header: "결과", cell: (r) => <span title={r.status == null ? "" : "원본 상태: " + String(r.status)}><Pill status={r.ok ? "ok" : "error"} /> {communicationResultLabel(r)}</span> },
+    { header: "내용", cell: (r) => cell(r.detail) },
+    { header: "반복", className: "mono", cell: (r) => r.heartbeat ? String(r.repeat_count || 1) + "회" : "—" },
+    { header: "최근 확인", className: "mono", cell: (r) => r.heartbeat ? formatServerTime(r.last_checked_at) : "—" },
+    { header: "응답 시간", className: "mono", cell: (r) => r.elapsed_ms == null ? "—" : <>{r.elapsed_ms} ms</> },
+    { header: "URL", className: "mono", cell: (r) => <span title={cell(r.url)}>{cell(r.url)}</span> },
+  ];
+  return <>
+    <div className="toolbar records-filters">
+      <input className="search" placeholder="서비스 이름으로 필터" value={service} onChange={(e) => setService(e.target.value)} />
+      <span className="rowcount">최근 {rows.length}건</span>
+    </div>
+    {isLoading ? <div className="empty">불러오는 중…</div> : <FilterableTable columns={columns} rows={rows}
+      getKey={(r, i) => [r.started_at, r.service, i].join("-")}
+      searchFields={["started_at", "finished_at", "service", "source", "target", "status", "detail", "url"]} statusField="status"
+      emptyText="통신 기록 없음" />}
+  </>;
 }
 
 function Pager({ page, total, onChange }: { page: number; total: number; onChange: (p: number) => void }) {
@@ -170,7 +234,7 @@ export function Records({
   const [searchParams, setSearchParams] = useSearchParams();
   const tabs: TabKey[] = variant === "operate"
     ? ["events", "tasks"]
-    : ["events", "tasks", "movement", "inventory"];
+    : ["events", "tasks", "movement", "inventory", "communications"];
   const tabParam = (searchParams.get("tab") ?? initialTab ?? "events") as TabKey;
   const tab = tabs.includes(tabParam) ? tabParam : tabs[0];
 
@@ -189,7 +253,7 @@ export function Records({
         <div className="ops-heading">
           <div>
             <h2>기록</h2>
-            <p>감사 이벤트·작업 완료·이동 증거·재고 변경 — DB source 테이블 기반 read-only 조회</p>
+            <p>감사 이벤트·작업 완료·이동 증거·재고 변경·통신 기록 — DB source 테이블 기반 read-only 조회</p>
           </div>
         </div>
       ) : null}
@@ -205,6 +269,7 @@ export function Records({
         {tab === "tasks" && <TasksTab />}
         {tab === "movement" && <MovementTab rows={movements} />}
         {tab === "inventory" && <InventoryChangesTab />}
+        {tab === "communications" && <CommunicationsTab />}
       </div>
     </div>
   );

@@ -28,7 +28,9 @@ export function BatteryIndicator({ value, showLabel = false, className = "" }: B
   return (
     <span className={`battery-indicator battery-${level}${className ? ` ${className}` : ""}`} aria-label={`배터리 ${text}`}>
       {showLabel ? <span className="battery-label">배터리</span> : null}
-      <span className="battery-icon" aria-hidden="true"><i style={{ width: `${normalized ?? 0}%` }} /></span>
+      <span className="battery-icon" aria-hidden="true">
+        <i style={{ width: `${normalized ?? 0}%` }} />
+      </span>
       <span className="battery-value mono">{text}</span>
       {normalized != null && normalized <= 20 ? <span className="battery-alert" aria-hidden="true">⚠</span> : null}
     </span>

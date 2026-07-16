@@ -8,11 +8,12 @@ interface FilterableTableProps<T> {
   searchFields: (keyof T)[];
   statusField?: keyof T;
   emptyText?: string;
+  rowClassName?: (row: T) => string | undefined;
 }
 
 // 레거시 getFilter/matchRow/populateStatus 를 재사용 컴포넌트로.
 // 검색(부분일치) + 선택적 상태 필터 + N/total 카운트 를 DataTable 위에 얹는다.
-export function FilterableTable<T>({ columns, rows, getKey, searchFields, statusField, emptyText }: FilterableTableProps<T>) {
+export function FilterableTable<T>({ columns, rows, getKey, searchFields, statusField, emptyText, rowClassName }: FilterableTableProps<T>) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
 
@@ -42,7 +43,7 @@ export function FilterableTable<T>({ columns, rows, getKey, searchFields, status
         )}
         <span className="rowcount">{filtered.length} / {rows.length}</span>
       </div>
-      <DataTable columns={columns} rows={filtered} getKey={getKey} emptyText={emptyText} />
+      <DataTable columns={columns} rows={filtered} getKey={getKey} emptyText={emptyText} rowClassName={rowClassName} />
     </>
   );
 }
