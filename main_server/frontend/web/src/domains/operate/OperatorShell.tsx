@@ -112,7 +112,7 @@ function resolveTrayPanel(section: string | undefined, panelParam: string | null
 }
 
 function useNarrowOperatorLayout() {
-  const query = "(max-width: 1200px)";
+  const query = "(max-width: 900px)";
   const [matches, setMatches] = useState(() => (
     typeof window !== "undefined" && window.matchMedia(query).matches
   ));
@@ -336,10 +336,6 @@ export function OperatorShell() {
               );
             })}
             <span className="operator-nav-spacer" />
-            <button type="button" className="operator-admin-link" aria-label="관리 공간" onClick={() => navigate("/admin/map")}>
-              <OperatorNavIcon label="관리" />
-              <span className="slim-nav-label">관리</span>
-            </button>
             <div className="operator-user-chip" title="운영자 · 현장 제어 권한">
               <span className="operator-user-avatar">OP</span>
             </div>

@@ -45,4 +45,11 @@
 .work-order-reference-map .dashboard-map--compact>.panel-head{display:none}
 .work-order-reference-map .dashboard-map--compact>.panel-body{height:100%;min-height:0;display:flex;flex:1;padding:0}
 .work-order-reference-map .dashboard-map--compact .map-stage{height:100%;min-height:0;max-height:none;flex:1}
-@media(max-width:1200px){.work-order-map-workspace{display:none}}
+@media(max-width:1200px) and (min-width:901px){.work-order-map-workspace{grid-template-rows:minmax(300px,1.05fr) minmax(240px,.95fr);overflow:auto}.work-order-map-form{min-height:300px}.work-order-reference-map{min-height:240px}}
+
+
+@media(max-height:800px) and (min-width:901px){
+  .work-order-map-workspace{grid-template-rows:minmax(260px,1fr) minmax(220px,1fr);overflow-y:auto;scrollbar-gutter:stable}
+  .work-order-map-form{min-height:260px}
+  .work-order-reference-map{min-height:220px}
+}

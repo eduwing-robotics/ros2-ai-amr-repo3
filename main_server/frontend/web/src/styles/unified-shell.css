@@ -25,3 +25,32 @@
 
 @media(max-width:1200px){.header{gap:10px;padding:0 16px}.header .brand{min-width:148px}}
 @media(max-width:760px){.shell[data-mode="operate"]{--operator-nav-w:76px}.admin-activity-rail.app-activity-rail{width:100%;padding:6px 8px}.admin-rail-header{min-height:44px;padding:0}}
+
+
+/* Adaptive shell policy: one global mode switch; preserve critical controls through reflow and owned scrolling. */
+@media(max-width:1100px){
+  .header-main-status:not(.header-status-action),.header .livestat:has(time){display:none}
+  .header-right{min-width:0;gap:7px}
+}
+@media(max-width:760px){
+  .shell,.shell[data-mode="operate"]{grid-template-rows:96px minmax(0,1fr)}
+  .header,.shell[data-mode="operate"]>.header{height:96px;min-height:96px;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:42px 46px;gap:0 8px;padding:4px 8px}
+  .header .brand{min-width:0}
+  .header .brand strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+  .header .mode-tabs{grid-column:1;grid-row:1;margin:0}
+  .header .mode-tab{min-height:30px;padding:4px 9px}
+  .header .header-right{grid-column:1 / -1;grid-row:2;width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+  .header .header-right>*{flex:none}
+}
+@media(max-height:800px) and (min-width:761px){
+  .shell,.shell[data-mode="operate"]{grid-template-rows:56px minmax(0,1fr)}
+  .header,.shell[data-mode="operate"]>.header{height:56px;min-height:56px}
+  .operator-main{padding:8px;gap:6px}
+  .operator-main-workbench{grid-template-rows:minmax(340px,1fr) 164px;gap:8px}
+  .fleet-mission-head{flex-basis:38px}
+  .fleet-mission-row{min-height:58px}
+}
+@media(max-height:650px) and (min-width:761px){
+  .operator-main-workbench{grid-template-rows:minmax(280px,1fr) 140px}
+  .operator-kpi-strip .kpi-tile{min-height:30px}
+}

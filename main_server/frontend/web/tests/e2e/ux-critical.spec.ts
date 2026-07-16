@@ -372,3 +372,30 @@ test("WEB-20 Main 오류 상태만 시스템 진단 이동을 제공한다", asy
   await action.click();
   await expect(page).toHaveURL(new RegExp("/admin/system$"));
 });
+
+
+test("WEB-21 전역 모드 전환은 헤더에만 제공한다", async ({ page }) => {
+  await mockMainApi(page);
+  await page.goto("/operate/control");
+
+  await expect(page.locator("header").getByRole("button", { name: "운영", exact: true })).toBeVisible();
+  await expect(page.locator("header").getByRole("button", { name: "관리", exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "운영 메뉴" }).getByRole("button", { name: "관리 공간" })).toHaveCount(0);
+
+  await page.locator("header").getByRole("button", { name: "관리", exact: true }).click();
+  await expect(page.getByRole("navigation", { name: "관리 영역" }).getByRole("button", { name: "운영", exact: true })).toHaveCount(0);
+});
+
+test("WEB-22 낮은 해상도에서도 입출고 폼과 참조 맵을 유지한다", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await mockMainApi(page);
+  await page.goto("/operate/control?drawer=inout");
+
+  await expect(page.getByRole("region", { name: "입출고 요청과 위치 확인 맵" })).toBeVisible();
+  const map = page.getByRole("region", { name: "입출고 위치 확인 맵" }).locator(".map-stage");
+  await expect(map).toBeVisible();
+  const box = await map.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.height).toBeGreaterThanOrEqual(200);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});

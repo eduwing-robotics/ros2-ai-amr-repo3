@@ -288,3 +288,41 @@ test("품목별 재고는 저장 위치를 표시하고 슬롯별 재고는 선�
   await workspace.getByRole("tab", { name: "품목별" }).click();
   await expect(referenceMap).toHaveCount(0);
 });
+
+
+const responsiveViewports = [
+  { name: "FHD 관제실", width: 1920, height: 1080 },
+  { name: "일반 데스크톱", width: 1440, height: 900 },
+  { name: "저높이 노트북", width: 1366, height: 768 },
+  { name: "최소 데스크톱", width: 1280, height: 720 },
+  { name: "소형 모니터", width: 1024, height: 768 },
+] as const;
+
+for (const viewport of responsiveViewports) {
+  test(viewport.name + " " + viewport.width + "x" + viewport.height + "에서 전역 전환과 핵심 작업면을 생략하지 않는다", async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await mockMainApi(page, { cameraOnline: true, cameraSources: [globalCamera] });
+    await page.goto("/operate/control");
+
+    const modeTabs = page.locator("header").getByRole("button").filter({ hasText: /^(운영|관리)$/ });
+    await expect(modeTabs).toHaveCount(2);
+    await expect(page.getByRole("navigation", { name: "운영 메뉴" }).getByRole("button", { name: "관리 공간" })).toHaveCount(0);
+    await expect(page.locator(".operator-map-stage-wrap .map-stage")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    await page.getByRole("navigation", { name: "운영 메뉴" }).getByRole("button", { name: "입출고", exact: true }).click();
+    const workspace = page.getByRole("region", { name: "입출고 요청과 위치 확인 맵" });
+    const referenceMap = page.getByRole("region", { name: "입출고 위치 확인 맵" });
+    await expect(workspace).toBeVisible();
+    await expect(referenceMap).toBeVisible();
+    const mapBox = await referenceMap.locator(".map-stage").boundingBox();
+    expect(mapBox).not.toBeNull();
+    expect(mapBox!.width).toBeGreaterThan(200);
+    expect(mapBox!.height).toBeGreaterThanOrEqual(200);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+
+    await page.locator("header").getByRole("button", { name: "관리", exact: true }).click();
+    await expect(page.getByRole("navigation", { name: "관리 영역" }).getByRole("button", { name: "운영", exact: true })).toHaveCount(0);
+    await expect(page.locator("header").getByRole("button", { name: "운영", exact: true })).toBeVisible();
+  });
+}
