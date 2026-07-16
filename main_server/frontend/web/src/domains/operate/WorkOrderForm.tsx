@@ -192,11 +192,13 @@ function validationMessage({
 
 export function WorkOrderForm({
   onClose,
+  onSlotFocus,
   disabled,
   emergencyRobots = [],
   onSubmitted,
 }: {
   onClose?: () => void;
+  onSlotFocus?: (waypointId: string | null) => void;
   disabled?: boolean;
   emergencyRobots?: string[];
   /** 생성 성공 시 호출 — 셸이 작업 큐 탭을 열어 피드백 루프를 잇는다. */
@@ -277,7 +279,6 @@ export function WorkOrderForm({
   );
 
   const manualSlotReady = assignMode === "manual" && manualSlotId.length > 0;
-
   const selectedZoneMissingScan = !!zoneId && !linkedDockPairs.some((p) => p.dock_waypoint_id === zoneId && p.dock_mode === "aruco");
   const needsZone = zoneOptions.length > 0 && !zoneId;
   const manualSlotMissing = assignMode === "manual" && !manualSlotReady;
@@ -299,6 +300,14 @@ export function WorkOrderForm({
       : null;
 
   const preview = useWorkOrderPreview(previewBody);
+  const previewSlotId = preview.data?.slots?.[0]?.slot_id;
+  const focusedSlotId = manualSlotReady ? manualSlotId : previewSlotId;
+  const focusedSlot = slots.find((slot) => slot.slot_id === focusedSlotId);
+
+  useEffect(() => {
+    onSlotFocus?.(focusedSlot?.waypoint_id ?? null);
+    return () => onSlotFocus?.(null);
+  }, [focusedSlot?.waypoint_id, onSlotFocus]);
   const submitValidation = validationMessage({
     disabled,
     itemCode,
@@ -442,6 +451,7 @@ export function WorkOrderForm({
           </p>
         ) : null}
         {assignMode === "manual" && itemCode ? (
+          <>
           <Field label="보관 슬롯">
             {slotCandidates.length === 0 ? (
               <span className="pill err">선택 가능한 슬롯이 없습니다.</span>
@@ -456,6 +466,8 @@ export function WorkOrderForm({
               </select>
             )}
           </Field>
+          {focusedSlot ? <span className="work-order-map-reference"><span aria-hidden="true">⌖</span> 맵에서 {focusedSlot.label} 위치 강조 중</span> : null}
+          </>
         ) : null}
         <Field label="로봇 배정">
           <select value={robotId} onChange={(e) => setRobotId(e.target.value)}>

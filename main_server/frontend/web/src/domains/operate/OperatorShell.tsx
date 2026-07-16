@@ -173,6 +173,7 @@ export function OperatorShell() {
   const selectedRobot = robots.find((robot) => robot.robot_id === selectedRobotParam) ?? robots[0] ?? null;
   const selectedRobotId = selectedRobot?.robot_id ?? "";
   const [cameraRobotId, setCameraRobotId] = useState<string | null>(null);
+  const [focusedWaypointId, setFocusedWaypointId] = useState<string | null>(null);
   const cameraRobot = robots.find((robot) => robot.robot_id === cameraRobotId) ?? null;
   const cameraRobotSources = cameraRobotId ? cameras.filter((camera) => camera.robot_id === cameraRobotId) : [];
   const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks]);
@@ -379,12 +380,13 @@ export function OperatorShell() {
               id="operator-context-drawer"
               title={drawerTitle}
               onClose={closeDrawer}
-              className={`operator-drawer${drawer === "inout" ? " inout-drawer" : ""}`}
+              className={`operator-drawer context-preserving-drawer${drawer === "inout" ? " inout-drawer" : ""}`}
               modal={isNarrowLayout}
             >
               {drawer === "inout" ? (
                 <WorkOrderForm
                   onClose={closeDrawer}
+                  onSlotFocus={setFocusedWaypointId}
                   disabled={allRobotsEmergency}
                   emergencyRobots={emergencyRobots}
                   onSubmitted={() => refetch()}
@@ -467,6 +469,7 @@ export function OperatorShell() {
                           gotoMode={drawer === "control" && !allRobotsEmergency}
                           selectedRobotId={selectedRobotId}
                           onRobotSelect={selectRobot}
+                          focusedWaypointId={focusedWaypointId}
                         />
                       </div>
                     </div>

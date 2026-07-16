@@ -1,8 +1,8 @@
 /* Left-origin work request navigation and compact transaction form. */
 @media (min-width:1201px){
-  .operator-stage>.operator-drawer{left:12px;right:auto;top:12px;bottom:12px;width:390px;max-height:none;border-radius:10px;box-shadow:12px 0 28px rgb(16 47 58 / 16%)}
+  .operator-stage>.context-preserving-drawer{left:12px;right:auto;top:12px;bottom:12px;width:390px;max-height:none;border-radius:10px;box-shadow:12px 0 28px rgb(16 47 58 / 16%)}
   .operator-stage.drawer-open .operator-context-area{visibility:visible}
-  .operator-stage.drawer-open .operator-primary-workspace{margin-left:402px}
+  .operator-stage.drawer-open:has(.context-preserving-drawer) .operator-primary-workspace{margin-left:402px}
 }
 .inout-drawer{border-color:var(--border-strong);background:var(--surface)}
 .inout-drawer .drawer-head{min-height:52px;padding:0 14px;border-bottom:1px solid var(--border);background:var(--surface-2)}
@@ -25,3 +25,9 @@
 .inout-drawer .work-order-actions .btn{min-height:40px}
 .operator-page-head{display:none}
 @media(max-width:1200px){.inout-drawer .work-order-form-body{padding:12px}.inout-drawer .work-order-operation-switch .btn{align-items:center}}
+
+.work-order-map-reference{display:flex;align-items:center;gap:6px;margin-top:7px;padding:7px 9px;border:1px solid color-mix(in srgb,var(--operator) 35%,var(--border));border-radius:7px;background:var(--operator-soft);color:var(--operator-dark);font-size:10px;font-weight:700}
+.zone-marker.work-order-focused .zone-dot{stroke:var(--operator);stroke-width:4;filter:drop-shadow(0 0 5px color-mix(in srgb,var(--operator) 65%,transparent));animation:work-order-slot-pulse 1.4s ease-in-out infinite}
+.zone-marker.work-order-focused .zone-center{fill:#fff;stroke:var(--operator);stroke-width:1.5}
+@keyframes work-order-slot-pulse{50%{opacity:.55}}
+@media(prefers-reduced-motion:reduce){.zone-marker.work-order-focused .zone-dot{animation:none}}
