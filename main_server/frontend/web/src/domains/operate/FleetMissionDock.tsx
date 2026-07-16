@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Pill } from "../../components/Pill";
+import { statusTone } from "../../lib/format";
 import type { Robot, WorkOrder, WorkOrderRobotTask, WorkOrderTaskProgressStep } from "../../types";
 import { useAdminMutations } from "../../hooks/useAdminData";
 import { canCancelTask } from "./workOrderQueueModel";
@@ -13,7 +14,9 @@ const STOPPABLE = new Set(["RUNNING", "IN_PROGRESS", "AWAITING_OPERATOR", "RECOV
 const CANCELLABLE = new Set(["QUEUED", "PENDING", "ASSIGNED"]);
 
 function phaseOf(order: WorkOrder, task: WorkOrderRobotTask | null) {
-  return String(task?.progress?.phase ?? task?.status ?? order.status ?? "QUEUED").toUpperCase();
+  const taskStatus = String(task?.status ?? order.status ?? "QUEUED").toUpperCase();
+  if (DONE.has(taskStatus) || FAILED.has(taskStatus)) return taskStatus;
+  return String(task?.progress?.phase ?? taskStatus).toUpperCase();
 }
 function taskStatusOf(order: WorkOrder, task: WorkOrderRobotTask | null) {
   return String(task?.status ?? order.status ?? "QUEUED").toUpperCase();
@@ -72,7 +75,7 @@ export function FleetMissionDock({ robots, selectedRobotId, onRobotSelect }: { r
     <div className="fleet-mission-rows">{rows.length === 0 ? <div className="empty">{tab === "queue" ? "진행·예약 작업이 없습니다." : "완료된 작업 기록이 없습니다."}</div> : rows.map(({ order, task }) => {
       const robotId = task?.assigned_robot_id ?? null, phase = phaseOf(order, task), taskStatus = taskStatusOf(order, task), running = RUNNING.has(taskStatus);
       const selected = Boolean(robotId && selectedRobotId === robotId), stopping = stopWorkOrder.isPending && stopWorkOrder.variables === order.order_id, cancelling = task ? cancelTask.isPending && cancelTask.variables === task.task_id : cancelWorkOrder.isPending && cancelWorkOrder.variables === order.order_id, canStop = tab === "queue" && STOPPABLE.has(taskStatus), canCancel = tab === "queue" && (task ? canCancelTask(task) : CANCELLABLE.has(taskStatus));
-      return <article data-operation={order.operation} data-history-status={phase} className={`fleet-mission-row${selected ? " selected" : ""}${running ? " is-running" : ""}${tab === "history" ? " is-history" : ""}`} key={`${order.order_id}-${task?.task_id ?? "order"}`}>
+      return <article data-operation={order.operation} data-history-status={phase} data-status-tone={statusTone(taskStatus)} className={`fleet-mission-row${selected ? " selected" : ""}${running ? " is-running" : ""}${tab === "history" ? " is-history" : ""}`} key={`${order.order_id}-${task?.task_id ?? "order"}`}>
         <div className="fleet-task-summary" title={"작업 #" + order.order_id + (task ? " · Task #" + task.task_id : "")}><Pill status={phase} /><strong>{running ? <span className="fleet-live-label"><i />LIVE</span> : null}{task ? "Task #" + task.task_id : "작업 #" + order.order_id}</strong><span>{order.operation === "inbound" ? "입고" : "출고"} · {order.item_code} · {task?.quantity ?? order.quantity}개</span>{Number(task?.priority ?? 0) > 0 ? <small>우선 {task?.priority}</small> : null}</div>
         {robotId ? <button type="button" className="fleet-assignee" onClick={() => onRobotSelect(robotId)}><strong>{robotNames.get(robotId) ?? robotId}</strong>{robotNames.get(robotId) && robotNames.get(robotId) !== robotId ? <span className="mono">{robotId}</span> : null}</button> : <div className="fleet-unassigned"><strong>미할당</strong><span>배정 대기</span></div>}
         <div className="fleet-task-progress">{task ? <MissionTimeline task={task} /> : <div className="fleet-idle-line"><span />작업 계획 대기</div>}</div>

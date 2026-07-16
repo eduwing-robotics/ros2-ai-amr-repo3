@@ -152,6 +152,40 @@ function InventoryChangesTab() {
   );
 }
 
+const heartbeatLabel = (status?: string | number) => ({
+  initial_connected: "최초 연결",
+  initial_unreachable: "최초 실패",
+  recovered: "연결 복구",
+  unreachable: "연결 끊김",
+} as Record<string, string>)[String(status || "")] || String(status || "—");
+
+const communicationResultLabel = (row: CommLog) => {
+  if (row.heartbeat) return heartbeatLabel(row.status);
+  const code = typeof row.status === "number" ? row.status : Number(row.status);
+  if (code >= 200 && code < 300) return "요청 성공";
+  if (code === 400) return "잘못된 요청";
+  if (code === 401) return "인증 필요";
+  if (code === 403) return "접근 거부";
+  if (code === 404) return "대상을 찾을 수 없음";
+  if (code === 408) return "응답 시간 초과";
+  if (code === 409) return "요청 충돌";
+  if (code === 429) return "요청 한도 초과";
+  if (code >= 500) return "연동 서버 오류";
+  const status = String(row.status || "");
+  if (status === "unreachable") return "서버 연결 실패";
+  if (status === "timeout") return "응답 시간 초과";
+  if (status === "invalid_json" || status === "invalid_response") return "잘못된 서버 응답";
+  return row.ok ? "요청 성공" : "요청 실패";
+};
+
+const communicationTargetLabel = (row: CommLog) => ({
+  image: "영상 이미지",
+  overlay: "영상 분석 정보",
+  frame_stream: "원본 영상 스트림",
+  overlay_stream: "분석 영상 스트림",
+  heartbeat: "연결 상태",
+} as Record<string, string>)[String(row.target || "")] || String(row.source || row.target || "—");
+
 function CommunicationsTab() {
   const [service, setService] = useState("");
   const { data, isLoading } = useCommLogs(service, 200);
@@ -159,8 +193,12 @@ function CommunicationsTab() {
   const columns: Column<CommLog>[] = [
     { header: "시각", className: "mono", cell: (r) => <span title={cell(r.finished_at || r.started_at)}>{formatServerTime(r.finished_at || r.started_at)}</span> },
     { header: "서비스", cell: (r) => cell(r.service) },
-    { header: "결과", cell: (r) => <><Pill status={r.ok ? "ok" : "error"} /> {cell(r.status)}</> },
-    { header: "응답 시간", className: "mono", cell: (r) => <>{cell(r.elapsed_ms)} ms</> },
+    { header: "대상", cell: (r) => <span title={cell(r.source || r.target)}>{communicationTargetLabel(r)}</span> },
+    { header: "결과", cell: (r) => <span title={r.status == null ? "" : "원본 상태: " + String(r.status)}><Pill status={r.ok ? "ok" : "error"} /> {communicationResultLabel(r)}</span> },
+    { header: "내용", cell: (r) => cell(r.detail) },
+    { header: "반복", className: "mono", cell: (r) => r.heartbeat ? String(r.repeat_count || 1) + "회" : "—" },
+    { header: "최근 확인", className: "mono", cell: (r) => r.heartbeat ? formatServerTime(r.last_checked_at) : "—" },
+    { header: "응답 시간", className: "mono", cell: (r) => r.elapsed_ms == null ? "—" : <>{r.elapsed_ms} ms</> },
     { header: "URL", className: "mono", cell: (r) => <span title={cell(r.url)}>{cell(r.url)}</span> },
   ];
   return <>
@@ -170,7 +208,7 @@ function CommunicationsTab() {
     </div>
     {isLoading ? <div className="empty">불러오는 중…</div> : <FilterableTable columns={columns} rows={rows}
       getKey={(r, i) => [r.started_at, r.service, i].join("-")}
-      searchFields={["started_at", "finished_at", "service", "status", "url"]} statusField="status"
+      searchFields={["started_at", "finished_at", "service", "source", "target", "status", "detail", "url"]} statusField="status"
       emptyText="통신 기록 없음" />}
   </>;
 }

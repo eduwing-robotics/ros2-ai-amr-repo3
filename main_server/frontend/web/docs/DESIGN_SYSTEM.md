@@ -70,6 +70,21 @@
 
 정상 패널 전체를 녹색으로 칠하지 않는다. 상태색 배경은 저채도 의미 토큰만 사용한다.
 
+### 상태 색상 정책
+
+운영·관리 모드는 아래 의미 분류와 `--status-<tone>-*` 토큰을 공동 사용한다. 원시 상태 코드는 `statusTone()`에서 단일 분류하며 임의 화면에서 별도 색을 지정하지 않는다.
+
+| 의미 | 대표 상태 | 색상·클래스 | 비색상 단서 |
+|---|---|---|---|
+| 완료·정상 | `DONE`, `COMPLETED`, `OK`, `ONLINE` | 초록 · `status-success` | 완료·정상 문구 |
+| 진행 | `RUNNING`, `MOVING`, `IN_PROGRESS`, `RECOVERY_RUNNING` | 파랑 · `status-progress` | 실행 중·이동 중 문구 |
+| 대기 | `CREATED`, `QUEUED`, `ASSIGNED`, `IDLE`, `PENDING` | 중립 회색 · `status-waiting` | 대기·할당 문구 |
+| 주의 | `STALE`, `DEGRADED`, `AWAITING_OPERATOR`, `RECOVERY_REQUIRED` | 노랑 · `status-warning` | 주의·확인 필요 문구 |
+| 실패·위험 | `FAILED`, `ERROR`, `ESTOP`, `OFFLINE`, `REJECTED` | 빨강 · `status-danger` | 실패·비상 정지 문구 |
+| 취소·중단 | `CANCELLED`, `STOPPED`, `DISABLED` | 중립 회색 · `status-cancelled` | 취소 문구와 취소선 |
+
+색상만으로 상태를 전달하지 않으며 모든 상태 요소는 한글 라벨을 함께 표시한다.
+
 ### 간격·크기
 
 - 기본 간격 단위: 4px

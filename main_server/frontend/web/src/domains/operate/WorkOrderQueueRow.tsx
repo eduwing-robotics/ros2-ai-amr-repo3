@@ -2,6 +2,7 @@ import type { DragEvent } from "react";
 import { Pill } from "../../components/Pill";
 import { operationLabel, formatPlanSummaryLine } from "./workOrderLabels";
 import type { Robot, WorkOrder } from "../../types";
+import { statusTone } from "../../lib/format";
 import { OrderReorderControls } from "./WorkOrderQueueControls";
 import { TaskProgressTimeline } from "./TaskProgressTimeline";
 import {
@@ -73,7 +74,7 @@ export function WorkOrderQueueRow({
 
   return (
     <>
-      <tr className={highlighted ? "work-order-highlight" : undefined}>
+      <tr data-status-tone={statusTone(order.status)} className={highlighted ? "work-order-highlight" : undefined}>
         <td><button type="button" className="rowbtn task-expand-btn" aria-label={open ? "접기" : "펼치기"} onClick={onToggle}>{open ? "▾" : "▸"}</button></td>
         {showReorder ? (
           <td>
@@ -121,7 +122,7 @@ export function WorkOrderQueueRow({
         </td>
       </tr>
       {open && order.tasks.length > 0 ? (
-        <tr className="work-order-expanded-row">
+        <tr className="work-order-expanded-row" data-status-tone={statusTone(order.status)}>
           <td colSpan={showReorder ? 7 : 6}>
             <div className="nested-table">
               {order.tasks.map((t) => {

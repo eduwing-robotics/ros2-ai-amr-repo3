@@ -17,6 +17,7 @@ import "./styles/operations-enhancements.css";
 import "./styles/motion.css";
 import "./styles/adobe-theme.css";
 import "./styles/queue-camera-enhancements.css";
+import "./styles/status-surfaces.css";
 import "./styles/admin-data-workspace.css";
 import "./styles/inout-navigation.css";
 import "./styles/camera-video-wall.css";

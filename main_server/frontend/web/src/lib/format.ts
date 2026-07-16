@@ -6,15 +6,28 @@ export const cell = (v: unknown): string =>
 export const shortId = (id?: string | null): string => (id ? id.slice(0, 8) : "-");
 
 // 레거시 pill() 의 상태 → 색상 클래스 분류 규칙.
+export type StatusTone = "success" | "progress" | "waiting" | "warning" | "danger" | "cancelled";
 export type PillKind = "ok" | "run" | "err" | "warn" | "idle";
 
+const STATUS_TONES: Record<StatusTone, ReadonlySet<string>> = {
+  success: new Set(["online", "ok", "done", "completed", "complete", "success", "succeeded", "connected", "available"]),
+  progress: new Set(["running", "active", "moving", "in_progress", "dispatched", "sent", "recovery_running", "charging"]),
+  waiting: new Set(["idle", "created", "queued", "reserved", "assigned", "pending", "waiting", "planned", "accepted"]),
+  warning: new Set(["stale", "warn", "warning", "not_connected", "dry_run", "degraded", "awaiting_operator", "recovery_required", "cancel_requested", "low_battery", "unknown"]),
+  danger: new Set(["error", "failed", "fault", "estop", "offline", "rejected", "aborted", "critical", "lost"]),
+  cancelled: new Set(["cancelled", "canceled", "stopped", "disabled", "inactive"]),
+};
+
+export function statusTone(status: unknown): StatusTone {
+  const value = String(status ?? "").trim().toLowerCase();
+  for (const [tone, values] of Object.entries(STATUS_TONES) as [StatusTone, ReadonlySet<string>][]) {
+    if (values.has(value)) return tone;
+  }
+  return "waiting";
+}
+
 export function pillKind(status: unknown): PillKind {
-  const v = String(status ?? "").toLowerCase();
-  if (["online", "ok", "done", "accepted", "completed"].includes(v)) return "ok";
-  if (["running", "active", "sent", "queued", "moving", "assigned"].includes(v)) return "run";
-  if (["error", "failed", "fault", "estop", "offline"].includes(v)) return "err";
-  if (["stale", "warn", "warning", "pending", "not_connected", "dry_run"].includes(v)) return "warn";
-  return "idle";
+  return ({ success: "ok", progress: "run", waiting: "idle", warning: "warn", danger: "err", cancelled: "idle" } as const)[statusTone(status)];
 }
 
 // 서버 시간 문자열 → Date. "YYYY-MM-DD HH:MM:SS"(SQLite UTC, naive)와 ISO 둘 다 처리.
@@ -143,25 +156,52 @@ const STATUS_LABELS: Record<string, string> = {
   done: "완료",
   accepted: "접수됨",
   completed: "완료",
+  complete: "완료",
+  success: "성공",
+  succeeded: "성공",
+  connected: "연결됨",
+  available: "사용 가능",
   running: "실행 중",
+  in_progress: "진행 중",
+  dispatched: "전달됨",
+  recovery_running: "복구 진행",
+  charging: "충전 중",
   active: "동작 중",
   sent: "전송됨",
   queued: "대기열",
   moving: "이동 중",
   assigned: "할당됨",
+  created: "생성됨",
+  reserved: "예약됨",
+  waiting: "대기 중",
+  planned: "계획됨",
   error: "오류",
   failed: "실패",
+  rejected: "거절됨",
+  aborted: "중단 실패",
+  critical: "심각",
+  lost: "연결 소실",
   fault: "고장",
   estop: "비상 정지",
   offline: "오프라인",
   stale: "지연",
   warn: "주의",
   warning: "주의",
+  degraded: "성능 저하",
+  awaiting_operator: "운영자 확인",
+  recovery_required: "복구 필요",
+  cancel_requested: "중단 확인 중",
+  low_battery: "배터리 부족",
   pending: "대기 중",
   not_connected: "미연결",
   dry_run: "드라이런",
   idle: "대기",
   unknown: "미확인",
+  cancelled: "취소됨",
+  canceled: "취소됨",
+  stopped: "중단됨",
+  disabled: "비활성",
+  inactive: "비활성",
 };
 
 export function statusLabel(status: unknown): string {

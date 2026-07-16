@@ -164,6 +164,32 @@ test("작업 워크스페이스는 요약 열을 통합하고 배정 입력을 �
   await expect(commandBar).not.toContainText("tb3_1");
 });
 
+test("좌측 작업 기록 행도 완료·진행·취소 상태 배경을 구분한다", async ({ page }) => {
+  const completed = { ...runningOrder, order_id: 45, status: "COMPLETED", tasks: [{ ...runningOrder.tasks[0], order_id: 45, task_id: 12, status: "COMPLETED" }] };
+  const cancelled = { ...runningOrder, order_id: 46, status: "CANCELLED", tasks: [{ ...runningOrder.tasks[0], order_id: 46, task_id: 13, status: "CANCELLED" }] };
+  await mockMainApi(page, { workOrders: [runningOrder, completed, cancelled] });
+  await page.goto("/operate/tasks");
+
+  const table = page.getByRole("region", { name: "작업 워크스페이스" }).locator(".clean-table");
+  const successRow = table.locator("tbody > tr[data-status-tone=success]");
+  const progressRow = table.locator("tbody > tr[data-status-tone=progress]");
+  const cancelledRow = table.locator("tbody > tr[data-status-tone=cancelled]");
+  await expect(successRow).toHaveCount(1);
+  await expect(progressRow).toHaveCount(1);
+  await expect(cancelledRow).toHaveCount(1);
+  const colors = await Promise.all([successRow, progressRow, cancelledRow].map((row) => row.evaluate((element) => getComputedStyle(element).backgroundColor)));
+  expect(new Set(colors).size).toBe(3);
+  const sideCancelledStyle = await cancelledRow.evaluate((element) => ({ background: getComputedStyle(element).backgroundColor, shadow: getComputedStyle(element).boxShadow }));
+
+  await page.goto("/operate/control");
+  const dock = page.getByRole("region", { name: "작업 큐, 할당 로봇, 타임라인과 안전 중지" });
+  await dock.getByRole("tab", { name: "작업 기록" }).click();
+  const bottomCancelledRow = dock.locator(".fleet-mission-row[data-status-tone=cancelled]");
+  await expect(bottomCancelledRow).toHaveCount(1);
+  const bottomCancelledStyle = await bottomCancelledRow.evaluate((element) => ({ background: getComputedStyle(element).backgroundColor, shadow: getComputedStyle(element).boxShadow }));
+  expect(bottomCancelledStyle).toEqual(sideCancelledStyle);
+});
+
 test("하단 작업 큐는 할당 로봇과 실제 Movement 단계 및 안전 중지를 제공한다", async ({ page }) => {
   await mockMainApi(page, { workOrders: [runningOrder] });
   await page.goto("/operate/control");
@@ -248,6 +274,18 @@ test("맵·카메라·작업 큐는 크기 조절되고 Grid와 이벤트 등급
 });
 
 
+test("운영과 관리 탭은 동일한 상태 색상 tone 정책을 사용한다", async ({ page }) => {
+  await mockMainApi(page, { workOrders: [runningOrder] });
+  await page.goto("/operate/control");
+
+  await expect(page.locator(".pill[title=RUNNING]").first()).toHaveAttribute("data-status-tone", "progress");
+  await expect(page.locator(".pill[title=IDLE]").first()).toHaveAttribute("data-status-tone", "waiting");
+
+  await page.goto("/admin/system");
+  await expect(page.locator(".pill[title=ok]").first()).toHaveAttribute("data-status-tone", "success");
+  await expect(page.locator(".pill[title=online]").first()).toHaveAttribute("data-status-tone", "success");
+});
+
 test("Adobe Electric Indigo 토큰과 위험·주의 비색상 단서가 적용된다", async ({ page }) => {
   await mockMainApi(page, {
     events: [
@@ -300,6 +338,7 @@ test("하단 기본 큐는 진행·예약만 강조하고 종료 작업은 기�
   await expect(inboundCompleted).toHaveAttribute("data-history-status", "COMPLETED");
   await expect(outboundCancelled).toHaveAttribute("data-operation", "outbound");
   await expect(outboundCancelled).toHaveAttribute("data-history-status", "CANCELLED");
+  await expect(outboundCancelled.locator(".pill[title=CANCELLED]")).toHaveAttribute("data-status-tone", "cancelled");
   const backgrounds = await Promise.all([inboundCompleted, outboundCancelled].map((row) => row.evaluate((element) => getComputedStyle(element).backgroundColor)));
   expect(backgrounds[0]).not.toBe(backgrounds[1]);
 });

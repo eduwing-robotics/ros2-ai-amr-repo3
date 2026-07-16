@@ -11,9 +11,12 @@ export interface CommLog {
   started_at?: string;
   finished_at?: string;
   ok?: boolean;
-  status?: string;
+  status?: string | number;
   detail?: string;
   elapsed_ms?: number;
+  heartbeat?: boolean;
+  repeat_count?: number;
+  last_checked_at?: string;
 }
 
 interface CommLogsResponse {

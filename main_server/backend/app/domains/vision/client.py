@@ -22,7 +22,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from app.core.api_logs import begin_call, finish_call
+from app.core.api_logs import begin_call, finish_call, record_heartbeat
 from app.core.config import settings
 from app.core.http_security import (
     MAX_BINARY_RESPONSE_BYTES,
@@ -44,7 +44,9 @@ class VisionUpstreamError(RuntimeError):
 
 def _api_bases() -> list[str]:
     """AI 서버 후보 base 목록: primary(호스트명) 우선, fallback(IP)이 있으면 뒤에."""
-    return [validate_service_base_url(b) for b in (settings.vision_api_base_url, settings.vision_api_fallback_base_url) if b]
+    return [
+        validate_service_base_url(b) for b in (settings.vision_api_base_url, settings.vision_api_fallback_base_url) if b
+    ]
 
 
 def _stream_bases() -> list[str]:
@@ -206,7 +208,7 @@ def fetch_camera_health(camera_sources: list[str] | None = None, *, force: bool 
             source = "none"
             base_url = str(ai.get("base_url") or bridge.get("base_url") or "")
         error = None if ok else str(ai.get("error") or bridge.get("error") or "camera unreachable")
-        return {
+        result = {
             "ok": ok,
             "source": source,
             "base_url": base_url,
@@ -215,6 +217,14 @@ def fetch_camera_health(camera_sources: list[str] | None = None, *, force: bool 
             "bridge": bridge,
             "ai_image": ai,
         }
+        record_heartbeat(
+            "vision",
+            "camera",
+            ok,
+            detail=str(error or source),
+            url=base_url,
+        )
+        return result
 
     return get_cached_swr("camera_health", _compute, force=force)
 
@@ -242,11 +252,23 @@ def fetch_bridge_health() -> dict[str, object]:
         except HTTPError as exc:
             # 이름해석 성공(upstream이 상태를 줌) → 폴백하지 않는다.
             read_error_detail(exc)
-            return {"ok": False, "base_url": base, "error": f"HTTP {exc.code}", "checked_at": datetime.now(timezone.utc).isoformat(), "url": url}
+            return {
+                "ok": False,
+                "base_url": base,
+                "error": f"HTTP {exc.code}",
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "url": url,
+            }
         except (URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError, UpstreamResponseTooLarge):
             last_error = "unreachable or invalid response"
             continue
-    return {"ok": False, "base_url": bases[0] if bases else "", "error": last_error, "checked_at": datetime.now(timezone.utc).isoformat(), "url": last_url}
+    return {
+        "ok": False,
+        "base_url": bases[0] if bases else "",
+        "error": last_error,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "url": last_url,
+    }
 
 
 def open_mjpeg_stream(kind: str, source: str, max_fps: int, view: str = "full") -> tuple[Iterator[bytes], str]:
@@ -437,7 +459,9 @@ def _get_json(path: str, params: dict[str, str], bases: list[str] | None = None,
     for base in bases:
         url = _url(base, path, params)
         req = Request(url, method="GET", headers={"Accept": "application/json"})
-        ctx = begin_call(service, path.rsplit("/", 1)[-1] or path, "GET", url, source=params.get("source") or params.get("robot_id"))
+        ctx = begin_call(
+            service, path.rsplit("/", 1)[-1] or path, "GET", url, source=params.get("source") or params.get("robot_id")
+        )
         try:
             with urlopen(req, timeout=_person_hazard_timeout_sec()) as res:
                 body = read_limited(res, max_bytes=MAX_JSON_RESPONSE_BYTES)
@@ -457,7 +481,9 @@ def _get_json(path: str, params: dict[str, str], bases: list[str] | None = None,
     raise VisionUpstreamError(f"vision upstream {last_reason}", status_code=504)
 
 
-def _put_json(path: str, payload: dict[str, object], bases: list[str] | None = None, *, service: str = "vision") -> dict:
+def _put_json(
+    path: str, payload: dict[str, object], bases: list[str] | None = None, *, service: str = "vision"
+) -> dict:
     """JSON PUT with primary/fallback bases."""
     bases = bases or _api_bases()
     body = json.dumps(payload).encode("utf-8")

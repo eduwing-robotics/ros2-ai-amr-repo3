@@ -112,6 +112,14 @@
     .pill.ok { background: var(--ok-bg); color: var(--ok-fg); } .pill.run { background: var(--run-bg); color: var(--run-fg); }
     .pill.err { background: var(--err-bg); color: var(--err-fg); } .pill.warn { background: var(--warn-bg); color: var(--warn-fg); }
     .pill.idle { background: var(--idle-bg); color: var(--idle-fg); }
+    /* Canonical status tones. These override legacy kind classes in both shells. */
+    .pill[class*="status-"] { border: 1px solid transparent; }
+    .pill.status-success { border-color: var(--status-success-border); background: var(--status-success-bg); color: var(--status-success-fg); }
+    .pill.status-progress { border-color: var(--status-progress-border); background: var(--status-progress-bg); color: var(--status-progress-fg); }
+    .pill.status-waiting { border-color: var(--status-waiting-border); background: var(--status-waiting-bg); color: var(--status-waiting-fg); }
+    .pill.status-warning { border-color: var(--status-warning-border); background: var(--status-warning-bg); color: var(--status-warning-fg); }
+    .pill.status-danger { border-color: var(--status-danger-border); background: var(--status-danger-bg); color: var(--status-danger-fg); }
+    .pill.status-cancelled { border-color: var(--status-cancelled-border); background: var(--status-cancelled-bg); color: var(--status-cancelled-fg); text-decoration: line-through; text-decoration-thickness: 1px; }
     .card { border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: 12px; background: var(--surface); margin-bottom: 10px; box-shadow: var(--shadow); }
     .card strong { color: var(--text); font-size: 14px; }
     .card div { font-size: 13px; color: var(--text-muted); margin-top: 2px; }

@@ -33,6 +33,14 @@
   --idle-bg: #e5e7eb; --idle-fg: #374151;
   --info-bg: #eff6ff; --info-fg: #1e3a8a; --info-border: #bfdbfe;
 
+  /* 공통 상태 정책: 운영·관리에서 동일한 의미는 동일한 색을 사용한다. */
+  --status-success-bg: var(--ok-bg); --status-success-fg: var(--ok-fg); --status-success-border: var(--ok-border);
+  --status-progress-bg: var(--run-bg); --status-progress-fg: var(--run-fg); --status-progress-border: var(--run-border);
+  --status-waiting-bg: var(--idle-bg); --status-waiting-fg: var(--idle-fg); --status-waiting-border: var(--border-strong);
+  --status-warning-bg: var(--warn-bg); --status-warning-fg: var(--warn-fg); --status-warning-border: var(--warn-border);
+  --status-danger-bg: var(--err-bg); --status-danger-fg: var(--err-fg); --status-danger-border: var(--err-border);
+  --status-cancelled-bg: color-mix(in srgb, var(--idle-bg) 82%, var(--surface)); --status-cancelled-fg: var(--text-muted); --status-cancelled-border: var(--border-strong);
+
   /* 입력·버튼·맵 표면 */
   --input-bg: #ffffff;
   --btn-secondary-bg: #e5e7eb; --btn-secondary-fg: #374151; --btn-secondary-hover: #d1d5db;
