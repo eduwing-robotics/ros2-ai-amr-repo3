@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { MODES, isOperateArea, modeForRoute, routePath, type ModeDef } from "../app/menus";
@@ -10,7 +9,7 @@ import { useEmergency } from "../hooks/useEmergency";
 import { useCriticalAlerts } from "../hooks/useCriticalAlerts";
 import { Clock } from "./Clock";
 import { EstopControls } from "./EstopControls";
-import { Resizer } from "./Resizer";
+import { AdminShell } from "./AdminShell";
 import { ThemeToggle } from "./ThemeToggle";
 import type { CameraHealth } from "../types";
 
@@ -27,7 +26,6 @@ export function Layout() {
   const mode = modeForRoute(areaKey, sectionKey);
   const currentRoute = areaKey === "records" ? `records/${recordsTab ?? "events"}` : `${areaKey}/${sectionKey}`;
   const operateShell = isOperateArea(areaKey);
-  const bodyRef = useRef<HTMLDivElement>(null);
   const { data: status, isError } = useStatus();
   const { isEmergency, emergencyRobots } = useEmergency();
   const { toast } = useFeedback();
@@ -135,41 +133,8 @@ export function Layout() {
         </div>
       </header>
 
-      <div className="body" data-layout={operateShell ? "operate" : "admin"} ref={bodyRef}>
-        {!operateShell ? (
-          <>
-            <aside className={`side ${mode.accent}`}>
-              <div className="side-title">{mode.title}</div>
-              <div>
-                {mode.items.map((it) => (
-                  <button
-                    key={it.key}
-                    type="button"
-                    className={it.route === currentRoute || it.route.startsWith(currentRoute) ? "active" : ""}
-                    onClick={() => navigate(routePath(it.route))}
-                  >
-                    {it.label}
-                  </button>
-                ))}
-              </div>
-            </aside>
-            <Resizer
-              className="layout-resizer--sidebar"
-              orientation="horizontal"
-              storageKey="lms.layout.admin-sidebar"
-              cssVar="--admin-side-w"
-              containerRef={bodyRef}
-              defaultSize={220}
-              min={160}
-              max={360}
-              adjacent="leading"
-            />
-          </>
-        ) : null}
-
-        <main className={`content${operateShell ? " content-operate" : ""}`}>
-          <Outlet />
-        </main>
+      <div className="body" data-layout={operateShell ? "operate" : "admin"}>
+        {operateShell ? <main className="content content-operate"><Outlet /></main> : <AdminShell mode={mode} currentRoute={currentRoute} />}
       </div>
     </div>
   );

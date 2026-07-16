@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
+import { Resizer } from "../../components/Resizer";
 import { OPERATE_SLIM_NAV, routePath } from "../../app/menus";
 import { useStatus } from "../../hooks/useStatus";
 import { useEmergency } from "../../hooks/useEmergency";
@@ -20,11 +21,9 @@ import { FleetMissionDock } from "./FleetMissionDock";
 import { RobotStatusDetails } from "./RobotStatusCard";
 import { BatteryIndicator } from "../../components/BatteryIndicator";
 import { Pill } from "../../components/Pill";
-import type { CameraHealth, CameraSource, MovementHealth } from "../../types";
+import type { CameraHealth, MovementHealth } from "../../types";
 import { taskLifecycleOf } from "./taskLifecycle";
 
-const globalCameras = (cameras: CameraSource[]) => cameras.filter((camera) => !camera.robot_id);
-const camerasForRobot = (robotId: string, cameras: CameraSource[]) => cameras.filter((camera) => camera.robot_id === robotId);
 
 /* 상단 KPI 글랜스 스트립 (ISA-101 L1: 2초 스캔) — 평상시 무채색, 이상 시에만 좌보더+배경 강조.
    상태는 색+텍스트 병기(색 단독 금지). 값은 비례 숫자(스탯 타일 규격). */
@@ -165,16 +164,19 @@ export function OperatorShell() {
   const { data, isLoading, isError, error, refetch } = useStatus();
   const { emergencyRobots, isRobotEmergency } = useEmergency();
   const { data: recoveryTasks = [] } = useRecoveryAttentionTasks();
+  const liveSplitRef = useRef<HTMLDivElement>(null);
+  const workbenchRef = useRef<HTMLDivElement>(null);
 
   const robots = data?.robots ?? [];
   const cameras = data?.camera_sources ?? [];
   const selectedRobotParam = searchParams.get("robot");
   const selectedRobot = robots.find((robot) => robot.robot_id === selectedRobotParam) ?? robots[0] ?? null;
   const selectedRobotId = selectedRobot?.robot_id ?? "";
+  const [cameraRobotId, setCameraRobotId] = useState<string | null>(null);
+  const cameraRobot = robots.find((robot) => robot.robot_id === cameraRobotId) ?? null;
+  const cameraRobotSources = cameraRobotId ? cameras.filter((camera) => camera.robot_id === cameraRobotId) : [];
   const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks]);
   const events = useMemo(() => data?.events ?? [], [data?.events]);
-  const globalCams = globalCameras(cameras);
-  const selectedRobotCams = selectedRobotId ? camerasForRobot(selectedRobotId, cameras) : [];
   const cameraOnline = Boolean(((data?.system ?? {}) as { camera_health?: CameraHealth }).camera_health?.ok);
   const { onlineCount } = useRobotConnectivity(robots);
 
@@ -409,20 +411,6 @@ export function OperatorShell() {
             </Drawer>
           ) : null}
           <div className="operator-main">
-            <div className="operator-page-head">
-              <div>
-                <h1>{pageMeta.title}</h1>
-                <p>{pageMeta.description}</p>
-              </div>
-              <div className="operator-page-actions">
-                <button type="button" className="btn secondary" onClick={() => refetch()} disabled={isLoading}>
-                  {isLoading ? "갱신 중…" : "새로고침"}
-                </button>
-                <button type="button" className="btn" aria-label="새 요청 만들기" aria-controls="operator-context-drawer" aria-expanded={drawer === "inout"} onClick={() => toggleDrawer("inout")}>
-                  입출고 요청
-                </button>
-              </div>
-            </div>
             {emergencyRobots.length > 0 ? (
               <div className="inline-alert err operator-status-banner emergency-banner">
                 비상 정지 활성 — {emergencyRobots.join(", ")} — 해당 로봇의 이동·입출고·수동 조작이 비활성화됩니다.
@@ -456,8 +444,8 @@ export function OperatorShell() {
               errCount={alarmCounts.err}
               warnCount={alarmCounts.warn}
             />
-            <div className="operator-main-workbench">
-              <div className="operator-live-split">
+            <div className="operator-main-workbench" ref={workbenchRef}>
+              <div className="operator-live-split" ref={liveSplitRef}>
                 <div className="operator-primary-workspace">
                   {trayPanel === "tasks" ? (
                     <section className="operator-workspace" id="operator-workspace-main" aria-label="작업 워크스페이스">
@@ -484,16 +472,18 @@ export function OperatorShell() {
                     </div>
                   )}
                 </div>
-                <section className="operator-global-camera panel" aria-label="전역 카메라">
+                <Resizer className="operator-live-resizer" orientation="horizontal" storageKey="lms.layout.operator-map-width" cssVar="--operator-map-w" containerRef={liveSplitRef} defaultSize={720} min={420} max={1100} adjacent="leading" />
+                <section className="operator-global-camera panel" aria-label="전역 카메라 및 전체 카메라 Grid">
                   <div className="operator-global-camera-head">
-                    <div><h2>전역 카메라</h2><span className={`operator-camera-state ${cameraOnline ? "online" : "offline"}`}>{cameraOnline ? "LIVE" : "OFFLINE"}</span></div>
-                    <span className="muted">맵 동시 관제</span>
+                    <div><h2>카메라 관제</h2><span className={`operator-camera-state ${cameraOnline ? "online" : "offline"}`}>{cameraOnline ? "LIVE" : "OFFLINE"}</span></div>
+                    <span className="muted">Grid = 전체 소스</span>
                   </div>
                   <div className="operator-global-camera-body">
-                    {globalCams.length > 0 ? <LiveCamera cameras={globalCams} /> : <div className="operator-camera-empty"><strong>전역 카메라가 등록되지 않았습니다.</strong><span>관리 공간에서 로봇에 귀속되지 않은 카메라 소스를 등록하세요.</span></div>}
+                    {cameras.length > 0 ? <LiveCamera cameras={cameras} /> : <div className="operator-camera-empty"><strong>전역 카메라가 등록되지 않았습니다.</strong><span>관리 공간에서 로봇에 귀속되지 않은 카메라 소스를 등록하세요.</span></div>}
                   </div>
                 </section>
               </div>
+              <Resizer className="operator-dock-resizer" orientation="vertical" storageKey="lms.layout.operator-task-queue-height" cssVar="--operator-dock-h" containerRef={workbenchRef} defaultSize={240} min={170} max={520} adjacent="trailing" />
               <FleetMissionDock robots={robots} selectedRobotId={selectedRobotId} onRobotSelect={selectRobot} />
             </div>
           </div>
@@ -511,7 +501,7 @@ export function OperatorShell() {
                   const selected = selectedRobotId === robot.robot_id;
                   return (
                     <article className={`operator-fleet-card${selected ? " selected" : ""}${robotEmergency(robot.robot_id) ? " emergency" : ""}`} key={robot.robot_id}>
-                      <button type="button" className="operator-fleet-select" onClick={() => selectRobot(robot.robot_id)}>
+                      <button type="button" className="operator-fleet-select" onClick={() => { selectRobot(robot.robot_id); setCameraRobotId(robot.robot_id); }}>
                         <span><strong>{robot.display_name || robot.robot_id}</strong><small className="mono">{robot.robot_id}</small></span>
                         {robotEmergency(robot.robot_id) ? <span className="pill err">ESTOP</span> : <Pill status={robot.status} />}
                         <BatteryIndicator value={robot.battery} />
@@ -530,14 +520,14 @@ export function OperatorShell() {
                   );
                 })}
               </div>
-              <section className="operator-selected-camera" aria-label="선택 로봇 카메라">
-                <header><strong>{selectedRobot ? `${selectedRobot.display_name || selectedRobot.robot_id} 카메라` : "선택 로봇 카메라"}</strong><span className="muted">선택 문맥</span></header>
-                <div>
-                  {selectedRobotCams.length > 0 ? <LiveCamera cameras={selectedRobotCams} /> : <span className="empty">선택 로봇 카메라 없음</span>}
-                </div>
-              </section>
             </section>
           </aside>
+          {cameraRobot ? (
+            <section className="operator-robot-camera-drawer panel" role="region" aria-label={`${cameraRobot.display_name || cameraRobot.robot_id} 카메라`}>
+              <header><div><span className="operator-eyebrow">ROBOT CAMERA</span><h2>{cameraRobot.display_name || cameraRobot.robot_id}</h2></div><button type="button" className="rowbtn" aria-label="로봇 카메라 닫기" onClick={() => setCameraRobotId(null)}>닫기</button></header>
+              <div className="operator-robot-camera-content">{cameraRobotSources.length ? <LiveCamera cameras={cameraRobotSources} /> : <div className="operator-camera-empty"><strong>등록된 로봇 카메라가 없습니다.</strong><span>관리 · 로봇 & 카메라에서 {cameraRobot.robot_id} 귀속 소스를 등록하세요.</span></div>}</div>
+            </section>
+          ) : null}
         </div>
       </div>
     </GotoTargetProvider>

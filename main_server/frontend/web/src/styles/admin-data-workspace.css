@@ -1,0 +1,40 @@
+/*
+ * Admin data workspace — dense spreadsheet-like surface.
+ * Scroll ownership: shell stays fixed; each sheet owns one data viewport.
+ */
+.admin-shell{--admin-rail-width:60px;--admin-context-width:clamp(188px,15vw,232px);grid-template-columns:var(--admin-rail-width) var(--admin-context-width) minmax(0,1fr)}
+.admin-activity-rail button{min-height:52px}
+.admin-context-pane{min-width:0;padding:20px 16px;border-right:1px solid var(--border)}
+.admin-context-head h1{font-size:20px}.admin-context-head p,.admin-context-note p{font-size:12px;line-height:1.55}.admin-context-section li{font-size:12px}
+.admin-workbench{min-width:0;min-height:0;padding:0;overflow:hidden;background:linear-gradient(var(--border-light) 1px,transparent 1px),linear-gradient(90deg,var(--border-light) 1px,transparent 1px),var(--surface);background-size:32px 32px}
+.admin-workbench>:is(.ops-page,.records-page,.scenario-page){width:100%;height:100%;min-width:0;min-height:0;max-width:none;margin:0;padding:12px;overflow:hidden}
+.admin-workbench .ops-page,.admin-workbench .records-page{display:flex;flex-direction:column;gap:8px}
+.admin-workbench .ops-heading{flex:0 0 auto;min-height:36px;margin:0;padding:0 2px 8px;border-bottom:1px solid var(--border)}
+.admin-workbench .ops-heading>div:first-child{display:none}.admin-workbench .ops-heading:has(>div:only-child){display:none}.admin-workbench .ops-heading .btn{margin-left:auto}
+.admin-workbench .tab-bar{flex:0 0 auto;min-height:36px;gap:0;padding:0;border:1px solid var(--border);border-radius:5px 5px 0 0;background:var(--surface-1);overflow-x:auto}
+.admin-workbench .tab-bar button{min-height:35px;padding:0 14px;border:0;border-right:1px solid var(--border);border-radius:0;font-size:12px;font-weight:650;white-space:nowrap}
+.admin-workbench .tab-bar button.active{color:var(--accent-dark);background:var(--accent-soft);box-shadow:inset 0 -2px var(--accent)}
+.admin-workbench :is(.panel,.card){border-radius:5px;box-shadow:none}.admin-workbench .panel{min-width:0;min-height:0;padding:10px;border-color:var(--border)}
+.admin-workbench .panel>h2{min-height:30px;margin:-10px -10px 8px;padding:7px 10px;border-bottom:1px solid var(--border);background:var(--surface-2);font-size:12px;letter-spacing:.02em}
+.admin-workbench :is(.toolbar,.form-grid.compact){flex:0 0 auto;min-height:38px;gap:6px;margin:0;padding:6px;border:1px solid var(--border);background:var(--surface-1)}
+.admin-workbench :is(input,select,.btn){min-height:30px}.admin-workbench :is(input,select){font-size:12px}
+.admin-workbench .table-wrap{flex:1 1 auto;min-width:0;min-height:120px;max-height:none;margin:0;overflow:auto;resize:none;border:1px solid var(--border);border-radius:0 0 4px 4px;background:var(--surface);scrollbar-gutter:stable}
+.admin-workbench table{width:100%;min-width:max-content;border-collapse:separate;border-spacing:0;font-size:12px}
+.admin-workbench th{position:sticky;z-index:3;top:0;height:32px;padding:6px 9px;border-right:1px solid var(--border);border-bottom:1px solid var(--border-strong);color:var(--text-muted);background:var(--surface-2);font-size:11px;font-weight:700;letter-spacing:.025em;white-space:nowrap}
+.admin-workbench td{height:34px;max-width:440px;padding:6px 9px;border-right:1px solid var(--border-light);border-bottom:1px solid var(--border-light);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.admin-workbench tbody tr:nth-child(even){background:color-mix(in srgb,var(--surface-1) 58%,transparent)}.admin-workbench tbody tr:hover{background:var(--accent-soft)}.admin-workbench tbody tr:focus-within{box-shadow:inset 3px 0 var(--accent)}
+.admin-workbench .records-panel{flex:1 1 auto;display:flex;flex-direction:column;gap:6px;padding:8px;overflow:hidden;border-radius:0 0 5px 5px}
+.admin-workbench .records-panel>.table-wrap{flex:1 1 0}.admin-workbench .records-filters{overflow-x:auto}.admin-workbench .records-panel .muted-hint{flex:0 0 auto;margin:0}.admin-workbench .pager{flex:0 0 auto;margin:0;padding-top:2px}
+.admin-workbench .system-admin-grid{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(220px,280px) minmax(0,1fr);gap:8px}
+.admin-workbench .system-admin-grid>.panel{display:flex;flex-direction:column;overflow:hidden}.admin-workbench .system-admin-grid .rail-list{overflow:auto}
+.admin-workbench .system-db-panel{flex:1 1 auto;min-height:0;grid-template-columns:clamp(160px,18vw,230px) minmax(0,1fr);gap:0;overflow:hidden;border:1px solid var(--border)}
+.admin-workbench .system-db-tables{padding:4px;overflow:auto;border-right:1px solid var(--border);background:var(--surface-1)}
+.admin-workbench .system-db-tables .card{margin:0;padding:8px;border:0;border-bottom:1px solid var(--border);border-radius:0}.admin-workbench .system-db-tables .card.active{box-shadow:inset 3px 0 var(--accent);background:var(--accent-soft)}
+.admin-workbench .system-db-rows{min-width:0;min-height:0;display:flex;flex-direction:column}.admin-workbench .system-db-rows .table-wrap{flex:1 1 0}
+.admin-workbench .devices-admin{overflow:auto}.admin-workbench .devices-panels{display:grid;grid-template-columns:repeat(2,minmax(420px,1fr));gap:8px}
+.admin-workbench .devices-panels>.panel{display:flex;min-height:360px;flex-direction:column;overflow:hidden}.admin-workbench .devices-panels .form-grid.compact{grid-template-columns:minmax(140px,1fr) minmax(180px,1.4fr) auto}
+.admin-workbench .devices-logs{display:flex;min-height:300px;max-height:44vh;flex-direction:column}.admin-workbench .devices-logs .table-wrap{flex:1 1 0}
+.admin-workbench [class*="warehouse"] .table-wrap{max-height:none}.admin-workbench [class*="warehouse"] .panel{min-width:0}
+.admin-workbench .scenario-page{display:flex;flex-direction:column;gap:8px}.admin-workbench .scenario-page .scenario-layout{flex:1 1 auto;min-height:0}.admin-workbench .scenario-page .scenario-map-stage{min-height:0}
+@media(max-width:1180px){.admin-shell{grid-template-columns:var(--admin-rail-width) minmax(0,1fr)}.admin-workbench .system-admin-grid{grid-template-columns:1fr;overflow:auto}.admin-workbench .system-admin-grid>.panel:first-child{max-height:240px}.admin-workbench .devices-panels{grid-template-columns:1fr}}
+@media(max-width:760px){.admin-workbench>:is(.ops-page,.records-page,.scenario-page){padding:8px}.admin-workbench{overflow:auto}.admin-workbench .records-page,.admin-workbench .ops-page{min-height:720px}.admin-workbench .system-db-panel{grid-template-columns:132px minmax(0,1fr)}.admin-workbench .devices-panels{grid-template-columns:minmax(620px,1fr)}}

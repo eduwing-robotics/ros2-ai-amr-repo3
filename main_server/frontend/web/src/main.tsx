@@ -11,8 +11,15 @@ import "./styles/base.css";
 // 콕핏 등 관제 레이아웃 보완 스타일.
 // 프리미티브/신규 컴포넌트 스타일(드로어·모드 탭 등).
 import "./styles/components.css";
+import "./styles/admin-shell.css";
 import "./styles/operator-shell.css";
+import "./styles/operations-enhancements.css";
 import "./styles/motion.css";
+import "./styles/adobe-theme.css";
+import "./styles/queue-camera-enhancements.css";
+import "./styles/admin-data-workspace.css";
+import "./styles/inout-navigation.css";
+import "./styles/camera-video-wall.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

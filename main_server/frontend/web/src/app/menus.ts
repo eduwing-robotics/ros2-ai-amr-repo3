@@ -19,6 +19,7 @@ const item = (route: string, label: string): NavItem => ({ key: route, label, ro
 
 const RECORDS = item("records/events", "기록");
 /** 운영 조회 목적지 — 좌측 메뉴는 중앙 워크스페이스를 전환한다. */
+const INOUT = item("operate/control?drawer=inout", "입출고");
 const TASKS = item("operate/tasks", "작업");
 const INVENTORY = item("operate/inventory", "재고");
 const EVENTS = item("operate/events", "이벤트");
@@ -26,6 +27,7 @@ const EVENTS = item("operate/events", "이벤트");
 /** 운영 슬림 네비 (OperatorShell). 목적지만 배치하고 실행 명령은 콘텐츠 문맥에 둔다. */
 export const OPERATE_SLIM_NAV: NavItem[] = [
   item("operate/control", "관제"),
+  INOUT,
   TASKS,
   INVENTORY,
   EVENTS,
@@ -39,6 +41,7 @@ export const MODES: ModeDef[] = [
     accent: "operator",
     items: [
       item("operate/control", "관제"),
+      INOUT,
       TASKS,
       INVENTORY,
       EVENTS,

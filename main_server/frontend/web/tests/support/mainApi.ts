@@ -22,6 +22,7 @@ type State = {
   events?: unknown[];
   robotBattery?: number | null;
   robots?: Array<typeof robot>;
+  navMissionStatus?: string;
 };
 
 function json(route: Route, body: unknown, status = 200) {
@@ -93,7 +94,9 @@ export async function mockMainApi(page: Page, state: State = {}) {
       robot_online: state.movementOk ?? true,
       command_accepting: state.movementOk ?? true,
       localized: true,
+      mission_status: state.navMissionStatus ?? null,
     });
+    if (path === "/robot-commands" && req.method() === "POST") return json(route, { robot_id: responseRobot.robot_id, command_id: "cmd-goto-1", response: { accepted: true } });
     if (path === "/vision/streams") return json(route, {
       stream_transports: [{ kind: "webrtc", configured: false, status: "not_configured" }],
     });
@@ -109,7 +112,8 @@ export async function mockMainApi(page: Page, state: State = {}) {
       limitations: ["자동 하역 및 기존 작업 재개는 수행하지 않습니다."],
     });
     if (path.startsWith("/comm/logs")) return json(route, { logs: [], movement_commands: [] });
-    if (path.startsWith("/events") || path.startsWith("/api-logs") || path.startsWith("/movement-commands") || path.startsWith("/task-logs") || path.startsWith("/item-change-logs")) return json(route, []);
+    if (path.startsWith("/events")) return json(route, state.events ?? []);
+    if (path.startsWith("/api-logs") || path.startsWith("/movement-commands") || path.startsWith("/task-logs") || path.startsWith("/item-change-logs")) return json(route, []);
     if (path.startsWith("/cameras") || path.startsWith("/camera-sources")) return json(route, []);
     throw new Error(`Unhandled Main API mock: ${req.method()} ${path}`);
   });

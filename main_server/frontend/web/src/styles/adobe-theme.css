@@ -1,0 +1,151 @@
+/*
+ Adobe Color — Electric Indigo UI palette
+ #4F46E5 · #7C3AED · #06B6D4 · #16A34A · #F97316
+ Neutral Slate surfaces keep the saturated accents crisp instead of washed out.
+*/
+:root {
+  --adobe-indigo: #4f46e5;
+  --adobe-violet: #7c3aed;
+  --adobe-cyan: #06b6d4;
+  --adobe-green: #16a34a;
+  --adobe-orange: #f97316;
+
+  --bg: #f1f3f7;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #eef1f6;
+  --border: #cbd1dc;
+  --border-light: #e2e6ed;
+  --border-strong: #929bad;
+  --text: #111827;
+  --text-muted: #4b5563;
+  --text-dim: #6b7280;
+
+  --operator: #4f46e5;
+  --operator-dark: #3730a3;
+  --operator-soft: #e8e7ff;
+  --admin: #7c3aed;
+  --admin-dark: #5b21b6;
+  --admin-soft: #f0e7ff;
+  --teal: #4f46e5;
+  --teal-dark: #3730a3;
+  --teal-soft: #e8e7ff;
+  --blue: #4f46e5;
+  --amber: #b45309;
+  --red: #dc2626;
+
+  --chrome-bg: #111827;
+  --chrome-fg: #ffffff;
+  --chrome-dim: #aeb7c7;
+
+  --ok-bg: #dcfce7;
+  --ok-fg: #166534;
+  --ok-border: #22c55e;
+  --warn-bg: #fff7d6;
+  --warn-fg: #854d0e;
+  --warn-border: #f59e0b;
+  --err-bg: #fee2e2;
+  --err-fg: #991b1b;
+  --err-border: #ef4444;
+  --run-bg: #e0e7ff;
+  --run-fg: #3730a3;
+  --run-border: #6366f1;
+  --idle-bg: #e5e7eb;
+  --idle-fg: #374151;
+  --info-bg: #cffafe;
+  --info-fg: #155e75;
+  --info-border: #06b6d4;
+
+  --input-bg: #ffffff;
+  --btn-secondary-bg: #e5e7eb;
+  --btn-secondary-fg: #1f2937;
+  --btn-secondary-hover: #d1d5db;
+  --map-canvas: #eef1f6;
+  --map-letterbox: #f8fafc;
+  --shadow: 0 1px 2px rgb(15 23 42 / 8%);
+  --shadow-md: 0 16px 36px rgb(15 23 42 / 20%);
+}
+
+:root[data-theme="dark"] {
+  --bg: #090b12;
+  --surface: #11141d;
+  --surface-2: #181c27;
+  --surface-3: #212635;
+  --border: #353c4d;
+  --border-light: #292f3e;
+  --border-strong: #596277;
+  --text: #f3f4f6;
+  --text-muted: #c1c7d2;
+  --text-dim: #929bad;
+  --chrome-bg: #07090f;
+  --chrome-fg: #ffffff;
+  --chrome-dim: #9ca5b7;
+  --operator: #818cf8;
+  --operator-dark: #a5b4fc;
+  --operator-soft: #27264c;
+  --admin: #a78bfa;
+  --admin-dark: #c4b5fd;
+  --admin-soft: #32234d;
+  --teal: #818cf8;
+  --teal-dark: #a5b4fc;
+  --teal-soft: #27264c;
+  --blue: #818cf8;
+  --amber: #fbbf24;
+  --red: #f87171;
+
+  --ok-bg: rgb(34 197 94 / 18%);
+  --ok-fg: #86efac;
+  --ok-border: rgb(74 222 128 / 64%);
+  --warn-bg: rgb(245 158 11 / 18%);
+  --warn-fg: #fcd34d;
+  --warn-border: rgb(251 191 36 / 66%);
+  --err-bg: rgb(239 68 68 / 20%);
+  --err-fg: #fca5a5;
+  --err-border: rgb(248 113 113 / 70%);
+  --run-bg: rgb(99 102 241 / 24%);
+  --run-fg: #c7d2fe;
+  --run-border: rgb(129 140 248 / 68%);
+  --idle-bg: rgb(148 163 184 / 18%);
+  --idle-fg: #d1d5db;
+  --info-bg: rgb(6 182 212 / 18%);
+  --info-fg: #a5f3fc;
+  --info-border: rgb(34 211 238 / 62%);
+
+  --input-bg: #0d1018;
+  --btn-secondary-bg: #292f3e;
+  --btn-secondary-fg: #f3f4f6;
+  --btn-secondary-hover: #353c4d;
+  --map-canvas: #11141d;
+  --map-letterbox: #181c27;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#090b12;--surface:#11141d;--surface-2:#181c27;--surface-3:#212635;
+    --border:#353c4d;--border-light:#292f3e;--border-strong:#596277;
+    --text:#f3f4f6;--text-muted:#c1c7d2;--text-dim:#929bad;
+    --operator:#818cf8;--operator-dark:#a5b4fc;--operator-soft:#27264c;
+    --admin:#a78bfa;--admin-dark:#c4b5fd;--admin-soft:#32234d;
+    --teal:#818cf8;--teal-dark:#a5b4fc;--teal-soft:#27264c;--blue:#818cf8;--amber:#fbbf24;--red:#f87171;
+    --ok-bg:rgb(34 197 94 / 18%);--ok-fg:#86efac;--ok-border:rgb(74 222 128 / 64%);
+    --warn-bg:rgb(245 158 11 / 18%);--warn-fg:#fcd34d;--warn-border:rgb(251 191 36 / 66%);
+    --err-bg:rgb(239 68 68 / 20%);--err-fg:#fca5a5;--err-border:rgb(248 113 113 / 70%);
+    --run-bg:rgb(99 102 241 / 24%);--run-fg:#c7d2fe;--run-border:rgb(129 140 248 / 68%);
+    --idle-bg:rgb(148 163 184 / 18%);--idle-fg:#d1d5db;
+    --info-bg:rgb(6 182 212 / 18%);--info-fg:#a5f3fc;--info-border:rgb(34 211 238 / 62%);
+    --input-bg:#0d1018;--btn-secondary-bg:#292f3e;--btn-secondary-fg:#f3f4f6;--btn-secondary-hover:#353c4d;
+    --map-canvas:#11141d;--map-letterbox:#181c27;
+  }
+}
+
+/* Alarm visibility: color + label/icon + edge, never color alone. */
+.inline-alert{border-left-width:4px;font-weight:600;line-height:1.45}
+.inline-alert::before{display:inline-grid;width:18px;height:18px;margin-right:7px;place-items:center;border:1px solid currentColor;border-radius:50%;font-size:11px;font-weight:900;vertical-align:-1px;content:"i"}
+.inline-alert.warn::before{content:"!"}.inline-alert.err::before{content:"×"}
+.badge.warn,.badge.err,.badge.ok,.pill.warn,.pill.err,.pill.ok{border:1px solid currentColor}
+.operator-priority-alert.warn,.operator-priority-alert.err{border-left-width:5px;box-shadow:0 2px 8px color-mix(in srgb,currentColor 12%,transparent)}
+.event-row--err td{border-bottom-color:color-mix(in srgb,var(--err-border) 55%,var(--border-light))}
+.event-row--warn td{border-bottom-color:color-mix(in srgb,var(--warn-border) 50%,var(--border-light))}
+.event-severity i{box-shadow:0 0 0 3px var(--surface)}
+.estop-btn{box-shadow:0 0 0 2px var(--surface),0 0 0 4px color-mix(in srgb,var(--red) 42%,transparent)}
+.estop-btn:focus-visible,.btn.danger:focus-visible{outline:3px solid var(--err-border);outline-offset:3px}
+:focus-visible{outline-color:var(--accent)}

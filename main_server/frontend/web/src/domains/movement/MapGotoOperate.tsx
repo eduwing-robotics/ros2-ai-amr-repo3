@@ -19,17 +19,16 @@ export function MapGotoOperate({
   disabled?: boolean;
   isRobotEmergency?: (robotId: string) => boolean;
 }) {
-  const { target, mapId, setTarget } = useGotoTarget();
+  const { target, mapId, setTarget, markActive, clearTarget } = useGotoTarget();
   const { data: maps = [] } = useMaps();
   const { teleop } = useAdminMutations();
   const { toast } = useFeedback();
-  const [robotId, setRobotId] = useState("");
   const [status, setStatus] = useState("맵을 클릭해 목적지를 지정하세요.");
   const [busy, setBusy] = useState(false);
   const [kx, setKx] = useState("");
   const [ky, setKy] = useState("");
   const [kyaw, setKyaw] = useState("");
-  const robot = robotId || robots[0]?.robot_id || "";
+  const robot = robots[0]?.robot_id || "";
   const map = useMemo(() => maps.find((m) => m.map_id === mapId) ?? null, [maps, mapId]);
   const runtimeMismatch = isMapRuntimeMismatch(map);
   const assetWarning = mapAssetWarning(map);
@@ -92,7 +91,8 @@ export function MapGotoOperate({
         y: target.y,
         yaw: target.yaw ?? 0,
       });
-      setStatus(`이동 요청: ${shortId(r.command_id)}`);
+      markActive(robot, r.command_id);
+      setStatus(`이동 중: ${shortId(r.command_id)} · 목적지는 도착까지 맵에 유지됩니다.`);
       toast(`이동 요청 전송 (${shortId(r.command_id)})`, "ok");
     } catch (e) {
       const msg = (e as Error).message;
@@ -108,6 +108,7 @@ export function MapGotoOperate({
     setBusy(true);
     try {
       await teleop.mutateAsync({ robot_id: robot, command: "stop", hold: false, source: "operate_goto_stop" });
+      clearTarget();
       setStatus(`정지: ${robot}`);
       toast("이동 정지", "info");
     } catch (e) {
@@ -140,9 +141,7 @@ export function MapGotoOperate({
       <div className="toolbar">
         <span className="rowcount runtime-badge">{runtimeBadgeLabel(map, activeMapId)}</span>
         <span className="rowcount mono">UI map {mapId || "—"}</span>
-        <select className="filter" value={robot} disabled={robotBlocked} onChange={(e) => setRobotId(e.target.value)}>
-          {robots.length === 0 ? <option value="">로봇 없음</option> : robots.map((r) => <option key={r.robot_id} value={r.robot_id}>{r.robot_id}</option>)}
-        </select>
+        <span className="goto-robot-context"><b>{robots[0]?.display_name || robot || "로봇 없음"}</b>{robot ? <code>{robot}</code> : null}</span>
         <button type="button" className="btn" disabled={gotoBlocked || busy || !target} onClick={() => void go()}>이동</button>
         <button type="button" className="btn danger" disabled={robotBlocked || busy} onClick={() => void stop()}>정지</button>
       </div>

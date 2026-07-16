@@ -360,12 +360,12 @@ export function WorkOrderForm({
         </div>
       ) : null}
       {result ? <WorkOrderResultNotice result={result} autoStart={autoStart} requestedFloor={requestedFloor} /> : null}
-      <div className="toolbar">
-        <Button variant={operation === "inbound" ? "primary" : "secondary"} onClick={() => setOperation("inbound")}>입고</Button>
-        <Button variant={operation === "outbound" ? "primary" : "secondary"} onClick={() => setOperation("outbound")}>출고</Button>
+      <div className="toolbar work-order-operation-switch" role="group" aria-label="요청 유형">
+        <Button variant={operation === "inbound" ? "primary" : "secondary"} aria-pressed={operation === "inbound"} onClick={() => setOperation("inbound")}>입고 <small>재고 배치</small></Button>
+        <Button variant={operation === "outbound" ? "primary" : "secondary"} aria-pressed={operation === "outbound"} onClick={() => setOperation("outbound")}>출고 <small>재고 반출</small></Button>
       </div>
-      <div className="toolbar mt-8">
-        <span className="muted">슬롯 할당</span>
+      <div className="toolbar mt-8 work-order-assignment-switch">
+        <span className="work-order-section-label">슬롯 할당</span>
         <Button variant={assignMode === "auto" ? "primary" : "secondary"} onClick={() => setAssignMode("auto")}>자동</Button>
         <Button variant={assignMode === "manual" ? "primary" : "secondary"} onClick={() => setAssignMode("manual")}>직접 지정</Button>
       </div>
@@ -500,7 +500,7 @@ export function WorkOrderForm({
             onClick={submit}
             disabled={submitDisabled}
           >
-            {create.isPending ? "요청 중" : "실행"}
+            {create.isPending ? "요청 중" : operationLabel(operation) + " 요청 실행"}
           </Button>
         </div>
       </div>
