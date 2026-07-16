@@ -28,9 +28,6 @@ def _gateway_node(*, name, source_id, image_topic, overlay_topic, condition):
                 "image_transport": "compressed",
                 "ai_server_url": LaunchConfiguration("ai_server_url"),
                 "gateway_hmac_secret": LaunchConfiguration("gateway_hmac_secret"),
-                "gateway_auth_debug_enabled": ParameterValue(
-                    LaunchConfiguration("gateway_auth_debug_enabled"), value_type=bool
-                ),
                 "frame_process_path": LaunchConfiguration("frame_process_path"),
                 "request_timeout_sec": ParameterValue(
                     LaunchConfiguration("request_timeout_sec"), value_type=float
@@ -66,15 +63,6 @@ def _gateway_node(*, name, source_id, image_topic, overlay_topic, condition):
                 "publish_lagging_overlay": ParameterValue(
                     LaunchConfiguration("publish_lagging_overlay"), value_type=bool
                 ),
-                "process_with_worker_tick": ParameterValue(
-                    LaunchConfiguration("process_with_worker_tick"), value_type=bool
-                ),
-                "force_worker_tick": ParameterValue(
-                    LaunchConfiguration("force_worker_tick"), value_type=bool
-                ),
-                "mark_worker_tick_stale": ParameterValue(
-                    LaunchConfiguration("mark_worker_tick_stale"), value_type=bool
-                ),
                 "publish_overlay": ParameterValue(
                     LaunchConfiguration("publish_overlay"), value_type=bool
                 ),
@@ -105,7 +93,6 @@ def generate_launch_description():
                 "gateway_hmac_secret",
                 default_value=EnvironmentVariable("VISION_GATEWAY_HMAC_SECRET", default_value=""),
             ),
-            DeclareLaunchArgument("gateway_auth_debug_enabled", default_value="false"),
             DeclareLaunchArgument(
                 "frame_process_path",
                 default_value="/api/v1/vision/frame/process",
@@ -122,9 +109,6 @@ def generate_launch_description():
             DeclareLaunchArgument("retry_failed_frame", default_value="true"),
             DeclareLaunchArgument("retry_backoff_sec", default_value="0.05"),
             DeclareLaunchArgument("publish_lagging_overlay", default_value="false"),
-            DeclareLaunchArgument("process_with_worker_tick", default_value="false"),
-            DeclareLaunchArgument("force_worker_tick", default_value="false"),
-            DeclareLaunchArgument("mark_worker_tick_stale", default_value="false"),
             DeclareLaunchArgument("publish_overlay", default_value="false"),
             DeclareLaunchArgument("publish_evidence", default_value="false"),
             DeclareLaunchArgument("evidence_topic", default_value="/sf/vision/events"),

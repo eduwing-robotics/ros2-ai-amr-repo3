@@ -5,6 +5,9 @@ umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
+# shellcheck source=/dev/null
+source "$REPO_ROOT/scripts/lib/site_credentials.sh"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 PROFILE_HELPER="${SF_NAV_PROFILE_HELPER:-$ROOT/nav_app/config/runtime_profiles.py}"
 MANIFEST="${SF_NAV_MANIFEST:-$ROOT/config/runtime_profiles/manifest.json}"
@@ -318,6 +321,9 @@ rollback_startup() {
 do_up() {
   local config profile_id execution_class run_id run_dir config_path state_path log_path token pid pgid started ticks identities_path child_path
   local simulation_mode="${SIMULATION_MODE:-0}" dry_run_mission="${DRY_RUN_MISSION:-0}"
+  if [[ "$RUN_SCRIPT" == "$SCRIPT_DIR/run_nav_servers.sh" ]]; then
+    sf_load_site_credentials "$REPO_ROOT"
+  fi
   config="$(resolve_stdout)"; profile_id="$(printf '%s' "$config"|json_field profile_id)"; execution_class="$(printf '%s' "$config"|json_field execution_class)"
   [[ "$execution_class" != synthetic_hil || "${SF_NAV_ALLOW_SYNTHETIC_HIL:-}" == 1 ]] || { echo "[sf_nav] refusing synthetic HIL without explicit SF_NAV_ALLOW_SYNTHETIC_HIL=1" >&2; return 1; }
   [[ "$execution_class" != synthetic_hil ]] || { simulation_mode=0; dry_run_mission=0; }
@@ -416,7 +422,7 @@ PY
 case "$command" in
   profiles) "$PYTHON_BIN" "$PROFILE_HELPER" --manifest "$MANIFEST" --list ;;
   print-config) resolve_stdout ;;
-  check) tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT; resolve_stdout>"$tmp"; SF_NAV_RESOLVED_PROFILE_PATH="$tmp" "$RUN_SCRIPT" --resolved-profile "$tmp" --check ;;
+  check) sf_load_site_credentials "$REPO_ROOT"; tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT; resolve_stdout>"$tmp"; SF_NAV_RESOLVED_PROFILE_PATH="$tmp" "$RUN_SCRIPT" --resolved-profile "$tmp" --check ;;
   up) do_up ;;
   foreground) do_foreground ;;
   status) do_status ;;

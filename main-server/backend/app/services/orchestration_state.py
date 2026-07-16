@@ -16,6 +16,8 @@ PHASE_FAILED = "FAILED"
 PHASE_AWAITING_OPERATOR = "AWAITING_OPERATOR"
 PHASE_RECOVERY_RUNNING = "RECOVERY_RUNNING"
 PHASE_ADVANCING = "ADVANCING"
+PHASE_CANCEL_REQUESTED = "CANCEL_REQUESTED"
+PHASE_ABORTED = "ABORTED"
 
 # Legacy aliases accepted on read
 PHASE_NEEDS_ATTENTION_LEGACY = "NEEDS_ATTENTION"
@@ -53,13 +55,10 @@ def get_step_index(orch: dict[str, Any]) -> int:
 
 def set_steps(orch: dict[str, Any], steps: list[dict[str, Any]]) -> None:
     orch["steps"] = steps
-    # Keep legacy key in sync during transition so old readers still work.
-    orch["legs"] = steps
 
 
 def set_step_index(orch: dict[str, Any], index: int) -> None:
     orch["step_index"] = int(index)
-    orch["cursor"] = int(index)
 
 
 def set_phase(orch: dict[str, Any], phase: str) -> None:
@@ -78,11 +77,27 @@ def new_orchestration(steps: list[dict[str, Any]], *, callback_base_url: str | N
     return {
         "steps": steps,
         "step_index": 0,
-        "legs": steps,
-        "cursor": 0,
         "phase": PHASE_RUNNING,
         "callback_base_url": callback_base_url,
     }
+
+
+def is_dispatched_robot_task_step(step: dict[str, Any]) -> bool:
+    return str(step.get("status") or "").upper() == "DISPATCHED"
+
+
+def cargo_state_after_steps(steps: list[dict[str, Any]]) -> str:
+    """Derive whether completed transfer steps currently leave cargo loaded."""
+    loaded = False
+    for step in steps:
+        if str(step.get("status") or "").upper() != "DONE":
+            continue
+        action = str(step.get("transfer_action") or (step.get("params") or {}).get("action") or "").lower()
+        if action == "load":
+            loaded = True
+        elif action == "unload":
+            loaded = False
+    return "LOADED" if loaded else "EMPTY"
 
 
 def deterministic_step_command_id(task_id: int, robot_id: str, step: dict[str, Any], step_index: int) -> str:

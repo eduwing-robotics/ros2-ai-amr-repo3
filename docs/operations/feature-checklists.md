@@ -6,15 +6,15 @@
 
 정상 반복 운용은 선택 profile의 통신·health·localization과 한 번의 짧은 Main 주행만 확인한다. 아래 상세 진단은 관련 gate가 실패했거나 해당 기능을 이번 세션에서 검증할 때만 수행한다.
 
-[operator-preflight.sh](../../scripts/operator-preflight.sh)의 모든 mode는 read-only이며 service 시작과 robot motion을 수행하지 않는다. Movement, Vision, frame gateway HMAC의 세 secret이 모두 필요하다.
+[operator-preflight.sh](../../scripts/operator-preflight.sh)의 `--software`와 `--hardware-checklist`는 service를 시작하거나 robot motion을 명령하지 않는 검사 mode다. 표준 mode는 `.secrets/service-hmac.env`를 자동 로드해 `0600`, pair와 local stale env 충돌을 확인하고 비밀값 대신 credential-set ID만 표시한다. `--nohardware`는 production bundle을 읽지 않고 process-local test credential을 생성한 뒤 ephemeral Main·Nav·AI·PostgreSQL·built UI proof를 기동하며, runner가 해당 process·container·listener를 정리한다.
 
 ## 공통
 
 - [ ] 라이브 프로세스를 운영자가 볼 수 있는 terminal 또는 이름 있는 tmux window에서 시작하고 `scripts/sf_nav.sh --profile <profile> status`로 선택 profile을 확인한다.
 - [ ] 첫 설치, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 `./scripts/operator-preflight.sh --software`를 실행한다.
 - [ ] `./scripts/operator-preflight.sh --hardware-checklist`는 config의 모든 enabled robot을 점검하므로 TB1 단독 운용이 아니라 전체 fleet 현장 점검 때만 실행한다.
-- [ ] Main mutation 요청에 역할에 맞는 operator/admin Bearer token을 사용한다.
-- [ ] Main↔Nav와 Main↔AI HMAC secret pair가 각각 일치하고 `VISION_GATEWAY_HMAC_SECRET`이 설정돼 있다.
+- [ ] `smartfactory-main.local`이 이 PC의 canonical `192.168.30.x` interface로 해석되고 `main-server/scripts/real.sh`의 bind 검사를 통과한다.
+- [ ] 각 service host의 preflight가 credential bundle PASS를 보고하고 같은 credential-set ID를 표시한다. 누락/불일치 때 shell export로 우회하지 않는다.
 - [ ] Main, Nav, AI health가 성공한다.
 - [ ] Nav health의 robot ID, ROS domain, capability, lift 값이 profile과 일치한다.
 - [ ] physical mode에서 `dry_run=false`, `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false`다.
@@ -76,7 +76,8 @@
 - [ ] stream의 freshness/latency 상태를 확인한다.
 - [ ] person advisory는 Main trusted decision 전에는 motion state를 바꾸지 않는다.
 - [ ] person advisory 또는 monitor outage가 발생하면 Main safety stop과 `AWAITING_OPERATOR` 상태를 확인한다.
-- [ ] E-stop clear 후 DB recovery state, live Movement health, recovery physical-motion monitor가 모두 안전 조건을 만족할 때만 `safe_replan`을 실행한다. 현재 person 실물 시험은 `restart` 또는 `manual_abort`를 사용한다.
+- [ ] E-stop clear만으로 task가 재개되지 않고 `AWAITING_OPERATOR`를 유지하는지 확인한다.
+- [ ] 화물 상태와 안전 조건을 확인한 뒤 `safe_move` 또는 `manual_abort`만 선택한다. `safe_move` 완료 뒤에도 `AWAITING_OPERATOR`이며 interrupted step은 자동 재개되지 않는다.
 
 중지: camera/source stale, monitor enable/poll failure, live health unavailable/unsafe, E-stop active.
 
@@ -84,7 +85,7 @@
 
 | 단계 | 실행 | 통과 기준 |
 | --- | --- | --- |
-| nohardware | `./scripts/operator-preflight.sh --nohardware` | root E2E PASS: field binding, signed Main↔Nav/Main↔AI TCP, PostgreSQL concurrency seam |
+| nohardware | `./scripts/operator-preflight.sh --nohardware` | actual Main·Nav·AI·PostgreSQL·built UI의 loopback software merge proof PASS |
 | Gazebo | [Gazebo simulation runbook](../../nav-server/docs/runbook/RUNBOOK_GAZEBO_SIMULATION.md) | `NavigateToPose SUCCEEDED`, final error `0.251999 m` ≤ `0.30 m` |
 | 현장 | 선택 profile `status`·`smoke`·health 후 필요한 기능 checklist | 선택 robot의 hardware/network live와 physical health 조건 충족 |
 

@@ -67,3 +67,9 @@ export function eventDotClass(ev: { event_type?: string; message?: string }): "e
   if (/(warn|stale|timeout|retry|degrad|pending)/.test(s)) return "warn";
   return "off";
 }
+
+// 이벤트 식별 키. 서버 id가 없으면 표시 필드 조합을 사용해 경보 중복 억제와 확인 상태를 공유한다.
+export function eventKey(ev: { id?: unknown; created_at?: string; event_type?: string; message?: string }): string {
+  if (ev.id != null) return `id:${String(ev.id)}`;
+  return `${ev.created_at ?? ""}|${ev.event_type ?? ""}|${ev.message ?? ""}`;
+}

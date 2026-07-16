@@ -13,16 +13,19 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
 BACKEND="$ROOT/backend"
 FRONTEND="$ROOT/frontend/web"
-HOST="${LMS_DEV_HOST:-0.0.0.0}"
+HOST=""
 PORT="${LMS_API_PORT:-8088}"
 VITE_PORT="${LMS_VITE_PORT:-5173}"
 
-# Site hostnames are configuration only; this script never fills in field IP fallbacks.
-SITE_MOVEMENT_HOST="${SITE_MOVEMENT_HOST:-smartfactory-nav.local}"
-SITE_CAMERA_HOST="${SITE_CAMERA_HOST:-smartfactory-nav.local}"
-SITE_VISION_HOST="${SITE_VISION_HOST:-smartfactory-vision.local}"
+# Production service identities are fixed by config/network/smartfactory-hosts.
+# Operators may change ports, but not replace these names with direct IPs or aliases.
+SITE_MOVEMENT_HOST="smartfactory-nav.local"
+SITE_CAMERA_HOST="smartfactory-nav.local"
+SITE_VISION_HOST="smartfactory-vision.local"
+SITE_MAIN_HOST="smartfactory-main.local"
 SITE_MOVEMENT_MAP_ID="${SITE_MOVEMENT_MAP_ID:-robot2_map}"
 
 BUILD=0
@@ -72,10 +75,28 @@ if [[ "$STOP" -eq 1 ]]; then
   exit 0
 fi
 
+# Production Main has one canonical site identity and must never widen its bind.
+CANONICAL_HOSTS="$REPO_ROOT/config/network/smartfactory-hosts"
+SMARTFACTORY_HOSTS_SOURCE="$CANONICAL_HOSTS" \
+  "$REPO_ROOT/scripts/install-smartfactory-hosts.sh" --check
+HOST="$(getent ahostsv4 smartfactory-main.local | awk 'NR == 1 {print $1}')"
+if [[ ! "$HOST" =~ ^192\.168\.30\.[0-9]+$ ]]; then
+  echo "[real] smartfactory-main.local must resolve to 192.168.30.x, got: ${HOST:-<unresolved>}" >&2
+  exit 1
+fi
+if ! ip -o -4 addr show | awk '{print $4}' | cut -d/ -f1 | grep -Fxq "$HOST"; then
+  echo "[real] resolved Main address is not assigned to a local interface: $HOST" >&2
+  exit 1
+fi
+
 if [[ ! -f "$ROOT/.env" ]]; then
   echo "[real] .env 가 없어 .env.example 을 복사한다. 호스트를 확인하라."
   cp "$ROOT/.env.example" "$ROOT/.env"
 fi
+
+# shellcheck source=/dev/null
+source "$REPO_ROOT/scripts/lib/site_credentials.sh"
+sf_load_site_credentials "$REPO_ROOT"
 
 if [[ ! -x "$BACKEND/.venv/bin/uvicorn" ]]; then
   echo "[real] backend/.venv 가 없다. 먼저:"
@@ -85,6 +106,10 @@ fi
 
 read_env_var() {
   local key="$1" default="${2:-}"
+  if [[ -v "$key" ]]; then
+    printf '%s\n' "${!key}"
+    return
+  fi
   if [[ -f "$ROOT/.env" ]]; then
     local line
     line="$(grep -E "^${key}=" "$ROOT/.env" | tail -n1 || true)"
@@ -94,6 +119,46 @@ read_env_var() {
     fi
   fi
   echo "$default"
+}
+
+require_canonical_host() {
+  local label="$1" value="$2" expected="$3"
+  if [[ "$value" != "$expected" ]]; then
+    echo "[real] $label must use canonical hostname $expected, got: ${value:-<empty>}" >&2
+    exit 1
+  fi
+}
+
+require_canonical_url() {
+  local label="$1" value="$2" expected_host="$3"
+  local escaped_host="${expected_host//./\\.}"
+  local pattern="^(https?|wss?)://${escaped_host}(:[0-9]+)?(/[^[:space:]]*)?$"
+  if [[ ! "$value" =~ $pattern ]]; then
+    echo "[real] $label must use canonical hostname $expected_host, got: ${value:-<empty>}" >&2
+    exit 1
+  fi
+}
+
+require_canonical_url_list() {
+  local label="$1" value="$2" expected_host="$3" format="$4"
+  local entry url
+  local -a entries
+  [[ -z "$value" ]] && return
+  IFS=',' read -r -a entries <<< "$value"
+  for entry in "${entries[@]}"; do
+    entry="${entry#"${entry%%[![:space:]]*}"}"
+    entry="${entry%"${entry##*[![:space:]]}"}"
+    if [[ "$format" == "keyed" ]]; then
+      if [[ "$entry" != *=* ]] || [[ -z "${entry%%=*}" ]]; then
+        echo "[real] $label contains an invalid keyed URL: ${entry:-<empty>}" >&2
+        exit 1
+      fi
+      url="${entry#*=}"
+    else
+      url="$entry"
+    fi
+    require_canonical_url "$label" "$url" "$expected_host"
+  done
 }
 
 is_placeholder() {
@@ -112,7 +177,7 @@ resolve_host() {
 
 guard_existing_api() {
   local health
-  health="$(curl -sf -m 0.5 "http://127.0.0.1:${PORT}/health" 2>/dev/null || true)"
+  health="$(curl -sf -m 0.5 "http://smartfactory-main.local:${PORT}/health" 2>/dev/null || true)"
   if [[ -z "$health" ]]; then
     return
   fi
@@ -133,12 +198,11 @@ MOVEMENT_MODE="http"
 
 MOVEMENT_HOST="$(resolve_host "$(read_env_var LMS_MOVEMENT_HOST)" "$SITE_MOVEMENT_HOST")"
 CAMERA_HOST="$(resolve_host "$(read_env_var LMS_CAMERA_HOST)" "$SITE_CAMERA_HOST")"
+MOVEMENT_BASE_URLS="$(read_env_var LMS_MOVEMENT_BASE_URLS)"
 VISION_STREAM="$(read_env_var LMS_VISION_STREAM_BASE_URL "http://${SITE_VISION_HOST}:8090")"
 if [[ "$VISION_STREAM" == *"<"* ]]; then
   VISION_STREAM="http://${SITE_VISION_HOST}:8090"
 fi
-VISION_FB="$(read_env_var LMS_VISION_API_FALLBACK_BASE_URL "")"
-VISION_STREAM_FB="$(read_env_var LMS_VISION_STREAM_FALLBACK_BASE_URL "")"
 MAP_ID="$(read_env_var LMS_MOVEMENT_ACTIVE_MAP_ID "$SITE_MOVEMENT_MAP_ID")"
 [[ "$MAP_ID" == "Main_map" ]] || [[ "$MAP_ID" == "map" ]] && MAP_ID="$SITE_MOVEMENT_MAP_ID"
 
@@ -146,9 +210,25 @@ VISION_API="$(read_env_var LMS_VISION_API_BASE_URL "http://${SITE_VISION_HOST}:8
 if is_placeholder "$VISION_API" || [[ "$VISION_API" == *"<vision"* ]]; then
   VISION_API="http://${SITE_VISION_HOST}:8100"
 fi
-if [[ "$VISION_STREAM" == *"<"* ]]; then
-  VISION_STREAM="http://${SITE_VISION_HOST}:8090"
-fi
+PUBLIC_BASE="$(read_env_var LMS_PUBLIC_BASE_URL "http://${SITE_MAIN_HOST}:8088")"
+CALLBACK_BASE="$(read_env_var LMS_CALLBACK_BASE_URL "$PUBLIC_BASE")"
+CALLBACK_ALLOWLIST="$(read_env_var LMS_CALLBACK_ALLOWLIST)"
+CAMERA_API_BASE="$(read_env_var LMS_CAMERA_API_BASE_URL "http://${CAMERA_HOST}:$(read_env_var LMS_CAMERA_API_PORT 8080)")"
+CAMERA_ROSBRIDGE="$(read_env_var LMS_CAMERA_ROSBRIDGE_URL "ws://${CAMERA_HOST}:$(read_env_var LMS_CAMERA_STREAM_PORT 9090)")"
+CAMERA_STREAM_TEMPLATE="$(read_env_var LMS_CAMERA_STREAM_URL_TEMPLATE "$CAMERA_ROSBRIDGE")"
+CAMERA_STREAM_CHECK="${CAMERA_STREAM_TEMPLATE//\{host\}/$SITE_CAMERA_HOST}"
+
+require_canonical_host "LMS_MOVEMENT_HOST" "$MOVEMENT_HOST" "$SITE_MOVEMENT_HOST"
+require_canonical_host "LMS_CAMERA_HOST" "$CAMERA_HOST" "$SITE_CAMERA_HOST"
+require_canonical_url "LMS_VISION_API_BASE_URL" "$VISION_API" "$SITE_VISION_HOST"
+require_canonical_url "LMS_VISION_STREAM_BASE_URL" "$VISION_STREAM" "$SITE_VISION_HOST"
+require_canonical_url "LMS_PUBLIC_BASE_URL" "$PUBLIC_BASE" "$SITE_MAIN_HOST"
+require_canonical_url "LMS_CALLBACK_BASE_URL" "$CALLBACK_BASE" "$SITE_MAIN_HOST"
+require_canonical_url "LMS_CAMERA_API_BASE_URL" "$CAMERA_API_BASE" "$SITE_CAMERA_HOST"
+require_canonical_url "LMS_CAMERA_ROSBRIDGE_URL" "$CAMERA_ROSBRIDGE" "$SITE_CAMERA_HOST"
+require_canonical_url "LMS_CAMERA_STREAM_URL_TEMPLATE" "$CAMERA_STREAM_CHECK" "$SITE_CAMERA_HOST"
+require_canonical_url_list "LMS_MOVEMENT_BASE_URLS" "$MOVEMENT_BASE_URLS" "$SITE_MOVEMENT_HOST" "keyed"
+require_canonical_url_list "LMS_CALLBACK_ALLOWLIST" "$CALLBACK_ALLOWLIST" "$SITE_MAIN_HOST" "plain"
 
 export LMS_MOVEMENT_CLIENT_MODE="$MOVEMENT_MODE"
 export LMS_MOVEMENT_HOST="$MOVEMENT_HOST"
@@ -156,11 +236,10 @@ export LMS_CAMERA_HOST="$CAMERA_HOST"
 export LMS_MOVEMENT_ACTIVE_MAP_ID="$MAP_ID"
 export LMS_VISION_API_BASE_URL="$VISION_API"
 export LMS_VISION_STREAM_BASE_URL="$VISION_STREAM"
-export LMS_VISION_API_FALLBACK_BASE_URL="$VISION_FB"
-export LMS_VISION_STREAM_FALLBACK_BASE_URL="$VISION_STREAM_FB"
-
-PUBLIC_BASE="$(read_env_var LMS_PUBLIC_BASE_URL "http://smartfactory-main.local:8088")"
 export LMS_PUBLIC_BASE_URL="$PUBLIC_BASE"
+export LMS_CALLBACK_BASE_URL="$CALLBACK_BASE"
+[[ -n "$MOVEMENT_BASE_URLS" ]] && export LMS_MOVEMENT_BASE_URLS="$MOVEMENT_BASE_URLS"
+[[ -n "$CALLBACK_ALLOWLIST" ]] && export LMS_CALLBACK_ALLOWLIST="$CALLBACK_ALLOWLIST"
 
 # shellcheck source=/dev/null
 source "$ROOT/scripts/lib/pg_bootstrap.sh"
@@ -192,27 +271,49 @@ if [[ "$BUILD" -eq 1 ]]; then
 fi
 
 VITE_PID=""
+API_PID=""
 cleanup() {
-  [[ -n "$VITE_PID" ]] && kill "$VITE_PID" 2>/dev/null || true
+  local status=$? pid
+  trap - EXIT INT TERM
+  for pid in "$API_PID" "$VITE_PID"; do
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || true
+    fi
+  done
+  for pid in "$API_PID" "$VITE_PID"; do
+    if [[ -n "$pid" ]]; then
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
+  return "$status"
 }
 trap cleanup EXIT INT TERM
+
+UVICORN_ARGS=(app.main:app --host "$HOST" --port "$PORT")
+[[ "$RELOAD" -eq 1 ]] && UVICORN_ARGS+=(--reload)
 
 if [[ "$DEV" -eq 1 ]]; then
   if [[ ! -d "$FRONTEND/node_modules" ]]; then
     echo "[real] frontend 의존성이 없다: cd $FRONTEND && npm install"
     exit 1
   fi
-  echo "[real] Vite dev http://localhost:$VITE_PORT  (프록시 → :$PORT)"
+  echo "[real] Vite dev http://smartfactory-main.local:$VITE_PORT  (프록시 → :$PORT)"
   (
     cd "$FRONTEND"
-    export VITE_API_PROXY_TARGET="http://127.0.0.1:$PORT"
-    npm run dev -- --host "$HOST" --port "$VITE_PORT"
+    export VITE_API_PROXY_TARGET="http://smartfactory-main.local:$PORT"
+    exec ./node_modules/.bin/vite --host "$HOST" --port "$VITE_PORT"
   ) &
   VITE_PID=$!
-fi
 
-echo "[real] Main 서버 http://localhost:$PORT"
-UVICORN_ARGS=(app.main:app --host "$HOST" --port "$PORT")
-[[ "$RELOAD" -eq 1 ]] && UVICORN_ARGS+=(--reload)
-cd "$BACKEND"
-exec ./.venv/bin/python -m uvicorn "${UVICORN_ARGS[@]}"
+  echo "[real] Main 서버 http://smartfactory-main.local:$PORT"
+  (
+    cd "$BACKEND"
+    exec ./.venv/bin/python -m uvicorn "${UVICORN_ARGS[@]}"
+  ) &
+  API_PID=$!
+  wait "$API_PID"
+else
+  echo "[real] Main 서버 http://smartfactory-main.local:$PORT"
+  cd "$BACKEND"
+  exec ./.venv/bin/python -m uvicorn "${UVICORN_ARGS[@]}"
+fi

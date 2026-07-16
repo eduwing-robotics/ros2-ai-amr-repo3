@@ -26,8 +26,8 @@ Main sees only one base URL:
 
 Recommended endpoint contract:
   - hostname first: VISION_PUBLIC_HOST=smartfactory-vision.local
-  - explicit fallback only: use the detected LAN IP printed by --print-config
-    only when Main/operator config sets a fallback URL.
+  - the detected LAN IP from --print-config is read-only diagnosis; never save
+    it as a service endpoint or fallback URL.
 
 No robot motion, Nav2, teleop, /cmd_vel, robot-side persistent services, or
 whole-graph bridge are started.
@@ -112,7 +112,6 @@ set_defaults() {
   export VISION_GATEWAY_RETRY_FAILED_FRAME="${VISION_GATEWAY_RETRY_FAILED_FRAME:-true}"
   export VISION_GATEWAY_RETRY_BACKOFF_SEC="${VISION_GATEWAY_RETRY_BACKOFF_SEC:-0.05}"
   export VISION_GATEWAY_PUBLISH_LAGGING_OVERLAY="${VISION_GATEWAY_PUBLISH_LAGGING_OVERLAY:-false}"
-  export VISION_GATEWAY_FORCE_WORKER_TICK="${VISION_GATEWAY_FORCE_WORKER_TICK:-true}"
   export VISION_GATEWAY_PUBLISH_OVERLAY="${VISION_GATEWAY_PUBLISH_OVERLAY:-true}"
   export VISION_GATEWAY_PUBLISH_EVIDENCE="${VISION_GATEWAY_PUBLISH_EVIDENCE:-true}"
   export VISION_STREAM_MAX_FPS="${VISION_STREAM_MAX_FPS:-30.0}"
@@ -213,11 +212,8 @@ Vision -> Main callback settings:
   Raw ${VISION_GLOBAL_SOURCE_ID}:     http://${public_host}:${VISION_STREAM_GATEWAY_PORT}/api/v1/vision/frame/stream?source=${VISION_GLOBAL_SOURCE_ID}&max_fps=${VISION_STREAM_MAX_FPS}
   Status:            http://${public_host}:${VISION_STREAM_GATEWAY_PORT}/api/v1/vision/bridge/status
 
-Detected LAN fallback evidence (configure explicitly only if hostname resolution fails):
+Detected LAN address (read-only hostname diagnosis; do not save as a service endpoint):
   detected_lan_ip=${ip}
-  VISION_API_FALLBACK_BASE_URL=http://${ip}:${AI_SERVER_PORT}
-  VISION_STREAM_FALLBACK_BASE_URL=http://${ip}:${VISION_STREAM_GATEWAY_PORT}
-  LMS_VISION_STREAM_FALLBACK_BASE_URL=http://${ip}:${VISION_STREAM_GATEWAY_PORT}
 CONFIG
 }
 
@@ -326,8 +322,6 @@ start_source_pair() {
     -p "retry_failed_frame:=${VISION_GATEWAY_RETRY_FAILED_FRAME}" \
     -p "retry_backoff_sec:=${VISION_GATEWAY_RETRY_BACKOFF_SEC}" \
     -p "publish_lagging_overlay:=${VISION_GATEWAY_PUBLISH_LAGGING_OVERLAY}" \
-    -p "process_with_worker_tick:=true" \
-    -p "force_worker_tick:=${VISION_GATEWAY_FORCE_WORKER_TICK}" \
     -p "publish_overlay:=${VISION_GATEWAY_PUBLISH_OVERLAY}" \
     -p "publish_evidence:=${VISION_GATEWAY_PUBLISH_EVIDENCE}" \
     -p "overlay_topic:=${overlay_topic}" \

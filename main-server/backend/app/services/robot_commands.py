@@ -48,8 +48,12 @@ def resolve_callback_url(request: Request | None = None, override: str | None = 
 
 
 def dispatch_robot_command(conn, payload: RobotCommandRequest, request: Request | None = None) -> RobotCommandResponse:
-    if not robot_repo(conn).exists(payload.robot_id):
+    robots = robot_repo(conn)
+    if not robots.exists(payload.robot_id):
         raise HTTPException(status_code=404, detail="robot not found")
+    robot = robots.get(payload.robot_id)
+    if robot and not robot.get("enabled", True) and payload.kind != "estop":
+        raise HTTPException(status_code=409, detail="robot_disabled")
 
     command_id = payload.command_id or default_command_id(payload.task_id, payload.robot_id, payload.kind)
     callback_url = resolve_callback_url(request)
@@ -94,12 +98,7 @@ def _dispatch_move_to_point(conn, payload: RobotCommandRequest, command_id: str,
         params=dict(p),
     )
 
-    try:
-        result = _dispatch_passthrough(passthrough, command_id, callback_url)
-    except HTTPException as exc:
-        if exc.status_code != 502 or "404" not in str(exc.detail):
-            raise
-        result = _dispatch_move_to_point_route(conn, passthrough, command_id)
+    result = _dispatch_passthrough(passthrough, command_id, callback_url)
     event_repo(conn).append(
         event_type="MOVEMENT_COMMAND_MAP_CONTEXT",
         robot_id=payload.robot_id,
@@ -108,36 +107,6 @@ def _dispatch_move_to_point(conn, payload: RobotCommandRequest, command_id: str,
         payload=map_context,
     )
     return result
-
-
-def _dispatch_move_to_point_route(
-    conn,
-    payload: RobotCommandRequest,
-    command_id: str,
-) -> RobotCommandResponse:
-    """Movement 서버가 /robot-commands 미구현일 때 legacy /routes/* 로 fallback."""
-    p = payload.params
-    request = {
-        "robot_id": payload.robot_id,
-        "command_id": command_id,
-        "task_id": payload.task_id,
-        "x": p["x"],
-        "y": p["y"],
-        "yaw": p.get("yaw", 0.0),
-    }
-    if payload.dry_run:
-        response = mission_service.preview_goto_route(conn, payload.robot_id, request)
-    else:
-        response = mission_service.start_goto_route(conn, payload.robot_id, request)
-    return RobotCommandResponse(
-        command_id=str(response.get("command_id") or command_id),
-        robot_id=payload.robot_id,
-        kind="move_to_point",
-        dry_run=payload.dry_run,
-        accepted=bool(response.get("accepted", True)),
-        response=response,
-    )
-
 
 def _dispatch_manual_drive(payload: RobotCommandRequest, command_id: str) -> RobotCommandResponse:
     if payload.dry_run:

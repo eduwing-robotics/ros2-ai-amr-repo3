@@ -36,7 +36,6 @@ from .vision_frame_gateway_http import (
     get_json,
     post_frame,
     post_frame_process,
-    post_worker_tick,
 )
 
 
@@ -59,7 +58,7 @@ class PendingOverlayPublish:
 @dataclass(frozen=True)
 class FramePostOutcome:
     frame_result: HttpResult
-    worker_result: HttpResult | None
+    processing_result: HttpResult | None
     posted_frame_seq: int | None
 
 
@@ -96,10 +95,8 @@ class VisionFrameGateway(Node):
         self.declare_parameter(
             "gateway_hmac_secret", os.environ.get("VISION_GATEWAY_HMAC_SECRET", "")
         )
-        self.declare_parameter("gateway_auth_debug_enabled", False)
         self.declare_parameter("frame_ingest_path", "/api/v1/vision/frame")
         self.declare_parameter("frame_process_path", "/api/v1/vision/frame/process")
-        self.declare_parameter("worker_tick_path", "/api/v1/vision/worker/tick")
         self.declare_parameter("overlay_image_path", "/api/v1/vision/overlay/latest/image")
         self.declare_parameter("overlay_metadata_path", "/api/v1/vision/overlay/latest")
         self.declare_parameter("overlay_topic", "/sf/vision/sources/tb3_1_picam/overlay/compressed")
@@ -117,9 +114,6 @@ class VisionFrameGateway(Node):
         self.declare_parameter("retry_backoff_sec", 0.05)
         self.declare_parameter("publish_lagging_overlay", False)
         self.declare_parameter("process_frame_inline", True)
-        self.declare_parameter("process_with_worker_tick", False)
-        self.declare_parameter("force_worker_tick", False)
-        self.declare_parameter("mark_worker_tick_stale", False)
         self.declare_parameter("publish_overlay", False)
         self.declare_parameter("publish_evidence", False)
 
@@ -128,18 +122,12 @@ class VisionFrameGateway(Node):
         self.image_topic = str(self.get_parameter("image_topic").value)
         self.image_transport = str(self.get_parameter("image_transport").value).strip().lower()
         self.gateway_hmac_secret = str(self.get_parameter("gateway_hmac_secret").value).strip()
-        self.gateway_auth_debug_enabled = bool(
-            self.get_parameter("gateway_auth_debug_enabled").value
-        )
         ai_server_url = str(self.get_parameter("ai_server_url").value)
         self.frame_ingest_url = build_ai_server_url(
             ai_server_url, str(self.get_parameter("frame_ingest_path").value)
         )
         self.frame_process_url = build_ai_server_url(
             ai_server_url, str(self.get_parameter("frame_process_path").value)
-        )
-        self.worker_tick_url = build_ai_server_url(
-            ai_server_url, str(self.get_parameter("worker_tick_path").value)
         )
         self.overlay_image_url = build_ai_server_url(
             ai_server_url, str(self.get_parameter("overlay_image_path").value)
@@ -166,9 +154,6 @@ class VisionFrameGateway(Node):
         self.retry_backoff_sec = max(0.0, float(self.get_parameter("retry_backoff_sec").value))
         self.publish_lagging_overlay = bool(self.get_parameter("publish_lagging_overlay").value)
         self.process_frame_inline = bool(self.get_parameter("process_frame_inline").value)
-        self.process_with_worker_tick = bool(self.get_parameter("process_with_worker_tick").value)
-        self.force_worker_tick = bool(self.get_parameter("force_worker_tick").value)
-        self.mark_worker_tick_stale = bool(self.get_parameter("mark_worker_tick_stale").value)
         self.publish_overlay_enabled = bool(self.get_parameter("publish_overlay").value)
         self.publish_evidence_enabled = bool(self.get_parameter("publish_evidence").value)
 
@@ -182,10 +167,8 @@ class VisionFrameGateway(Node):
                 f"image_transport must be one of {sorted(VALID_IMAGE_TRANSPORTS)}, "
                 f"got {self.image_transport!r}"
             )
-        if not self.gateway_hmac_secret and not self.gateway_auth_debug_enabled:
-            raise ValueError(
-                "gateway_hmac_secret is required unless gateway_auth_debug_enabled is explicitly true"
-            )
+        if not self.gateway_hmac_secret:
+            raise ValueError("gateway_hmac_secret is required")
         assert_safe_input_topic(self.image_topic)
         assert_safe_publish_topic(self.overlay_topic, role="overlay")
         assert_safe_publish_topic(self.evidence_topic, role="evidence")
@@ -207,8 +190,6 @@ class VisionFrameGateway(Node):
         self._frame_post_attempts = 0
         self._frame_post_successes = 0
         self._frame_post_failures = 0
-        self._worker_tick_attempts = 0
-        self._worker_tick_successes = 0
         self._overlay_publish_attempts = 0
         self._overlay_publish_successes = 0
         self._evidence_publish_attempts = 0
@@ -270,7 +251,6 @@ class VisionFrameGateway(Node):
             f"overlay_topic={self.overlay_topic}, evidence_topic={self.evidence_topic}, "
             f"frame_url={self.frame_ingest_url}, frame_process_url={self.frame_process_url}, "
             f"process_frame_inline={self.process_frame_inline}, "
-            f"process_with_worker_tick={self.process_with_worker_tick}, "
             f"publish_overlay={self.publish_overlay_enabled}, publish_evidence={self.publish_evidence_enabled}, "
             f"async_pipeline={self.async_pipeline}, image_qos={self.image_qos_reliability}, "
             f"overlay_pub_qos={self.overlay_pub_qos_reliability}"
@@ -286,7 +266,6 @@ class VisionFrameGateway(Node):
             "image_topic": self.image_topic,
             "overlay_topic": self.overlay_topic,
             "evidence_topic": self.evidence_topic,
-            "process_with_worker_tick": self.process_with_worker_tick,
             "publish_overlay": self.publish_overlay_enabled,
             "publish_evidence": self.publish_evidence_enabled,
             "async_pipeline": self.async_pipeline,
@@ -297,8 +276,6 @@ class VisionFrameGateway(Node):
             "frame_post_attempts": self._frame_post_attempts,
             "frame_post_successes": self._frame_post_successes,
             "frame_post_failures": self._frame_post_failures,
-            "worker_tick_attempts": self._worker_tick_attempts,
-            "worker_tick_successes": self._worker_tick_successes,
             "overlay_publish_attempts": self._overlay_publish_attempts,
             "overlay_publish_successes": self._overlay_publish_successes,
             "overlay_publish_skips": self._overlay_publish_skips,
@@ -408,13 +385,13 @@ class VisionFrameGateway(Node):
             return False
 
         if self.publish_evidence_enabled:
-            self._publish_evidence(outcome.worker_result or outcome.frame_result)
+            self._publish_evidence(outcome.processing_result or outcome.frame_result)
         if self.publish_overlay_enabled:
             self._stage_overlay_image_for_publish(
                 work.header,
                 expected_frame_seq=outcome.posted_frame_seq,
-                overlay_metadata_payload=outcome.worker_result.json_body
-                if outcome.worker_result is not None and outcome.worker_result.ok
+                overlay_metadata_payload=outcome.processing_result.json_body
+                if outcome.processing_result is not None and outcome.processing_result.ok
                 else None,
             )
         return True
@@ -425,10 +402,9 @@ class VisionFrameGateway(Node):
         frame_result = self._post_ingest_frame(image_file)
         if frame_result is None:
             return None
-        worker_result = self._post_worker_tick_if_enabled()
         return FramePostOutcome(
             frame_result=frame_result,
-            worker_result=worker_result,
+            processing_result=None,
             posted_frame_seq=frame_seq_from_post_response(frame_result.json_body),
         )
 
@@ -440,9 +416,9 @@ class VisionFrameGateway(Node):
             source_id=self.source_id,
             image_file=image_file,
             timeout=self.request_timeout_sec,
-            force=self.force_worker_tick,
-            stale=self.mark_worker_tick_stale,
             gateway_hmac_secret=self.gateway_hmac_secret,
+            force=False,
+            stale=False,
         )
         if not frame_result.ok:
             self._frame_post_failures += 1
@@ -453,12 +429,9 @@ class VisionFrameGateway(Node):
             return None
         self._frame_post_successes += 1
         self._work_processed += 1
-        if self.process_with_worker_tick:
-            self._worker_tick_attempts += 1
-            self._worker_tick_successes += 1
         return FramePostOutcome(
             frame_result=frame_result,
-            worker_result=frame_result,
+            processing_result=frame_result,
             posted_frame_seq=frame_seq_from_post_response(frame_result.json_body),
         )
 
@@ -481,27 +454,6 @@ class VisionFrameGateway(Node):
         self._frame_post_successes += 1
         self._work_processed += 1
         return frame_result
-
-    def _post_worker_tick_if_enabled(self) -> HttpResult | None:
-        if not self.process_with_worker_tick:
-            return None
-        self._worker_tick_attempts += 1
-        worker_result = post_worker_tick(
-            session=self._session,
-            url=self.worker_tick_url,
-            source_id=self.source_id,
-            timeout=self.request_timeout_sec,
-            force=self.force_worker_tick,
-            stale=self.mark_worker_tick_stale,
-        )
-        if worker_result.ok:
-            self._worker_tick_successes += 1
-        else:
-            self.get_logger().warning(
-                f"Lane C worker tick failed: status={worker_result.status_code}, "
-                f"error={worker_result.error}"
-            )
-        return worker_result
 
     def _publish_evidence(self, result: HttpResult) -> None:
         self._evidence_publish_attempts += 1

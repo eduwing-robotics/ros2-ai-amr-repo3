@@ -23,7 +23,6 @@ flowchart LR
 
 ## 개발·배포 (dev)
 
-- [DEVELOPMENT_GUIDE](DEVELOPMENT_GUIDE.md) — 기여 진입 · hostname · GitHub/CI 요약
 - [SERVER_RUN_COMMANDS](SERVER_RUN_COMMANDS.md) — 실행 명령
 - [DB_MIGRATION](DB_MIGRATION.md) — PostgreSQL DBML 변경 절차
 - [GIT_WORKFLOW](GIT_WORKFLOW.md)

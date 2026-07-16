@@ -43,8 +43,10 @@ scripts/nav_ops.sh status
 `start` runs the API in the background. `status` reports each API endpoint and
 the `/cmd_vel` readiness for the configured robot domains.
 
-Export `NAV_MAIN_HMAC_SECRET` (or the matching
-`LMS_MOVEMENT_HMAC_SECRET`), then start Nav2 in one terminal for each robot that
+Confirm the trusted deployment placed the shared repository-level
+`.secrets/service-hmac.env` bundle, then use `scripts/sf_nav.sh`. The profile
+launcher loads `NAV_MAIN_HMAC_SECRET` internally; do not copy or export the
+secret in the operator shell. Start Nav2 in one terminal for each robot that
 will navigate:
 
 ```bash

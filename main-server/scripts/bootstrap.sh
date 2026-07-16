@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$ROOT/.." && pwd)"
 BACKEND="$ROOT/backend"
 FRONTEND="$ROOT/frontend/web"
 STATE_DIR="$ROOT/.bootstrap"
@@ -104,6 +105,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
   fi
 fi
 
+# One bootstrap owns generation/pairing. Ordinary service launchers only load
+# this ignored 0600 bundle and never ask an operator for request-time secrets.
+# shellcheck source=/dev/null
+source "$REPO_ROOT/scripts/lib/site_credentials.sh"
+sf_ensure_site_credentials "$REPO_ROOT"
+
 VENV_PY="$BACKEND/.venv/bin/python"
 VENV_PIP="$BACKEND/.venv/bin/pip"
 REQ_STAMP="$STATE_DIR/requirements.txt.sha"
@@ -161,15 +168,15 @@ if [[ "$SKIP_DB" -eq 0 ]]; then
   fi
   echo "[bootstrap] explicit local-development PostgreSQL 준비"
   "$ROOT/scripts/setup_pg.sh" --local-dev
-  if [[ -f "$DB_SNAPSHOT" ]]; then
-    DB_SNAPSHOT_STAMP="$STATE_DIR/current_pg.dump.sha"
-    if [[ "$FORCE" -eq 1 || "$FORCE_DB_RESTORE" -eq 1 ]] || ! stamp_matches "$DB_SNAPSHOT_STAMP" "$DB_SNAPSHOT"; then
-      echo "[bootstrap] 현재 DB snapshot 복원"
-      "$ROOT/scripts/restore_current_db.sh"
-      write_stamp "$DB_SNAPSHOT_STAMP" "$DB_SNAPSHOT"
-    else
-      echo "[bootstrap] 현재 DB snapshot 복원 OK"
+  if [[ "$FORCE_DB_RESTORE" -eq 1 ]]; then
+    if [[ ! -f "$DB_SNAPSHOT" ]]; then
+      echo "[bootstrap] ERROR: DB snapshot이 없다: $DB_SNAPSHOT" >&2
+      exit 2
     fi
+    echo "[bootstrap] 명시적으로 요청한 현재 DB snapshot 복원"
+    "$ROOT/scripts/restore_current_db.sh"
+  elif [[ -f "$DB_SNAPSHOT" ]]; then
+    echo "[bootstrap] DB snapshot 자동 복원 안 함 (--force-db-restore로 명시적으로 요청)"
   fi
 else
   echo "[bootstrap] PostgreSQL 준비 건너뜀"

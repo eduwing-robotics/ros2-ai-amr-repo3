@@ -6,8 +6,7 @@ Use this current procedure after `./scripts/vision/sf_lab.sh low-load` is runnin
 
 The mutation examples below require Main's replay-protected HMAC headers. Run
 them through Main or a trusted signer using `MAIN_HMAC_SECRET`; raw unauthenticated
-`curl` calls are expected to return `401` in production. Do not set
-`AI_DEBUG_MUTATIONS_ENABLED=true` on a live evidence-producing service.
+`curl` calls are expected to return `401` in production.
 
 ## 1. Runtime and source health
 
@@ -38,10 +37,14 @@ Expected: a JPEG image. If the endpoint returns `404`, that PiCam has not ingest
 The person hazard route is advisory only. It reports perception evidence for Main/Safety to decide on; it does not stop or move a robot.
 AI Server monitor events keep `trusted=false` by contract, even when confidence is high.
 
-Set a lab-only task ID and provide the shared secret through the shell environment; do not place it in shell history. The following standard-library helper signs each exact JSON body before it enables the monitor, refreshes it, and disables it again.
+Set a lab-only task ID and load the deployment credential bundle without printing
+the value. The following standard-library helper signs each exact JSON body
+before it enables the monitor, refreshes it, and disables it again.
 
 ```bash
-export MAIN_HMAC_SECRET='set-in-current-shell-only'
+REPO_ROOT="$(cd .. && pwd)"
+source "$REPO_ROOT/scripts/lib/site_credentials.sh"
+sf_load_site_credentials "$REPO_ROOT"
 export LAB_TASK_ID="${LAB_TASK_ID:-1}"
 
 python3 - <<'PY'
@@ -99,15 +102,6 @@ Expected when a person is visible:
 - `reason_code` is `HUMAN_DETECTED`.
 - `event.trusted` is `false`.
 - `event.confidence` carries the model confidence.
-
-Disable the monitor after the live check:
-
-```bash
-curl -fsS -X PUT http://127.0.0.1:8100/api/v1/vision/monitors/person_drive/state \
-  -H 'content-type: application/json' \
-  -d '{"enabled":false,"source":"tb3_2_picam","operation_state":"IDLE"}' \
-  | python3 -m json.tool
-```
 
 ## 4. Global camera ZoneROI / ArUco sanity check
 

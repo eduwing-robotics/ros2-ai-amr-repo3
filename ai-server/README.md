@@ -30,8 +30,8 @@ curl http://127.0.0.1:8100/api/v1/health
 
 `./scripts/vision/sf_lab.sh low-load` is the primary operator command for the
 AI Server lab runtime. It starts the AI API, ROS camera gateways, overlay
-pipeline, hostname publication, and WebRTC media runtime as one supervised
-foreground process. The lower-level `sf_vision.sh` and `run_ai_server.sh`
+pipeline, and WebRTC media runtime as one supervised foreground process. The
+lower-level `sf_vision.sh` and `run_ai_server.sh`
 commands are for profile diagnostics or API-only development, not the normal
 lab startup.
 

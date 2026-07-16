@@ -26,16 +26,20 @@ class MovementClientError(RuntimeError):
 
 
 # fake 모드 비상정지 상태 (robot_id -> is_emergency)
-_emergency_by_robot: dict[str, bool] = {}
+_emergency_by_robot: dict[str, bool | None] = {}
 # fake 모드 command 상태 (command_id -> meta)
 _fake_commands: dict[str, dict[str, Any]] = {}
 
 
 def robot_is_emergency(robot_id: str) -> bool:
+    return robot_emergency_state(robot_id) is True
+
+
+def robot_emergency_state(robot_id: str) -> bool | None:
     return _emergency_by_robot.get(robot_id, False)
 
 
-def set_robot_emergency(robot_id: str, is_emergency: bool) -> None:
+def set_robot_emergency(robot_id: str, is_emergency: bool | None) -> None:
     _emergency_by_robot[robot_id] = is_emergency
 
 
@@ -90,6 +94,10 @@ class MovementClient:
 
     def command_status(self, robot_id: str, command_id: str) -> dict[str, Any]:
         """Movement 서버에서 command 상태를 조회한다."""
+        raise NotImplementedError
+
+    def cancel_command(self, robot_id: str, command_id: str) -> dict[str, Any]:
+        """Cancel a command through the canonical Movement command endpoint."""
         raise NotImplementedError
 
     def robot_pose(self, robot_id: str) -> dict[str, Any]:
@@ -201,6 +209,11 @@ class FakeMovementClient(MovementClient):
             "kind": meta.get("kind") if meta else None,
         }
 
+    def cancel_command(self, robot_id: str, command_id: str) -> dict[str, Any]:
+        meta = _fake_commands.setdefault(command_id, {"robot_id": robot_id, "kind": "unknown"})
+        meta["state"] = "CANCELED"
+        return self._accepted(robot_id, {}, endpoint=f"robot-commands/{command_id}/cancel", state="CANCELED")
+
     def robot_pose(self, robot_id: str) -> dict[str, Any]:
         return {
             "robot_name": robot_id,
@@ -231,17 +244,21 @@ class FakeMovementClient(MovementClient):
         return self._accepted(robot_id, body, endpoint="robots/initial-pose", accepted=True, message="fake initial pose accepted")
 
     def nav_state(self, robot_id: str) -> dict[str, Any]:
-        emergency = robot_is_emergency(robot_id)
+        emergency_state = robot_emergency_state(robot_id)
+        emergency = emergency_state is True
+        emergency_unknown = emergency_state is None
         return {
             "robot_name": robot_id,
-            "robot_online": True,
-            "command_accepting": not emergency,
+            "robot_online": not emergency_unknown,
+            "command_accepting": not emergency and not emergency_unknown,
             "nav2_ready": True,
-            "navigator_status": "ESTOP" if emergency else "IDLE",
+            "navigator_status": "ESTOP" if emergency else "UNKNOWN" if emergency_unknown else "IDLE",
             "is_emergency": emergency,
+            "estop_state": "active" if emergency else "unknown" if emergency_unknown else "clear",
             "current_command_id": None,
             "localized": True,
-            "reason": "estop" if emergency else "ok",
+            "reason": "estop" if emergency else "estop_unknown" if emergency_unknown else "ok",
+            "active_commands": [],
         }
 
     def estop(self, robot_id: str) -> dict[str, Any]:
@@ -279,11 +296,9 @@ class HttpMovementClient(MovementClient):
     def __init__(
         self,
         base_urls: dict[str, str],
-        fallback_url: str,
         timeout_sec: float,
     ):
         self.base_urls = {k: v.rstrip("/") for k, v in base_urls.items()}
-        self.fallback_url = fallback_url.rstrip("/")
         self.timeout_sec = timeout_sec
 
     @staticmethod
@@ -295,7 +310,12 @@ class HttpMovementClient(MovementClient):
 
     def _bases_for(self, robot_id: str) -> list[str]:
         key = movement_robot_key(robot_id)
-        primary = self.base_urls.get(key, self.fallback_url)
+        primary = self.base_urls.get(key)
+        if not primary:
+            raise MovementClientError(
+                f"movement endpoint is not configured for robot={robot_id}",
+                status_code=503,
+            )
         return [primary]
 
     def _base_for(self, robot_id: str) -> str:
@@ -326,32 +346,40 @@ class HttpMovementClient(MovementClient):
         return self._post_json_for_robot(robot_id, "/routes/commands", body, kind="route_command")
 
     def command_status(self, robot_id: str, command_id: str) -> dict[str, Any]:
-        """핸드오프 §4: GET /robot-commands/{id} (루트). legacy /commands/{id}는 404 시 1회 폴백."""
+        """GET only the canonical Movement command endpoint."""
         last_error: MovementClientError | None = None
         for base in self._bases_for(robot_id):
             origin = self._api_origin(base)
-            candidates = (
-                f"{origin}/robot-commands/{command_id}",
-                f"{base}/commands/{command_id}",
-            )
-            saw_404 = False
-            for url in candidates:
-                try:
-                    return self._get_json(url, robot_id, kind="command_status")
-                except MovementClientError as exc:
-                    if exc.status_code == 404:
-                        saw_404 = True
-                        continue
-                    if exc.status_code is not None:
-                        raise
-                    last_error = exc
-                    break
-            if saw_404 and last_error is None:
-                continue
+            try:
+                return self._get_json(
+                    f"{origin}/robot-commands/{command_id}",
+                    robot_id,
+                    kind="command_status",
+                )
+            except MovementClientError as exc:
+                if exc.status_code is not None:
+                    raise
+                last_error = exc
         raise last_error or MovementClientError(
             f"movement command status not found: {command_id}",
             status_code=404,
         )
+
+    def cancel_command(self, robot_id: str, command_id: str) -> dict[str, Any]:
+        """Cancel through the canonical signed Movement command endpoint."""
+        last_error: MovementClientError | None = None
+        for base in self._bases_for(robot_id):
+            try:
+                return self._post_json(
+                    f"{self._api_origin(base)}/robot-commands/{command_id}/cancel",
+                    {},
+                    kind="command_cancel",
+                )
+            except MovementClientError as exc:
+                if exc.status_code is not None:
+                    raise
+                last_error = exc
+        raise last_error or MovementClientError("movement unreachable")
 
     def robot_pose(self, robot_id: str) -> dict[str, Any]:
         return self._get_json_for_robot(robot_id, f"/robots/{robot_id}/pose", kind="robot_pose")
@@ -370,12 +398,20 @@ class HttpMovementClient(MovementClient):
         return self._get_json_for_robot(target_robot, "/map-state", kind="map_state")
 
     def estop(self, robot_id: str) -> dict[str, Any]:
-        result = self._post_json_for_robot(robot_id, "/robot/estop", {}, kind="estop")
+        result = self._post_json(
+            f"{self._api_origin(self._base_for(robot_id))}/robot/estop",
+            {},
+            kind="estop",
+        )
         _emergency_by_robot[robot_id] = True
         return result
 
     def clear_estop(self, robot_id: str) -> dict[str, Any]:
-        result = self._post_json_for_robot(robot_id, "/robot/clear_estop", {}, kind="clear_estop")
+        result = self._post_json(
+            f"{self._api_origin(self._base_for(robot_id))}/robot/clear_estop",
+            {},
+            kind="clear_estop",
+        )
         _emergency_by_robot[robot_id] = False
         return result
 
@@ -461,7 +497,6 @@ def create_movement_client() -> MovementClient:
     if mode == "http":
         return HttpMovementClient(
             settings.movement_base_urls,
-            settings.movement_base_url,
             settings.movement_timeout_sec,
         )
     if mode == "fake":

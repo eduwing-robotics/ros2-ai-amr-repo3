@@ -15,13 +15,24 @@ class MvpRobotRepository:
 
     def list_idle(self) -> list[dict[str, Any]]:
         rows = self.conn.execute(
-            "SELECT * FROM robots WHERE status = 'IDLE' ORDER BY id"
+            "SELECT * FROM robots WHERE status = 'IDLE' AND enabled = TRUE ORDER BY id"
         ).fetchall()
         return [self._map(r) for r in rows]
 
     def exists(self, robot_id: str) -> bool:
         row = self.conn.execute("SELECT 1 FROM robots WHERE id = %s", (robot_id,)).fetchone()
         return row is not None
+
+    def get(self, robot_id: str) -> dict[str, Any] | None:
+        row = self.conn.execute("SELECT * FROM robots WHERE id = %s", (robot_id,)).fetchone()
+        return self._map(row) if row else None
+
+    def disable_block_reason(self, robot_id: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT status FROM tasks WHERE robot_id = %s AND status IN ('ASSIGNED', 'RUNNING') LIMIT 1",
+            (robot_id,),
+        ).fetchone()
+        return "robot_has_active_task" if row else None
 
     def set_task(self, robot_id: str, status: str, task_id: int | None) -> None:
         self.conn.execute(
@@ -46,14 +57,22 @@ class MvpRobotRepository:
         robot_id = data["robot_id"]
         self.conn.execute(
             """
-            INSERT INTO robots (id, domain_id, status, battery_level, last_seen_at)
-            VALUES (%s, %s, %s, %s, now())
+            INSERT INTO robots (id, domain_id, status, enabled, battery_level, last_seen_at)
+            VALUES (%s, %s, %s, COALESCE(%s, TRUE), %s, now())
             ON CONFLICT (id) DO UPDATE SET
                 status = EXCLUDED.status,
+                enabled = COALESCE(%s, robots.enabled),
                 battery_level = COALESCE(EXCLUDED.battery_level, robots.battery_level),
                 last_seen_at = now()
             """,
-            (robot_id, int(data.get("domain_id") or 1), data.get("status", "IDLE"), data.get("battery")),
+            (
+                robot_id,
+                int(data.get("domain_id") or 1),
+                data.get("status", "IDLE"),
+                data.get("enabled"),
+                data.get("battery"),
+                data.get("enabled"),
+            ),
         )
 
     def delete(self, robot_id: str) -> bool:
@@ -72,6 +91,7 @@ class MvpRobotRepository:
             "robot_id": row["id"],
             "display_name": row["id"],
             "status": row.get("status", "IDLE"),
+            "enabled": bool(row.get("enabled", True)),
             "battery": int(battery) if battery is not None else None,
             "current_task_id": None,
             "last_seen_at": _row_ts(row.get("last_seen_at")),

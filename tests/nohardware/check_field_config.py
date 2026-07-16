@@ -48,15 +48,10 @@ def require_url(value: object, label: str) -> None:
 
 
 def require_network_host(value: object, label: str) -> None:
-    """Accept a routable IPv4 address or RFC-style DNS hostname.
-
-    The field contract is hostname-first, but an operator may supply a LAN IPv4
-    address where a host is accepted.  Loopback and malformed host values must
-    never pass the static deployment audit.
-    """
+    """Require an RFC-style DNS hostname for persisted production routing."""
     host = str(value).rstrip(".")
     try:
-        address = IPv4Address(host)
+        IPv4Address(host)
     except ValueError:
         hostname_labels = host.split(".")
         is_dns_name = bool(host) and len(host) <= 253 and all(
@@ -64,10 +59,9 @@ def require_network_host(value: object, label: str) -> None:
             for hostname_label in hostname_labels
         )
         if not is_dns_name or host.lower() == "localhost":
-            fail(f"{label} must be a valid DNS hostname or IPv4 address: {value!r}")
+            fail(f"{label} must be a valid DNS hostname: {value!r}")
         return
-    if address.is_loopback:
-        fail(f"{label} must not use a loopback address: {value!r}")
+    fail(f"{label} must be a DNS hostname, not a direct IPv4 address: {value!r}")
 
 
 def yaml_scalar(path: Path, key: str) -> str | None:
@@ -99,9 +93,20 @@ def check_field_bindings(zones: dict, locations: dict[str, tuple]) -> None:
     bindings = load_json(MAIN / "backend/config/field-bindings.json")
     if not isinstance(bindings, dict) or bindings.get("version") != 1:
         fail("field-bindings.json must declare version 1")
-    declared, scans, map_dispatch = bindings.get("locations"), bindings.get("scans"), bindings.get("map_dispatch")
-    if not isinstance(declared, dict) or not isinstance(scans, dict) or not isinstance(map_dispatch, dict):
-        fail("field-bindings.json must contain locations, scans, and map_dispatch objects")
+    declared, map_dispatch = bindings.get("locations"), bindings.get("map_dispatch")
+    if not isinstance(declared, dict) or not isinstance(map_dispatch, dict):
+        fail("field-bindings.json must contain locations and map_dispatch objects")
+    if "scans" in bindings:
+        fail("field-bindings.json must not duplicate release-owned scan coordinates")
+    release = load_json(MAIN / "database/reference/robot2_map.json")
+    if not isinstance(release, dict) or release.get("schema_version") != 1:
+        fail("robot2_map release manifest must declare schema_version 1")
+    release_map = release.get("map_id")
+    release_scans = {
+        row["id"]: row
+        for row in release.get("locations", [])
+        if isinstance(row, dict) and row.get("type") == "scan" and isinstance(row.get("id"), str)
+    }
     expected_robot1_policy = {
         "inbound": False,
         "outbound": False,
@@ -120,15 +125,16 @@ def check_field_bindings(zones: dict, locations: dict[str, tuple]) -> None:
     for location_id, binding in declared.items():
         if not isinstance(binding, dict):
             fail(f"field binding {location_id} must be an object")
-        required = {"kind", "map_id", "nav_zone", "nav_waypoint", "pose", "marker_id", "scan_location_id"}
+        required = {"kind", "map_id", "nav_zone", "nav_waypoint", "pose", "scan_location_id"}
         if set(binding) != required:
             fail(f"field binding {location_id} must contain exactly the authoritative fields")
         zone = semantic.get(binding["nav_zone"])
         waypoint = waypoints.get(binding["nav_waypoint"])
         if not isinstance(zone, dict) or not isinstance(waypoint, dict):
             fail(f"field binding {location_id} references a missing Nav zone or waypoint")
-        if zone.get("aruco_marker_id") != binding["marker_id"]:
-            fail(f"field binding {location_id} marker_id must match its Nav zone")
+        marker_id = zone.get("aruco_marker_id")
+        if not isinstance(marker_id, int):
+            fail(f"field binding {location_id} Nav zone must declare an integer marker")
         pose = binding["pose"]
         if not isinstance(pose, dict) or any(pose.get(key) != waypoint.get(nav_key) for key, nav_key in (("x", "x"), ("y", "y"), ("yaw", "theta"))):
             fail(f"field binding {location_id} pose must equal its Nav waypoint")
@@ -136,23 +142,31 @@ def check_field_bindings(zones: dict, locations: dict[str, tuple]) -> None:
         if not seed:
             fail(f"Main seed missing bound location {location_id}")
         _, x, y, yaw, marker, map_id = seed
-        if (x, y, yaw, marker, map_id) != (pose["x"], pose["y"], pose["yaw"], str(binding["marker_id"]), binding["map_id"]):
+        if (x, y, yaw, marker, map_id) != (pose["x"], pose["y"], pose["yaw"], str(marker_id), binding["map_id"]):
             fail(f"Main seed {location_id} conflicts with field-bindings.json")
         scan_id = binding["scan_location_id"]
-        scan = scans.get(scan_id)
-        if not isinstance(scan, dict) or scan.get("location_id") != location_id:
-            fail(f"field binding {location_id} must declare its paired scan location")
-        scan_waypoint = waypoints.get(scan.get("nav_waypoint"))
-        scan_pose = scan.get("pose")
-        if not isinstance(scan_waypoint, dict) or not isinstance(scan_pose, dict):
-            fail(f"scan binding {scan_id} references a missing Nav waypoint or pose")
-        if scan.get("marker_id") != binding["marker_id"] or any(scan_pose.get(key) != scan_waypoint.get(nav_key) for key, nav_key in (("x", "x"), ("y", "y"), ("yaw", "theta"))):
-            fail(f"scan binding {scan_id} must match its location marker and Nav waypoint")
+        scan = release_scans.get(scan_id)
+        scan_waypoint = waypoints.get(scan_id)
+        if not isinstance(scan, dict) or not isinstance(scan_waypoint, dict):
+            fail(f"field binding {location_id} scan must exist in the release manifest and Nav waypoints")
+        if binding["map_id"] != release_map:
+            fail(f"field binding {location_id} map must match the release manifest")
+        if scan.get("marker_id") != marker_id or any(
+            scan.get(key) != scan_waypoint.get(nav_key)
+            for key, nav_key in (("x", "x"), ("y", "y"), ("yaw", "theta"))
+        ):
+            fail(f"release scan {scan_id} must match its Nav zone marker and waypoint")
         scan_seed = locations.get(scan_id)
         if not scan_seed:
             fail(f"Main seed missing bound scan {scan_id}")
         _, x, y, yaw, marker, map_id = scan_seed
-        if (x, y, yaw, marker, map_id) != (scan_pose["x"], scan_pose["y"], scan_pose["yaw"], str(scan["marker_id"]), binding["map_id"]):
+        if (x, y, yaw, marker, map_id) != (
+            scan["x"],
+            scan["y"],
+            scan["yaw"],
+            str(scan["marker_id"]),
+            release_map,
+        ):
             fail(f"Main seed {scan_id} conflicts with field-bindings.json")
 
 
@@ -328,11 +342,6 @@ def check_locations_markers_and_task_config() -> None:
             fail(f"Main seed {location_id} has non-finite coordinates")
         if map_id not in {"robot1_map", "robot2_map"}:
             fail(f"Main seed {location_id} has unknown map_id {map_id!r}")
-        if kind == "scan":
-            parent_id = location_id.removeprefix("scan_")
-            parent = locations.get(parent_id)
-            if not parent or parent[4] != marker:
-                fail(f"Main seed scan {location_id} must pair with its location marker")
     for location_id, kind in (("INBOUND_01", "inbound"), ("OUTBOUND_01", "outbound"), ("HOME_01", "home"), ("CHARGE_01", "charge")):
         if locations.get(location_id, (None,))[0] != kind:
             fail(f"Main seed missing {kind} location {location_id}")

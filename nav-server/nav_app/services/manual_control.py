@@ -9,7 +9,11 @@ from nav_app.services.robot_context import active_bridge_robot_id as _active_bri
 from nav_app.services.mission_helpers import is_busy as _is_busy
 
 
-def prepare_manual_control(robot_name: str, override_nav: bool = False, reject_estop: bool = True, allow_manual_busy: bool = False):
+def prepare_manual_control(
+    robot_name: str,
+    reject_estop: bool = True,
+    allow_manual_busy: bool = False,
+):
     if not runtime.navigator or not runtime.mission_manager:
         raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
     if robot_name != _active_bridge_robot_id():
@@ -25,9 +29,10 @@ def prepare_manual_control(robot_name: str, override_nav: bool = False, reject_e
     if _is_busy():
         if allow_manual_busy and runtime.navigator.status == "MANUAL":
             return
-        if not override_nav:
-            raise HTTPException(status_code=409, detail="로봇이 작업 중입니다. 강제 수동 조작은 override_nav=true로 요청하세요.")
-        runtime.navigator.nav.cancelTask()
+        raise HTTPException(
+            status_code=409,
+            detail="로봇이 작업 중입니다. canonical command cancel을 먼저 완료하세요.",
+        )
 
 
 def execute_manual_velocity(linear_x: float, angular_z: float, duration_sec: float):

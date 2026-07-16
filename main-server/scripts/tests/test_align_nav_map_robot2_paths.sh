@@ -28,7 +28,16 @@ esac
 EOF
 chmod +x "$tmpdir/curl"
 
-output="$(PATH="$tmpdir:$PATH" MAIN_BASE=http://main.test NAV_PULL_BASE=http://main.test NAV_HOST=nav.test "$SCRIPT")"
+if PATH="$tmpdir:$PATH" MAIN_BASE=http://192.168.30.9:8088 NAV_HOST=smartfactory-nav.local "$SCRIPT" >/dev/null 2>&1; then
+  echo 'alignment script unexpectedly accepted a direct Main IP' >&2
+  exit 1
+fi
+if PATH="$tmpdir:$PATH" MAIN_BASE=http://smartfactory-main.local:8088 NAV_HOST=192.168.30.12 "$SCRIPT" >/dev/null 2>&1; then
+  echo 'alignment script unexpectedly accepted a direct Nav IP' >&2
+  exit 1
+fi
+
+output="$(PATH="$tmpdir:$PATH" MAIN_BASE=http://smartfactory-main.local:8088 NAV_PULL_BASE=http://smartfactory-main.local:8088 NAV_HOST=smartfactory-nav.local "$SCRIPT")"
 
 [[ "$output" == *"MAP_DIR=\"$REPO_ROOT/nav-server/map\""* ]]
 [[ "$output" == *'NAV_WORKSPACE="${NAV_WORKSPACE:-}"'* ]]

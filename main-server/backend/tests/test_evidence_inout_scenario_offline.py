@@ -15,14 +15,14 @@ from app.services import evidence_runtime
 
 def _mock_locations() -> dict[str, dict]:
     return {
-        "INBOUND_01": {"slot_id": "INBOUND_01", "location_id": "INBOUND_01", "x": 2.0, "y": 0.0, "marker_id": 101},
-        "OUTBOUND_01": {"slot_id": "OUTBOUND_01", "location_id": "OUTBOUND_01", "x": 4.0, "y": 0.0, "marker_id": 102},
-        "STORAGE_S1": {"slot_id": "STORAGE_S1", "location_id": "STORAGE_S1", "x": 1.0, "y": 1.0, "marker_id": 201},
-        "scan_INBOUND_01": {"slot_id": "scan_INBOUND_01", "location_id": "scan_INBOUND_01", "x": 1.8, "y": 0.0, "marker_id": 101},
-        "scan_OUTBOUND_01": {"slot_id": "scan_OUTBOUND_01", "location_id": "scan_OUTBOUND_01", "x": 3.8, "y": 0.0, "marker_id": 102},
-        "scan_STORAGE_S1": {"slot_id": "scan_STORAGE_S1", "location_id": "scan_STORAGE_S1", "x": 0.8, "y": 1.0, "marker_id": 201},
-        "HOME_01": {"slot_id": "HOME_01", "location_id": "HOME_01", "x": 0.0, "y": 0.0, "marker_id": 301},
-        "scan_HOME_01": {"slot_id": "scan_HOME_01", "location_id": "scan_HOME_01", "x": 0.3, "y": 0.0, "marker_id": 301},
+        "INBOUND_01": {"slot_id": "INBOUND_01", "location_id": "INBOUND_01", "x": 2.0, "y": 0.0},
+        "OUTBOUND_01": {"slot_id": "OUTBOUND_01", "location_id": "OUTBOUND_01", "x": 4.0, "y": 0.0},
+        "STORAGE_S1": {"slot_id": "STORAGE_S1", "location_id": "STORAGE_S1", "x": 1.0, "y": 1.0},
+        "inbound_slot_1_approach": {"slot_id": "inbound_slot_1_approach", "location_id": "inbound_slot_1_approach", "x": 1.8, "y": 0.0, "marker_id": 0},
+        "outbound_slot_1_approach": {"slot_id": "outbound_slot_1_approach", "location_id": "outbound_slot_1_approach", "x": 3.8, "y": 0.0, "marker_id": 5},
+        "warehouse_a_approach": {"slot_id": "warehouse_a_approach", "location_id": "warehouse_a_approach", "x": 0.8, "y": 1.0, "marker_id": 7},
+        "HOME_01": {"slot_id": "HOME_01", "location_id": "HOME_01", "x": 0.0, "y": 0.0},
+        "vehicle_1_approach": {"slot_id": "vehicle_1_approach", "location_id": "vehicle_1_approach", "x": 0.3, "y": 0.0, "marker_id": 3},
     }
 
 
@@ -30,9 +30,10 @@ class InOutScenarioOfflineTest(unittest.TestCase):
     def _repo(self, data: dict[str, dict]) -> MagicMock:
         repo = MagicMock()
         repo.get.side_effect = lambda loc_id: data.get(loc_id)
+        repo.list_route_steps.return_value = []
         repo.list_by_type.side_effect = lambda t: (
             [data["HOME_01"]] if t == "home" else
-            [v for k, v in data.items() if k.startswith("scan_")] if t == "scan" else
+            [v for k, v in data.items() if k.endswith("_approach")] if t == "scan" else
             []
         )
         return repo
@@ -60,9 +61,9 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         self.assertEqual(steps[2]["params"]["action"], "load")
         self.assertEqual(steps[4]["params"]["action"], "unload")
         self.assertEqual(steps[5]["action_type"], "move")
-        self.assertEqual(steps[5]["waypoint_id"], "scan_HOME_01")
+        self.assertEqual(steps[5]["waypoint_id"], "vehicle_1_approach")
         self.assertEqual(steps[6]["action_type"], "aruco_align")
-        self.assertEqual(steps[6]["params"], {"aruco_marker_id": 301, "final": "park"})
+        self.assertEqual(steps[6]["params"], {"aruco_marker_id": 3, "final": "park"})
 
     @patch("app.services.evidence_runtime.location_repo")
     def test_outbound_ends_with_precision_park(self, location_repo_fn) -> None:
@@ -83,9 +84,59 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         self.assertEqual(steps[0]["action_type"], "leave_dock")
         self.assertEqual(steps[2]["params"]["action"], "load")
         self.assertEqual(steps[4]["params"]["action"], "unload")
-        self.assertEqual(steps[5]["waypoint_id"], "scan_HOME_01")
+        self.assertEqual(steps[5]["waypoint_id"], "vehicle_1_approach")
         self.assertEqual(steps[6]["action_type"], "aruco_align")
-        self.assertEqual(steps[6]["params"], {"aruco_marker_id": 301, "final": "park"})
+        self.assertEqual(steps[6]["params"], {"aruco_marker_id": 3, "final": "park"})
+
+    @patch("app.services.evidence_runtime.location_repo")
+    def test_inbound_preserves_ordered_transit_then_scan_then_dock(self, location_repo_fn) -> None:
+        data = _mock_locations()
+        scan = data["inbound_slot_1_approach"]
+        scan["map_id"] = "robot2_map"
+        transit_1 = {
+            "slot_id": "inbound_transit_1",
+            "location_id": "inbound_transit_1",
+            "type": "transit",
+            "x": 1.4,
+            "y": -0.2,
+            "yaw": 0.1,
+            "map_id": "robot2_map",
+        }
+        transit_2 = {
+            "slot_id": "inbound_transit_2",
+            "location_id": "inbound_transit_2",
+            "type": "transit",
+            "x": 1.6,
+            "y": -0.1,
+            "yaw": 0.0,
+            "map_id": "robot2_map",
+        }
+        repo = self._repo(data)
+        repo.list_route_steps.side_effect = lambda scan_id: (
+            [transit_1, transit_2, scan] if scan_id == "inbound_slot_1_approach" else []
+        )
+        location_repo_fn.return_value = repo
+        task = {
+            "task_id": 3,
+            "task_type": "INBOUND",
+            "from_location_id": "INBOUND_01",
+            "to_location_id": "STORAGE_S1",
+            "from_floor": 1,
+            "to_floor": 1,
+        }
+        with patch.object(evidence_runtime.field_bindings, "validate_runtime_location"):
+            steps = evidence_runtime.build_scenario_from_task(MagicMock(), task)["steps"]
+
+        self.assertEqual(
+            [(step["action_type"], step.get("waypoint_id")) for step in steps[1:5]],
+            [
+                ("move", "inbound_transit_1"),
+                ("move", "inbound_transit_2"),
+                ("move", "inbound_slot_1_approach"),
+                ("dock_transfer", None),
+            ],
+        )
+        self.assertEqual(sum(step.get("waypoint_id") == "inbound_slot_1_approach" for step in steps), 1)
 
 
 if __name__ == "__main__":

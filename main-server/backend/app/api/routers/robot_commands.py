@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Query, Request
 
 from app.db.connection import transaction
 from app.models.schemas import RobotCommandRequest, RobotCommandResponse
-from app.security import require_operator
 from app.services import robot_commands as command_service
 
 router = APIRouter(tags=["robot-commands"])
 
 
-@router.post("/robot-commands", response_model=RobotCommandResponse, dependencies=[Depends(require_operator)])
+@router.post("/robot-commands", response_model=RobotCommandResponse)
 def post_robot_command(payload: RobotCommandRequest, request: Request) -> RobotCommandResponse:
     """단일 envelope로 이동·수동조작·estop·(dry_run) dock_transfer 를 전달한다."""
     with transaction() as conn:

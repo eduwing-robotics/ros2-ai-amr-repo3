@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from app.core.config import settings
+from app.db.migrations import apply_migrations
 from app.db.pg_connection import pg_transaction, pg_write_transaction, require_database_url
 
 _SEED_DIR = Path(__file__).resolve().parents[3] / "database" / "seed"
@@ -61,7 +62,13 @@ def init_db() -> None:
     schema = (repo_root / "database" / "schema_pg.sql").read_text(encoding="utf-8")
     infra = (repo_root / "database" / "schema_pg_infra.sql").read_text(encoding="utf-8")
     with transaction() as conn:
+        # Existing installations need additive columns before canonical schema
+        # indexes reference them. New databases receive the canonical schema first.
+        locations_exists = conn.execute("SELECT to_regclass('public.locations') AS name").fetchone()["name"]
+        if locations_exists:
+            apply_migrations(conn)
         conn._conn.execute(schema)
         conn._conn.execute(infra)
+        apply_migrations(conn)
         _backfill_locations_map_id(conn)
         apply_static_seed(conn)

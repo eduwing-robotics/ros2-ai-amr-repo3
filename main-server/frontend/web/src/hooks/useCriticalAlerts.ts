@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useFeedback } from "../components/FeedbackProvider";
-import { eventDotClass } from "../lib/format";
+import { eventDotClass, eventKey } from "../lib/format";
 import { armAlertAudio, flashTitle, playAlertBeep } from "../lib/alerts";
 import type { AppEvent, Robot } from "../types";
 
@@ -14,12 +14,6 @@ function batteryBucket(b: number | null | undefined): BatteryBucket {
   if (b <= 20) return "low";
   if (b <= 35) return "warn";
   return "ok";
-}
-
-function eventKey(ev: AppEvent): string {
-  const id = (ev as { id?: unknown }).id;
-  if (id != null) return `id:${String(id)}`;
-  return `${ev.created_at ?? ""}|${ev.event_type ?? ""}|${ev.message ?? ""}`;
 }
 
 /**

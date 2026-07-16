@@ -10,6 +10,7 @@ from app.services.work_orders_pg import (
     plan_work_order,
     preview_work_order,
     set_work_order_priority,
+    stop_work_order,
 )
 
 MAX_WORK_ORDER_QUANTITY = 50
@@ -23,4 +24,5 @@ __all__ = [
     "get_work_order",
     "list_work_orders",
     "set_work_order_priority",
+    "stop_work_order",
 ]

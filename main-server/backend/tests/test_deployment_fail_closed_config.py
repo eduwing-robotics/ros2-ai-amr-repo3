@@ -40,8 +40,10 @@ class DeploymentFailClosedConfigTest(unittest.TestCase):
                 "postgresql://database-url.example:5432/lms_mvp",
             )
 
-    def test_vision_fallbacks_are_empty_by_default(self) -> None:
+    def test_vision_uses_only_canonical_hostname_endpoints(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             config = Settings()
-        self.assertEqual(config.vision_api_fallback_base_url, "")
-        self.assertEqual(config.vision_stream_fallback_base_url, "")
+        self.assertEqual(config.vision_api_base_url, "http://smartfactory-vision.local:8100")
+        self.assertEqual(config.vision_stream_base_url, "http://smartfactory-vision.local:8090")
+        self.assertFalse(hasattr(config, "vision_api_fallback_base_url"))
+        self.assertFalse(hasattr(config, "vision_stream_fallback_base_url"))

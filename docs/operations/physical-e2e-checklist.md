@@ -75,7 +75,8 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 - [ ] TB1을 실제 맵의 알려진 시작 위치에 놓고 물리 정지 수단과 짧은 주행 공간만 확인한다.
 - [ ] `./scripts/install-smartfactory-hosts.sh --check`가 모든 server의 hostname-first `192.168.30.x` 설정을 통과한다.
-- [ ] Movement, Vision, frame gateway HMAC secret pair와 operator token을 확인한다.
+- [ ] `smartfactory-main.local`이 이 PC의 canonical `192.168.30.x` interface로 해석되고 `main-server/scripts/real.sh`의 bind 검사를 통과한다.
+- [ ] 각 host의 preflight credential-set ID가 같고, 선택한 표준 launcher가 `.secrets/service-hmac.env`의 Movement, Vision, frame gateway credential을 내부 로드한다. 운영자 명령마다 token이나 secret을 붙이지 않는다.
 - [ ] 주행 구역의 사람·장애물을 통제하고 정지 담당자를 정한다.
 - [ ] `robot2_map` field dispatch가 아직 차단된 상태임을 확인한다. 이 단계에서 boolean을 임의로 해제하지 않는다.
 
@@ -96,7 +97,12 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
    ```
 
 3. 외부 AI laptop에서 AI와 `tb3_1_picam` source를 시작한다.
-4. Main server에서 PostgreSQL과 Main을 시작한다.
+4. Main server에서 PostgreSQL을 준비하고 저장소 루트의 canonical production launcher를 실행한다. `smartfactory-main.local`이 이 PC의 로컬 `192.168.30.x` interface로 해석되지 않으면 우회하지 말고 hostname 설정을 고친다.
+
+   ```bash
+   cd <repository-root>
+   main-server/scripts/real.sh
+   ```
 5. [시작과 종료](startup-shutdown.md)에 따라 선택한 TB1 profile과 Main·AI health만 확인한다. 전체 robot inventory를 검사하는 `--hardware-checklist`는 TB1 단독 빠른 실행에 사용하지 않는다.
 
 `foreground`를 사용하면 `Ctrl+C`가 그 profile의 managed process group을 종료한다. base, bridge, Nav2처럼 `external` 소유인 terminal은 각각 `Ctrl+C`로 종료한다.
@@ -168,8 +174,8 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 - [ ] Main이 trusted stop을 DB에 기록하고 Nav E-stop을 호출한다.
 - [ ] Nav2가 취소되고 base가 0속도이며 UI가 ESTOP와 `AWAITING_OPERATOR`를 표시한다.
 - [ ] 위험 제거 후 E-stop clear만으로 자동 재개되지 않는다.
-- [ ] [ESTOP 복구 runbook](../../main-server/docs/operations/ESTOP_RECOVERY_PLAYBOOK.md)에 따라 cargo 상태와 전략을 선택하고 live Movement health 확인 뒤 복구한다.
-- [ ] TB1 person-only 시험은 화물이 없으므로 `EMPTY`와 `restart` 또는 `manual_abort`로 운영자 결정을 확인한다. 현재 `safe_replan` recovery move는 person monitor를 다시 arm하지 않으므로 물리 안전 복구 PASS 근거로 사용하지 않는다.
+- [ ] [ESTOP 복구 runbook](../../main-server/docs/operations/ESTOP_RECOVERY_PLAYBOOK.md)에 따라 cargo 상태와 `safe_move` 또는 `manual_abort`를 선택하고 live Movement health 확인 뒤 실행한다.
+- [ ] TB1 person-only 시험은 화물이 없으므로 `EMPTY`를 선택한다. `safe_move`를 실행했다면 configured safe location 도착 뒤 다시 `AWAITING_OPERATOR`인지 확인하고, 필요하면 별도 `manual_abort`로 작업을 종료한다. 어느 경우에도 interrupted step은 자동 재개되지 않는다.
 
 중지: monitor 미arm, stale/wrong-task advisory, Main trusted decision 누락, 자동 재개, 시험자의 금지 구역 진입, 정지 담당자의 시야 상실, 정지 거리·시간이 현장 안전 기준을 넘음. 사람 또는 로봇이 지정 경계를 벗어나면 즉시 물리 정지한다.
 
@@ -245,4 +251,4 @@ TB2가 준비되면 `tb2-live`를 명시하고 0~6단계를 TB2로 다시 통과
 | `TB1_SYNTHETIC_LIFT_FLOW_ACCEPTED` | field commissioning과 synthetic test admission 후 7 PASS, 모든 결과가 nonphysical로 표시됨 |
 | `TB2_PHYSICAL_INOUT_ACCEPTED` | TB2로 0~6과 8 PASS, 실제 lift·화물·global camera evidence 있음 |
 
-어느 단계든 `BLOCKED` 또는 `FAIL`이면 그 뒤 단계의 성공으로 덮지 않는다. nohardware 범위와 물리 검증 차이는 [nohardware suite](../../tests/nohardware/README.md)에 기록된 경계를 따른다.
+어느 단계든 `BLOCKED` 또는 `FAIL`이면 그 뒤 단계의 성공으로 덮지 않는다. [nohardware suite](../../tests/nohardware/README.md)는 software merge proof이며 여기의 실물 합격 근거를 대체하지 않는다.

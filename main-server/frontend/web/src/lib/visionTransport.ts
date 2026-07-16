@@ -9,6 +9,7 @@ export const VISION_WEBRTC_ENABLED =
   import.meta.env.VITE_VISION_WEBRTC_ENABLED === "true" || VISION_WEBRTC_ONLY;
 
 const WEBRTC_CONNECT_TIMEOUT_MS = 8000;
+const WEBRTC_FIRST_FRAME_TIMEOUT_MS = 5000;
 
 const BLOCKED_TRANSPORT_STATUS = new Set([
   "candidate",
@@ -173,9 +174,24 @@ export async function connectWebRtcStream(
   source: string,
   view: string,
   videoEl: HTMLVideoElement,
+  onConnectionLost?: (state: RTCPeerConnectionState) => void,
 ): Promise<() => void> {
   const pc = new RTCPeerConnection();
+  let cleaned = false;
+  let connected = false;
+  const onConnectionStateChange = () => {
+    if (
+      connected
+      && !cleaned
+      && (pc.connectionState === "disconnected" || pc.connectionState === "failed" || pc.connectionState === "closed")
+    ) {
+      onConnectionLost?.(pc.connectionState);
+    }
+  };
   const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    pc.removeEventListener("connectionstatechange", onConnectionStateChange);
     pc.close();
     if (videoEl.srcObject instanceof MediaStream) {
       videoEl.srcObject.getTracks().forEach((t) => t.stop());
@@ -183,33 +199,60 @@ export async function connectWebRtcStream(
     videoEl.srcObject = null;
   };
 
-  pc.ontrack = (ev) => {
-    const [stream] = ev.streams;
-    if (stream) videoEl.srcObject = stream;
-  };
+  try {
+    pc.ontrack = (ev) => {
+      const [stream] = ev.streams;
+      if (stream) videoEl.srcObject = stream;
+    };
 
-  const offer = await pc.createOffer({ offerToReceiveVideo: true });
-  await pc.setLocalDescription(offer);
-  await waitIceGathering(pc);
+    const offer = await pc.createOffer({ offerToReceiveVideo: true });
+    await pc.setLocalDescription(offer);
+    await waitIceGathering(pc);
 
-  const local = pc.localDescription;
-  if (!local?.sdp) throw new Error("webrtc_no_local_sdp");
+    const local = pc.localDescription;
+    if (!local?.sdp) throw new Error("webrtc_no_local_sdp");
 
-  const answer = await postWebRtcOffer(source, view, { sdp: local.sdp, type: local.type });
-  if (isOfferFallbackResponse(answer)) {
+    const answer = await postWebRtcOffer(source, view, { sdp: local.sdp, type: local.type });
+    if (isOfferFallbackResponse(answer)) throw new Error("webrtc_fallback_required");
+    if (answer.media_only === false || answer.motion_command_allowed) {
+      throw new Error("webrtc_not_media_only");
+    }
+
+    await pc.setRemoteDescription({ type: answer.type || "answer", sdp: answer.sdp! });
+    await waitConnected(pc, WEBRTC_CONNECT_TIMEOUT_MS);
+    connected = true;
+    pc.addEventListener("connectionstatechange", onConnectionStateChange);
+    await videoEl.play().catch(() => { /* autoplay policy */ });
+
+    return cleanup;
+  } catch (error) {
     cleanup();
-    throw new Error("webrtc_fallback_required");
+    throw error;
   }
-  if (answer.media_only === false || answer.motion_command_allowed) {
-    cleanup();
-    throw new Error("webrtc_not_media_only");
+}
+
+/** ICE success is insufficient: wait until the browser has decoded an actual frame. */
+export function waitForFirstVideoFrame(
+  videoEl: HTMLVideoElement,
+  timeoutMs = WEBRTC_FIRST_FRAME_TIMEOUT_MS,
+): Promise<void> {
+  if (videoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && videoEl.videoWidth > 0) {
+    return Promise.resolve();
   }
 
-  await pc.setRemoteDescription({ type: answer.type || "answer", sdp: answer.sdp! });
-  await waitConnected(pc, WEBRTC_CONNECT_TIMEOUT_MS);
-  await videoEl.play().catch(() => { /* autoplay policy */ });
-
-  return cleanup;
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => finish(new Error("webrtc_first_frame_timeout")), timeoutMs);
+    const onFrame = () => finish();
+    const finish = (error?: Error) => {
+      window.clearTimeout(timer);
+      videoEl.removeEventListener("loadeddata", onFrame);
+      videoEl.removeEventListener("playing", onFrame);
+      if (error) reject(error);
+      else resolve();
+    };
+    videoEl.addEventListener("loadeddata", onFrame, { once: true });
+    videoEl.addEventListener("playing", onFrame, { once: true });
+  });
 }
 
 /** overlay/latest 메타 — MJPEG freeze/staleness 워치독(PHASE_52). */

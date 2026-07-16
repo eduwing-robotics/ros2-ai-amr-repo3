@@ -34,7 +34,7 @@ flowchart LR
 | [api/API_MAIN](api/API_MAIN.md) | REST 목록·as-built |
 | [ui-ux/FRONTEND](ui-ux/FRONTEND.md) | 프론트 as-built·레이아웃 |
 | [ui-ux/IA](ui-ux/IA.md) | 화면 네비게이션 |
-| [operations/DEVELOPMENT_GUIDE](operations/DEVELOPMENT_GUIDE.md) | 기여 진입 |
+| [contributing/DEVELOPMENT_GUIDE](contributing/DEVELOPMENT_GUIDE.md) | 기여 진입 |
 | [operations/QUALITY_GATE](operations/QUALITY_GATE.md) | 검증 명령 |
 
 ## 영역

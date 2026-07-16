@@ -18,7 +18,6 @@ class FieldBindingsTest(unittest.TestCase):
         self.row = {
             "location_id": "STORAGE_S1",
             "map_id": self.binding["map_id"],
-            "marker_id": self.binding["marker_id"],
             **self.binding["pose"],
         }
 
@@ -32,10 +31,31 @@ class FieldBindingsTest(unittest.TestCase):
     def test_runtime_accepts_exact_bound_location(self) -> None:
         self.assertEqual(field_bindings.validate_runtime_location(self.row, "STORAGE_S1"), self.binding)
 
-    def test_runtime_rejects_marker_map_and_pose_drift(self) -> None:
-        for field, bad_value in (("marker_id", 999), ("map_id", "robot1_map"), ("x", 99.0)):
+    def test_runtime_rejects_map_and_final_pose_drift(self) -> None:
+        for field, bad_value in (("map_id", "robot1_map"), ("x", 99.0)):
             with self.subTest(field=field), self.assertRaises(HTTPException) as ctx:
                 field_bindings.validate_runtime_location({**self.row, field: bad_value}, "STORAGE_S1")
+            self.assertEqual(ctx.exception.status_code, 409)
+            self.assertIn(field, ctx.exception.detail)
+
+    def test_scan_coordinates_and_marker_come_only_from_release_manifest(self) -> None:
+        scan_id, scan = field_bindings.scan_binding_for("STORAGE_S1")
+        self.assertEqual(scan_id, "warehouse_a_approach")
+        row = {
+            "location_id": scan_id,
+            "map_id": scan["map_id"],
+            "marker_id": scan["marker_id"],
+            "x": scan["x"],
+            "y": scan["y"],
+            "yaw": scan["yaw"],
+        }
+        self.assertEqual(
+            field_bindings.validate_runtime_location(row, scan_id, scan=True),
+            scan,
+        )
+        for field, bad_value in (("marker_id", 999), ("x", 99.0)):
+            with self.subTest(field=field), self.assertRaises(HTTPException) as ctx:
+                field_bindings.validate_runtime_location({**row, field: bad_value}, scan_id, scan=True)
             self.assertEqual(ctx.exception.status_code, 409)
             self.assertIn(field, ctx.exception.detail)
 
@@ -62,8 +82,11 @@ class FieldBindingsTest(unittest.TestCase):
             "robot2_map",
         )
 
-    def test_uncommissioned_charge_binding_stays_off_the_live_map(self) -> None:
-        self.assertEqual(field_bindings.map_for_locations(["CHARGE_01"]), "robot1_map")
+    def test_charge_binding_uses_release_map_while_dispatch_stays_blocked(self) -> None:
+        self.assertEqual(field_bindings.map_for_locations(["CHARGE_01"]), "robot2_map")
+        with self.assertRaises(HTTPException) as ctx:
+            field_bindings.assert_field_dispatch_commissioned("INBOUND", "robot2_map")
+        self.assertEqual(ctx.exception.status_code, 409)
 
     def test_robot2_field_dispatch_is_machine_readably_blocked(self) -> None:
         with self.assertRaises(HTTPException) as ctx:

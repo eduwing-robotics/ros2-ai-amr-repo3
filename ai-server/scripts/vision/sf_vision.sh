@@ -5,6 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/vision_bundle_common.sh
 source "${SCRIPT_DIR}/../lib/vision_bundle_common.sh"
 ROOT_DIR="$(sf_repo_root_from_script "${BASH_SOURCE[0]}")"
+REPO_ROOT="$(cd "${ROOT_DIR}/.." && pwd)"
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/scripts/lib/site_credentials.sh"
 PROFILE_DIR="${ROOT_DIR}/config/vision/profiles"
 RUN_DIR="${SMARTFACTORY_VISION_RUN_DIR:-${ROOT_DIR}/.run/vision}"
 LOG_DIR="${RUN_DIR}/logs"
@@ -126,7 +129,6 @@ load_profile() {
   export WMS_EMIT_ENABLED="${WMS_EMIT_ENABLED:-false}"
   export VISION_WEBRTC_ENABLED="${VISION_WEBRTC_ENABLED:-true}"
   export AI_SERVER_CORS_ALLOW_ORIGINS="${AI_SERVER_CORS_ALLOW_ORIGINS:-http://smartfactory-main.local:8088,http://localhost:8088,http://127.0.0.1:8088}"
-  export SF_VISION_MDNS_ENABLED="${SF_VISION_MDNS_ENABLED:-false}"
   export SF_VISION_BUNDLE_ENABLED="${SF_VISION_BUNDLE_ENABLED:-true}"
   export SF_VISION_GOPRO_ENABLED="${SF_VISION_GOPRO_ENABLED:-false}"
   export SF_VISION_GOPRO_REQUIRED="${SF_VISION_GOPRO_REQUIRED:-false}"
@@ -189,7 +191,6 @@ load_profile() {
   export SF_VISION_ROS_ENV_FILE_LOADED="${SF_VISION_ROS_ENV_FILE_LOADED:-}"
   export SF_VISION_TMUX_GUARD_ENABLED="${SF_VISION_TMUX_GUARD_ENABLED:-false}"
   export SF_VISION_TMUX_REQUIRED_CONTEXT="${SF_VISION_TMUX_REQUIRED_CONTEXT:-Smartfactory:3:Development}"
-  sf_prepare_vision_gateway_hmac
   if is_truthy "${SF_VISION_WEBRTC_SIDECAR_ENABLED}"; then
     if [ -z "${VISION_WEBRTC_SIDECAR_WHEP_URL_TEMPLATE:-}" ]; then
       VISION_WEBRTC_SIDECAR_WHEP_URL_TEMPLATE="http://${WEBRTC_SIDECAR_PUBLIC_HOST}:${MEDIAMTX_WEBRTC_PORT}/{source}_{view}/whep"
@@ -236,7 +237,6 @@ SmartFactory Vision operator config
   logs: ${LOG_DIR}
 
 Processes selected by profile:
-  mdns_alias: ${SF_VISION_MDNS_ENABLED}
   local_bundle: ${SF_VISION_BUNDLE_ENABLED}
   gopro_stream_adapter: ${SF_VISION_GOPRO_ENABLED}
   gopro_required: ${SF_VISION_GOPRO_REQUIRED}
@@ -258,7 +258,7 @@ Main-facing URLs:
   VISION_API_BASE_URL=$(api_base_url)
   VISION_STREAM_BASE_URL=$(public_base_url)
   LMS_VISION_STREAM_BASE_URL=$(public_base_url)
-  detected_lan_fallback=http://${ip}:${VISION_STREAM_GATEWAY_PORT}
+  detected_lan_ip=${ip} (read-only hostname diagnosis; never a service endpoint)
 
 WebRTC status:
   VISION_WEBRTC_ENABLED=${VISION_WEBRTC_ENABLED}
@@ -675,17 +675,6 @@ warn_ros_discovery_config() {
   fi
 }
 
-start_mdns() {
-  if is_truthy "${SF_VISION_MDNS_ENABLED}"; then
-    local address
-    if ! address="$(sf_lan_ip "${VISION_MAIN_HOST:-}")"; then
-      echo "ERROR: mDNS alias requires a ${SMARTFACTORY_LAN_IPV4_PREFIX:-192.168.30.} address" >&2
-      return 1
-    fi
-    start_logged mdns-alias python3 scripts/vision/publish_vision_mdns_alias.py --address "${address}"
-  fi
-}
-
 start_bundle() {
   if is_truthy "${SF_VISION_BUNDLE_ENABLED}"; then
     start_logged vision-bundle ./scripts/vision/run_d1_vision_multi_source_gateway_bundle.sh
@@ -1066,6 +1055,8 @@ cleanup() {
 run_up() {
   load_profile "${1:-${DEFAULT_PROFILE}}"
   require_live_tmux_context
+  sf_load_site_credentials "${REPO_ROOT}"
+  sf_prepare_vision_gateway_hmac
   print_config
   run_enabled_preflights
   ensure_dirs
@@ -1074,7 +1065,6 @@ run_up() {
   : > "${PID_FILE}"
   record_summary
   trap cleanup INT TERM EXIT
-  start_mdns
   start_bundle
   if is_truthy "${SF_VISION_GOPRO_ADAPTER_AFTER_WEBRTC_SIDECAR}"; then
     start_gopro_mediamtx_first
@@ -1099,6 +1089,8 @@ run_up() {
 
 run_check() {
   load_profile "${1:-${DEFAULT_PROFILE}}"
+  sf_load_site_credentials "${REPO_ROOT}"
+  sf_prepare_vision_gateway_hmac
   print_config
   run_enabled_preflights
   echo "[sf-vision] check ok: ${PROFILE}"
@@ -1213,6 +1205,7 @@ case "${cmd}" in
   profiles) list_profiles ;;
   print-config)
     load_profile "${2:-${DEFAULT_PROFILE}}"
+    sf_prepare_vision_gateway_hmac
     print_config
     ;;
   check) run_check "${2:-${DEFAULT_PROFILE}}" ;;

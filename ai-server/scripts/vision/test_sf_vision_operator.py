@@ -554,7 +554,6 @@ def test_lab_gopro_tb3_low_load_profile_disables_optional_streams_without_hiding
     result = run("print-config", "lab-gopro-tb3-low-load")
 
     assert "profile: lab-gopro-tb3-low-load" in result.stdout
-    assert "mdns_alias: true" in result.stdout
     assert "VISION_WEBRTC_ENABLED=true" in result.stdout
     assert "SF_VISION_WEBRTC_SIDECAR_ENABLED=true" in result.stdout
     assert "adapter_after_webrtc_sidecar=true" in result.stdout

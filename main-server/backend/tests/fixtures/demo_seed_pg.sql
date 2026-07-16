@@ -19,15 +19,15 @@ INSERT INTO locations (id, type, status, x, y, yaw, marker_id, map_id) VALUES
     ('STORAGE_S3',  'storage',  'ACTIVE', 1.06, 1.236, 3.14, 10, 'robot2_map'),
     ('STORAGE_S4',  'storage',  'ACTIVE', 1.06, 0.992, 3.14, 9, 'robot2_map'),
     ('HOME_01',     'home',     'ACTIVE', 0.765, 0.33, -1.57, 3, 'robot2_map'),
-    ('CHARGE_01',   'charge',   'ACTIVE', 0.836, 0.953, 1.394, 4, 'robot1_map'),
-    ('scan_INBOUND_01',  'scan', 'ACTIVE', -0.085, 0.006, 1.571, 0, 'robot2_map'),
-    ('scan_OUTBOUND_01', 'scan', 'ACTIVE', 1.131, 0.006, 1.571, 5, 'robot2_map'),
-    ('scan_STORAGE_S1',  'scan', 'ACTIVE', 0.019, -0.618, 0.0, 7, 'robot2_map'),
-    ('scan_STORAGE_S2',  'scan', 'ACTIVE', 0.033, -0.376, 0.0, 8, 'robot2_map'),
-    ('scan_STORAGE_S3',  'scan', 'ACTIVE', 1.239, -0.631, 3.142, 10, 'robot2_map'),
-    ('scan_STORAGE_S4',  'scan', 'ACTIVE', 1.225, -0.377, 3.142, 9, 'robot2_map'),
-    ('scan_HOME_01',     'scan', 'ACTIVE', 0.527, 0.006, 1.571, 3, 'robot2_map'),
-    ('scan_CHARGE_01',   'scan', 'ACTIVE', 0.816, 0.006, 1.571, 4, 'robot1_map')
+    ('CHARGE_01',   'charge',   'ACTIVE', 0.836, 0.953, 1.394, 4, 'robot2_map'),
+    ('inbound_slot_1_approach',  'scan', 'ACTIVE', -0.085, 0.006, 1.571, 0, 'robot2_map'),
+    ('outbound_slot_1_approach', 'scan', 'ACTIVE', 1.131, 0.006, 1.571, 5, 'robot2_map'),
+    ('warehouse_a_approach',     'scan', 'ACTIVE', 0.019, -0.618, 0.0, 7, 'robot2_map'),
+    ('warehouse_b_approach',     'scan', 'ACTIVE', 0.033, -0.376, 0.0, 8, 'robot2_map'),
+    ('warehouse_c_approach',     'scan', 'ACTIVE', 1.239, -0.631, 3.142, 10, 'robot2_map'),
+    ('warehouse_d_approach',     'scan', 'ACTIVE', 1.225, -0.377, 3.142, 9, 'robot2_map'),
+    ('vehicle_1_approach',       'scan', 'ACTIVE', 0.527, 0.006, 1.571, 3, 'robot2_map'),
+    ('vehicle_2_approach',       'scan', 'ACTIVE', 0.816, 0.006, 1.571, 4, 'robot2_map')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO inventory (item_id, location_id, floor, quantity) VALUES

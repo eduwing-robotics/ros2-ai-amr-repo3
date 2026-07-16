@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MAIN_PY="${MAIN_PY:-${ROOT_DIR}/main-server/.venv/bin/python}"
 DB_NAME="lms_nohardware_test"
 DB_USER="postgres"
 DB_PASSWORD="postgres"
@@ -17,6 +18,10 @@ trap cleanup EXIT
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is required for no-hardware DB test" >&2
+  exit 127
+fi
+if [[ ! -x "${MAIN_PY}" ]]; then
+  echo "missing executable ${MAIN_PY}" >&2
   exit 127
 fi
 
@@ -60,12 +65,12 @@ cd "${ROOT_DIR}"
 LMS_PERSON_HAZARD_ENABLED=false \
 LMS_DATABASE_URL="${DATABASE_URL}" \
 PYTHONPATH="${ROOT_DIR}/main-server/backend" \
-"${ROOT_DIR}/main-server/.venv/bin/python" "${ROOT_DIR}/tests/nohardware/db/check_db_persistence.py"
+"${MAIN_PY}" "${ROOT_DIR}/tests/nohardware/db/check_db_persistence.py"
 
 # This must use the disposable PostgreSQL instance above: the race suite opens
 # competing real connections and verifies recovery/poller callback claims.
 LMS_PERSON_HAZARD_ENABLED=false \
 LMS_DATABASE_URL="${DATABASE_URL}" \
 PYTHONPATH="${ROOT_DIR}/main-server/backend" \
-"${ROOT_DIR}/main-server/.venv/bin/pytest" -q \
+"${MAIN_PY}" -m pytest -q \
   "${ROOT_DIR}/main-server/backend/tests/test_pg_db_safety_races.py"

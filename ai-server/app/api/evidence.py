@@ -36,7 +36,7 @@ from ..openapi_schemas import (
     _json_response_openapi,
 )
 from ..runtime_state import RuntimeContext
-from ..security import require_protected_debug_mutation
+from ..security import require_main_hmac
 from .dependencies import ContextGetter
 
 
@@ -479,7 +479,7 @@ def register_evidence_routes(app, *, context_getter: ContextGetter) -> None:
 
     app.post(
         "/api/v1/evidence/evaluate",
-        dependencies=[Depends(require_protected_debug_mutation)],
+        dependencies=[Depends(require_main_hmac)],
         responses={
             200: _json_response_openapi(
                 "Connector-facing advisory EvidenceEvaluation v1",

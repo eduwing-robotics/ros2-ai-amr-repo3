@@ -88,7 +88,6 @@ def test_ros_free_auth_helper_signs_exact_multipart_body_without_importing_rclpy
 def test_gateway_frame_ingress_accepts_signed_request_and_rejects_unsigned_or_replayed(monkeypatch):
     helper = _load_auth_helper()
     settings = get_settings()
-    monkeypatch.setattr(settings, "ai_debug_mutations_enabled", False)
     monkeypatch.setattr(settings, "vision_gateway_hmac_secret", "gateway-secret")
     context = create_runtime_context()
     client = TestClient(create_app(runtime_context=context))
@@ -111,7 +110,6 @@ def test_gateway_frame_ingress_accepts_signed_request_and_rejects_unsigned_or_re
 
 def test_gateway_frame_ingress_fails_closed_when_credential_is_missing(monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "ai_debug_mutations_enabled", False)
     monkeypatch.setattr(settings, "vision_gateway_hmac_secret", "")
     context = create_runtime_context()
 

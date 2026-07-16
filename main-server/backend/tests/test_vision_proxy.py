@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import json
 import sys
 import unittest
@@ -20,7 +19,6 @@ class VisionProxyTest(unittest.TestCase):
     @patch("app.services.vision_proxy.settings")
     def test_fetch_stream_transports(self, mock_settings, mock_urlopen) -> None:
         mock_settings.vision_api_base_url = "http://vision:8100"
-        mock_settings.vision_api_fallback_base_url = ""
         mock_settings.vision_timeout_sec = 1.0
         mock_settings.vision_hmac_secret = "test-vision-hmac-secret"
         payload = json.dumps({"sources": [{"stream_transports": [{"kind": "mjpeg"}]}]}).encode()
@@ -43,7 +41,6 @@ class VisionProxyTest(unittest.TestCase):
     @patch("app.services.vision_proxy.settings")
     def test_fetch_stream_transports_webrtc_ready_passthrough(self, mock_settings, mock_urlopen) -> None:
         mock_settings.vision_api_base_url = "http://vision:8100"
-        mock_settings.vision_api_fallback_base_url = ""
         mock_settings.vision_timeout_sec = 1.0
         mock_settings.vision_hmac_secret = "test-vision-hmac-secret"
         payload = json.dumps(
@@ -77,7 +74,6 @@ class VisionProxyTest(unittest.TestCase):
     @patch("app.services.vision_proxy.settings")
     def test_post_webrtc_offer(self, mock_settings, mock_urlopen) -> None:
         mock_settings.vision_api_base_url = "http://vision:8100"
-        mock_settings.vision_api_fallback_base_url = ""
         mock_settings.vision_timeout_sec = 1.0
         mock_settings.vision_hmac_secret = "test-vision-hmac-secret"
         answer = json.dumps({"sdp": "v=0", "type": "answer", "media_only": True}).encode()
@@ -99,7 +95,6 @@ class VisionProxyTest(unittest.TestCase):
     @patch("app.services.vision_proxy.settings")
     def test_post_webrtc_offer_fallback_passthrough(self, mock_settings, mock_urlopen) -> None:
         mock_settings.vision_api_base_url = "http://vision:8100"
-        mock_settings.vision_api_fallback_base_url = ""
         mock_settings.vision_timeout_sec = 1.0
         mock_settings.vision_hmac_secret = "test-vision-hmac-secret"
         answer = json.dumps(
@@ -127,7 +122,6 @@ class VisionProxyTest(unittest.TestCase):
     @patch("app.services.vision_proxy.settings")
     def test_open_mjpeg_stream_includes_view(self, mock_settings, mock_urlopen) -> None:
         mock_settings.vision_stream_base_url = "http://vision:8090"
-        mock_settings.vision_stream_fallback_base_url = ""
         mock_settings.vision_stream_timeout_sec = 1.0
         mock_res = MagicMock()
         mock_res.read1.side_effect = [b"chunk", b""]

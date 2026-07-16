@@ -7,9 +7,9 @@ Main이 이를 중계(proxy)해서, AI/stream 서버를 외부에 노출하거�
 
 이미지 bytes는 DB에 저장하지 않는다(문서 "image pull" 원칙). Main은 통과만 시킨다.
 
-base 주소는 호스트명(.local) 우선이고, 해석/연결 실패(URLError) 시 설정된
-IP 폴백 base로 1회 더 시도한다. upstream이 HTTP 상태를 주면(이름해석 성공)
-폴백하지 않고 그대로 전달한다.
+base 주소는 canonical 호스트명(.local) 하나만 사용한다. 영상 전송 방식의
+WebRTC→MJPEG 전환과 서비스 endpoint 우회는 서로 다른 개념이며, endpoint
+IP 폴백은 서비스 정체성을 나누므로 제공하지 않는다.
 """
 
 from __future__ import annotations
@@ -36,13 +36,13 @@ class VisionUpstreamError(RuntimeError):
 
 
 def _api_bases() -> list[str]:
-    """AI 서버 후보 base 목록: primary(호스트명) 우선, fallback(IP)이 있으면 뒤에."""
-    return [b for b in (settings.vision_api_base_url, settings.vision_api_fallback_base_url) if b]
+    """Return the single canonical AI service endpoint."""
+    return [settings.vision_api_base_url] if settings.vision_api_base_url else []
 
 
 def _stream_bases() -> list[str]:
-    """stream bridge 후보 base 목록: primary 우선, fallback이 있으면 뒤에."""
-    return [b for b in (settings.vision_stream_base_url, settings.vision_stream_fallback_base_url) if b]
+    """Return the single canonical stream-bridge endpoint."""
+    return [settings.vision_stream_base_url] if settings.vision_stream_base_url else []
 
 
 def fetch_image(kind: str, source: str) -> tuple[bytes, str]:
@@ -311,7 +311,7 @@ def _post_json(
     service: str = "vision",
     kind: str = "json_post",
 ) -> dict:
-    """JSON POST with primary/fallback bases and HTTP error preservation."""
+    """POST JSON to the configured service base and preserve HTTP errors."""
     bases = bases or _api_bases()
     body = json.dumps(payload).encode("utf-8")
     last_reason = "no vision base configured"
@@ -383,7 +383,7 @@ def _post_binary(
             url,
             data=body,
             method="POST",
-            headers={"Accept": "application/json", "Content-Type": content_type},
+            headers=_mutation_headers("POST", url, body, content_type),
         )
         ctx = begin_call(service, "webrtc_offer", "POST", url, source=source or params.get("source"))
         try:
@@ -408,7 +408,7 @@ def _person_hazard_timeout_sec() -> float:
 
 
 def _get_json(path: str, params: dict[str, str], bases: list[str] | None = None, *, service: str = "vision") -> dict:
-    """JSON GET with primary/fallback bases and HTTP error preservation."""
+    """GET JSON from the configured service base and preserve HTTP errors."""
     bases = bases or _api_bases()
     last_reason = "no vision base configured"
     for base in bases:
@@ -434,7 +434,7 @@ def _get_json(path: str, params: dict[str, str], bases: list[str] | None = None,
 
 
 def _put_json(path: str, payload: dict[str, object], bases: list[str] | None = None, *, service: str = "vision") -> dict:
-    """JSON PUT with primary/fallback bases."""
+    """PUT JSON to the configured service base."""
     bases = bases or _api_bases()
     body = json.dumps(payload).encode("utf-8")
     last_reason = "no vision base configured"

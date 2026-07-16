@@ -11,17 +11,17 @@ from fastapi import HTTPException
 from app.services import evidence_runtime
 
 
-def _locations(*, park_marker: object = 9, include_park_scan: bool = True) -> dict[str, dict]:
+def _locations(*, park_marker: object = 3, include_park_scan: bool = True) -> dict[str, dict]:
     rows = {
         "INBOUND_01": {"location_id": "INBOUND_01", "slot_id": "INBOUND_01", "x": 2.0, "y": 0.0, "marker_id": 1},
         "STORAGE_S1": {"location_id": "STORAGE_S1", "slot_id": "STORAGE_S1", "x": 3.0, "y": 0.0, "marker_id": 2},
-        "scan_INBOUND_01": {"location_id": "scan_INBOUND_01", "slot_id": "scan_INBOUND_01", "x": 1.8, "y": 0.0, "marker_id": 1},
-        "scan_STORAGE_S1": {"location_id": "scan_STORAGE_S1", "slot_id": "scan_STORAGE_S1", "x": 2.8, "y": 0.0, "marker_id": 2},
+        "inbound_slot_1_approach": {"location_id": "inbound_slot_1_approach", "slot_id": "inbound_slot_1_approach", "x": 1.8, "y": 0.0, "marker_id": 0},
+        "warehouse_a_approach": {"location_id": "warehouse_a_approach", "slot_id": "warehouse_a_approach", "x": 2.8, "y": 0.0, "marker_id": 7},
         "HOME_01": {"location_id": "HOME_01", "slot_id": "HOME_01", "x": 0.0, "y": 0.0, "marker_id": None},
     }
     if include_park_scan:
-        rows["scan_HOME_01"] = {
-            "location_id": "scan_HOME_01", "slot_id": "scan_HOME_01", "x": 0.3, "y": 0.0, "marker_id": park_marker,
+        rows["vehicle_1_approach"] = {
+            "location_id": "vehicle_1_approach", "slot_id": "vehicle_1_approach", "x": 0.3, "y": 0.0, "marker_id": park_marker,
         }
     return rows
 
@@ -31,9 +31,12 @@ def _task() -> dict:
 
 
 class InOutHomePrecisionTest(unittest.TestCase):
-    def _build(self, data: dict[str, dict]) -> dict:
+    def _build(self, data: dict[str, dict], route_steps: list[dict] | None = None) -> dict:
         repo = MagicMock()
         repo.get.side_effect = data.get
+        repo.list_route_steps.side_effect = lambda scan_id: (
+            list(route_steps or []) if scan_id == "inbound_slot_1_approach" else []
+        )
         repo.list_by_type.side_effect = lambda kind: [data["HOME_01"]] if kind == "home" else []
         with (
             patch.object(evidence_runtime, "location_repo", return_value=repo),
@@ -69,8 +72,38 @@ class InOutHomePrecisionTest(unittest.TestCase):
         scenario = self._build(_locations())
         final = scenario["steps"][-1]
         self.assertEqual(final["action_type"], "aruco_align")
-        self.assertEqual(final["params"], {"aruco_marker_id": 9, "final": "park"})
+        self.assertEqual(final["params"], {"aruco_marker_id": 3, "final": "park"})
         self.assertFalse(any(step["name"].startswith("home:") for step in scenario["steps"]))
+
+    def test_transit_route_requires_coordinates_and_scan_map_identity(self) -> None:
+        data = _locations()
+        data["inbound_slot_1_approach"]["map_id"] = "robot2_map"
+        invalid_routes = (
+            (
+                {"location_id": "missing_xy", "slot_id": "missing_xy", "type": "transit", "map_id": "robot2_map"},
+                "missing coordinates",
+            ),
+            (
+                {
+                    "location_id": "wrong_map",
+                    "slot_id": "wrong_map",
+                    "type": "transit",
+                    "x": 1.0,
+                    "y": 2.0,
+                    "map_id": "other_map",
+                },
+                "map mismatch",
+            ),
+        )
+        for route, detail in invalid_routes:
+            with self.subTest(route=route["location_id"]):
+                with (
+                    patch.object(evidence_runtime.field_bindings, "validate_runtime_location"),
+                    self.assertRaises(HTTPException) as ctx,
+                ):
+                    self._build(data, [route])
+                self.assertEqual(ctx.exception.status_code, 409)
+                self.assertIn(detail, ctx.exception.detail)
 
 
 if __name__ == "__main__":

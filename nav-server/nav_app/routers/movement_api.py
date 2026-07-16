@@ -36,7 +36,7 @@ from nav_app.services.route_helpers import (
     raw_steps_from_route_request,
     traffic_segments_from_steps,
 )
-from nav_app.services.safety import engage_estop
+from nav_app.services.safety import engage_estop, stop_active_motion
 from nav_app.settings import (
     ACTIVE_ROBOT_ID,
     ARUCO_DETECTION_MAX_AGE_SEC,
@@ -102,6 +102,94 @@ def _ensure_synthetic_hil_live_admission(
                 "bypasses": bypasses,
             },
         )
+
+
+def _register_movement_command(req: MovementCommandRequest) -> tuple[dict, bool]:
+    """Atomically preserve cancel tombstones while registering a command id."""
+    with runtime.command_state_lock:
+        existing = runtime.movement_commands.get(req.command_id)
+        if existing:
+            return (
+                {
+                    "accepted": True,
+                    "command_id": req.command_id,
+                    "state": existing["state"],
+                    "duplicate": True,
+                },
+                False,
+            )
+
+        active_command = next(
+            (
+                command
+                for command in runtime.movement_commands.values()
+                if command.get("robot_name") == req.robot_name
+                and command.get("state") in ("ACCEPTED", "RUNNING")
+            ),
+            None,
+        )
+        if active_command:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "robot already has an active movement command",
+                    "active_command_id": active_command.get("command_id"),
+                    "active_state": active_command.get("state"),
+                },
+            )
+
+        traffic_segments = traffic_segments_from_steps(req.steps)
+        traffic_locks = []
+        if traffic_segments:
+            if not runtime.traffic_manager:
+                raise HTTPException(status_code=503, detail="Traffic manager 초기화 중입니다.")
+            try:
+                traffic_locks = runtime.traffic_manager.acquire_many(
+                    traffic_segments,
+                    robot_id=req.robot_name,
+                    command_id=req.command_id,
+                    route_type=req.steps[0].payload.get("route_type") if req.steps else None,
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=f"등록되지 않은 traffic segment입니다: {exc.args[0]}")
+            except TrafficLockConflict as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "traffic segment locked",
+                        "traffic_state": "WAITING_TRAFFIC",
+                        "segment_id": exc.segment_id,
+                        "current_lock": exc.current_lock,
+                        "requested_segments": traffic_segments,
+                    },
+                )
+
+        runtime.movement_commands[req.command_id] = {
+            "command_id": req.command_id,
+            "task_id": req.task_id,
+            "robot_name": req.robot_name,
+            "state": "ACCEPTED",
+            "current_step_index": None,
+            "current_step_action": None,
+            "message": "accepted",
+            "traffic_segments": traffic_segments,
+            "traffic_locks": traffic_locks,
+            "traffic_state": "LOCKED" if traffic_segments else None,
+            "callback_url": req.callback_url,
+            "step_actions": [step.action for step in req.steps],
+            "gate_timeout_sec": next(
+                (
+                    step.payload.get("gate_timeout_sec")
+                    for step in req.steps
+                    if step.payload.get("gate_timeout_sec") is not None
+                ),
+                GATE_TIMEOUT_SEC,
+            ),
+            "simulation_mode": is_simulation_mode(),
+            "created_at": _utc_now(),
+            "updated_at": _utc_now(),
+        }
+        return {"accepted": True, "command_id": req.command_id, "state": "ACCEPTED"}, True
 
 
 def _movement_accept_command(
@@ -173,78 +261,13 @@ def _movement_accept_command(
             },
         )
 
-    existing = runtime.movement_commands.get(req.command_id)
-    if existing:
-        return {
-            "accepted": True,
-            "command_id": req.command_id,
-            "state": existing["state"],
-            "duplicate": True,
-        }
-
-    active_command = next(
-        (command for command in runtime.movement_commands.values()
-         if command.get("robot_name") == req.robot_name and command.get("state") in ("ACCEPTED", "RUNNING")),
-        None,
-    )
-    if active_command:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "robot already has an active movement command",
-                "active_command_id": active_command.get("command_id"),
-                "active_state": active_command.get("state"),
-            },
-        )
-
-    traffic_segments = traffic_segments_from_steps(req.steps)
-    traffic_locks = []
-    if traffic_segments:
-        if not runtime.traffic_manager:
-            raise HTTPException(status_code=503, detail="Traffic manager 초기화 중입니다.")
-        try:
-            traffic_locks = runtime.traffic_manager.acquire_many(
-                traffic_segments,
-                robot_id=req.robot_name,
-                command_id=req.command_id,
-                route_type=req.steps[0].payload.get("route_type") if req.steps else None,
-            )
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=f"등록되지 않은 traffic segment입니다: {exc.args[0]}")
-        except TrafficLockConflict as exc:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "traffic segment locked",
-                    "traffic_state": "WAITING_TRAFFIC",
-                    "segment_id": exc.segment_id,
-                    "current_lock": exc.current_lock,
-                    "requested_segments": traffic_segments,
-                },
-            )
-
-    runtime.movement_commands[req.command_id] = {
-        "command_id": req.command_id,
-        "task_id": req.task_id,
-        "robot_name": req.robot_name,
-        "state": "ACCEPTED",
-        "current_step_index": None,
-        "current_step_action": None,
-        "message": "accepted",
-        "traffic_segments": traffic_segments,
-        "traffic_locks": traffic_locks,
-        "traffic_state": "LOCKED" if traffic_segments else None,
-        "callback_url": req.callback_url,
-        "step_actions": [step.action for step in req.steps],
-        "gate_timeout_sec": next((step.payload.get("gate_timeout_sec") for step in req.steps if step.payload.get("gate_timeout_sec") is not None), GATE_TIMEOUT_SEC),
-        "simulation_mode": is_simulation_mode(),
-        "created_at": _utc_now(),
-        "updated_at": _utc_now(),
-    }
+    response, created = _register_movement_command(req)
+    if not created:
+        return response
     robot_context.report_movement_robot_status(req.robot_name, req.command_id, "busy")
     command_state.report_command_callback(runtime.movement_commands[req.command_id], "ACCEPTED", "accepted")
     background_tasks.add_task(movement_executor.execute_movement_command, req)
-    return {"accepted": True, "command_id": req.command_id, "state": "ACCEPTED"}
+    return response
 
 
 @router.get("/movement-api/v1/commands/{command_id}")
@@ -373,7 +396,8 @@ def movement_robot_nav_state(robot_name: str):
         "reason": localization["reason"],
         "active_commands": [
             command_id for command_id, command in runtime.movement_commands.items()
-            if command.get("robot_name") == robot_name and command.get("state") in ("ACCEPTED", "RUNNING")
+            if command.get("robot_name") == robot_name
+            and command.get("state") in ("ACCEPTED", "RUNNING", "ARRIVED")
         ],
         "reported_at": _utc_now(),
     }
@@ -422,7 +446,7 @@ def movement_simulation_state():
         "is_emergency": bool(runtime.navigator.safety.estop),
         "active_commands": [
             command_id for command_id, command in runtime.movement_commands.items()
-            if command.get("state") in ("ACCEPTED", "RUNNING")
+            if command.get("state") in ("ACCEPTED", "RUNNING", "ARRIVED")
         ],
         "reported_at": _utc_now(),
     }
@@ -456,7 +480,7 @@ def movement_clear_estop():
 @router.post("/movement-api/v1/manual/rotate", dependencies=[Depends(require_main_signature)])
 def movement_manual_rotate(req: ManualRotateRequest):
     """Manual rotation endpoint for short operator jog commands."""
-    manual_control.prepare_manual_control(req.robot_name, req.override_nav)
+    manual_control.prepare_manual_control(req.robot_name)
     if req.direction not in ("left", "right"):
         raise HTTPException(status_code=400, detail="direction은 left 또는 right만 가능합니다.")
 
@@ -478,7 +502,7 @@ def movement_manual_rotate(req: ManualRotateRequest):
 @router.post("/movement-api/v1/manual/translate", dependencies=[Depends(require_main_signature)])
 def movement_manual_translate(req: ManualTranslateRequest):
     """Manual forward/backward endpoint for short operator jog commands."""
-    manual_control.prepare_manual_control(req.robot_name, req.override_nav)
+    manual_control.prepare_manual_control(req.robot_name)
     if req.direction not in ("forward", "backward"):
         raise HTTPException(status_code=400, detail="direction은 forward 또는 backward만 가능합니다.")
 
@@ -500,7 +524,7 @@ def movement_manual_translate(req: ManualTranslateRequest):
 @router.post("/movement-api/v1/manual/start", dependencies=[Depends(require_main_signature)])
 def movement_manual_start(req: ManualStartRequest):
     """Start continuous manual jog until /manual/stop or timeout_sec."""
-    manual_control.prepare_manual_control(req.robot_name, req.override_nav, allow_manual_busy=True)
+    manual_control.prepare_manual_control(req.robot_name, allow_manual_busy=True)
     if req.command not in ("forward", "backward", "left", "right", "stop"):
         raise HTTPException(status_code=400, detail="command는 forward, backward, left, right, stop만 가능합니다.")
 
@@ -559,13 +583,15 @@ def movement_manual_stop(req: ManualStopRequest):
                 f"{req.robot_name} 명령은 해당 robot_name 프로세스로 보내야 합니다."
             ),
         )
-    if not runtime.mission_manager.dry_run:
-        runtime.navigator.publish_stop_velocity()
+    stop_result = stop_active_motion()
+    confirmed = stop_result.get("confirmed") is True
 
     return {
-        "accepted": True,
+        "accepted": confirmed,
         "robot_name": req.robot_name,
-        "stopped": True,
+        "stopped": confirmed,
+        "state": "STOPPED" if confirmed else "STOP_UNCONFIRMED",
+        "stop_result": stop_result,
         "dry_run": runtime.mission_manager.dry_run,
     }
 

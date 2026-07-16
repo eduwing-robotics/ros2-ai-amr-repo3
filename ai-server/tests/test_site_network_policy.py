@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMON = ROOT / "scripts" / "lib" / "vision_bundle_common.sh"
+VISION_LAUNCHER = ROOT / "scripts" / "vision" / "sf_vision.sh"
 MDNS_PUBLISHER = ROOT / "scripts" / "vision" / "publish_vision_mdns_alias.py"
 PROFILES = ROOT / "config" / "vision" / "profiles"
 
@@ -54,30 +55,11 @@ def test_lan_ip_selection_fails_closed_without_a_site_address(tmp_path: Path) ->
     assert result.stdout == ""
 
 
-def test_mdns_auto_address_uses_the_site_subnet(tmp_path: Path) -> None:
-    fake_bin = _fake_hostname(tmp_path, "192.168.10.59 192.168.30.5")
-    result = subprocess.run(
-        ["python3", str(MDNS_PUBLISHER), "--print-only"],
-        cwd=ROOT,
-        env={
-            "PATH": f"{fake_bin}:/usr/bin:/bin",
-            "SMARTFACTORY_LAN_IPV4_PREFIX": "192.168.30.",
-        },
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+def test_standard_profiles_and_launcher_do_not_publish_runtime_mdns_alias() -> None:
+    profile_texts = [path.read_text(encoding="utf-8") for path in PROFILES.glob("*.env")]
+    launcher = VISION_LAUNCHER.read_text(encoding="utf-8")
 
-    assert result.returncode == 0, result.stderr
-    assert "192.168.30.5" in result.stdout
-    assert "192.168.10." not in result.stdout
-
-
-def test_only_low_load_lab_profile_publishes_runtime_mdns_alias() -> None:
-    publishers = [
-        path.name
-        for path in PROFILES.glob("*.env")
-        if "SF_VISION_MDNS_ENABLED=true" in path.read_text(encoding="utf-8")
-    ]
-
-    assert publishers == ["lab-gopro-tb3-low-load.env"]
+    assert all("SF_VISION_MDNS_ENABLED" not in text for text in profile_texts)
+    assert "SF_VISION_MDNS_ENABLED" not in launcher
+    assert "publish_vision_mdns_alias.py" not in launcher
+    assert not MDNS_PUBLISHER.exists()

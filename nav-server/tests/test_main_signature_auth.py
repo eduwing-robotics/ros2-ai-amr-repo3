@@ -54,6 +54,129 @@ def test_missing_secret_fails_closed(nav_client, monkeypatch):
     assert client.post("/movement-api/v1/routes/preview", json={}).status_code == 503
 
 
+def test_robot_command_cancel_requires_hmac_and_rejects_replay(nav_client, monkeypatch):
+    from nav_app.runtime import runtime
+
+    monkeypatch.setenv("NAV_MAIN_HMAC_SECRET", "test-main-nav-secret")
+    path = "/robot-commands/cmd-cancel-auth/cancel"
+    body = b"{}"
+    runtime.movement_commands["cmd-cancel-auth"] = {
+        "command_id": "cmd-cancel-auth",
+        "task_id": 42,
+        "robot_name": "tb3_1",
+        "state": "ACCEPTED",
+        "traffic_segments": [],
+    }
+
+    assert nav_client.post(path, content=body, headers={"content-type": "application/json"}).status_code == 401
+    headers = _headers(path, body)
+    response = nav_client.post(path, content=body, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["state"] == "CANCELED"
+    assert nav_client.post(path, content=body, headers=headers).status_code == 401
+
+
+def test_retired_manual_override_cannot_bypass_busy_autonomy(nav_client, monkeypatch):
+    import json
+
+    from nav_app.runtime import runtime
+    from nav_app.services import manual_control, robot_context
+
+    monkeypatch.setenv("NAV_MAIN_HMAC_SECRET", "test-main-nav-secret")
+    monkeypatch.setattr(manual_control, "_is_busy", lambda: True)
+    path = "/movement-api/v1/manual/translate"
+    body = json.dumps(
+        {
+            "robot_name": robot_context.active_bridge_robot_id(),
+            "direction": "forward",
+            "duration_sec": 0.2,
+            "linear_x": 0.1,
+            "override_nav": True,
+        },
+        separators=(",", ":"),
+    ).encode()
+
+    response = nav_client.post(path, content=body, headers=_headers(path, body))
+
+    assert response.status_code == 409
+    assert "canonical command cancel" in response.json()["detail"]
+    runtime.navigator.nav.cancelTask.assert_not_called()
+
+
+def test_arrived_docking_gate_is_exposed_for_teleop_safe_cancel(nav_client):
+    from nav_app.runtime import runtime
+    from nav_app.services import robot_context
+
+    robot_name = robot_context.active_bridge_robot_id()
+    runtime.movement_commands["cmd-arrived"] = {
+        "command_id": "cmd-arrived",
+        "robot_name": robot_name,
+        "state": "ARRIVED",
+    }
+
+    response = nav_client.get(
+        f"/movement-api/v1/robots/{robot_name}/nav-state"
+    )
+
+    assert response.status_code == 200
+    assert "cmd-arrived" in response.json()["active_commands"]
+
+
+@pytest.mark.parametrize(
+    ("stop_result", "expected_confirmed", "expected_state"),
+    [
+        (
+            {
+                "nav_cancelled": True,
+                "base_stopped": True,
+                "lift_stopped": True,
+                "confirmed": True,
+            },
+            True,
+            "STOPPED",
+        ),
+        (
+            {
+                "nav_cancelled": True,
+                "base_stopped": False,
+                "lift_stopped": True,
+                "confirmed": False,
+            },
+            False,
+            "STOP_UNCONFIRMED",
+        ),
+    ],
+)
+def test_manual_stop_reports_shared_physical_confirmation(
+    nav_client,
+    monkeypatch,
+    stop_result,
+    expected_confirmed,
+    expected_state,
+):
+    import json
+
+    from nav_app.routers import movement_api
+    from nav_app.services import robot_context
+
+    monkeypatch.setenv("NAV_MAIN_HMAC_SECRET", "test-main-nav-secret")
+    monkeypatch.setattr(movement_api, "stop_active_motion", lambda: stop_result)
+    path = "/movement-api/v1/manual/stop"
+    body = json.dumps(
+        {"robot_name": robot_context.active_bridge_robot_id()},
+        separators=(",", ":"),
+    ).encode()
+
+    response = nav_client.post(path, content=body, headers=_headers(path, body))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] is expected_confirmed
+    assert payload["stopped"] is expected_confirmed
+    assert payload["state"] == expected_state
+    assert payload["stop_result"] == stop_result
+
+
 def test_legacy_mission_start_is_disabled_by_default(nav_client, monkeypatch):
     monkeypatch.delenv("NAV_LEGACY_MISSION_START_ENABLED", raising=False)
     response = nav_client.post(

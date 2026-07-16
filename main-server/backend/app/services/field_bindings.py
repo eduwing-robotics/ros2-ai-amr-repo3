@@ -10,9 +10,10 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.db.map_reference import load_manifest
+
 _BINDINGS_PATH = Path(__file__).resolve().parents[2] / "config" / "field-bindings.json"
-_REQUIRED_LOCATION_FIELDS = {"kind", "map_id", "nav_zone", "nav_waypoint", "pose", "marker_id", "scan_location_id"}
-_REQUIRED_SCAN_FIELDS = {"location_id", "nav_waypoint", "pose", "marker_id"}
+_REQUIRED_LOCATION_FIELDS = {"kind", "map_id", "nav_zone", "nav_waypoint", "pose", "scan_location_id"}
 _FIELD_TASKS = {"INBOUND", "OUTBOUND"}
 
 
@@ -28,6 +29,20 @@ def _validate_pose(value: Any, label: str) -> None:
 
 
 @lru_cache(maxsize=1)
+def load_release_scans() -> dict[str, dict[str, Any]]:
+    manifest = load_manifest()
+    scans: dict[str, dict[str, Any]] = {}
+    for row in manifest["locations"]:
+        if row["type"] != "scan":
+            continue
+        marker_id = row.get("marker_id")
+        if not isinstance(marker_id, int) or isinstance(marker_id, bool):
+            raise _invalid(f"release scan {row['id']} requires integer marker_id")
+        scans[row["id"]] = {**row, "map_id": manifest["map_id"]}
+    return scans
+
+
+@lru_cache(maxsize=1)
 def load_field_bindings() -> dict[str, Any]:
     try:
         document = json.loads(_BINDINGS_PATH.read_text(encoding="utf-8"))
@@ -35,9 +50,10 @@ def load_field_bindings() -> dict[str, Any]:
         raise _invalid(str(exc)) from exc
     if not isinstance(document, dict) or document.get("version") != 1:
         raise _invalid("version must be 1")
-    locations, scans, map_dispatch = document.get("locations"), document.get("scans"), document.get("map_dispatch")
-    if not isinstance(locations, dict) or not isinstance(scans, dict) or not isinstance(map_dispatch, dict):
-        raise _invalid("locations, scans, and map_dispatch must be objects")
+    locations, map_dispatch = document.get("locations"), document.get("map_dispatch")
+    if not isinstance(locations, dict) or not isinstance(map_dispatch, dict):
+        raise _invalid("locations and map_dispatch must be objects")
+    scans = load_release_scans()
     for map_id, dispatch in map_dispatch.items():
         if not isinstance(map_id, str) or not map_id or not isinstance(dispatch, dict):
             raise _invalid("map_dispatch entries must be map-id objects")
@@ -49,19 +65,10 @@ def load_field_bindings() -> dict[str, Any]:
         if not isinstance(location_id, str) or not isinstance(binding, dict) or set(binding) != _REQUIRED_LOCATION_FIELDS:
             raise _invalid(f"location {location_id!r} must have the required binding fields")
         _validate_pose(binding["pose"], f"locations.{location_id}")
-        if not isinstance(binding["marker_id"], int) or not all(isinstance(binding[key], str) and binding[key] for key in ("kind", "map_id", "nav_zone", "nav_waypoint", "scan_location_id")):
+        if not all(isinstance(binding[key], str) and binding[key] for key in ("kind", "map_id", "nav_zone", "nav_waypoint", "scan_location_id")):
             raise _invalid(f"location {location_id} has invalid scalar fields")
         if binding["scan_location_id"] not in scans:
-            raise _invalid(f"location {location_id} scan_location_id is not declared")
-    for scan_id, binding in scans.items():
-        if not isinstance(scan_id, str) or not isinstance(binding, dict) or set(binding) != _REQUIRED_SCAN_FIELDS:
-            raise _invalid(f"scan {scan_id!r} must have the required binding fields")
-        _validate_pose(binding["pose"], f"scans.{scan_id}")
-        if not isinstance(binding["marker_id"], int) or not isinstance(binding["location_id"], str) or not isinstance(binding["nav_waypoint"], str):
-            raise _invalid(f"scan {scan_id} has invalid scalar fields")
-        parent = locations.get(binding["location_id"])
-        if not parent or parent["scan_location_id"] != scan_id or parent["marker_id"] != binding["marker_id"]:
-            raise _invalid(f"scan {scan_id} is not paired to its location binding")
+            raise _invalid(f"location {location_id} scan_location_id is not in the release manifest")
     return document
 
 
@@ -75,7 +82,7 @@ def binding_for(location_id: str) -> dict[str, Any]:
 def scan_binding_for(location_id: str) -> tuple[str, dict[str, Any]]:
     binding = binding_for(location_id)
     scan_id = binding["scan_location_id"]
-    return scan_id, load_field_bindings()["scans"][scan_id]
+    return scan_id, load_release_scans()[scan_id]
 
 
 def assert_robot_live_map(robot_id: str, binding_map_id: str) -> dict[str, Any]:
@@ -141,16 +148,18 @@ def assert_locations_match_map(location_ids: list[str], map_id: str) -> str:
 
 
 def validate_runtime_location(row: dict[str, Any], location_id: str, *, scan: bool = False) -> dict[str, Any]:
-    document = load_field_bindings()
-    binding = document["scans"].get(location_id) if scan else document["locations"].get(location_id)
+    binding = load_release_scans().get(location_id) if scan else load_field_bindings()["locations"].get(location_id)
     if not binding:
         label = "scan" if scan else "location"
         raise HTTPException(status_code=409, detail=f"{label} has no authoritative field binding: {location_id}")
-    expected = binding["pose"]
+    expected = binding if scan else binding["pose"]
     mismatches: list[str] = []
-    if not scan and row.get("map_id") != binding["map_id"]:
+    if row.get("map_id") != binding["map_id"]:
         mismatches.append("map_id")
-    for key, expected_value in (("marker_id", binding["marker_id"]), ("x", expected["x"]), ("y", expected["y"]), ("yaw", expected["yaw"])):
+    expected_values = [("x", expected["x"]), ("y", expected["y"]), ("yaw", expected["yaw"])]
+    if scan:
+        expected_values.insert(0, ("marker_id", binding["marker_id"]))
+    for key, expected_value in expected_values:
         actual = row.get(key)
         if key in {"x", "y", "yaw"}:
             if not isinstance(actual, (int, float)) or isinstance(actual, bool) or not math.isclose(float(actual), float(expected_value), abs_tol=1e-6):

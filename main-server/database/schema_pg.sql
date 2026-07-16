@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS robots (
     id            TEXT PRIMARY KEY,
     domain_id     INTEGER NOT NULL DEFAULT 1,
     status        TEXT NOT NULL DEFAULT 'IDLE',
+    enabled       BOOLEAN NOT NULL DEFAULT TRUE,
     battery_level DOUBLE PRECISION,
     last_seen_at  TIMESTAMPTZ,
     CONSTRAINT robots_status_chk CHECK (
@@ -26,6 +27,8 @@ CREATE TABLE IF NOT EXISTS locations (
     yaw       DOUBLE PRECISION DEFAULT 0,
     marker_id INTEGER,
     map_id    TEXT,
+    release_managed BOOLEAN NOT NULL DEFAULT FALSE,
+    release_revision TEXT,
     CONSTRAINT locations_type_chk CHECK (
         type IN ('inbound', 'outbound', 'storage', 'home', 'charge', 'dock', 'transit', 'scan')
     ),
@@ -197,3 +200,16 @@ ALTER TABLE locations ADD CONSTRAINT locations_type_chk CHECK (
 -- PHASE_74: map marker ownership per map.
 ALTER TABLE locations ADD COLUMN IF NOT EXISTS map_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_locations_map_id ON locations(map_id);
+CREATE INDEX IF NOT EXISTS idx_locations_release_managed
+    ON locations(release_managed) WHERE release_managed = TRUE;
+
+CREATE TABLE IF NOT EXISTS location_route_steps (
+    target_location_id TEXT NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    step_order INTEGER NOT NULL CHECK (step_order > 0),
+    waypoint_id TEXT NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    PRIMARY KEY (target_location_id, step_order),
+    UNIQUE (target_location_id, waypoint_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_location_route_steps_waypoint
+    ON location_route_steps(waypoint_id);

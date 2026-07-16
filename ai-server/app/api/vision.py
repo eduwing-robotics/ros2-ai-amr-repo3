@@ -65,7 +65,6 @@ from ..pose_profiles import ArucoPoseProfile, PoseProfileError, get_pose_profile
 from ..runtime_state import RuntimeContext, default_runtime_context
 from ..security import (
     require_main_hmac,
-    require_protected_debug_mutation,
     require_vision_gateway_hmac,
 )
 from ..smart_roi import (
@@ -2957,6 +2956,7 @@ def register_vision_routes(
     )(route(vision_streams))
     app.post(
         "/api/v1/vision/streams/{source}/webrtc/offer",
+        dependencies=[Depends(require_main_hmac)],
         responses={
             200: _json_response_openapi(
                 "Media-only WebRTC candidate offer/fallback descriptor",
@@ -2989,7 +2989,7 @@ def register_vision_routes(
     )(route(vision_worker_status))
     app.post(
         "/api/v1/vision/worker/tick",
-        dependencies=[Depends(require_protected_debug_mutation)],
+        dependencies=[Depends(require_main_hmac)],
         responses={
             401: ERROR_RESPONSE_OPENAPI,
             400: ERROR_RESPONSE_OPENAPI,
@@ -3131,7 +3131,7 @@ def register_vision_routes(
     )(route(metrics_snapshot))
     app.post(
         "/api/v1/vision/synthetic/frame",
-        dependencies=[Depends(require_protected_debug_mutation)],
+        dependencies=[Depends(require_main_hmac)],
         responses={
             200: _json_response_openapi(
                 "Synthetic frame detection response with overlay metadata",
@@ -3146,7 +3146,7 @@ def register_vision_routes(
     )(route(ingest_synthetic_frame))
     app.post(
         "/api/v1/detect/image",
-        dependencies=[Depends(require_protected_debug_mutation)],
+        dependencies=[Depends(require_main_hmac)],
         responses={
             200: _json_response_openapi(
                 "Image detection response with VisionEvent v1 events",

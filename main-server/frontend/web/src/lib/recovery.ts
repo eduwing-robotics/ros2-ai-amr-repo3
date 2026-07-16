@@ -1,7 +1,7 @@
 import { apiGet, apiSend } from "./api";
 
 export type CargoState = "LOADED" | "EMPTY" | "UNKNOWN";
-export type RecoveryStrategy = "safe_replan" | "restart" | "manual_abort";
+export type RecoveryStrategy = "safe_move" | "manual_abort";
 
 export interface RecoveryContext {
   task_id: number;

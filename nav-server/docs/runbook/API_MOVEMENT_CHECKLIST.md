@@ -39,7 +39,7 @@ curl "$NAV_BASE/movement-api/v1/robots/$ROBOT_NAME/nav-state"
 | `GET /movement-api/v1/health` | 200, `ok=true`, `robot_online`, `dry_run`, `command_accepting` 확인 | 로봇이 움직이지 않아야 한다. 선택한 로봇과 포트가 맞는지 확인 |
 | `GET /movement-api/v1/robots` | active robot list와 `online/state` 확인 | 실제 켜진 로봇과 응답 robot name이 일치하는지 확인 |
 | `GET /robot/status` | legacy status schema와 battery/status 필드 확인 | 로봇이 움직이지 않아야 한다 |
-| `GET /movement-api/v1/endpoints` | hostname-first URL, fallback policy 확인 | 운영자가 접속할 URL과 포트가 맞는지 확인 |
+| `GET /movement-api/v1/endpoints` | hostname-first URL이며 IP/fallback endpoint가 없는지 확인 | 운영자가 접속할 URL과 포트가 맞는지 확인 |
 | `GET /movement-api/v1/map-state` | active map metadata 응답 확인 | 지도/관제 화면의 map과 실제 테스트 공간이 맞는지 확인 |
 | `GET /movement-api/v1/waypoints` | waypoint 목록과 좌표 파싱 확인 | 실제 주행 가능한 waypoint인지 운영자가 판단 |
 | `GET /movement-api/v1/inventory` | item mapping 응답 확인 | 품목 route 테스트 전 대상 품목이 실제 테스트에 적합한지 확인 |

@@ -74,9 +74,9 @@ npm run lint   # errors/warnings 0 필수
 
 ## 7. CI
 
-`.github/workflows/check.yml` — PostgreSQL service(5433) + `check_all.sh`. 절차: [DEVELOPMENT_GUIDE § GitHub/CI](DEVELOPMENT_GUIDE.md#github--ci).
+`.github/workflows/check.yml` — PostgreSQL service(5433) + `check_all.sh`. 절차: [DEVELOPMENT_GUIDE § GitHub/CI](../contributing/DEVELOPMENT_GUIDE.md#github--ci).
 
 ## Related
 
 - [CODE_QUALITY_POLICY](../contributing/CODE_QUALITY_POLICY.md)
-- [DEVELOPMENT_GUIDE](DEVELOPMENT_GUIDE.md)
+- [DEVELOPMENT_GUIDE](../contributing/DEVELOPMENT_GUIDE.md)

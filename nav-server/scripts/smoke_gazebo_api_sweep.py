@@ -105,9 +105,9 @@ def main() -> int:
     record("GET /movement-api/v1/aruco/latest", lambda: request_json("GET", "/movement-api/v1/aruco/latest"))
     record("GET /movement-api/v1/aruco/latest?marker_id=0", lambda: request_json("GET", "/movement-api/v1/aruco/latest?" + urlencode({"marker_id": 0})))
 
-    record("POST /movement-api/v1/manual/translate", lambda: request_json("POST", "/movement-api/v1/manual/translate", {"robot_name": ROBOT_NAME, "direction": "forward", "duration_sec": 1.0, "linear_x": 0.14, "override_nav": True}))
-    record("POST /movement-api/v1/manual/rotate", lambda: request_json("POST", "/movement-api/v1/manual/rotate", {"robot_name": ROBOT_NAME, "direction": "left", "duration_sec": 1.0, "angular_z": 0.7, "override_nav": True}))
-    record("POST /movement-api/v1/manual/start", lambda: request_json("POST", "/movement-api/v1/manual/start", {"robot_name": ROBOT_NAME, "command": "forward", "linear_x": 0.12, "timeout_sec": 1.5, "override_nav": True}))
+    record("POST /movement-api/v1/manual/translate", lambda: request_json("POST", "/movement-api/v1/manual/translate", {"robot_name": ROBOT_NAME, "direction": "forward", "duration_sec": 1.0, "linear_x": 0.14}))
+    record("POST /movement-api/v1/manual/rotate", lambda: request_json("POST", "/movement-api/v1/manual/rotate", {"robot_name": ROBOT_NAME, "direction": "left", "duration_sec": 1.0, "angular_z": 0.7}))
+    record("POST /movement-api/v1/manual/start", lambda: request_json("POST", "/movement-api/v1/manual/start", {"robot_name": ROBOT_NAME, "command": "forward", "linear_x": 0.12, "timeout_sec": 1.5}))
     time.sleep(0.8)
     record("POST /movement-api/v1/manual/stop", lambda: request_json("POST", "/movement-api/v1/manual/stop", {"robot_name": ROBOT_NAME}))
 

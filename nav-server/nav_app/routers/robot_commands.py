@@ -4,7 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from nav_app.models import RobotCommandRequest
 from nav_app.runtime import runtime
 from nav_app.settings import ACTIVE_ROBOT_ID, is_simulation_mode
-from nav_app.services import robot_commands
+from nav_app.services import command_state, robot_commands
 from nav_app.routers.movement_api import (
     _ensure_synthetic_hil_live_admission,
     _movement_accept_command,
@@ -44,3 +44,11 @@ def accept_robot_command(req: RobotCommandRequest, background_tasks: BackgroundT
 @router.get("/robot-commands/{command_id}")
 def get_robot_command(command_id: str):
     return movement_get_command(command_id)
+
+
+@router.post(
+    "/robot-commands/{command_id}/cancel",
+    dependencies=[Depends(require_main_signature)],
+)
+def cancel_robot_command(command_id: str):
+    return command_state.cancel_command_id(command_id)

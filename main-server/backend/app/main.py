@@ -4,17 +4,52 @@ import asyncio
 import contextlib
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes import router
 from app.core.config import settings
-from app.db.connection import init_db
+from app.db.connection import init_db, transaction
+from app.db.repo_bridge import robot_repo
+from app.services import person_hazard
 from app.services.person_hazard_loop import person_hazard_loop
+from app.services.pose_monitor import pose_event_writer_loop, pose_fallback_poller_loop, pose_watchdog_loop
+from app.services.pose_runtime import pose_runtime
+from app.services.runtime_map_context import get_runtime_map_context
 from app.services.task_progress_poller import poll_task_progress_loop
+
+_SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
+
+
+def _origin_parts(value: str) -> tuple[str, str, int] | None:
+    """Return the browser origin tuple for a plain HTTP(S) origin."""
+    try:
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme.lower() not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            return None
+        port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    except ValueError:
+        return None
+    return parsed.scheme.lower(), parsed.hostname.lower(), port
+
+
+def _origin_matches_request(request: Request, origin: str) -> bool:
+    host = request.headers.get("host", "")
+    origin_parts = _origin_parts(origin)
+    request_parts = _origin_parts(f"{request.url.scheme}://{host}")
+    return origin_parts is not None and origin_parts == request_parts
 
 
 class SpaStaticFiles(StaticFiles):
@@ -33,6 +68,23 @@ class SpaStaticFiles(StaticFiles):
             raise
 
 
+def initialize_pose_runtime() -> None:
+    """Register enabled robots without restoring any persisted starting pose."""
+    with transaction() as conn:
+        rows = robot_repo(conn).list()
+    context = get_runtime_map_context().to_map_state()
+    pose_runtime.configure(
+        [row["robot_id"] for row in rows if row.get("enabled", True)],
+        context,
+    )
+
+
+def initialize_person_hazard_safety() -> int:
+    """Hold persisted in-flight motion before any startup poller can advance it."""
+    with transaction() as conn:
+        return person_hazard.reconcile_startup_person_hazard_safety(conn)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작 시 PostgreSQL DB를 초기화하고 task progress poller를 띄운다."""
@@ -44,27 +96,40 @@ async def lifespan(app: FastAPI):
     load_field_bindings()
     require_database_url()
     init_db()
+    initialize_pose_runtime()
+    initialize_person_hazard_safety()
     sweep_task = asyncio.create_task(poll_task_progress_loop())
     hazard_task = asyncio.create_task(person_hazard_loop())
-    yield
-    hazard_task.cancel()
-    sweep_task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await hazard_task
-    with contextlib.suppress(asyncio.CancelledError):
-        await sweep_task
+    pose_tasks = [
+        asyncio.create_task(pose_watchdog_loop()),
+        asyncio.create_task(pose_event_writer_loop()),
+        asyncio.create_task(pose_fallback_poller_loop()),
+    ]
+    app.state.pose_tasks = pose_tasks
+    try:
+        yield
+    finally:
+        for task in [hazard_task, sweep_task, *pose_tasks]:
+            task.cancel()
+        for task in [hazard_task, sweep_task, *pose_tasks]:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 
 def create_app() -> FastAPI:
     """FastAPI 앱 생성."""
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+
+    @app.middleware("http")
+    async def reject_cross_site_browser_mutations(request: Request, call_next):
+        if request.method.upper() not in _SAFE_HTTP_METHODS:
+            fetch_site = request.headers.get("sec-fetch-site")
+            origin = request.headers.get("origin")
+            wrong_fetch_site = fetch_site is not None and fetch_site.strip().lower() != "same-origin"
+            wrong_origin = origin is not None and not _origin_matches_request(request, origin.strip())
+            if wrong_fetch_site or wrong_origin:
+                return JSONResponse(status_code=403, content={"detail": "cross-site browser mutation rejected"})
+        return await call_next(request)
 
     app.include_router(router, prefix=settings.api_prefix)
 

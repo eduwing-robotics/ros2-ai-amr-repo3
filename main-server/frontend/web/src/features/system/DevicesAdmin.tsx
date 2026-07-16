@@ -12,10 +12,8 @@ import { cell } from "../../lib/format";
 import type { CommLog } from "../../hooks/useCommLogs";
 import type { CameraSource, Robot } from "../../types";
 import { MapGoto } from "../control/MapGoto";
-import { RobotCommandTestPanel } from "./RobotCommandTestPanel";
-import { ArucoManualTest } from "./ArucoManualTest";
 
-const EMPTY_ROBOT = { robot_id: "", display_name: "", status: "IDLE", battery: "" };
+const EMPTY_ROBOT = { robot_id: "", display_name: "", status: "IDLE", enabled: true, battery: "" };
 const EMPTY_CAMERA = { source_id: "", label: "", robot_id: "", status: "not_connected", stream_url: "" };
 
 const logColumns: Column<CommLog>[] = [
@@ -54,6 +52,7 @@ export function DevicesAdmin() {
     robot_id: r.robot_id,
     display_name: r.display_name,
     status: r.status,
+    enabled: r.enabled,
     battery: r.battery == null ? "" : String(r.battery),
   });
 
@@ -94,6 +93,7 @@ export function DevicesAdmin() {
                     robot_id: robotForm.robot_id.trim(),
                     display_name: robotForm.display_name.trim(),
                     status: robotForm.status.trim() || "IDLE",
+                    enabled: robotForm.enabled,
                     battery: robotForm.battery ? Number(robotForm.battery) : null,
                   });
                   setRobotForm(EMPTY_ROBOT);
@@ -105,13 +105,33 @@ export function DevicesAdmin() {
           </div>
           <div className="table-wrap clean-table">
             <table>
-              <thead><tr><th>robot_id</th><th>이름</th><th>status</th><th></th></tr></thead>
+              <thead><tr><th>robot_id</th><th>이름</th><th>status</th><th>연결</th><th>운용</th><th></th></tr></thead>
               <tbody>
-                {robots.length === 0 ? <tr><td colSpan={4} className="empty">로봇 없음</td></tr> :
+                {robots.length === 0 ? <tr><td colSpan={6} className="empty">로봇 없음</td></tr> :
                   robots.map((r) => (
                     <tr key={r.robot_id}>
                       <td className="mono">{r.robot_id}</td><td>{r.display_name}</td>
                       <td><Pill status={r.status} /></td>
+                      <td>{!r.enabled ? "미운용" : data?.movement_health?.[r.robot_id]?.ok ? "온라인" : "오프라인"}</td>
+                      <td>
+                        <label className="operation-switch" title={r.enabled ? "작업 투입 대상" : "자동 배정·일반 이동 제외"}>
+                          <input
+                            type="checkbox"
+                            aria-label={r.display_name + " 운용 사용"}
+                            checked={r.enabled}
+                            disabled={saveRobot.isPending}
+                            onChange={(e) => run(() => saveRobot.mutateAsync({
+                              robot_id: r.robot_id,
+                              display_name: r.display_name,
+                              status: r.status,
+                              battery: r.battery ?? null,
+                              enabled: e.target.checked,
+                            }))}
+                          />
+                          <span className="operation-switch-track" aria-hidden="true" />
+                          <span>{r.enabled ? "사용" : "미운용"}</span>
+                        </label>
+                      </td>
                       <td>
                         <Button variant="row" onClick={() => editRobot(r)}>수정</Button>
                         {pendingDelete?.kind === "robot" && pendingDelete.id === r.robot_id ? (
@@ -195,9 +215,6 @@ export function DevicesAdmin() {
         </div>
         <DataTable columns={logColumns} rows={logs} getKey={(_, i) => i} emptyText="통신 로그 없음" />
       </Panel>
-
-      <RobotCommandTestPanel robots={robots} />
-      <ArucoManualTest robots={robots} />
 
       <MapGoto robots={robots} />
     </div>

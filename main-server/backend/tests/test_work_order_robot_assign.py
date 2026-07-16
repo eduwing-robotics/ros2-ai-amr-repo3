@@ -58,6 +58,22 @@ class WorkOrderRobotAssignTest(unittest.TestCase):
         }
         task_service._assert_robot_ready_for_assignment("tb3_1")
 
+    @patch("app.api.movement_helpers.localization_snapshot")
+    @patch("app.core.config.settings")
+    def test_battery_assignment_boundaries(self, settings, snap) -> None:
+        settings.movement_client_mode = "http"
+        base = {
+            "health": {"ok": True, "robot_online": True, "command_accepting": True},
+            "localized": True,
+            "pose": {"x": 0, "y": 0},
+        }
+        for battery, expected in ((19, "robot_battery_low"), (20, None), (None, None)):
+            with self.subTest(battery=battery):
+                health = dict(base["health"])
+                health["battery"] = battery
+                snap.return_value = {**base, "health": health}
+                self.assertEqual(task_service.robot_assignment_block_reason("tb3_1"), expected)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -11,6 +11,8 @@ from fastapi import HTTPException, Request
 from app.core.config import settings
 
 _COMMAND_EVENTS_PATH = "/movement/command-events"
+_CANONICAL_MAIN_HOST = "smartfactory-main.local"
+_SITE_NETWORK = ipaddress.ip_network("192.168.30.0/24")
 
 
 def _fail(detail: str) -> None:
@@ -49,22 +51,23 @@ def _origin(url: str) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
 
 
-def _is_private_address(address: str) -> bool:
-    ip = ipaddress.ip_address(address)
-    return not ip.is_global
-
-
-def _validate_public_host(host: str, port: int) -> None:
+def _validate_site_host(host: str, port: int) -> None:
+    if host != _CANONICAL_MAIN_HOST:
+        _fail(f"callback must use {_CANONICAL_MAIN_HOST}")
     try:
-        ip = ipaddress.ip_address(host)
-        addresses = {str(ip)}
-    except ValueError:
-        try:
-            addresses = {item[4][0] for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)}
-        except socket.gaierror:
-            _fail("callback hostname cannot be resolved")
-    if not addresses or any(_is_private_address(address) for address in addresses):
-        _fail("callback host resolves to non-public address")
+        addresses = {
+            ipaddress.ip_address(item[4][0])
+            for item in socket.getaddrinfo(
+                host,
+                port,
+                family=socket.AF_INET,
+                type=socket.SOCK_STREAM,
+            )
+        }
+    except socket.gaierror:
+        _fail("callback hostname cannot be resolved")
+    if not addresses or any(address not in _SITE_NETWORK for address in addresses):
+        _fail("callback hostname must resolve only to 192.168.30.x")
 
 
 def _allowed_origins() -> set[str]:
@@ -95,10 +98,19 @@ def _configured_callback_base() -> str:
         and bool(settings.callback_allowlist)
         and origin in _allowed_origins()
     )
-    if not nohardware_allowed and not field_lan_allowed:
-        if origin not in _allowed_origins():
-            _fail("callback base is not allowlisted")
-        _validate_public_host(parsed.hostname or "", parsed.port or (443 if parsed.scheme == "https" else 80))
+    if not nohardware_allowed:
+        host = parsed.hostname or ""
+        try:
+            direct_ip = ipaddress.ip_address(host)
+        except ValueError:
+            direct_ip = None
+        if direct_ip is not None:
+            if not field_lan_allowed or direct_ip not in _SITE_NETWORK:
+                _fail("direct callback IP must be an explicitly allowlisted 192.168.30.x address")
+        else:
+            if origin not in _allowed_origins():
+                _fail("callback base is not allowlisted")
+            _validate_site_host(host, parsed.port or (443 if parsed.scheme == "https" else 80))
     return base
 
 

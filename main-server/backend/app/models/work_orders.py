@@ -22,6 +22,26 @@ class WorkOrderTask(BaseModel):
     target_zone: str | None = None
     selection_reason: str | None = None
     available_qty_at_plan: int | None = None
+    business_completed: bool = False
+    return_status: str | None = None
+    parking_error: dict[str, Any] | None = None
+    progress: "WorkOrderTaskProgress | None" = None
+
+
+class WorkOrderTaskProgressStep(BaseModel):
+    step_index: int = Field(ge=0)
+    kind: str
+    label: str | None = None
+    status: str
+    command_id: str | None = None
+    transfer_action: str | None = None
+    failure_reason: str | None = None
+
+
+class WorkOrderTaskProgress(BaseModel):
+    phase: str
+    current_step_index: int = Field(ge=0)
+    steps: list[WorkOrderTaskProgressStep] = Field(default_factory=list)
 
 
 class WorkOrder(BaseModel):
@@ -37,6 +57,19 @@ class WorkOrder(BaseModel):
     updated_at: str | None = None
     tasks: list[WorkOrderTask] = Field(default_factory=list)
     mission_results: list[dict[str, Any]] = Field(default_factory=list)
+    business_completed: bool = False
+    return_status: str | None = None
+    parking_error: dict[str, Any] | None = None
+
+
+class WorkOrderStopResult(BaseModel):
+    order_id: int
+    task_id: int
+    status: Literal["CANCEL_REQUESTED", "AWAITING_OPERATOR"]
+    accepted: bool
+    command_id: str | None = None
+    cargo_state: Literal["EMPTY", "LOADED", "UNKNOWN"]
+    business_completed: bool = False
 
 
 class WorkOrderCreate(BaseModel):

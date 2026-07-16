@@ -24,10 +24,8 @@ def movement_reason(health: dict, pose_payload: dict | None = None) -> tuple[str
         return "robot_offline", "check_robot_bringup"
     if health.get("is_emergency"):
         return "emergency_stop", "clear_emergency"
-    if not localized or not pose:
-        if health.get("localization_required", True):
-            return "initial_pose_required", "set_initial_pose"
-        return "amcl_pose_not_received", "check_localization"
+    if health.get("localization_required", True) and (not localized or not pose):
+        return "initial_pose_required", "set_initial_pose"
     if health.get("command_accepting") is False:
         return "command_not_accepting", "check_nav_state"
     return "ok", None

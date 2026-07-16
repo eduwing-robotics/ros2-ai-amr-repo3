@@ -80,7 +80,6 @@ class ManualRotateRequest(BaseModel):
     direction: str = Field(default="left", description="left 또는 right")
     duration_sec: float = Field(default=1.0, ge=0.1, le=5.0)
     angular_z: float = Field(default=0.5, gt=0.0, le=1.5)
-    override_nav: bool = Field(default=False, description="true면 진행 중인 Nav2 task를 취소하고 수동 조작")
 
 
 class ManualTranslateRequest(BaseModel):
@@ -88,7 +87,6 @@ class ManualTranslateRequest(BaseModel):
     direction: str = Field(default="forward", description="forward 또는 backward")
     duration_sec: float = Field(default=1.0, ge=0.1, le=5.0)
     linear_x: float = Field(default=0.1, gt=0.0, le=0.22)
-    override_nav: bool = Field(default=False, description="true면 진행 중인 Nav2 task를 취소하고 수동 조작")
 
 
 class ManualStopRequest(BaseModel):
@@ -101,7 +99,6 @@ class ManualStartRequest(BaseModel):
     linear_x: float = Field(default=0.1, gt=0.0, le=0.22)
     angular_z: float = Field(default=0.5, gt=0.0, le=1.5)
     timeout_sec: float = Field(default=2.0, ge=0.1, le=30.0)
-    override_nav: bool = Field(default=False, description="true면 진행 중인 Nav2 task를 취소하고 수동 조작")
 
 
 class MissionRequest(BaseModel):

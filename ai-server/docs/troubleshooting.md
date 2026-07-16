@@ -22,21 +22,20 @@ Check source status and stream discovery:
 Model weights are not committed. Run `./scripts/ai/setup_ai_server_env.sh` to
 create `.venv/` and download the default pretrained weights under `models/`.
 
-## mDNS/hostname not reachable
+## Hostname not reachable
 
-Low-load normally publishes `smartfactory-vision.local` to the current
-`192.168.30.*` Vision PC address for the lifetime of the supervised runtime.
-Check the managed publisher and its selected address:
+The shared repository hosts mapping is the only authority for
+`smartfactory-vision.local`. Check it from the repository root:
 
 ```bash
-./scripts/vision/sf_lab.sh status
-cat .run/vision/logs/mdns-alias.log
+cd ..
+./scripts/install-smartfactory-hosts.sh --check
 getent ahostsv4 smartfactory-vision.local
 ```
 
-If `mdns-alias` is not alive, restart the main runtime with
-`./scripts/vision/sf_lab.sh low-load`. Direct-IP URLs are a temporary diagnostic
-fallback, not the hostname-first operating contract.
+If the check fails, correct the canonical mapping before restarting low-load.
+Do not publish a second mDNS alias or save a direct-IP fallback in service
+configuration.
 
 ## WebRTC and MJPEG overlays differ
 

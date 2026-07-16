@@ -55,7 +55,6 @@ export const MODES: ModeDef[] = [
       // admin/actions — placeholder 숨김(PHASE_39). 컴포넌트는 보존.
       item("admin/devices", "로봇·카메라"),
       item("admin/system", "시스템"),
-      item("admin/devtools", "개발자"),
       RECORDS,
     ],
   },

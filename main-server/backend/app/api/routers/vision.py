@@ -5,12 +5,11 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Body, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
 from app.db.connection import transaction
 from app.db.repo_bridge import camera_repo
-from app.security import require_operator
 from app.services.person_hazard import validate_hazard_payload
 from app.services.vision_proxy import (
     VisionUpstreamError,
@@ -82,7 +81,7 @@ def vision_streams(
     return Response(content=body, media_type=content_type, headers={"Cache-Control": "no-store"})
 
 
-@router.post("/streams/{source_id}/webrtc/offer", dependencies=[Depends(require_operator)])
+@router.post("/streams/{source_id}/webrtc/offer")
 def vision_webrtc_offer(
     source_id: str,
     view: str = Query(default="full"),
@@ -178,7 +177,7 @@ def vision_person_monitor_state(robot_id: str = Query(...)) -> Response:
     return Response(content=json.dumps(payload), media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
-@router.put("/monitors/person_drive/state", dependencies=[Depends(require_operator)])
+@router.put("/monitors/person_drive/state")
 def vision_person_monitor_put(body: dict = Body(...)) -> Response:
     try:
         payload = put_person_monitor_state(body)

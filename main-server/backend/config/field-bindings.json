@@ -23,8 +23,7 @@
         "y": 1.082,
         "yaw": 1.655
       },
-      "marker_id": 0,
-      "scan_location_id": "scan_INBOUND_01"
+      "scan_location_id": "inbound_slot_1_approach"
     },
     "OUTBOUND_01": {
       "kind": "outbound",
@@ -36,8 +35,7 @@
         "y": 0.27,
         "yaw": -1.57
       },
-      "marker_id": 5,
-      "scan_location_id": "scan_OUTBOUND_01"
+      "scan_location_id": "outbound_slot_1_approach"
     },
     "STORAGE_S1": {
       "kind": "storage",
@@ -49,8 +47,7 @@
         "y": 0.573,
         "yaw": -0.155
       },
-      "marker_id": 7,
-      "scan_location_id": "scan_STORAGE_S1"
+      "scan_location_id": "warehouse_a_approach"
     },
     "STORAGE_S2": {
       "kind": "storage",
@@ -62,8 +59,7 @@
         "y": 0.992,
         "yaw": 0.0
       },
-      "marker_id": 8,
-      "scan_location_id": "scan_STORAGE_S2"
+      "scan_location_id": "warehouse_b_approach"
     },
     "STORAGE_S3": {
       "kind": "storage",
@@ -75,8 +71,7 @@
         "y": 1.236,
         "yaw": 3.14
       },
-      "marker_id": 10,
-      "scan_location_id": "scan_STORAGE_S3"
+      "scan_location_id": "warehouse_c_approach"
     },
     "STORAGE_S4": {
       "kind": "storage",
@@ -88,8 +83,7 @@
         "y": 0.992,
         "yaw": 3.14
       },
-      "marker_id": 9,
-      "scan_location_id": "scan_STORAGE_S4"
+      "scan_location_id": "warehouse_d_approach"
     },
     "HOME_01": {
       "kind": "home",
@@ -101,12 +95,11 @@
         "y": 0.33,
         "yaw": -1.57
       },
-      "marker_id": 3,
-      "scan_location_id": "scan_HOME_01"
+      "scan_location_id": "vehicle_1_approach"
     },
     "CHARGE_01": {
       "kind": "charge",
-      "map_id": "robot1_map",
+      "map_id": "robot2_map",
       "nav_zone": "vehicle_2_zone",
       "nav_waypoint": "vehicle_2_dock",
       "pose": {
@@ -114,90 +107,7 @@
         "y": 0.953,
         "yaw": 1.394
       },
-      "marker_id": 4,
-      "scan_location_id": "scan_CHARGE_01"
-    }
-  },
-  "scans": {
-    "scan_INBOUND_01": {
-      "location_id": "INBOUND_01",
-      "nav_waypoint": "inbound_slot_1_approach",
-      "pose": {
-        "x": -0.085,
-        "y": 0.006,
-        "yaw": 1.571
-      },
-      "marker_id": 0
-    },
-    "scan_OUTBOUND_01": {
-      "location_id": "OUTBOUND_01",
-      "nav_waypoint": "outbound_slot_1_approach",
-      "pose": {
-        "x": 1.131,
-        "y": 0.006,
-        "yaw": 1.571
-      },
-      "marker_id": 5
-    },
-    "scan_STORAGE_S1": {
-      "location_id": "STORAGE_S1",
-      "nav_waypoint": "warehouse_a_approach",
-      "pose": {
-        "x": 0.019,
-        "y": -0.618,
-        "yaw": 0.0
-      },
-      "marker_id": 7
-    },
-    "scan_STORAGE_S2": {
-      "location_id": "STORAGE_S2",
-      "nav_waypoint": "warehouse_b_approach",
-      "pose": {
-        "x": 0.033,
-        "y": -0.376,
-        "yaw": 0.0
-      },
-      "marker_id": 8
-    },
-    "scan_STORAGE_S3": {
-      "location_id": "STORAGE_S3",
-      "nav_waypoint": "warehouse_c_approach",
-      "pose": {
-        "x": 1.239,
-        "y": -0.631,
-        "yaw": 3.142
-      },
-      "marker_id": 10
-    },
-    "scan_STORAGE_S4": {
-      "location_id": "STORAGE_S4",
-      "nav_waypoint": "warehouse_d_approach",
-      "pose": {
-        "x": 1.225,
-        "y": -0.377,
-        "yaw": 3.142
-      },
-      "marker_id": 9
-    },
-    "scan_HOME_01": {
-      "location_id": "HOME_01",
-      "nav_waypoint": "vehicle_1_approach",
-      "pose": {
-        "x": 0.527,
-        "y": 0.006,
-        "yaw": 1.571
-      },
-      "marker_id": 3
-    },
-    "scan_CHARGE_01": {
-      "location_id": "CHARGE_01",
-      "nav_waypoint": "vehicle_2_approach",
-      "pose": {
-        "x": 0.816,
-        "y": 0.006,
-        "yaw": 1.571
-      },
-      "marker_id": 4
+      "scan_location_id": "vehicle_2_approach"
     }
   }
 }

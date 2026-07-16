@@ -13,14 +13,15 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
   },
-  // 빌드 산출물은 web/dist → FastAPI 정적 서빙. dev 는 /api·/health 프록시.
+  // 빌드 산출물은 web/dist → FastAPI 정적 서빙. dev 는 브라우저 Host를
+  // 유지해 백엔드의 동일-origin 쓰기 검사를 통과시킨다.
   server: {
     port: 5173,
     proxy: {
-      "/api": { target: apiProxyTarget, changeOrigin: true },
-      "/health": { target: apiProxyTarget, changeOrigin: true },
+      "/api": { target: apiProxyTarget, changeOrigin: false },
+      "/health": { target: apiProxyTarget, changeOrigin: false },
       // 개발자 API 콘솔(PHASE_42)이 스키마를 읽도록 OpenAPI 문서도 프록시.
-      "/openapi.json": { target: apiProxyTarget, changeOrigin: true },
+      "/openapi.json": { target: apiProxyTarget, changeOrigin: false },
     },
   },
 });

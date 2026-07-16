@@ -9,10 +9,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.config import settings
+from app.db.mvp.evidence import MvpEvidenceRepository
 from app.db.repo_bridge import evidence_repo, safety_stop_repo
 from app.services import evidence_runtime
 from app.services import orchestration_state as orch_state
-from app.services.movement import MovementClientError, movement_client
+from app.services.movement import movement_client
 from app.services.vision_proxy import (
     VisionUpstreamError,
     fetch_person_hazard_latest,
@@ -25,6 +26,12 @@ ROBOT_SOURCE_MAP: dict[str, str] = {
     "tb3_1": "tb3_1_picam",
     "tb3_2": "tb3_2_picam",
 }
+
+_PHYSICAL_MOTION_KINDS = frozenset({
+    "move_to_point", "aruco_align", "dock_transfer", "leave_dock",
+})
+_ACTIVE_MOTION_STATES = frozenset({"DISPATCHING", "DISPATCHED", "RUNNING"})
+_ACTIVE_RECOVERY_DISPATCH_STATES = frozenset({"PENDING", "DISPATCHING", "SENT"})
 
 FORBIDDEN_PAYLOAD_KEYS = frozenset({
     "bbox", "bbox_xyxy", "mask", "mask_rle", "polygon", "raw_detections", "detections",
@@ -195,7 +202,11 @@ def on_robot_task_terminal(robot_id: str, *, conn=None) -> None:
 
 
 def mark_task_needs_attention(conn, task_id: int, *, reason: str, robot_id: str | None = None) -> None:
-    orch = evidence_repo(conn).get_orchestration(task_id)
+    repo = evidence_repo(conn)
+    if isinstance(repo, MvpEvidenceRepository) and getattr(conn, "is_postgres", False) is True:
+        orch = repo.lock_orchestration(task_id)
+    else:
+        orch = repo.get_orchestration(task_id)
     if not orch:
         return
     orch = dict(orch)
@@ -216,11 +227,122 @@ def mark_running_tasks_needs_attention(conn, *, reason: str) -> int:
         if orch_state.normalize_phase(orch.get("phase")) == orch_state.PHASE_AWAITING_OPERATOR:
             continue
         mark_task_needs_attention(conn, task_id, reason=reason, robot_id=task.get("assigned_robot_id"))
-        robot_id = task.get("assigned_robot_id")
-        if robot_id:
-            on_robot_task_terminal(str(robot_id), conn=conn)
         count += 1
+    if count:
+        # Fleet E-stop calls Movement only after these holds are durable and
+        # every transaction-scoped task lock has been released.
+        conn.commit()
     return count
+
+
+def reconcile_startup_person_hazard_safety(conn) -> int:
+    """Fail closed before startup pollers advance persisted physical motion."""
+    if not getattr(settings, "person_hazard_enabled", True):
+        return 0
+
+    held = 0
+    for task in evidence_runtime.list_orchestrated_running(conn):
+        if str(task.get("status") or "").upper() != "RUNNING":
+            continue
+        task_id = int(task["task_id"])
+        orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
+        phase = orch_state.normalize_phase(orch.get("phase"))
+        robot_id = str(task.get("assigned_robot_id") or "")
+        steps = orch_state.get_steps(orch)
+        step_index = orch_state.get_step_index(orch)
+        step = steps[step_index] if 0 <= step_index < len(steps) else {}
+        preserve_existing_hold = False
+
+        if phase == orch_state.PHASE_RUNNING:
+            kind = str(step.get("kind") or "")
+            command_id = str(step.get("command_id") or "")
+            if (
+                kind not in _PHYSICAL_MOTION_KINDS
+                or str(step.get("status") or "").upper() not in _ACTIVE_MOTION_STATES
+            ):
+                continue
+        elif phase == orch_state.PHASE_ADVANCING:
+            kind = str(step.get("kind") or "")
+            command_id = str(step.get("command_id") or "")
+            if (
+                kind not in _PHYSICAL_MOTION_KINDS
+                or str(step.get("status") or "").lower() != "transition_claimed"
+            ):
+                continue
+        elif phase == orch_state.PHASE_CANCEL_REQUESTED:
+            stop_request = orch.get("stop_request") or {}
+            robot_id = str(stop_request.get("robot_id") or robot_id)
+            kind = str(step.get("kind") or "cancel_requested")
+            command_id = str(stop_request.get("command_id") or step.get("command_id") or "")
+        elif phase == orch_state.PHASE_RECOVERY_RUNNING:
+            recovery = orch.get("recovery") or {}
+            robot_id = str(recovery.get("active_robot_id") or robot_id)
+            kind = str(recovery.get("active_command_kind") or "move_to_point")
+            command_id = str(recovery.get("active_command_id") or "")
+            dispatch_state = str(recovery.get("dispatch_state") or "").upper()
+            pending_manual_abort = (
+                recovery.get("strategy") == "manual_abort"
+                and kind == "manual_stop"
+                and dispatch_state == "ABORT_STOP_REQUESTED"
+            )
+            if not pending_manual_abort and (
+                kind not in _PHYSICAL_MOTION_KINDS
+                or dispatch_state not in _ACTIVE_RECOVERY_DISPATCH_STATES
+            ):
+                continue
+        elif phase == orch_state.PHASE_AWAITING_OPERATOR:
+            recovery = orch.get("recovery") or {}
+            robot_id = str(recovery.get("robot_id") or robot_id)
+            kind = str(step.get("kind") or "")
+            command_id = str(recovery.get("command_id") or step.get("command_id") or "")
+            if (
+                kind not in _PHYSICAL_MOTION_KINDS
+                or str(step.get("status") or "").upper() not in _ACTIVE_MOTION_STATES
+            ):
+                continue
+            preserve_existing_hold = True
+        else:
+            continue
+        if not robot_id:
+            continue
+
+        runtime = _runtime.get(robot_id)
+        if runtime and runtime.task_id == task_id:
+            if runtime.enabled and not runtime.fail_safe_triggered:
+                continue
+            if runtime.fail_safe_triggered:
+                continue
+
+        runtime = MonitorRuntime(
+            robot_id=robot_id,
+            source=robot_source(robot_id),
+            task_id=task_id,
+            enabled=False,
+            last_command_id=command_id or None,
+            last_leg_kind=kind,
+        )
+        _runtime[robot_id] = runtime
+        logger.critical(
+            "Main restart found active physical motion without person monitor "
+            "task=%s robot=%s command=%s kind=%s",
+            task_id,
+            robot_id,
+            command_id,
+            kind,
+        )
+        if fail_safe_monitor_outage(
+            conn,
+            robot_id,
+            task_id,
+            detail="main_restart_active_motion_without_person_monitor",
+            runtime=runtime,
+            preserve_existing_hold=preserve_existing_hold,
+        ):
+            held += 1
+            # Release this task's transaction-scoped lock before the next
+            # robot's Vision/E-stop network calls.
+            conn.commit()
+    return held
 
 
 def _parse_observed_at(value: str | None) -> datetime | None:
@@ -274,6 +396,57 @@ def _record_degraded(robot_id: str, detail: str) -> None:
     logger.warning("person hazard degraded robot=%s: %s", robot_id, detail)
 
 
+def _attempt_estop(robot_id: str) -> tuple[bool, str | None]:
+    try:
+        response = movement_client.estop(robot_id)
+    except Exception as exc:
+        logger.error("person hazard E-stop failed robot=%s: %s", robot_id, exc)
+        return False, str(exc)
+    if not isinstance(response, dict):
+        detail = f"invalid estop response: expected object, got {type(response).__name__}"
+        logger.error("person hazard E-stop failed robot=%s: %s", robot_id, detail)
+        return False, detail
+    return True, None
+
+
+def _record_estop_outcome(
+    conn,
+    *,
+    decision_id: int,
+    robot_id: str,
+    task_id: int,
+    reason_code: str,
+    estop_ok: bool,
+    estop_error: str | None,
+) -> None:
+    evidence_repo(conn).append(
+        task_id=task_id,
+        event_type="SAFETY_ESTOP_OUTCOME",
+        source="main_safety_policy",
+        severity="CRITICAL",
+        trusted=True,
+        data_json={
+            "decision_evidence_id": decision_id,
+            "robot_id": robot_id,
+            "task_id": task_id,
+            "reason_code": reason_code,
+            "estop_ok": estop_ok,
+            "estop_error": estop_error,
+        },
+    )
+    conn.commit()
+
+
+def _commit_hold_before_estop(conn, robot_id: str) -> None:
+    try:
+        conn.commit()
+    except Exception:
+        # A database outage must not suppress the physical safety action.  Do
+        # not mark runtime dedup state: the next poll must retry persistence.
+        _attempt_estop(robot_id)
+        raise
+
+
 def fail_safe_monitor_outage(
     conn,
     robot_id: str,
@@ -281,6 +454,7 @@ def fail_safe_monitor_outage(
     *,
     detail: str,
     runtime: MonitorRuntime | None = None,
+    preserve_existing_hold: bool = False,
 ) -> bool:
     """Persist an AI-health advisory, then make Main's idempotent trusted stop.
 
@@ -295,9 +469,10 @@ def fail_safe_monitor_outage(
     if runtime.fail_safe_triggered:
         return False
 
-    runtime.fail_safe_triggered = True
-    runtime.enabled = False
-    advisory_id = evidence_repo(conn).append(
+    repo = evidence_repo(conn)
+    if isinstance(repo, MvpEvidenceRepository) and getattr(conn, "is_postgres", False) is True:
+        repo.lock_orchestration(task_id)
+    advisory_id = repo.append(
         task_id=task_id,
         event_type="PERSON_MONITOR_HEALTH_FAILURE",
         source="vision_person_monitor",
@@ -310,15 +485,7 @@ def fail_safe_monitor_outage(
             "reason_code": "AI_MONITOR_UNAVAILABLE",
         },
     )
-    estop_ok = False
-    estop_error: str | None = None
-    try:
-        movement_client.estop(robot_id)
-        estop_ok = True
-    except MovementClientError as exc:
-        estop_error = str(exc)
-
-    decision_id = evidence_repo(conn).append(
+    decision_id = repo.append(
         task_id=task_id,
         event_type="SAFETY_ESTOP_DECISION",
         source="main_safety_policy",
@@ -329,12 +496,30 @@ def fail_safe_monitor_outage(
             "robot_id": robot_id,
             "task_id": task_id,
             "reason_code": "PERSON_MONITOR_OUTAGE",
-            "estop_ok": estop_ok,
-            "estop_error": estop_error,
+            "estop_ok": None,
+            "estop_error": None,
         },
     )
     safety_stop_repo(conn).open_from_evidence(decision_id)
-    mark_task_needs_attention(conn, task_id, reason="person_monitor_outage", robot_id=robot_id)
+    if not preserve_existing_hold:
+        mark_task_needs_attention(conn, task_id, reason="person_monitor_outage", robot_id=robot_id)
+    # The trusted decision, safety stop, and operator hold must survive even if
+    # Movement returns malformed data or raises an unexpected exception.  This
+    # transaction boundary also releases the task advisory lock before HTTP.
+    _commit_hold_before_estop(conn, robot_id)
+    runtime.fail_safe_triggered = True
+    runtime.enabled = False
+
+    estop_ok, estop_error = _attempt_estop(robot_id)
+    _record_estop_outcome(
+        conn,
+        decision_id=decision_id,
+        robot_id=robot_id,
+        task_id=task_id,
+        reason_code="PERSON_MONITOR_OUTAGE",
+        estop_ok=estop_ok,
+        estop_error=estop_error,
+    )
     return True
 
 
@@ -359,7 +544,10 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
         import json
         data_json = json.loads(data_json)
 
-    advisory_id = evidence_repo(conn).append(
+    repo = evidence_repo(conn)
+    if isinstance(repo, MvpEvidenceRepository) and getattr(conn, "is_postgres", False) is True:
+        repo.lock_orchestration(runtime.task_id)
+    advisory_id = repo.append(
         task_id=runtime.task_id,
         event_type="HUMAN_DETECTED",
         source=str(event.get("source") or runtime.source),
@@ -377,16 +565,7 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
         },
     )
 
-    estop_ok = False
-    estop_error: str | None = None
-    if settings.person_hazard_action == "estop":
-        try:
-            movement_client.estop(runtime.robot_id)
-            estop_ok = True
-        except MovementClientError as exc:
-            estop_error = str(exc)
-
-    decision_id = evidence_repo(conn).append(
+    decision_id = repo.append(
         task_id=runtime.task_id,
         event_type="SAFETY_ESTOP_DECISION",
         source="main_safety_policy",
@@ -398,14 +577,27 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
             "source": runtime.source,
             "task_id": runtime.task_id,
             "dedup_key": dedup,
-            "estop_ok": estop_ok,
-            "estop_error": estop_error,
+            "estop_ok": None,
+            "estop_error": None,
             "observed_at": event.get("observed_at"),
         },
     )
     safety_stop_repo(conn).open_from_evidence(decision_id)
     mark_task_needs_attention(conn, runtime.task_id, reason="person_hazard", robot_id=runtime.robot_id)
+    # Persist Main's safety authority and release its task lock before calling
+    # the untrusted remote movement boundary.
+    _commit_hold_before_estop(conn, runtime.robot_id)
     _set_cooldown(runtime.robot_id, runtime.source, runtime.task_id, dedup)
+    estop_ok, estop_error = _attempt_estop(runtime.robot_id)
+    _record_estop_outcome(
+        conn,
+        decision_id=decision_id,
+        robot_id=runtime.robot_id,
+        task_id=runtime.task_id,
+        reason_code="PERSON_HAZARD",
+        estop_ok=estop_ok,
+        estop_error=estop_error,
+    )
     return estop_ok
 
 
@@ -457,5 +649,8 @@ def poll_once(conn) -> int:
     polled = 0
     for runtime in list(active_monitors()):
         poll_robot(conn, runtime)
+        # A hazard or monitor outage may have acquired the task advisory lock.
+        # Persist that hold before polling the next robot over the network.
+        conn.commit()
         polled += 1
     return polled

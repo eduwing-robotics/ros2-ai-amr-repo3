@@ -85,7 +85,10 @@ PY
 
   require_dir "$repo_root/ai-server"
   require_dir "$repo_root/main-server/backend"
+  require_dir "$repo_root/main-server/frontend/web"
   require_dir "$repo_root/nav-server"
+  require_file "$repo_root/main-server/frontend/web/package-lock.json"
+  command -v npm >/dev/null 2>&1 || fail "npm is required for the built Main UI acceptance"
 
   create_or_update_venv \
     "ai-server" \
@@ -105,7 +108,11 @@ PY
     "$repo_root/nav-server/requirements.txt" \
     "$repo_root/nav-server/requirements-dev.txt"
 
-  log "all virtual environments are ready and pip check passed"
+  log "--- main-server frontend ---"
+  log "installing the exact package-lock dependency tree"
+  (cd "$repo_root/main-server/frontend/web" && npm ci)
+
+  log "all virtual environments and frontend dependencies are ready"
 }
 
 main "$@"

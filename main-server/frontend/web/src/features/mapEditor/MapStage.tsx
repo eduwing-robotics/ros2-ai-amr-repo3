@@ -16,6 +16,7 @@ import {
   ZONE_YAW_LEN,
 } from "../../lib/scanMarker";
 import { DockPairOverlay } from "./DockPairOverlay";
+import { ApproachRouteOverlay } from "./ApproachRouteOverlay";
 
 interface MapStageProps {
   map: MapRecord | null;
@@ -199,6 +200,7 @@ export function MapStage({
     >
       {map.image_url ? <img src={map.image_url} alt={map.name} /> : null}
       <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
+        {showArrows ? <ApproachRouteOverlay map={map} zones={zones} /> : null}
         {showArrows ? <DockPairOverlay
           map={map}
           zones={zones}
@@ -213,7 +215,7 @@ export function MapStage({
           <line className="link-rubberband" x1={linkScanPx.x} y1={linkScanPx.y} x2={hoverPx.x} y2={hoverPx.y} />
         ) : null}
         {zones.map((z) => {
-          const linkRelevant = linkMode && (z.waypoint_type === "approach" || isHelperWaypoint(z));
+          const linkRelevant = linkMode && (z.waypoint_type === "approach" || z.waypoint_type === "transit" || isHelperWaypoint(z));
           if (!isTypeVisible(z.waypoint_type) && !linkRelevant) return null;
           const isApproach = z.waypoint_type === "approach";
           const paired = isApproach && pairedScanIds.has(z.waypoint_id);

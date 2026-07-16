@@ -36,9 +36,6 @@ class Settings(BaseSettings):
     # Dedicated, least-privilege credential for the ROS frame gateway.  It may
     # sign only the frame ingest routes and must not be shared with Main.
     vision_gateway_hmac_secret: str = ""
-    # Never enable on a production ingress. It exists only for isolated fixture/lab runs
-    # where the process is not allowed to contribute production evidence.
-    ai_debug_mutations_enabled: bool = False
     vision_public_host: str = "<vision-host>"
     vision_stream_gateway_port: int = 8090
     camera_sources: str = "global_cam_01,tb3_1_picam,tb3_2_picam"

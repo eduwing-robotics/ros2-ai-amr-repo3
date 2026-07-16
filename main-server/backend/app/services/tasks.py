@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.db.repo_bridge import event_repo, robot_repo, task_repo
-from app.services import evidence_runtime, inventory_ops
+from app.services import evidence_runtime, inventory_ops, person_hazard
 from app.services import orchestration_state as orch_state
 from app.services import orchestrator as orchestrator_service
 
@@ -107,9 +107,15 @@ def robot_assignment_block_reason(robot_id: str) -> str | None:
     snap = localization_snapshot(robot_id)
     health = snap.get("health") or {}
     reason, _ = movement_reason(health, snap)
-    if reason == "ok":
-        return None
-    return _ASSIGN_READINESS_DETAIL.get(reason, reason)
+    if reason != "ok":
+        return _ASSIGN_READINESS_DETAIL.get(reason, reason)
+
+    from app.services.movement_health import battery_from_health
+
+    battery = battery_from_health(health)
+    if battery is not None and battery < 20:
+        return "robot_battery_low"
+    return None
 
 
 def _assert_robot_ready_for_assignment(robot_id: str) -> None:
@@ -191,7 +197,12 @@ def _orchestration_phase(conn, task_id: int) -> str | None:
 
 
 def complete_task(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
-    task = task_repo(conn).get(task_id)
+    tasks = task_repo(conn)
+    task = (
+        tasks.lock_for_completion(task_id)
+        if getattr(conn, "is_postgres", False) is True
+        else tasks.get(task_id)
+    )
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     if task["status"] != "RUNNING":
@@ -199,6 +210,8 @@ def complete_task(conn, task_id: int, source: str = "operator") -> dict[str, Any
     phase = _orchestration_phase(conn, task_id)
     if phase in HELD_ORCHESTRATION_PHASES:
         raise HTTPException(status_code=409, detail="held_task_complete_blocked_use_recovery")
+    if phase is not None and phase != orch_state.PHASE_DONE:
+        raise HTTPException(status_code=409, detail="orchestrated_task_not_done")
     return _finish_task(conn, task_id, "DONE", source)
 
 
@@ -323,6 +336,8 @@ def _finish_task(conn, task_id: int, to_status: str, source: str) -> dict[str, A
     if to_status == "DONE":
         inventory_ops.apply_on_task_complete(conn, task_id)
     tasks.set_status(task_id, to_status, clear_robot=bool(robot_id and to_status in {"CANCELLED", "FAILED"}))
+    if robot_id and to_status == "DONE":
+        person_hazard.on_robot_task_terminal(str(robot_id), conn=conn)
     if robot_id:
         robot_repo(conn).set_task(robot_id, "IDLE", None)
     tasks.add_history(task_id, task["status"], to_status, to_status.lower(), source)

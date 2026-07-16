@@ -2,7 +2,7 @@
 
 Low-load mode is the primary AI Server lab startup for demos and integration
 checks when the laptop must preserve CPU/GPU headroom. Use the operator wrapper;
-do not start the AI API, gateway, mDNS publisher, or MediaMTX separately.
+do not start the AI API, gateway, or MediaMTX separately.
 
 ```bash
 cd ai-server
@@ -40,13 +40,15 @@ without starting processes with:
 
 Use `./scripts/vision/sf_lab.sh urls low-load` after launch to print the active WebRTC URLs and MJPEG diagnostic fallbacks.
 
-Low-load is hostname-first and WebRTC-primary. While the runtime is active it
-publishes `smartfactory-vision.local` through Avahi/mDNS using the current IPv4
-address on the configured SmartFactory site subnet (`192.168.30.*` by default).
-The address is detected at each launch and is not fixed in the profile.
+Low-load is hostname-first and WebRTC-primary. The shared repository hosts
+mapping owns `smartfactory-vision.local`; the runtime does not publish a second
+mDNS address. From the repository root, run
+`./scripts/install-smartfactory-hosts.sh --check` before startup and fix the
+mapping instead of using a direct-IP fallback.
 
-The operator bundle creates an ephemeral Vision gateway credential when
-`VISION_GATEWAY_HMAC_SECRET` is not configured. The value stays internal to the
-runtime process tree, so low-load startup and robot camera bringup do not require
-manual secret distribution. An explicitly configured credential is preserved for
-deployments that run the AI Server and frame gateway independently.
+The production `sf_vision` operator path loads Main↔AI and the distinct Vision
+gateway credential from the repository-level ignored
+`.secrets/service-hmac.env` bundle before starting low-load children. The bundle
+is provisioned once by the trusted deployment; ordinary low-load starts require
+no secret export. Direct local bundle helpers outside `sf_vision` may still create
+an ephemeral process-tree gateway credential for isolated smoke work.

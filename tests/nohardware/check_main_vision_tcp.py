@@ -22,7 +22,6 @@ def main() -> int:
 
     # Must be set before importing app.core.config via vision_proxy.
     os.environ["LMS_VISION_API_BASE_URL"] = args.base.rstrip("/")
-    os.environ["LMS_VISION_API_FALLBACK_BASE_URL"] = ""
     os.environ["LMS_VISION_TIMEOUT_SEC"] = "3.0"
 
     from app.services.vision_proxy import fetch_stream_transports, post_lift_load_evaluate

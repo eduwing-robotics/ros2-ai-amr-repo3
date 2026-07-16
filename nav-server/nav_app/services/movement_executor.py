@@ -48,6 +48,25 @@ from nav_app.services.status_helpers import (
 from nav_app.settings import SIMULATED_STEP_DELAY_SEC, is_simulation_mode
 from nav_app.util.time import utc_now as _utc_now
 
+_CANCEL_STATES = {"CANCEL_REQUESTED", "CANCELED", "CANCELLED", "STOP_UNCONFIRMED"}
+
+
+def _transition_command_state(
+    command,
+    *,
+    expected_states,
+    state,
+    **updates,
+):
+    """Compare-and-set a command state without overwriting cancellation."""
+    with runtime.command_state_lock:
+        if command.get("state") not in expected_states:
+            return False
+        command["state"] = state
+        command.update(updates)
+        command["updated_at"] = _utc_now()
+        return True
+
 
 def execute_dry_step(step: MovementStep):
     delay = step.duration if step.duration is not None and step.duration > 0 else runtime.mission_manager.dry_run_step_delay_sec
@@ -207,9 +226,16 @@ def execute_movement_command(req: MovementCommandRequest):
 
     runtime.movement_execution_lock.acquire()
 
-    command["state"] = "RUNNING"
-    command["message"] = "running"
-    command["updated_at"] = _utc_now()
+    if not _transition_command_state(
+        command,
+        expected_states={"ACCEPTED"},
+        state="RUNNING",
+        message="running",
+    ):
+        runtime.movement_execution_lock.release()
+        return
+
+    runtime.active_movement_command_id = req.command_id
     _report_movement_robot_status(req.robot_name, req.command_id, "busy")
     _report_command_callback(command, "RUNNING", "running")
 
@@ -219,6 +245,11 @@ def execute_movement_command(req: MovementCommandRequest):
         post_align_done = False
         metric_docking_admitted = req.metric_docking_admitted()
         for index, step in enumerate(req.steps):
+            if command.get("state") in _CANCEL_STATES:
+                raise CommandAborted(
+                    "operator_cancel",
+                    stage=_stage_for_step_action(step.action),
+                )
             if runtime.navigator and runtime.navigator.safety.estop and step.action != "estop":
                 raise CommandAborted("estop", stage=_stage_for_step_action(step.action))
             command["current_step_index"] = index
@@ -232,6 +263,11 @@ def execute_movement_command(req: MovementCommandRequest):
                 )
             else:
                 result = execute_dry_step(step) if (step_dry_run or runtime.mission_manager.dry_run) and step.action not in ("dock_transfer", "aruco_align", "estop") else execute_real_step(step, metric_docking_admitted=metric_docking_admitted)
+            if command.get("state") in _CANCEL_STATES:
+                raise CommandAborted(
+                    "operator_cancel",
+                    stage=_stage_for_step_action(step.action),
+                )
             if result is True and step.action == "aruco_align":
                 metric_profile = step.payload.get("metric_docking_profile")
                 if isinstance(metric_profile, dict) and metric_profile.get("enabled") is True:
@@ -282,23 +318,31 @@ def execute_movement_command(req: MovementCommandRequest):
             if requested_terminal in ("ARRIVED", "DONE"):
                 terminal_state = requested_terminal
                 terminal_message = "arrived" if requested_terminal == "ARRIVED" else "completed"
-        command["state"] = terminal_state
-        command["message"] = terminal_message
-        command["post_align_done"] = post_align_done
-        command["updated_at"] = _utc_now()
+        if not _transition_command_state(
+            command,
+            expected_states={"RUNNING"},
+            state=terminal_state,
+            message=terminal_message,
+            post_align_done=post_align_done,
+        ):
+            raise CommandAborted("operator_cancel", stage=command.get("stage") or "movement")
         if terminal_state == "ARRIVED":
             _record_arrived_gate(command)
         _report_movement_result(req.command_id, req.task_id, req.robot_name, terminal_state, terminal_message)
         _report_command_callback(command, terminal_state, terminal_message)
         _report_movement_robot_status(req.robot_name, None, "idle")
     except CommandAborted as exc:
-        command["state"] = "ABORTED"
-        command["stage"] = exc.stage
-        command["reason"] = exc.reason
-        command["robot_at"] = exc.robot_at
-        command["resumable"] = exc.resumable
-        command["message"] = str(exc)
-        command["updated_at"] = _utc_now()
+        if not _transition_command_state(
+            command,
+            expected_states={"RUNNING"},
+            state="ABORTED",
+            stage=exc.stage,
+            reason=exc.reason,
+            robot_at=exc.robot_at,
+            resumable=exc.resumable,
+            message=str(exc),
+        ):
+            return
         _report_movement_result(req.command_id, req.task_id, req.robot_name, "ABORTED", str(exc))
         _report_command_callback(command, "ABORTED", str(exc))
         _report_movement_robot_status(req.robot_name, None, "estop")
@@ -306,11 +350,15 @@ def execute_movement_command(req: MovementCommandRequest):
         failed_step = command.get("current_step_action")
         stage = exc.stage if isinstance(exc, StageError) else _stage_for_step_action(failed_step)
         reason = exc.reason if isinstance(exc, StageError) else str(exc)
-        command["state"] = "FAILED"
-        command["stage"] = stage
-        command["reason"] = reason
-        command["message"] = reason
-        command["updated_at"] = _utc_now()
+        if not _transition_command_state(
+            command,
+            expected_states={"RUNNING"},
+            state="FAILED",
+            stage=stage,
+            reason=reason,
+            message=reason,
+        ):
+            return
         if runtime.navigator:
             runtime.navigator.publish_stop_velocity()
         _report_movement_result(req.command_id, req.task_id, req.robot_name, "FAILED", reason)
@@ -320,4 +368,6 @@ def execute_movement_command(req: MovementCommandRequest):
         if command.get("state") != "ARRIVED":
             _release_traffic_locks_for_command(command)
         command["updated_at"] = _utc_now()
+        if runtime.active_movement_command_id == req.command_id:
+            runtime.active_movement_command_id = None
         runtime.movement_execution_lock.release()

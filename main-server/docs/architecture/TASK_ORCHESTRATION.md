@@ -3,7 +3,7 @@
 상태: Active
 소유: Backend
 작성: 2026-06-23 KST
-최종 갱신: 2026-07-10 14:00 KST
+최종 갱신: 2026-07-15 KST
 목적: 입출고 스토리([INBOUND_OUTBOUND](INBOUND_OUTBOUND.md)) 이후, 관제가 작업 단계를 어떻게 전진·복구하는지 보인다. 용어: [GLOSSARY](GLOSSARY.md).
 
 코드: `orchestrator.py`, `task_progress_poller.py`, `task_recovery.py`.
@@ -51,6 +51,12 @@ sequenceDiagram
 - **물리 이동 hazard monitor:** Main은 `move_to_point`(충전 접근 포함), `aruco_align`, `dock_transfer`
   (접근·삽입·리프트·후진), `leave_dock`를 dispatch 전에 arm한다. arm/retention 실패는 Movement
   HTTP를 보내지 않고 fail-closed 한다; 같은 task의 연속 단계에서는 monitor를 해제하지 않는다.
+- **짧은 dispatch claim:** 복구 이동은 `PENDING → DISPATCHING → SENT`를 DB에 남긴다.
+  `DISPATCHING` claim을 commit한 뒤 DB lock을 놓고 Movement HTTP를 호출하며, 응답 뒤 같은
+  task·command·state일 때만 확정한다. 중간에 hazard 또는 stop이 먼저 기록되면 그 상태를
+  덮어쓰지 않는다.
+- **모호한 재시작:** `DISPATCHING` 또는 `ABORT_STOP_REQUESTED` 상태로 Main이 재시작하면
+  명령 재전송이나 task 종료를 추정하지 않는다. E-stop 후 `AWAITING_OPERATOR`로 전환한다.
 
 ## 입고 단계 예
 

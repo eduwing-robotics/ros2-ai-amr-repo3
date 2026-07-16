@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import { Panel } from "../../components/Panel";
-import { useCancelWorkOrder, useSetWorkOrderPriority, useWorkOrders } from "../../hooks/useWorkOrders";
+import { useCancelWorkOrder, useSetWorkOrderPriority, useStopWorkOrder, useWorkOrders } from "../../hooks/useWorkOrders";
 import { useAdminMutations } from "../../hooks/useAdminData";
 import { useItems } from "../../hooks/useWarehouseData";
-import { useRobots } from "../../hooks/useScenarioData";
-import type { WorkOrder } from "../../types";
+import type { Robot, WorkOrder } from "../../types";
 import { useQueuedOrderReorder, QueueEditCommitBar } from "./WorkOrderQueueControls";
 import { TaskQueueOrderRow } from "./TaskQueueOrderRow";
 import { TaskQueueToolbar } from "./TaskQueueToolbar";
@@ -19,12 +18,12 @@ import {
   type Segment,
 } from "./taskQueueModel";
 
-export function TaskQueue() {
+export function TaskQueue({ robots }: { robots: Robot[] }) {
   const { data: orders = [] } = useWorkOrders(50);
   const { data: items = [] } = useItems();
-  const { data: robots = [] } = useRobots();
   const { cancelTask, assignTask, autoAssignTasks, autoAssignAndStartTasks, startTaskMission } = useAdminMutations();
   const cancelWorkOrder = useCancelWorkOrder();
+  const stopWorkOrder = useStopWorkOrder();
   const setPriority = useSetWorkOrderPriority();
   const [segment, setSegment] = useState<Segment>("all");
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -66,6 +65,16 @@ export function TaskQueue() {
     if (!tasks.length) return;
     if (!confirm(cancelOrderConfirmMessage(order))) return;
     await cancelWorkOrder.mutateAsync(order.order_id);
+  };
+
+  const stopOrder = async (order: WorkOrder) => {
+    const label = order.business_completed ? "HOME 복귀·주차를 중단할까요?" : "실행 중 작업을 안전 중단할까요?";
+    if (!confirm(`${label}\n\n적재된 화물이 있으면 운영자 복구가 필요합니다.`)) return;
+    try {
+      await stopWorkOrder.mutateAsync(order.order_id);
+    } catch {
+      // useStopWorkOrder owns operator-facing error feedback.
+    }
   };
 
   const showReorder = segment === "queued";
@@ -128,8 +137,10 @@ export function TaskQueue() {
                   assignPending={assignTask.isPending}
                   startPending={startTaskMission.isPending}
                   cancelPending={cancelWorkOrder.isPending || cancelTask.isPending}
+                  stopPending={stopWorkOrder.isPending && stopWorkOrder.variables === o.order_id}
                   onToggle={() => setExpanded((cur) => (cur === o.order_id ? null : o.order_id))}
                   onCancelOrder={() => void cancelOrder(o)}
+                  onStopOrder={() => void stopOrder(o)}
                   onCancelTask={(taskId) => {
                     if (confirm("작업을 취소할까요?")) cancelTask.mutate(taskId);
                   }}

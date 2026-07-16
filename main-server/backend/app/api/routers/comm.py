@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from app.db.connection import transaction
 from app.db.repo_bridge import camera_repo, movement_repo, robot_repo
 from app.models.schemas import MovementCommand, Robot
-from app.security import require_operator
 from app.services.api_logs import list_logs as list_api_logs
 from app.services.movement_health import get_movement_health
 from app.services.vision_proxy import fetch_camera_health
@@ -40,7 +39,7 @@ def comm_logs(
     }
 
 
-@router.post("/probe/movement", dependencies=[Depends(require_operator)])
+@router.post("/probe/movement")
 def probe_movement() -> dict:
     """로봇별 Movement health API를 즉시 호출한다. 이동 명령은 보내지 않는다."""
     with transaction() as conn:
@@ -48,7 +47,7 @@ def probe_movement() -> dict:
     return {"movement_health": get_movement_health([robot.robot_id for robot in robots], force=True)}
 
 
-@router.post("/probe/camera", dependencies=[Depends(require_operator)])
+@router.post("/probe/camera")
 def probe_camera() -> dict:
     """Camera health를 cache 없이 즉시 확인한다(status와 같은 OR 판정)."""
     with transaction() as conn:

@@ -64,6 +64,24 @@ export function useScenarioMutations() {
     mutationFn: () => apiSend<MapImportResult>("/maps/import-folder", "POST"),
     onSuccess: () => invalidate(["maps", "waypoints"]),
   });
+  const upsertWaypointRoute = useMutation({
+    mutationFn: (body: { waypoint_id: string; target_location_id: string }) =>
+      apiSend("/waypoint-routes", "POST", body),
+    onSuccess: () => invalidate(["waypoints"]),
+  });
+  const deleteWaypointRoute = useMutation({
+    mutationFn: (id: string) => apiSend(`/waypoint-routes/${encodeURIComponent(id)}`, "DELETE"),
+    onSuccess: () => invalidate(["waypoints"]),
+  });
 
-  return { upsertWaypoint, deleteWaypoint, disableWaypoint, forceDeleteWaypoint, upsertMap, importMaps };
+  return {
+    upsertWaypoint,
+    deleteWaypoint,
+    disableWaypoint,
+    forceDeleteWaypoint,
+    upsertMap,
+    importMaps,
+    upsertWaypointRoute,
+    deleteWaypointRoute,
+  };
 }

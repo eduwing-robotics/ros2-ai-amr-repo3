@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 
 from app.db.connection import transaction
 from app.db.mvp_repositories import DEFAULT_FLOOR
@@ -16,7 +16,6 @@ from app.models.schemas import (
     StorageSlot,
     StorageSlotUpsert,
 )
-from app.security import require_admin
 
 router = APIRouter(tags=["inventory"])
 
@@ -28,7 +27,7 @@ def list_items() -> list[Item]:
         return [Item(**item) for item in item_repo(conn).list()]
 
 
-@router.post("/items", response_model=ApiMessage, dependencies=[Depends(require_admin)])
+@router.post("/items", response_model=ApiMessage)
 def upsert_item(payload: ItemUpsert) -> ApiMessage:
     """품목을 생성하거나 수정한다."""
     with transaction() as conn:
@@ -41,7 +40,7 @@ def upsert_item(payload: ItemUpsert) -> ApiMessage:
     return ApiMessage(message="item saved")
 
 
-@router.delete("/items/{item_code}", response_model=ApiMessage, dependencies=[Depends(require_admin)])
+@router.delete("/items/{item_code}", response_model=ApiMessage)
 def delete_item(item_code: str) -> ApiMessage:
     """품목을 삭제한다."""
     with transaction() as conn:
@@ -59,7 +58,7 @@ def list_storage_slots() -> list[StorageSlot]:
         return [StorageSlot(**slot) for slot in location_repo(conn).list("storage")]
 
 
-@router.post("/storage-slots", response_model=ApiMessage, dependencies=[Depends(require_admin)])
+@router.post("/storage-slots", response_model=ApiMessage)
 def upsert_storage_slot(payload: StorageSlotUpsert) -> ApiMessage:
     """보관 슬롯(locations type=storage) 생성/수정."""
     with transaction() as conn:
@@ -72,7 +71,7 @@ def upsert_storage_slot(payload: StorageSlotUpsert) -> ApiMessage:
     return ApiMessage(message="storage slot saved")
 
 
-@router.delete("/storage-slots/{slot_id}", response_model=ApiMessage, dependencies=[Depends(require_admin)])
+@router.delete("/storage-slots/{slot_id}", response_model=ApiMessage)
 def delete_storage_slot(slot_id: str) -> ApiMessage:
     """보관 슬롯(locations type=storage) 삭제."""
     with transaction() as conn:
@@ -95,7 +94,7 @@ def list_inventory(
         return [InventoryRecord(**row) for row in rows]
 
 
-@router.post("/inventory", response_model=ApiMessage, dependencies=[Depends(require_admin)])
+@router.post("/inventory", response_model=ApiMessage)
 def upsert_inventory(payload: InventoryUpsert) -> ApiMessage:
     """슬롯별 품목 수량 생성/수정."""
     with transaction() as conn:

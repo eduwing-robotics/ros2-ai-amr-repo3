@@ -27,7 +27,7 @@ export type EstopOp = (typeof ESTOP_OPS)[number];
 export const DEFAULT_ALIGN_TOLERANCE_XY = 0.02;
 export const DEFAULT_ALIGN_TOLERANCE_YAW = 2;
 
-/** kind별 폼 입력 — ApiConsole·RobotCommandTestPanel 공유(PHASE_49-A). */
+/** kind별 명령 입력 — 운영 미션과 관리 기능이 공유한다. */
 export interface RobotCommandFormValues {
   mapId: string;
   x: string;

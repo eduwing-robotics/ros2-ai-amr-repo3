@@ -64,9 +64,9 @@ ros2 run smartfactory_perception_ros image_snapshot_client --ros-args \
 ## Lane C vision frame gateway
 
 `vision_frame_gateway` is the safe Lane C sidecar. It subscribes to a camera
-image topic, POSTs latest frames to AI Server `POST /api/v1/vision/frame`, and
-can optionally trigger `POST /api/v1/vision/worker/tick` before publishing safe
-overlay/evidence topics:
+image topic and sends each latest frame through signed
+`POST /api/v1/vision/frame/process` before publishing safe overlay/evidence
+topics:
 
 - overlay image: `/sf/vision/sources/{source_id}/overlay/compressed`
 - evidence JSON: `/sf/vision/events` (`std_msgs/msg/String`)
@@ -82,11 +82,10 @@ Production frame ingress uses the dedicated `VISION_GATEWAY_HMAC_SECRET`, not
 `X-SF-Timestamp`, `X-SF-Nonce`, and `X-SF-Gateway-Signature`. The AI Server
 rejects missing, stale, invalid, and replayed signatures before a frame can
 reach the latest-frame cache. Standalone/deployment launches fail closed when
-the credential is missing. The local `sf_vision` operator bundle instead creates
-one ephemeral process-tree credential when none is configured, so robot bringup
-does not require secret distribution. `gateway_auth_debug_enabled:=true` is only
-for explicitly isolated test/lab runs paired with
-`AI_DEBUG_MUTATIONS_ENABLED=true` on the AI Server.
+the credential is missing. The standard `sf_vision` operator path loads the
+repository-level `.secrets/service-hmac.env` bundle before starting any child;
+missing, mismatched, or insecure credentials fail closed. Direct ROS launches
+must receive the same provisioned `VISION_GATEWAY_HMAC_SECRET` explicitly.
 
 Direct Robot1 domain-2 smoke example, using the temporary camera launch topic:
 
@@ -99,8 +98,6 @@ ros2 launch smartfactory_perception_ros vision_frame_gateway.launch.py \
   tb3_1_picam_image_topic:=/camera/image_raw/compressed \
   ai_server_url:=http://127.0.0.1:8100 \
   gateway_hmac_secret:="$VISION_GATEWAY_HMAC_SECRET" \
-  process_with_worker_tick:=true \
-  force_worker_tick:=true \
   publish_overlay:=true \
   publish_evidence:=true
 ```
@@ -206,7 +203,7 @@ camera CompressedImage -> vision_frame_gateway -> AI Server /api/v1/vision/frame
 Important parameters:
 
 - `async_pipeline:=true`: one bounded latest-only worker slot per source.
-- `process_frame_inline:=true`: use `/api/v1/vision/frame/process` instead of separate frame ingest plus worker tick.
+- `process_frame_inline:=true`: process the signed frame through `/api/v1/vision/frame/process`.
 - `image_qos_reliability:=reliable|sensor_data|best_effort`: must be compatible with the camera publisher.
 - `overlay_pub_qos_reliability:=reliable|best_effort`: overlay publisher QoS.
 - `publish_lagging_overlay:=false`: skip overlays that do not match the processed latest frame sequence.

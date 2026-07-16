@@ -3,10 +3,15 @@
 set -u -o pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=/dev/null
+source "$ROOT_DIR/scripts/lib/site_credentials.sh"
 MODE=""
 JSON_OUTPUT=0
 FAILED=0
 NOHARDWARE_FAILED=0
+SITE_CREDENTIALS_READY=0
+SITE_CREDENTIAL_SET_ID=""
+SITE_CREDENTIAL_SOURCE="production bundle"
 RESULTS_FILE="$(mktemp)"
 trap 'rm -f "$RESULTS_FILE"' EXIT
 
@@ -28,7 +33,7 @@ Next command: scripts/operator-preflight.sh --software
 
 Environment overrides: ROS_SETUP, OPERATOR_PREFLIGHT_REQUIRED_PORTS,
 OPERATOR_PREFLIGHT_AI_HEALTH_URL, OPERATOR_PREFLIGHT_TIMEOUT_SEC.
-HMAC secret values are only checked for presence and are never printed.
+Production HMAC values are loaded from .secrets/service-hmac.env and never printed.
 --nohardware creates process-local Movement, Main↔AI, and vision-gateway test secrets.
 EOF
 }
@@ -100,20 +105,28 @@ check_static_configuration() {
 }
 
 check_hmac_secret() {
+  if [[ "$SITE_CREDENTIALS_READY" -ne 1 ]]; then
+    record FAIL site_credential_bundle "production credential bundle is missing, invalid, or conflicts with local service environment"
+    record FAIL movement_hmac_secret "Movement HMAC pair is unavailable because the credential bundle did not load"
+    record FAIL vision_hmac_secret "Vision HMAC pair is unavailable because the credential bundle did not load"
+    record FAIL vision_gateway_hmac_secret "Vision gateway HMAC is unavailable because the credential bundle did not load"
+    return
+  fi
+  record PASS site_credential_bundle "${SITE_CREDENTIAL_SOURCE} credential set ${SITE_CREDENTIAL_SET_ID} loaded (values hidden)"
   if [[ -n "${NAV_MAIN_HMAC_SECRET:-}" || -n "${LMS_MOVEMENT_HMAC_SECRET:-}" ]]; then
     record PASS movement_hmac_secret "Movement HMAC secret is present (value not displayed)"
   else
-    record FAIL movement_hmac_secret "required Movement HMAC secret is not set; export NAV_MAIN_HMAC_SECRET or LMS_MOVEMENT_HMAC_SECRET"
+    record FAIL movement_hmac_secret "credential bundle loaded without the required Movement HMAC pair"
   fi
   if [[ -n "${MAIN_HMAC_SECRET:-}" || -n "${LMS_VISION_HMAC_SECRET:-}" ]]; then
     record PASS vision_hmac_secret "Vision HMAC secret is present (value not displayed)"
   else
-    record FAIL vision_hmac_secret "required Vision HMAC secret is not set; export MAIN_HMAC_SECRET or LMS_VISION_HMAC_SECRET"
+    record FAIL vision_hmac_secret "credential bundle loaded without the required Vision HMAC pair"
   fi
   if [[ -n "${VISION_GATEWAY_HMAC_SECRET:-}" ]]; then
     record PASS vision_gateway_hmac_secret "Vision gateway HMAC secret is present (value not displayed)"
   else
-    record FAIL vision_gateway_hmac_secret "required Vision gateway HMAC secret is not set; export VISION_GATEWAY_HMAC_SECRET"
+    record FAIL vision_gateway_hmac_secret "credential bundle loaded without the required Vision gateway HMAC credential"
   fi
 }
 
@@ -130,6 +143,9 @@ set_nohardware_vision_secret() {
   export LMS_VISION_HMAC_SECRET="$vision_secret"
   export MAIN_HMAC_SECRET="$vision_secret"
   export VISION_GATEWAY_HMAC_SECRET="$gateway_secret"
+  SITE_CREDENTIALS_READY=1
+  SITE_CREDENTIAL_SET_ID="ephemeral-nohardware"
+  SITE_CREDENTIAL_SOURCE="process-local"
 }
 
 check_docker() {
@@ -240,6 +256,9 @@ done
 
 if [[ "$MODE" == "--nohardware" ]]; then
   set_nohardware_vision_secret
+elif sf_load_site_credentials "$ROOT_DIR"; then
+  SITE_CREDENTIALS_READY=1
+  SITE_CREDENTIAL_SET_ID="$(sf_site_credentials_id "$ROOT_DIR")"
 fi
 
 software_preflight

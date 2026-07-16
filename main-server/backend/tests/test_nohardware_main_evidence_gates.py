@@ -61,20 +61,20 @@ class MainChargeScenarioNoHardwareTest(unittest.TestCase):
                     "yaw": 0.0,
                     "marker_id": 3,
                 },
-                "scan_CHARGE_01": {
-                    "location_id": "scan_CHARGE_01",
-                    "slot_id": "scan_CHARGE_01",
+                "vehicle_2_approach": {
+                    "location_id": "vehicle_2_approach",
+                    "slot_id": "vehicle_2_approach",
                     "type": "scan",
                     "x": -0.8,
                     "y": 0.0,
                     "yaw": 1.57,
-                    "marker_id": 3,
+                    "marker_id": 4,
                 },
             }
             return rows.get(location_id)
 
         with (
-            patch.object(evidence_runtime, "settings", SimpleNamespace(movement_active_map_id="robot1_map")),
+            patch.object(evidence_runtime, "settings", SimpleNamespace(movement_active_map_id="robot2_map")),
             patch.object(evidence_runtime, "location_repo") as location_repo,
         ):
             location_repo.return_value.get.side_effect = get_location
@@ -95,9 +95,9 @@ class MainChargeScenarioNoHardwareTest(unittest.TestCase):
         self.assertEqual(steps[0]["action_type"], "leave_dock")
         self.assertEqual(steps[1]["action_type"], "move")
         self.assertIn("scan", steps[1]["name"].lower())
-        self.assertEqual(steps[1]["waypoint_id"], "scan_CHARGE_01")
+        self.assertEqual(steps[1]["waypoint_id"], "vehicle_2_approach")
         self.assertEqual(steps[2]["action_type"], "aruco_align")
-        self.assertEqual(steps[2]["params"], {"aruco_marker_id": 3, "final": "charge"})
+        self.assertEqual(steps[2]["params"], {"aruco_marker_id": 4, "final": "charge"})
         self.assertNotEqual(steps[-1]["action_type"], "move", "CHARGE must not end as a generic move without ArUco final alignment")
 
 
@@ -437,7 +437,7 @@ class PersonHazardTrustedDecisionNoHardwareTest(unittest.TestCase):
     def test_nohardware_human_detected_advisory_creates_main_trusted_estop_decision(self):
         conn = MagicMock()
         repo = MagicMock()
-        repo.append.side_effect = [101, 202]
+        repo.append.side_effect = [101, 202, 303]
         stop_repo = MagicMock()
         runtime = person_hazard.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=9001)
         runtime.enable_time = datetime.now(timezone.utc) - timedelta(seconds=1)
@@ -465,7 +465,7 @@ class PersonHazardTrustedDecisionNoHardwareTest(unittest.TestCase):
             patch.object(person_hazard, "safety_stop_repo", return_value=stop_repo),
             patch.object(person_hazard, "movement_client") as movement_client,
             patch.object(person_hazard, "mark_task_needs_attention") as mark_attention,
-            patch.object(person_hazard, "settings", SimpleNamespace(person_hazard_action="estop", person_hazard_cooldown_sec=30.0, person_hazard_stale_sec=5.0)),
+            patch.object(person_hazard, "settings", SimpleNamespace(person_hazard_cooldown_sec=30.0, person_hazard_stale_sec=5.0)),
         ):
             movement_client.estop.return_value = {"ok": True}
             ok = person_hazard.process_advisory(conn, runtime, payload)
