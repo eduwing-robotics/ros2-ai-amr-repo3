@@ -56,12 +56,16 @@ test("입출고 메뉴는 요청·참조 맵 복합 작업면으로 전환하고
   const dockAfter = await missionDock.boundingBox();
   const workspaceBox = await workspace.boundingBox();
   const referenceMapBox = await referenceMap.boundingBox();
+  const referenceStageBox = await referenceMap.locator(".map-stage").boundingBox();
   expect(workspaceBox).not.toBeNull();
   expect(referenceMapBox).not.toBeNull();
+  expect(referenceStageBox).not.toBeNull();
   expect(cameraAfter).not.toBeNull();
   expect(dockAfter).not.toBeNull();
   expect(referenceMapBox!.x).toBeGreaterThanOrEqual(workspaceBox!.x);
   expect(referenceMapBox!.y).toBeGreaterThan(workspaceBox!.y);
+  expect(referenceStageBox!.y).toBeGreaterThanOrEqual(referenceMapBox!.y);
+  expect(referenceStageBox!.y + referenceStageBox!.height).toBeLessThanOrEqual(referenceMapBox!.y + referenceMapBox!.height);
   expect(Math.abs(cameraAfter!.x - cameraBefore!.x)).toBeLessThanOrEqual(1);
   expect(Math.abs(dockAfter!.y - dockBefore!.y)).toBeLessThanOrEqual(1);
   await expect(workspace.locator(".zone-marker.work-order-focused")).toHaveCount(1);

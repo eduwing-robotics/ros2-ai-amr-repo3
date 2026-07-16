@@ -469,6 +469,7 @@ export function OperatorShell() {
                           onRobotSelect={selectRobot}
                           focusedWaypointId={focusedWaypointId}
                           focusedZoneId={focusedZoneId}
+                          compact
                         />
                       </div>
                     </section>

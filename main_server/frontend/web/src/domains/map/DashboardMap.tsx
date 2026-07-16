@@ -26,12 +26,14 @@ export function DashboardMap({
   onRobotSelect,
   focusedWaypointId,
   focusedZoneId,
+  compact = false,
 }: {
   gotoMode?: boolean;
   selectedRobotId?: string;
   onRobotSelect?: (robotId: string) => void;
   focusedWaypointId?: string | null;
   focusedZoneId?: string | null;
+  compact?: boolean;
 }) {
   const { data: maps = [] } = useMaps();
   const { data: robots = [] } = useRobots();
@@ -239,8 +241,8 @@ export function DashboardMap({
   const normalPoseCount = legendRows.filter((r) => !r.abnormal).length;
 
   return (
-    <CollapsiblePanel title="맵 / 로봇 위치">
-      <div className="toolbar">
+    <CollapsiblePanel title="맵 / 로봇 위치" className={compact ? "dashboard-map--compact" : ""}>
+      {!compact ? <div className="toolbar">
         <span className="toolbar-label">실시간 맵</span>
         {/* 런타임 배지는 예외(불일치·stale)일 때만 — 정상 시 내부 맵 ID를 노출하지 않는다 (UX.md §2) */}
         {runtimeMismatch || map?.runtime_confidence === "stale" ? (
@@ -251,7 +253,7 @@ export function DashboardMap({
         <span className="rowcount" title={map ? map.map_id : undefined}>
           {map ? `로봇 ${poses.length}` : "맵 없음"}
         </span>
-      </div>
+      </div> : null}
       <RuntimeMapCanvas
         map={renderMap}
         className={`map-stage map-stage-lg${gotoMode ? " goto-mode" : ""}${runtimeMismatch ? " mismatch" : ""}`}
@@ -347,7 +349,7 @@ export function DashboardMap({
               /> : null}
         </> : null}
       </RuntimeMapCanvas>
-      {map ? (
+      {!compact && map ? (
         <>
         {assetWarning ? <div className="inline-alert warn">{assetWarning}</div> : null}
         {!map.image_url && !assetWarning ? <div className="inline-alert">맵 배경 이미지 없음 — pose만 runtime 좌표로 표시됩니다.</div> : null}
