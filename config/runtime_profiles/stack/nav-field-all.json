@@ -16,6 +16,7 @@
     "nav": {
       "enabled": true,
       "profile": "all-live",
+      "readiness_mode": "http",
       "readiness_timeout_sec": 240
     },
     "main": {"enabled": false}

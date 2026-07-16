@@ -86,8 +86,8 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 ## 1. 서비스 시작
 
-1. [Nav 전체 시작 runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)에 따라 robot base와 Nav2를 시작한다.
-2. `.5`에서 Main과 TB1 Nav를 함께 시험하면 저장소 루트에서 통합 profile을 실행한다. bridge, Nav wrapper, Main/UI가 순서대로 시작된다.
+1. [Nav 전체 시작 runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)에 따라 TB1 SBC의 robot base를 시작한다. PiCam E2E도 확인할 때만 camera를 함께 시작한다.
+2. `.5`에서 Main과 TB1 Nav를 함께 시험하면 저장소 루트에서 통합 profile을 실행한다. bridge, Movement API, Main/UI가 순서대로 시작된다.
 
    ```bash
    cd <repository-root>
@@ -99,13 +99,23 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
    `.12` Nav와 `.9` Main을 분리 운용할 때는 각각 `nav-field-tb1`과
    `main-field`를 같은 명령으로 실행한다.
 
-3. 외부 AI laptop에서 AI와 `tb3_1_picam` source를 시작한다.
-4. [시작과 종료](startup-shutdown.md)에 따라 `scripts/sf_stack.sh status`와
+3. stack foreground와 다른 tmux pane에서 TB1 Nav2와 자동 localization을 시작한다.
+
+   ```bash
+   cd <repository-root>/nav-server
+   TURTLEBOT3_SETUP="$HOME/turtlebot3_ws/install/setup.bash" scripts/nav_ops.sh nav2-1
+   ```
+
+   helper가 `navigation-ready`를 출력할 때까지 기다린다. `scripts/nav_ops.sh start`는
+   stack이 이미 소유한 Movement API를 중복 실행하므로 호출하지 않는다.
+
+4. 외부 AI laptop에서 AI와 `tb3_1_picam` source를 시작한다.
+5. [시작과 종료](startup-shutdown.md)에 따라 `scripts/sf_stack.sh status`와
    `scripts/sf_stack.sh smoke`로 선택한 TB1 profile과 Main·AI health만 확인한다.
    전체 robot inventory를 검사하는 `--hardware-checklist`는 TB1 단독 빠른 실행에 사용하지 않는다.
 
 `foreground`의 `Ctrl+C`는 stack이 시작한 process group만 역순으로 종료한다.
-robot base와 Nav2처럼 먼저 외부에서 시작한 terminal은 각각 `Ctrl+C`로 종료한다.
+robot base와 Nav2의 별도 terminal은 각각 `Ctrl+C`로 종료한다.
 
 ## 2. 실제 localization
 

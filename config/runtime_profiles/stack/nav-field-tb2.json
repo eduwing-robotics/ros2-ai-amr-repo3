@@ -12,6 +12,7 @@
     "nav": {
       "enabled": true,
       "profile": "tb2-live",
+      "readiness_mode": "http",
       "readiness_timeout_sec": 180
     },
     "main": {"enabled": false}

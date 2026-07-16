@@ -161,6 +161,12 @@ def validate_profile(name: str, profile: dict[str, Any]) -> None:
     if len(set(ports)) != len(ports):
         raise StackError(f"profile={name} contains duplicate ports")
     main = components.get("main") or {}
+    nav = components.get("nav") or {}
+    if nav.get("enabled"):
+        if not isinstance(nav.get("profile"), str) or not nav.get("profile"):
+            raise StackError(f"profile={name} enabled Nav must select a Nav profile")
+        if nav.get("readiness_mode") != "http":
+            raise StackError(f"profile={name} stack-managed Nav readiness_mode must be http")
     if main.get("enabled"):
         if main.get("site_profile") not in {"field", "integration"}:
             raise StackError(f"profile={name} has unsupported Main site profile")
@@ -180,7 +186,6 @@ def validate_profile(name: str, profile: dict[str, Any]) -> None:
                 f"profile={name} must set LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED={expected_nonphysical}"
             )
     if execution_class == "synthetic_hil":
-        nav = components.get("nav") or {}
         main_env = main.get("env") or {}
         if nav.get("enabled") is not True or nav.get("profile") != "tb1-synthetic-hil":
             raise StackError(f"profile={name} synthetic_hil must select the tb1-synthetic-hil Nav profile")
@@ -394,6 +399,8 @@ def component_env(profile: dict[str, Any], component: str, token: str, run_id: s
     )
     if component == "nav" and profile["execution_class"] == "synthetic_hil":
         env["SF_NAV_ALLOW_SYNTHETIC_HIL"] = "1"
+    if component == "nav":
+        env["SF_NAV_READINESS_MODE"] = str(profile["components"]["nav"]["readiness_mode"])
     if component == "main":
         config = profile["components"]["main"]
         env["SF_MAIN_SITE_PROFILE"] = str(config["site_profile"])

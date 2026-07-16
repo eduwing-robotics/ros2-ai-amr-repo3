@@ -21,8 +21,9 @@ def _fake_runner(path: Path, *, fail: bool = False) -> Path:
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
         "if [[ -n \"${SF_STACK_TEST_ENV_LOG:-}\" ]]; then\n"
-        "  printf '%s|%s|%s\\n' \"$(basename \"$0\")\" \"${SF_NAV_ALLOW_SYNTHETIC_HIL:-}\" "
-        "\"${LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED:-}\" >> \"$SF_STACK_TEST_ENV_LOG\"\n"
+        "  printf '%s|%s|%s|%s\\n' \"$(basename \"$0\")\" \"${SF_NAV_ALLOW_SYNTHETIC_HIL:-}\" "
+        "\"${LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED:-}\" \"${SF_NAV_READINESS_MODE:-}\" "
+        ">> \"$SF_STACK_TEST_ENV_LOG\"\n"
         "fi\n"
         "case \" ${*:-} \" in\n"
         "  *\" --check \"*|*\" check \"*|*\" smoke \"*) exit 0 ;;\n"
@@ -60,6 +61,7 @@ def _stack_fixture(
             "nav": {
                 "enabled": True,
                 "profile": "tb1-synthetic-hil" if execution_class == "synthetic_hil" else "tb1-live",
+                "readiness_mode": "http",
             },
             "main": {
                 "enabled": True,
@@ -263,9 +265,9 @@ def test_synthetic_profile_opens_only_the_two_explicit_admission_gates(tmp_path:
         check=True,
     )
     observed = {line.split("|", 1)[0]: line for line in env_log.read_text(encoding="utf-8").splitlines()}
-    assert observed["bridge.sh"] == "bridge.sh||"
-    assert observed["nav.sh"] == "nav.sh|1|"
-    assert observed["main.sh"] == "main.sh||true"
+    assert observed["bridge.sh"] == "bridge.sh|||"
+    assert observed["nav.sh"] == "nav.sh|1||http"
+    assert observed["main.sh"] == "main.sh||true|"
 
     env_log.write_text("", encoding="utf-8")
     subprocess.run(
@@ -276,7 +278,7 @@ def test_synthetic_profile_opens_only_the_two_explicit_admission_gates(tmp_path:
         capture_output=True,
         check=True,
     )
-    assert env_log.read_text(encoding="utf-8").splitlines() == ["nav.sh|1|"]
+    assert env_log.read_text(encoding="utf-8").splitlines() == ["nav.sh|1||http"]
 
     subprocess.run(
         [str(SCRIPT), "--profile", "test-stack", "down"],
@@ -358,6 +360,7 @@ def test_repository_profiles_assign_one_safe_default_per_field_host() -> None:
     }
     assert profiles["tb1-local-e2e"]["components"]["main"]["enabled"] is True
     assert profiles["tb1-local-e2e"]["components"]["nav"]["profile"] == "tb1-live"
+    assert profiles["tb1-local-e2e"]["components"]["nav"]["readiness_mode"] == "http"
     assert profiles["tb1-local-e2e"]["health"]["main"] == [
         "http://smartfactory-integration.local:8088/health",
         "http://smartfactory-integration.local:5173/",
