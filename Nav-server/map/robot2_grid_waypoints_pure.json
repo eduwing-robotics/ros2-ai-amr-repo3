@@ -1,0 +1,149 @@
+{
+  "map": "robot2_map",
+  "arena_m": 1.8,
+  "cell_m": 0.3,
+  "standoff_m": 0.5,
+  "arena_origin_x": 0.0,
+  "wall_y": 0.0,
+  "note": "Bottom row only. Marker at 30cm cell center. Approach = wall_y + standoff_m.",
+  "slots": [
+    {
+      "key": "inbound_slot_1",
+      "label": "IN1",
+      "col": 0,
+      "marker_id": 0,
+      "cell_m": {
+        "min_x": 0.0,
+        "max_x": 0.3,
+        "min_y": 0.0,
+        "max_y": 0.3
+      },
+      "aruco_marker": {
+        "id": 0,
+        "x": 0.15,
+        "y": 0.15,
+        "theta": 1.571
+      },
+      "approach": {
+        "x": 0.15,
+        "y": 0.5,
+        "theta": -1.571
+      }
+    },
+    {
+      "key": "inbound_slot_2",
+      "label": "IN2",
+      "col": 1,
+      "marker_id": 1,
+      "cell_m": {
+        "min_x": 0.3,
+        "max_x": 0.6,
+        "min_y": 0.0,
+        "max_y": 0.3
+      },
+      "aruco_marker": {
+        "id": 1,
+        "x": 0.45,
+        "y": 0.15,
+        "theta": 1.571
+      },
+      "approach": {
+        "x": 0.45,
+        "y": 0.5,
+        "theta": -1.571
+      }
+    },
+    {
+      "key": "vehicle_1",
+      "label": "WAIT1",
+      "col": 2,
+      "marker_id": 3,
+      "cell_m": {
+        "min_x": 0.6,
+        "max_x": 0.9,
+        "min_y": 0.0,
+        "max_y": 0.3
+      },
+      "aruco_marker": {
+        "id": 3,
+        "x": 0.75,
+        "y": 0.15,
+        "theta": 1.571
+      },
+      "approach": {
+        "x": 0.75,
+        "y": 0.5,
+        "theta": -1.571
+      }
+    },
+    {
+      "key": "vehicle_2",
+      "label": "WAIT2",
+      "col": 3,
+      "marker_id": 4,
+      "cell_m": {
+        "min_x": 0.9,
+        "max_x": 1.2,
+        "min_y": 0.0,
+        "max_y": 0.3
+      },
+      "aruco_marker": {
+        "id": 4,
+        "x": 1.05,
+        "y": 0.15,
+        "theta": 1.571
+      },
+      "approach": {
+        "x": 1.05,
+        "y": 0.5,
+        "theta": -1.571
+      }
+    },
+    {
+      "key": "outbound_slot_1",
+      "label": "OUT1",
+      "col": 4,
+      "marker_id": 5,
+      "cell_m": {
+        "min_x": 1.2,
+        "max_x": 1.5,
+        "min_y": 0.0,
+        "max_y": 0.3
+      },
+      "aruco_marker": {
+        "id": 5,
+        "x": 1.35,
+        "y": 0.15,
+        "theta": 1.571
+      },
+      "approach": {
+        "x": 1.35,
+        "y": 0.5,
+        "theta": -1.571
+      }
+    },
+    {
+      "key": "outbound_slot_2",
+      "label": "OUT2",
+      "col": 5,
+      "marker_id": 6,
+      "cell_m": {
+        "min_x": 1.5,
+        "max_x": 1.8,
+        "min_y": 0.0,
+        "max_y": 0.3
+      },
+      "aruco_marker": {
+        "id": 6,
+        "x": 1.65,
+        "y": 0.15,
+        "theta": 1.571
+      },
+      "approach": {
+        "x": 1.65,
+        "y": 0.5,
+        "theta": -1.571
+      }
+    }
+  ]
+}

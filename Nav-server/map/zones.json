@@ -437,6 +437,7 @@
       "y": 0.006,
       "theta": 1.571,
       "role": "2호차 대기 접근",
+      "soft_xy_tolerance_m": 0.10,
       "fork_insert_distance_m": 0.32,
       "metric_two_stage": {
         "enabled": true,

@@ -1,0 +1,162 @@
+{
+  "contract_name": "main_to_movement_inbound2_storage_b",
+  "contract_version": 1,
+  "generated_from_successful_run_date": "2026-07-15",
+  "base_url": "http://192.168.30.4:8002",
+  "robot_name": "tb3_2",
+  "scenario": {
+    "scenario_id": "inbound2-storage-b",
+    "scenario_version": 1,
+    "preview_endpoint": "POST /movement-api/v1/scenarios/inbound2-storage-b/preview",
+    "command_endpoint": "POST /movement-api/v1/scenarios/inbound2-storage-b/commands",
+    "status_endpoint": "GET /movement-api/v1/commands/{command_id}",
+    "safe_stop_endpoint": "POST /movement-api/v1/commands/{command_id}/safe-stop",
+    "health_endpoint": "GET /movement-api/v1/health"
+  },
+  "headers": {
+    "Content-Type": "application/json",
+    "Idempotency-Key": "MUST_EQUAL_BODY_COMMAND_ID"
+  },
+  "production_request_template": {
+    "command_id": "main-task-{task_id}-tb3_2-{unique_suffix}",
+    "task_id": 344,
+    "robot_name": "tb3_2",
+    "scenario_version": 1,
+    "dry_run": false,
+    "skip_lift": false,
+    "callback_url": "http://192.168.30.9:8088/api/v1/movement/command-events"
+  },
+  "physically_verified_request_mode": {
+    "dry_run": false,
+    "skip_lift": true,
+    "note": "2026-07-15 최종 물리 주행 성공은 이동 및 도킹 검증을 위해 리프트를 생략한 조건이다. 운영 리프트 연동 시 production_request_template의 skip_lift=false를 사용한다."
+  },
+  "execution_contract": {
+    "preconditions": {
+      "health_ok": true,
+      "robot_online": true,
+      "command_accepting": true,
+      "localized": true,
+      "navigator_status": "IDLE",
+      "is_emergency": false,
+      "active_execution": null
+    },
+    "sequence": [
+      {
+        "order": 1,
+        "stage": "leave_wait2",
+        "behavior": "stored_parking_insert_distance_straight_reverse_then_nav2_handoff",
+        "angular_z": 0.0
+      },
+      {
+        "order": 2,
+        "stage": "go_to_inbound2",
+        "waypoint": "inbound_slot_2_approach",
+        "navigation": "nav2_position_only"
+      },
+      {
+        "order": 3,
+        "stage": "inbound2_metric_approach",
+        "aruco_marker_id": 1,
+        "first_stop_distance_m": 0.4,
+        "interstage_wait_sec": 3.0,
+        "final_stop_distance_m": 0.2
+      },
+      {
+        "order": 4,
+        "stage": "inbound2_load",
+        "action": "load",
+        "level": 1,
+        "post_stage_behavior": "straight_reverse_to_aruco_clearance_then_nav2_handoff"
+      },
+      {
+        "order": 5,
+        "stage": "go_to_storage_b",
+        "waypoint": "warehouse_b_approach",
+        "navigation": "nav2_position_only"
+      },
+      {
+        "order": 6,
+        "stage": "storage_b_metric_approach",
+        "aruco_marker_id": 8,
+        "first_stop_distance_m": 0.4,
+        "interstage_wait_sec": 3.0,
+        "final_stop_distance_m": 0.18
+      },
+      {
+        "order": 7,
+        "stage": "storage_b_unload",
+        "action": "unload",
+        "level": 2,
+        "post_stage_behavior": "straight_reverse_to_aruco_clearance_then_nav2_handoff"
+      },
+      {
+        "order": 8,
+        "stage": "return_to_wait2",
+        "waypoint": "vehicle_2_approach",
+        "navigation": "nav2_position_only"
+      },
+      {
+        "order": 9,
+        "stage": "park_wait2",
+        "aruco_marker_id": 4,
+        "first_stop_distance_m": 0.4,
+        "interstage_wait_sec": 3.0,
+        "final_stop_distance_m": 0.2,
+        "terminal_state": "PARK_COMPLETE"
+      }
+    ],
+    "common_motion_policy": {
+      "target_distance_is_metric_aruco_distance": true,
+      "linear_velocity_at_target_mps": 0.0,
+      "finish_center_and_face_yaw_by_rotation_only": true,
+      "marker_search_mode": "bidirectional_sweep",
+      "marker_face_yaw_tolerance_deg": 4.0,
+      "near_forward_yaw_tolerance_deg": 6.0,
+      "hardware_min_forward_speed_mps": 0.012,
+      "straight_reverse_max_speed_mps": 0.03,
+      "straight_reverse_angular_z": 0.0,
+      "reverse_aruco_clearance_m": 0.4,
+      "reverse_fallback_distance_m": 0.22,
+      "approach_yaw_rotate_max_sec": 45.0,
+      "reverse_success_handoff": "Nav2"
+    }
+  },
+  "verified_measurements": {
+    "warehouse_b_first_stop_m": 0.3953,
+    "warehouse_b_final_stop_m": 0.1745,
+    "warehouse_b_reverse_target_m": 0.2255,
+    "warehouse_b_reverse_actual_m": 0.222,
+    "warehouse_b_reverse_reason": "distance_reached",
+    "wait2_first_stop_m": 0.3956,
+    "wait2_final_park_m": 0.1969,
+    "final_command_state": "DONE",
+    "final_business_state": "PARK_COMPLETE",
+    "final_navigator_status": "IDLE",
+    "final_is_emergency": false
+  },
+  "response_contract": {
+    "accepted_states": ["ACCEPTED", "RUNNING"],
+    "success": {
+      "state": "DONE",
+      "message": "completed"
+    },
+    "failure_state": "FAILED",
+    "failure_fields_to_record": [
+      "reason",
+      "stage",
+      "current_step_code",
+      "last_completed_step_index"
+    ],
+    "stopping_state": "STOPPING",
+    "http_409_action": "Do not submit. Recheck health and blocking_reasons.",
+    "blocking_reasons": [
+      "robot_offline",
+      "localization_unavailable",
+      "navigator_not_idle",
+      "command_not_accepting",
+      "active_execution",
+      "estop_latched"
+    ]
+  }
+}

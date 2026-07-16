@@ -15,6 +15,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     use_sim_time = LaunchConfiguration("use_sim_time")
     map_yaml = LaunchConfiguration("map")
+    autostart = LaunchConfiguration("autostart")
     params_file = LaunchConfiguration("params_file")
     rviz_config = LaunchConfiguration("rviz_config")
     rviz_title = LaunchConfiguration("rviz_title")
@@ -31,6 +32,7 @@ def generate_launch_description():
             DeclareLaunchArgument("map"),
             DeclareLaunchArgument("params_file"),
             DeclareLaunchArgument("rviz_config", default_value=default_rviz),
+            DeclareLaunchArgument("autostart", default_value="true"),
             DeclareLaunchArgument(
                 "rviz_title",
                 default_value="RViz2",
@@ -43,6 +45,7 @@ def generate_launch_description():
                 launch_arguments={
                     "map": map_yaml,
                     "use_sim_time": use_sim_time,
+                    "autostart": autostart,
                     "params_file": params_file,
                 }.items(),
             ),

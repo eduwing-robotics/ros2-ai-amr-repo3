@@ -1,19 +1,22 @@
 """Movement API HTTP routes."""
 import time
 import json
+import threading
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
 
-from route_builder import RouteBuildError, build_movement_steps, list_inventory
+from route_builder import RouteBuildError, build_inbound2_storage_b_scenario, build_movement_steps, list_inventory
 from traffic_manager import TrafficLockConflict
 
+from nav_app.adapters.callbacks import post_json_callback
 from nav_app.config import (
     active_route_config,
     current_ros_domain_id,
 )
 from nav_app.models import (
     InitialPoseRequest,
+    Inbound2StorageBScenarioRequest,
     ManualRotateRequest,
     ManualStartRequest,
     ManualStopRequest,
@@ -45,6 +48,59 @@ from nav_app.services.route_helpers import (
 )
 
 router = APIRouter()
+
+
+def _inbound2_storage_b_preview(req: Inbound2StorageBScenarioRequest):
+    if req.robot_name != "tb3_2":
+        raise HTTPException(status_code=400, detail="inbound2-storage-b 시나리오는 tb3_2 전용입니다.")
+    if req.robot_name != robot_context.active_bridge_robot_id():
+        raise HTTPException(
+            status_code=409,
+            detail=f"이 Movement API 프로세스는 {robot_context.active_bridge_robot_id()}만 담당합니다. tb3_2의 8002 포트로 요청하세요.",
+        )
+    scenario = build_inbound2_storage_b_scenario(dry_run=req.dry_run, skip_lift=req.skip_lift)
+    if req.scenario_version != scenario["scenario_version"]:
+        raise HTTPException(status_code=409, detail=f"unsupported scenario_version: {req.scenario_version}")
+    pose = runtime.navigator.get_current_pose() if runtime.navigator else None
+    emergency = bool(runtime.navigator and runtime.navigator.safety.estop)
+    robot_online = robot_context.active_robot_online() if runtime.navigator else False
+    navigator_status = getattr(runtime.navigator, "status", None) if runtime.navigator else None
+    command_accepting = bool(runtime.navigator and runtime.mission_manager and robot_context.command_accepting(emergency))
+    active = next(
+        (item.get("command_id") for item in runtime.movement_commands.values() if item.get("state") in ("ACCEPTED", "RUNNING", "STOPPING")),
+        None,
+    )
+    blockers = []
+    if not runtime.navigator or not runtime.mission_manager:
+        blockers.append("system_initializing")
+    if emergency:
+        blockers.append("estop_latched")
+    if not req.dry_run and not robot_online:
+        blockers.append("robot_offline")
+    if not req.dry_run and pose is None:
+        blockers.append("localization_unavailable")
+    if not req.dry_run and navigator_status != "IDLE":
+        blockers.append("navigator_not_idle")
+    if not req.dry_run and not command_accepting:
+        blockers.append("command_not_accepting")
+    if active and active != req.command_id:
+        blockers.append("active_execution")
+    return {
+        "command_id": req.command_id,
+        "task_id": req.task_id,
+        **scenario,
+        "executable": not blockers,
+        "blocking_reasons": blockers,
+        "active_execution": active,
+        "health": {
+            "robot_online": robot_online,
+            "command_accepting": command_accepting,
+            "localized": pose is not None,
+            "pose_fresh": pose is not None and robot_online,
+            "is_emergency": emergency,
+            "navigator_status": navigator_status,
+        },
+    }
 
 
 def _movement_step_to_dict(step: MovementStep) -> Dict[str, Any]:
@@ -88,9 +144,37 @@ def movement_list_robots():
     return {"robots": [robot_context.movement_robot_summary()]}
 
 
-@router.post("/movement-api/v1/commands")
-def movement_accept_command(req: MovementCommandRequest, background_tasks: BackgroundTasks):
-    """Main Server 스펙의 전체 steps command dispatch endpoint입니다."""
+def _report_initial_acceptance(command: Dict[str, Any], callback_payload: Optional[Dict[str, Any]]):
+    """Send acceptance reports without delaying the command HTTP ACK or execution."""
+    callback_url = command.get("callback_url")
+    if callback_url and callback_payload:
+        if runtime.state_store:
+            runtime.state_store.enqueue_callback(callback_url, callback_payload)
+        delivered = post_json_callback(callback_url, callback_payload, label="CommandCallback")
+        if delivered and runtime.state_store:
+            runtime.state_store.mark_callback_delivered(callback_payload["event_id"])
+    robot_context.report_movement_robot_status(command["robot_name"], command["command_id"], "busy")
+
+
+def _dispatch_initial_acceptance(command: Dict[str, Any]):
+    # Reserve ACCEPTED sequence synchronously so RUNNING can never overtake it.
+    callback_payload = None
+    if command.get("callback_url"):
+        callback_payload = command_state.command_callback_payload(command, "COMMAND_ACCEPTED", "accepted")
+    threading.Thread(
+        target=_report_initial_acceptance,
+        args=(command, callback_payload),
+        name=f"movement-accepted-{command['command_id']}",
+        daemon=True,
+    ).start()
+
+
+def _accept_movement_command(
+    req: MovementCommandRequest,
+    background_tasks: BackgroundTasks,
+    *,
+    source_metadata: Optional[Dict[str, Any]] = None,
+):
     if not runtime.navigator or not runtime.mission_manager:
         raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
     if req.robot_name != robot_context.active_bridge_robot_id():
@@ -115,83 +199,98 @@ def movement_accept_command(req: MovementCommandRequest, background_tasks: Backg
             },
         )
 
-    existing = runtime.movement_commands.get(req.command_id)
-    if existing:
-        if existing.get("request_fingerprint") != _command_fingerprint(req):
-            raise HTTPException(status_code=409, detail="same command_id was already used with a different payload")
-        return {
-            "accepted": True,
-            "command_id": req.command_id,
-            "state": existing["state"],
-            "duplicate": True,
-        }
+    request_fingerprint = _command_fingerprint(req)
+    source_fingerprint = (source_metadata or {}).get("source_request_fingerprint")
+    with runtime.command_state_lock:
+        existing = runtime.movement_commands.get(req.command_id)
+        if existing:
+            fingerprint_key = "source_request_fingerprint" if source_fingerprint is not None else "request_fingerprint"
+            expected_fingerprint = source_fingerprint if source_fingerprint is not None else request_fingerprint
+            if existing.get(fingerprint_key) != expected_fingerprint:
+                raise HTTPException(status_code=409, detail="same command_id was already used with a different payload")
+            return {
+                "accepted": True,
+                "command_id": req.command_id,
+                "state": existing["state"],
+                "duplicate": True,
+            }
 
-    active_command = next(
-        (command for command in runtime.movement_commands.values()
-         if command.get("robot_name") == req.robot_name and command.get("state") in ("ACCEPTED", "RUNNING")),
-        None,
-    )
-    if active_command:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "message": "robot already has an active movement command",
-                "active_command_id": active_command.get("command_id"),
-                "active_state": active_command.get("state"),
-            },
+        active_command = next(
+            (command for command in runtime.movement_commands.values()
+             if command.get("robot_name") == req.robot_name and command.get("state") in ("ACCEPTED", "RUNNING", "STOPPING")),
+            None,
         )
-
-    traffic_segments = traffic_segments_from_steps(req.steps)
-    traffic_locks = []
-    if traffic_segments:
-        if not runtime.traffic_manager:
-            raise HTTPException(status_code=503, detail="Traffic manager 초기화 중입니다.")
-        try:
-            traffic_locks = runtime.traffic_manager.acquire_many(
-                traffic_segments,
-                robot_id=req.robot_name,
-                command_id=req.command_id,
-                route_type=req.steps[0].payload.get("route_type") if req.steps else None,
-            )
-        except KeyError as exc:
-            raise HTTPException(status_code=404, detail=f"등록되지 않은 traffic segment입니다: {exc.args[0]}")
-        except TrafficLockConflict as exc:
+        if active_command:
             raise HTTPException(
                 status_code=409,
                 detail={
-                    "message": "traffic segment locked",
-                    "traffic_state": "WAITING_TRAFFIC",
-                    "segment_id": exc.segment_id,
-                    "current_lock": exc.current_lock,
-                    "requested_segments": traffic_segments,
+                    "message": "robot already has an active movement command",
+                    "active_command_id": active_command.get("command_id"),
+                    "active_state": active_command.get("state"),
                 },
             )
 
-    runtime.movement_commands[req.command_id] = {
-        "command_id": req.command_id,
-        "task_id": req.task_id,
-        "robot_name": req.robot_name,
-        "state": "ACCEPTED",
-        "current_step_index": None,
-        "current_step_action": None,
-        "message": "accepted",
-        "traffic_segments": traffic_segments,
-        "traffic_locks": traffic_locks,
-        "traffic_state": "LOCKED" if traffic_segments else None,
-        "callback_url": req.callback_url,
-        "step_actions": [step.action for step in req.steps],
-        "steps": _movement_steps_to_dicts(req.steps),
-        "gate_timeout_sec": next((step.payload.get("gate_timeout_sec") for step in req.steps if step.payload.get("gate_timeout_sec") is not None), GATE_TIMEOUT_SEC),
-        "simulation_mode": is_simulation_mode(),
-        "created_at": _utc_now(),
-        "updated_at": _utc_now(),
-        "request_fingerprint": _command_fingerprint(req),
-        "callback_sequence": -1,
-    }
-    robot_context.report_movement_robot_status(req.robot_name, req.command_id, "busy")
-    command_state.report_command_callback(runtime.movement_commands[req.command_id], "ACCEPTED", "accepted")
+        traffic_segments = traffic_segments_from_steps(req.steps)
+        traffic_locks = []
+        if traffic_segments:
+            if not runtime.traffic_manager:
+                raise HTTPException(status_code=503, detail="Traffic manager 초기화 중입니다.")
+            try:
+                traffic_locks = runtime.traffic_manager.acquire_many(
+                    traffic_segments,
+                    robot_id=req.robot_name,
+                    command_id=req.command_id,
+                    route_type=req.steps[0].payload.get("route_type") if req.steps else None,
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail=f"등록되지 않은 traffic segment입니다: {exc.args[0]}")
+            except TrafficLockConflict as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "message": "traffic segment locked",
+                        "traffic_state": "WAITING_TRAFFIC",
+                        "segment_id": exc.segment_id,
+                        "current_lock": exc.current_lock,
+                        "requested_segments": traffic_segments,
+                    },
+                )
+
+        command = {
+            "command_id": req.command_id,
+            "task_id": req.task_id,
+            "robot_name": req.robot_name,
+            "state": "ACCEPTED",
+            "current_step_index": None,
+            "current_step_action": None,
+            "message": "accepted",
+            "traffic_segments": traffic_segments,
+            "traffic_locks": traffic_locks,
+            "traffic_state": "LOCKED" if traffic_segments else None,
+            "callback_url": req.callback_url,
+            "step_actions": [step.action for step in req.steps],
+            "steps": _movement_steps_to_dicts(req.steps),
+            "gate_timeout_sec": next((step.payload.get("gate_timeout_sec") for step in req.steps if step.payload.get("gate_timeout_sec") is not None), GATE_TIMEOUT_SEC),
+            "simulation_mode": is_simulation_mode(),
+            "created_at": _utc_now(),
+            "updated_at": _utc_now(),
+            "request_fingerprint": request_fingerprint,
+            "callback_sequence": -1,
+        }
+        if source_metadata:
+            command.update(source_metadata)
+        runtime.movement_commands[req.command_id] = command
+        command_state.persist_command(command)
+
+    _dispatch_initial_acceptance(command)
     background_tasks.add_task(movement_executor.execute_movement_command, req)
     return {"accepted": True, "command_id": req.command_id, "state": "ACCEPTED"}
+
+
+@router.post("/movement-api/v1/commands")
+def movement_accept_command(req: MovementCommandRequest, background_tasks: BackgroundTasks):
+    """Main Server 스펙의 전체 steps command dispatch endpoint입니다."""
+    return _accept_movement_command(req, background_tasks)
 
 
 @router.get("/movement-api/v1/commands/{command_id}")
@@ -199,7 +298,7 @@ def movement_get_command(command_id: str):
     command = runtime.movement_commands.get(command_id)
     if not command:
         raise HTTPException(status_code=404, detail=f"알 수 없는 command_id입니다: {command_id}")
-    return command
+    return {**command, "last_sequence": command.get("callback_sequence", -1)}
 
 
 @router.post("/movement-api/v1/commands/{command_id}/resume")
@@ -207,14 +306,20 @@ def movement_resume_command(command_id: str, req: ResumeCommandRequest, backgrou
     source = runtime.movement_commands.get(command_id)
     if not source:
         raise HTTPException(status_code=404, detail=f"알 수 없는 command_id입니다: {command_id}")
-    if source.get("state") not in ("FAILED", "ABORTED"):
+    if source.get("state") not in ("FAILED", "ABORTED", "STOPPED"):
         raise HTTPException(
             status_code=409,
             detail={
-                "message": "only FAILED or ABORTED commands can be resumed",
+                "message": "only FAILED, ABORTED, or STOPPED commands can be resumed",
                 "state": source.get("state"),
             },
         )
+    if runtime.navigator and runtime.navigator.safety.estop:
+        raise HTTPException(status_code=409, detail="estop is latched")
+    if not is_simulation_mode() and not robot_context.active_robot_online():
+        raise HTTPException(status_code=409, detail="robot is offline")
+    if not is_simulation_mode() and runtime.navigator and runtime.navigator.get_current_pose() is None:
+        raise HTTPException(status_code=409, detail="localization is unavailable")
     if not req.force and not source.get("resumable"):
         raise HTTPException(
             status_code=409,
@@ -242,6 +347,15 @@ def movement_resume_command(command_id: str, req: ResumeCommandRequest, backgrou
     if not isinstance(failed_index, int):
         failed_index = 0
     from_step_index = req.from_step_index if req.from_step_index is not None else failed_index
+    if source.get("scenario_id") and req.from_step_index is not None:
+        matching = [
+            index for index, step in enumerate(stored_steps)
+            if (step.get("payload") or {}).get("business_step_index") == req.from_step_index
+            and (step.get("payload") or {}).get("business_step_start", True)
+        ]
+        if not matching:
+            raise HTTPException(status_code=400, detail="from_step_index must be a scenario business step boundary")
+        from_step_index = matching[0]
     if from_step_index < 0 or from_step_index >= len(stored_steps):
         raise HTTPException(
             status_code=400,
@@ -261,19 +375,34 @@ def movement_resume_command(command_id: str, req: ResumeCommandRequest, backgrou
         steps=resume_steps,
         callback_url=req.callback_url if req.callback_url is not None else source.get("callback_url"),
     )
-    response = movement_accept_command(movement_req, background_tasks)
+    resume_business_index = (resume_steps[0].payload or {}).get("business_step_index")
+    source_metadata = {
+        "input_mode": "resume",
+        "source_command_id": command_id,
+        "resume_from_step_index": resume_business_index if resume_business_index is not None else from_step_index,
+        "resume_source_reason": source.get("reason"),
+        "resume_source_stage": source.get("stage"),
+        "resume_source_diagnostics": diagnostics or None,
+        "scenario": source.get("scenario"),
+        "scenario_id": source.get("scenario_id"),
+        "scenario_version": source.get("scenario_version"),
+        "execution_id": f"exec-{resume_command_id}",
+        "parent_execution_id": source.get("execution_id"),
+        "authority_owner": "MOVEMENT",
+        "authority_released": False,
+        "cargo_state": source.get("cargo_state", "EMPTY"),
+        "business_completed": bool(source.get("business_completed")),
+        "last_completed_step_index": source.get("last_completed_step_index"),
+        "return_poses": dict(source.get("return_poses") or {}),
+    }
+    response = _accept_movement_command(movement_req, background_tasks, source_metadata=source_metadata)
     resume_command = runtime.movement_commands.get(resume_command_id)
     if resume_command is not None:
-        resume_command["input_mode"] = "resume"
-        resume_command["source_command_id"] = command_id
-        resume_command["resume_from_step_index"] = from_step_index
-        resume_command["resume_source_reason"] = source.get("reason")
-        resume_command["resume_source_stage"] = source.get("stage")
-        resume_command["resume_source_diagnostics"] = diagnostics or None
+        command_state.persist_command(resume_command)
     return {
         **response,
         "source_command_id": command_id,
-        "resume_from_step_index": from_step_index,
+        "resume_from_step_index": resume_business_index if resume_business_index is not None else from_step_index,
         "resumed_step_actions": [step.action for step in resume_steps],
     }
 
@@ -601,6 +730,93 @@ def movement_preview_route(req: MovementRouteRequest):
         "return_waypoint": route.get("return_waypoint"),
         "input_mode": "item",
     }
+
+
+@router.post("/movement-api/v1/scenarios/inbound2-storage-b/preview")
+def movement_preview_inbound2_storage_b(req: Inbound2StorageBScenarioRequest):
+    """Preview the fixed tb3_2 inbound2 load -> storage B unload -> wait2 park scenario."""
+    return _inbound2_storage_b_preview(req)
+
+
+@router.post("/movement-api/v1/scenarios/inbound2-storage-b/commands")
+def movement_accept_inbound2_storage_b(
+    req: Inbound2StorageBScenarioRequest,
+    background_tasks: BackgroundTasks,
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+):
+    """Execute the fixed scenario as one idempotent Movement command."""
+    preview = _inbound2_storage_b_preview(req)
+    if idempotency_key is not None and idempotency_key != req.command_id:
+        raise HTTPException(status_code=422, detail="Idempotency-Key must equal command_id")
+    if not preview["executable"] and not req.dry_run:
+        raise HTTPException(status_code=409, detail={"message": "scenario is not executable", "blocking_reasons": preview["blocking_reasons"]})
+    command_req = MovementCommandRequest(
+        command_id=req.command_id,
+        task_id=req.task_id,
+        robot_name=req.robot_name,
+        steps=[MovementStep(**step) for step in preview["steps"]],
+        callback_url=req.callback_url,
+    )
+    request_data = req.model_dump() if hasattr(req, "model_dump") else req.dict()
+    source_metadata = {
+        "source_request_fingerprint": json.dumps(request_data, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        "scenario": preview["scenario"],
+        "scenario_id": preview["scenario_id"],
+        "scenario_version": preview["scenario_version"],
+        "execution_id": f"exec-{req.command_id}",
+        "authority_owner": "MOVEMENT",
+        "authority_released": False,
+        "cargo_state": "EMPTY",
+        "business_completed": False,
+        "current_step_code": None,
+        "last_completed_step_index": None,
+        "plan_hash": preview["plan_hash"],
+    }
+    response = _accept_movement_command(command_req, background_tasks, source_metadata=source_metadata)
+    command = runtime.movement_commands.get(req.command_id)
+    if command is not None:
+        command["scenario"] = preview["scenario"]
+        command["scenario_id"] = preview["scenario_id"]
+        command["scenario_version"] = preview["scenario_version"]
+        command["execution_id"] = f"exec-{req.command_id}"
+        command["authority_owner"] = "MOVEMENT"
+        command["authority_released"] = False
+        command["cargo_state"] = "EMPTY"
+        command["business_completed"] = False
+        command["current_step_index"] = None
+        command["current_step_code"] = None
+        command["last_completed_step_index"] = None
+        command["waypoints"] = preview["waypoints"]
+        command["operation_sequence"] = preview["operation_sequence"]
+    return {
+        **response,
+        "execution_id": command.get("execution_id") if command else f"exec-{req.command_id}",
+        "scenario_id": preview["scenario_id"],
+        "scenario_version": preview["scenario_version"],
+        "authority_owner": "MOVEMENT",
+        "plan_hash": preview["plan_hash"],
+    }
+
+
+@router.post("/movement-api/v1/commands/{command_id}/safe-stop")
+def movement_safe_stop(command_id: str):
+    command = runtime.movement_commands.get(command_id)
+    if not command:
+        raise HTTPException(status_code=404, detail=f"알 수 없는 command_id입니다: {command_id}")
+    if command.get("state") in ("DONE", "FAILED", "ABORTED", "STOPPED", "CANCELLED"):
+        return {"command_id": command_id, "state": command.get("state"), "duplicate": True}
+    command["safe_stop_requested"] = True
+    command["state"] = "STOPPING"
+    command["message"] = "safe stop requested"
+    command["resumable"] = True
+    command["updated_at"] = _utc_now()
+    command_state.persist_command(command)
+    if runtime.navigator:
+        cancel_task = getattr(getattr(runtime.navigator, "nav", None), "cancelTask", None)
+        if callable(cancel_task):
+            cancel_task()
+        runtime.navigator.publish_stop_velocity()
+    return {"command_id": command_id, "state": "STOPPING", "stop_requested": True}
 
 
 @router.post("/movement-api/v1/routes/commands")

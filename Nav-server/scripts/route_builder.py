@@ -2,6 +2,7 @@
 """Build Movement API steps from warehouse item/location configuration."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -20,6 +21,20 @@ ROUTE_TRAFFIC_SEGMENTS = {
 DEFAULT_INBOUND_SOURCE_SECTION = "inbound_slot_1"
 DEFAULT_OUTBOUND_TARGET_SECTION = "outbound_slot_1"
 DEFAULT_RETURN_WAYPOINT = "vehicle_1_approach"
+INBOUND2_STORAGE_B_SCENARIO = "inbound2_storage_b_return_wait2"
+INBOUND2_STORAGE_B_SCENARIO_ID = "inbound2-storage-b"
+INBOUND2_STORAGE_B_SCENARIO_VERSION = 1
+INBOUND2_STORAGE_B_BUSINESS_STEPS = [
+    ("LEAVE_HOME_COMPLETE", "leave_home"),
+    ("INBOUND_APPROACH_COMPLETE", "inbound_approach"),
+    ("INBOUND_PRECISION_COMPLETE", "inbound_precision"),
+    ("INBOUND_LOAD_COMPLETE", "inbound_load"),
+    ("STORAGE_APPROACH_COMPLETE", "storage_approach"),
+    ("STORAGE_PRECISION_COMPLETE", "storage_precision"),
+    ("STORAGE_UNLOAD_COMPLETE", "storage_unload"),
+    ("RETURN_HOME_COMPLETE", "return_home"),
+    ("PARK_COMPLETE", "park_home"),
+]
 
 
 class RouteBuildError(ValueError):
@@ -232,6 +247,286 @@ def _dock_step(route: Dict[str, Any], payload: Dict[str, Any], stage: str):
 
 def _wait_step(wait_sec: float):
     return {"action": "wait", "command": None, "duration": wait_sec, "payload": {}}
+
+
+def build_inbound2_storage_b_scenario(dry_run: bool = False, skip_lift: bool = False):
+    """Build the fixed tb3_2 inbound2 -> storage B -> wait2 operating scenario."""
+    zones = load_json(ZONES_PATH)
+    waypoints = zones.get("waypoints", {})
+    traffic_policy = _traffic_policy(zones, "inbound")
+
+    def payload(values: Dict[str, Any]):
+        return {**values, "dry_run": True} if dry_run else values
+
+    def business(values: Dict[str, Any], index: int, *, start: bool = True, complete: bool = True):
+        step_code, action = INBOUND2_STORAGE_B_BUSINESS_STEPS[index]
+        return {
+            **values,
+            "business_step_index": index,
+            "business_step_code": step_code,
+            "business_step_action": action,
+            "business_step_start": start,
+            "business_step_complete": complete,
+        }
+
+    def nav_step(waypoint: str, stage: str, terminal_state: str = "ARRIVED"):
+        goal = waypoint_pose(waypoints, waypoint)
+        waypoint_cfg = waypoints.get(waypoint) or {}
+        if waypoint.endswith("_approach"):
+            goal.update({
+                "nav_position_only": True,
+                "yaw_tolerance_rad": None,
+                "soft_xy_tolerance_m": float(waypoint_cfg.get("soft_xy_tolerance_m", 0.07)),
+                "require_exact_approach": False,
+                "relax_forward_clearance": True,
+            })
+        return {
+            "action": "nav2_waypoints",
+            "command": None,
+            "duration": None,
+            "payload": payload(business({
+                "frame_id": "map",
+                "route_type": INBOUND2_STORAGE_B_SCENARIO,
+                "stage": stage,
+                "waypoints": [waypoint],
+                "goals": [goal],
+                "terminal_state": terminal_state,
+                "traffic_policy": traffic_policy,
+                "traffic_segments": traffic_policy["traffic_segments"],
+                "yield_candidates": traffic_policy["yield_candidates"],
+            }, 1 if stage == "go_to_inbound2" else 4 if stage == "go_to_storage_b" else 7)),
+        }
+
+    def metric_approach_steps(marker_id: int, waypoint_id: str, stage_prefix: str):
+        waypoint = waypoints.get(waypoint_id) or {}
+        profile = waypoint.get("metric_two_stage") or {}
+        aruco = waypoint.get("aruco_align") or {}
+        stage1_target = float(profile.get("stage1_target_distance_m", 0.40))
+        stage2_target = float(profile.get("stage2_target_distance_m", 0.20))
+        wait_sec = float(profile.get("interstage_stop_sec", 3.0))
+        common = {
+            "route_type": INBOUND2_STORAGE_B_SCENARIO,
+            "aruco_marker_id": marker_id,
+            "align_mode": "full",
+            "final": "hold",
+            "fork_insert_on_hold": False,
+            "fork_insert_enabled": False,
+            "metric_distance_only": True,
+            "marker_search_on_miss": True,
+            "marker_seek_mode": "sweep",
+            "marker_search_timeout_sec": 45,
+            "docking_timeout_sec": 65.0,
+            "dock_linear_speed": 0.018,
+            "dock_min_linear_speed": 0.006,
+            "dock_angular_gain": 0.45,
+            "dock_max_angular_speed": 0.16,
+            **{key: value for key, value in aruco.items() if value is not None},
+            # metric_two_stage의 중앙 정렬 허용값이 슬롯 일반값(예: 5%)보다
+            # 우선한다. 20cm 삽입 중에도 이 값으로 직진 중심을 유지한다.
+            "center_tolerance_norm": float(profile.get("center_tolerance_norm", 0.03)),
+            "coarse_center_tolerance_norm": float(profile.get("coarse_center_tolerance_norm", 0.14)),
+            # 40cm/20cm(슬롯별 보정값) 단계는 캘리브레이션된 ArUco metric
+            # distance가 유일한 정지 기준이다. 슬롯의 legacy pixel-width close가
+            # target_distance_m을 덮어쓰지 못하게 한다.
+            "close_from_marker_width_only": False,
+        }
+        return [
+            {
+                "action": "aruco_align",
+                "command": None,
+                "duration": None,
+                "payload": payload({
+                    **business(common, 2 if stage_prefix == "inbound2" else 5, complete=False),
+                    "stage": f"{stage_prefix}_align_40cm",
+                    "target_distance_m": stage1_target,
+                    "terminal_state": "ARRIVED",
+                    "capture_return_pose_key": stage_prefix,
+                }),
+            },
+            {
+                "action": "wait",
+                "command": None,
+                "duration": wait_sec,
+                "payload": payload(business({
+                    "route_type": INBOUND2_STORAGE_B_SCENARIO,
+                    "stage": f"{stage_prefix}_wait_3sec",
+                    "reason": "two_stage_metric_approach",
+                }, 2 if stage_prefix == "inbound2" else 5, start=False)),
+            },
+            {
+                "action": "aruco_align",
+                "command": None,
+                "duration": None,
+                "payload": payload({
+                    **business(common, 3 if stage_prefix == "inbound2" else 6, complete=False),
+                    "stage": f"{stage_prefix}_insert_calibrated",
+                    "target_distance_m": stage2_target,
+                    "skip_approach_yaw_rotate": True,
+                    "terminal_state": "ARRIVED",
+                }),
+            },
+        ]
+
+    def metric_hold_park_steps(marker_id: int, waypoint_id: str, stage_prefix: str):
+        """Build calibrated standby parking: 40 cm stop -> wait -> 20 cm hold."""
+        waypoint = waypoints.get(waypoint_id) or {}
+        profile = waypoint.get("metric_two_stage") or {}
+        aruco = waypoint.get("aruco_align") or {}
+        stage1_target = float(profile.get("stage1_target_distance_m", 0.40))
+        stage2_target = float(profile.get("stage2_target_distance_m", 0.20))
+        wait_sec = float(profile.get("interstage_stop_sec", 3.0))
+        common = {
+            "route_type": INBOUND2_STORAGE_B_SCENARIO,
+            "aruco_marker_id": marker_id,
+            "align_mode": "full",
+            "fork_insert_on_hold": False,
+            "fork_insert_enabled": False,
+            "metric_distance_only": True,
+            "marker_search_on_miss": True,
+            "marker_seek_mode": "sweep",
+            "marker_search_timeout_sec": 45,
+            "docking_timeout_sec": 65.0,
+            "dock_linear_speed": 0.018,
+            "dock_min_linear_speed": 0.006,
+            "dock_angular_gain": 0.45,
+            "dock_max_angular_speed": 0.16,
+            **{key: value for key, value in aruco.items() if value is not None},
+            "center_tolerance_norm": float(profile.get("center_tolerance_norm", 0.03)),
+            "coarse_center_tolerance_norm": float(profile.get("coarse_center_tolerance_norm", 0.14)),
+            "close_from_marker_width_only": False,
+        }
+        return [
+            {
+                "action": "aruco_align",
+                "command": None,
+                "duration": None,
+                "payload": payload(business({
+                    **common,
+                    "stage": f"{stage_prefix}_align_40cm",
+                    "final": "return_approach",
+                    "target_distance_m": stage1_target,
+                    "terminal_state": "ARRIVED",
+                }, 8, complete=False)),
+            },
+            {
+                "action": "wait",
+                "command": None,
+                "duration": wait_sec,
+                "payload": payload(business({
+                    "route_type": INBOUND2_STORAGE_B_SCENARIO,
+                    "stage": f"{stage_prefix}_wait_3sec",
+                    "reason": "two_stage_metric_hold_park",
+                }, 8, start=False, complete=False)),
+            },
+            {
+                "action": "aruco_align",
+                "command": None,
+                "duration": None,
+                "payload": payload(business({
+                    **common,
+                    "stage": f"{stage_prefix}_hold_20cm",
+                    "final": "hold",
+                    "target_distance_m": stage2_target,
+                    "skip_approach_yaw_rotate": True,
+                    "terminal_state": "DONE",
+                }, 8, start=False)),
+            },
+        ]
+
+    steps = [
+        {
+            "action": "leave_dock",
+            "command": None,
+            "duration": None,
+            "payload": payload(business({
+                "route_type": INBOUND2_STORAGE_B_SCENARIO,
+                "stage": "leave_wait2",
+                "aruco_marker_id": 4,
+                "reverse_clearance_marker_distance_m": 0.40,
+                "reverse_clearance_fallback_m": 0.20,
+                "reverse_marker_max_age_sec": 5.0,
+                "terminal_state": "DONE",
+            }, 0)),
+        },
+        nav_step("inbound_slot_2_approach", "go_to_inbound2"),
+        *metric_approach_steps(1, "inbound_slot_2_approach", "inbound2"),
+        {
+            "action": "dock_transfer",
+            "command": None,
+            "duration": None,
+            "payload": payload(business({
+                "route_type": INBOUND2_STORAGE_B_SCENARIO,
+                "stage": "inbound2_load",
+                "aruco_marker_id": 1,
+                "action": "load",
+                "level": 1,
+                "align_mode": "skip",
+                "skip_approach_yaw_rotate": True,
+                "fork_insert_enabled": False,
+                "skip_lift": skip_lift,
+                "use_return_pose_key": "inbound2",
+                "terminal_state": "DONE",
+            }, 3, start=False)),
+        },
+        nav_step("warehouse_b_approach", "go_to_storage_b"),
+        *metric_approach_steps(8, "warehouse_b_approach", "storage_b"),
+        {
+            "action": "dock_transfer",
+            "command": None,
+            "duration": None,
+            "payload": payload(business({
+                "route_type": INBOUND2_STORAGE_B_SCENARIO,
+                "stage": "storage_b_unload",
+                "aruco_marker_id": 8,
+                "action": "unload",
+                "level": 2,
+                "align_mode": "skip",
+                "skip_approach_yaw_rotate": True,
+                "fork_insert_enabled": False,
+                "skip_lift": skip_lift,
+                "use_return_pose_key": "storage_b",
+                "terminal_state": "DONE",
+            }, 6, start=False)),
+        },
+        nav_step("vehicle_2_approach", "return_to_wait2"),
+        *metric_hold_park_steps(4, "vehicle_2_approach", "park_wait2"),
+    ]
+    business_details = [
+        {"waypoint": "vehicle_2_approach", "marker_id": 4, "estimated_timeout_sec": 60},
+        {"waypoint": "inbound_slot_2_approach", "estimated_timeout_sec": 120},
+        {"waypoint": "inbound_slot_2_approach", "marker_id": 1, "target_distance_m": 0.40, "wait_sec": 3, "estimated_timeout_sec": 90},
+        {"waypoint": "inbound_slot_2_approach", "marker_id": 1, "level": 1, "insert_distance_m": 0.20, "return_to_approach": True, "estimated_timeout_sec": 120},
+        {"waypoint": "warehouse_b_approach", "estimated_timeout_sec": 120},
+        {"waypoint": "warehouse_b_approach", "marker_id": 8, "target_distance_m": 0.40, "wait_sec": 3, "estimated_timeout_sec": 90},
+        {"waypoint": "warehouse_b_approach", "marker_id": 8, "level": 2, "insert_distance_m": 0.20, "return_to_approach": True, "estimated_timeout_sec": 120},
+        {"waypoint": "vehicle_2_approach", "estimated_timeout_sec": 120},
+        {"waypoint": "vehicle_2_approach", "marker_id": 4, "estimated_timeout_sec": 90},
+    ]
+    business_steps = [
+        {
+            "step_index": index,
+            "step_code": code,
+            "step_action": action,
+            **business_details[index],
+        }
+        for index, (code, action) in enumerate(INBOUND2_STORAGE_B_BUSINESS_STEPS)
+    ]
+    plan_material = json.dumps(steps, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return {
+        "scenario": INBOUND2_STORAGE_B_SCENARIO,
+        "scenario_id": INBOUND2_STORAGE_B_SCENARIO_ID,
+        "scenario_version": INBOUND2_STORAGE_B_SCENARIO_VERSION,
+        "robot_name": "tb3_2",
+        "waypoints": ["inbound_slot_2_approach", "warehouse_b_approach", "vehicle_2_approach"],
+        "steps": steps,
+        "operation_sequence": [step["payload"]["stage"] for step in steps],
+        "business_steps": business_steps,
+        "estimated_total_timeout_sec": sum(item["estimated_timeout_sec"] for item in business_steps),
+        "plan_hash": hashlib.sha256(plan_material.encode("utf-8")).hexdigest(),
+        "traffic_policy": traffic_policy,
+        "traffic_segments": traffic_policy["traffic_segments"],
+        "yield_candidates": traffic_policy["yield_candidates"],
+    }
 
 
 def _return_step(route: Dict[str, Any], return_waypoint: Optional[str]):

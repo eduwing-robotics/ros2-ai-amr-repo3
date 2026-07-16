@@ -62,6 +62,7 @@ def movement_health():
         "cmd_vel_subscribers": cmd_vel_subscribers,
         "cmd_vel_subscriber_nodes": robot_context.cmd_vel_subscribers(),
         "command_accepting": command_accepting,
+        "battery": robot_context.current_battery_percent(),
         "nav2_ready": nav2_ready,
         "navigator_status": navigator_status,
         "is_emergency": is_emergency,

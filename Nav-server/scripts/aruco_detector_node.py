@@ -159,6 +159,36 @@ class ArucoDetectorNode(Node):
             return float(self.marker_size_m * self.focal_length_px / marker_width_px)
         return None
 
+    def _estimate_pose_details(self, corner) -> Dict[str, Any]:
+        """Return calibrated marker translation and face-normal yaw in camera coordinates."""
+        if self.camera_matrix is None or self.dist_coeffs is None or not hasattr(cv2.aruco, "estimatePoseSingleMarkers"):
+            return {}
+        try:
+            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+                np.array([corner], dtype=np.float32),
+                self.marker_size_m,
+                self.camera_matrix,
+                self.dist_coeffs,
+            )
+            rvec = np.asarray(rvecs[0][0], dtype=float)
+            tvec = np.asarray(tvecs[0][0], dtype=float)
+            rotation, _ = cv2.Rodrigues(rvec)
+            # OpenCV marker +Z points away from the printed face for the usual
+            # frontal solution. Negating it yields the face normal toward camera.
+            face_normal = -rotation[:, 2]
+            yaw_error = math.atan2(float(face_normal[0]), float(face_normal[2]))
+            return {
+                "estimated_distance_m": float(np.linalg.norm(tvec)),
+                "translation_camera_m": tvec.tolist(),
+                "rotation_vector_rad": rvec.tolist(),
+                "marker_face_normal_camera": face_normal.tolist(),
+                "marker_yaw_error_rad": float(yaw_error),
+                "marker_yaw_error_deg": float(math.degrees(yaw_error)),
+            }
+        except Exception as exc:
+            self.get_logger().debug(f"pose detail estimate failed: {exc}")
+            return {}
+
     def _image_callback(self, msg: CompressedImage):
         self.frames_seen += 1
         np_arr = np.frombuffer(msg.data, dtype=np.uint8)
@@ -186,7 +216,10 @@ class ArucoDetectorNode(Node):
                 center_y = float(np.mean(pts[:, 1]))
                 error_px = center_x - (width / 2.0)
                 error_norm = error_px / max(1.0, width / 2.0)
-                estimated_distance = self._estimate_distance(marker_width_px, corner)
+                pose_details = self._estimate_pose_details(corner)
+                estimated_distance = pose_details.get("estimated_distance_m")
+                if estimated_distance is None:
+                    estimated_distance = self._estimate_distance(marker_width_px, corner)
                 detection = {
                     "marker_id": int(marker_id),
                     "center_px": [center_x, center_y],
@@ -199,6 +232,7 @@ class ArucoDetectorNode(Node):
                     "image_height": int(height),
                     "corners_px": pts.tolist(),
                 }
+                detection.update(pose_details)
                 if estimated_distance is not None and math.isfinite(estimated_distance):
                     detection["estimated_distance_m"] = estimated_distance
                 detections.append(detection)

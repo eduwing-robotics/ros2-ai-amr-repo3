@@ -1,29 +1,37 @@
-# Python runtime
+# Python / ROS workspace runtime outputs
+venv/
+.venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .mypy_cache/
-.venv/
-venv/
 
-# Operator/runtime outputs
+# Runtime evidence (see docs/runbook/RUNTIME_OUTPUT_POLICY.md)
 logs/
 tmp/
 backups/
 worklog/*.log
 worklog/insert_snapshots/
 *.pid
+forward.json
 
-# Local secrets
+# Local operator overrides
 .env
 
-# Map tuning backups and camera captures
+# Map tuning backups and local camera captures
 map/*.bak
 map/*.bak.*
 map/*.jpg
 map/*.png
 map/*.svg
 map/camera_snapshot_*
+
+# Patch/editor leftovers
+*.orig
+*.rej
+*.bak
+*.bak.*
 
 # Editor
 .vscode/

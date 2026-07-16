@@ -31,6 +31,8 @@ class LiftClient:
         self.position_mm: Optional[float] = None
         self.direction: Optional[str] = None
         self.limit_lower: Optional[bool] = None
+        self._position_received_monotonic: Optional[float] = None
+        self._direction_received_monotonic: Optional[float] = None
         self._condition = threading.Condition()
 
         self._pub_move = None
@@ -64,10 +66,12 @@ class LiftClient:
 
     def _on_position(self, msg: Any) -> None:
         self.position_mm = float(msg.data)
+        self._position_received_monotonic = time.monotonic()
         self._notify()
 
     def _on_direction(self, msg: Any) -> None:
         self.direction = str(msg.data).upper()
+        self._direction_received_monotonic = time.monotonic()
         self._notify()
 
     def _on_limit_lower(self, msg: Any) -> None:
@@ -159,11 +163,46 @@ class LiftClient:
             print(f"[lift] move logical={target:.1f}mm cmd={cmd:.1f}mm (scale={scale:.3f})")
         msg = Float32()
         msg.data = cmd
+        command_started = time.monotonic()
         self._pub_move.publish(msg)
-        return self._wait_until(
-            lambda: self._at_target_mm(target, tolerance) and self._is_stopped(),
-            timeout,
-            f"lift move timeout target={target:.1f}mm cmd={cmd:.1f}mm position={self.position_mm}",
+        deadline = command_started + max(0.0, timeout)
+        retry_sec = float(self.config.get("command_retry_sec", 1.0))
+        next_retry = command_started + retry_sec
+        max_retries = int(self.config.get("command_max_retries", 3))
+        retries = 0
+
+        def complete() -> bool:
+            return (
+                self._position_received_monotonic is not None
+                and self._position_received_monotonic >= command_started
+                and self._direction_received_monotonic is not None
+                and self._direction_received_monotonic >= command_started
+                and self._at_target_mm(target, tolerance)
+                and self._is_stopped()
+            )
+
+        with self._condition:
+            while time.monotonic() < deadline:
+                if complete():
+                    return self.status()
+                now = time.monotonic()
+                # 연결 수가 있어도 일회성 명령이 유실될 수 있다. 실제 이동 중에는
+                # 재전송하지 않고, STOP이며 목표 밖일 때만 제한적으로 다시 보낸다.
+                if (
+                    retries < max_retries
+                    and now >= next_retry
+                    and self._is_stopped()
+                    and not self._at_target_mm(target, tolerance)
+                ):
+                    self._pub_move.publish(msg)
+                    retries += 1
+                    next_retry = now + retry_sec
+                remaining = max(0.0, deadline - time.monotonic())
+                self._condition.wait(timeout=min(0.1, remaining))
+        self._publish_stop()
+        raise RuntimeError(
+            f"lift move timeout target={target:.1f}mm cmd={cmd:.1f}mm "
+            f"position={self.position_mm} retries={retries}"
         )
 
     def _is_stopped(self) -> bool:

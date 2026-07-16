@@ -1,4 +1,5 @@
 from nav_app.models.requests import (
+    Inbound2StorageBScenarioRequest,
     InitialPoseRequest,
     ManualRotateRequest,
     ManualStartRequest,
@@ -18,6 +19,7 @@ from nav_app.models.requests import (
 )
 
 __all__ = [
+    "Inbound2StorageBScenarioRequest",
     "InitialPoseRequest",
     "ManualRotateRequest",
     "ManualStartRequest",

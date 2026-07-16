@@ -7,7 +7,7 @@ from nav_app.runtime import runtime
 from nav_app.settings import ACTIVE_ROBOT_ID, is_simulation_mode
 from nav_app.util.time import utc_now
 from nav_app.services import robot_commands
-from nav_app.routers.movement_api import movement_accept_command, movement_get_command, movement_resume_command
+from nav_app.routers.movement_api import _accept_movement_command, movement_get_command, movement_resume_command
 
 router = APIRouter()
 
@@ -23,25 +23,21 @@ def accept_robot_command(req: RobotCommandRequest, background_tasks: BackgroundT
         raise HTTPException(status_code=422, detail="Idempotency-Key must equal command_id")
     if req.robot_name is not None and req.robot_name != req.robot_id:
         raise HTTPException(status_code=422, detail="robot_name must equal robot_id")
-    existing = runtime.movement_commands.get(req.command_id)
-    if existing:
-        if existing.get("source_request_fingerprint") != _source_fingerprint(req):
-            raise HTTPException(status_code=409, detail="same command_id was already used with a different payload")
-        return {"accepted": True, "command_id": req.command_id, "state": existing.get("state"), "duplicate": True, "kind": existing.get("kind", req.kind), "dry_run": existing.get("dry_run", req.dry_run), "simulation_mode": is_simulation_mode()}
-    try:
-        movement_req = robot_commands.movement_request_from_robot_command(req)
-        response = movement_accept_command(movement_req, background_tasks)
-        command = runtime.movement_commands.get(req.command_id)
-        if command is not None:
-            command["kind"] = req.kind
-            command["params"] = req.params
-            command["robot_id"] = ACTIVE_ROBOT_ID
-            command["input_mode"] = "robot_command"
-            command["dry_run"] = req.dry_run
-            command["source_request_fingerprint"] = _source_fingerprint(req)
-        return {**response, "kind": req.kind, "dry_run": req.dry_run, "simulation_mode": is_simulation_mode()}
-    finally:
-        pass
+    movement_req = robot_commands.movement_request_from_robot_command(req)
+    source_metadata = {
+        "kind": req.kind,
+        "params": req.params,
+        "robot_id": ACTIVE_ROBOT_ID,
+        "input_mode": "robot_command",
+        "dry_run": req.dry_run,
+        "source_request_fingerprint": _source_fingerprint(req),
+    }
+    response = _accept_movement_command(
+        movement_req,
+        background_tasks,
+        source_metadata=source_metadata,
+    )
+    return {**response, "kind": req.kind, "dry_run": req.dry_run, "simulation_mode": is_simulation_mode()}
 
 
 @router.get("/robot-commands/{command_id}")
@@ -67,7 +63,10 @@ def cancel_robot_command(command_id: str):
     command["message"] = "cancelled by Main"
     command["updated_at"] = utc_now()
     from nav_app.services import command_state
-    command_state.report_command_callback(command, "CANCELLED", command["message"])
+    command["authority_owner"] = "MAIN"
+    command["authority_released"] = True
+    command_state.persist_command(command)
+    command_state.report_command_callback(command, "COMMAND_CANCELLED", command["message"])
     command_state.release_traffic_locks_for_command(command)
     return {"command_id": command_id, "state": "CANCELLED", "duplicate": False}
 

@@ -33,6 +33,14 @@ ROBOT_PW='<robot-password>' scripts/start_all_tb3_2.sh stop
 
 `start`는 로봇 SBC의 TurtleBot3 bringup, lift bridge, 카메라와 Nav PC의
 ArUco detector, Nav2/RViz, Movement API(:8002)를 함께 실행합니다.
+기본 운용은 `WITH_EKF=1`(wheel odom + IMU)이며, EKF 없이 점검할 때만
+`WITH_EKF=0`을 명시합니다.
+
+Nav PC는 유선과 로봇 WiFi가 동시에 연결된 다중 NIC 환경이므로
+`config/fastdds_robot_network.xml`로 Fast DDS를 로봇망 `192.168.30.12`에 고정합니다.
+이 설정은 `/odom`, `/scan`, 카메라와 API 준비 검사의 공통 통신 기준입니다.
+Fast DDS 초기 discovery 지연을 고려해 센서 준비 검사는 토픽당 10초,
+초기 자세는 60초 동안 반복 발행한 뒤 Nav2 lifecycle을 확인합니다.
 
 Movement API만 별도로 실행할 때만 다음 명령을 사용합니다. 이 명령도 프로젝트
 venv를 자동 선택합니다.

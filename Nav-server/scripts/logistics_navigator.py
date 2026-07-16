@@ -18,7 +18,9 @@ import os
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
+from statistics import median
 
 import rclpy
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
@@ -33,6 +35,16 @@ from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 
 from sensor_msgs.msg import BatteryState, CompressedImage, LaserScan
 from std_msgs.msg import Bool, String
+from turtlebot3_msgs.msg import SensorState
+
+from nav_app.settings import (
+    BATTERY_EMPTY_VOLTAGE,
+    BATTERY_FALL_STEP_PERCENT,
+    BATTERY_FILTER_WINDOW,
+    BATTERY_FULL_VOLTAGE,
+    BATTERY_RISE_STEP_PERCENT,
+    BATTERY_STALE_SEC,
+)
 
 # --- 설정 및 경로 ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,14 +73,22 @@ class LogisticsNavigator(Node):
 
     def __init__(self):
         super().__init__("logistics_navigator")
-        
+
         # 1. 구역 및 웨이포인트 데이터 로드
         self.zones_data = self._load_zones()
         self.waypoint_index = self._build_waypoint_index()
-        
+
         # 2. 안전 및 상태 관리자 초기화
         self.safety = SafetyManager()
-        self.battery_level = 100.0
+        # Unknown until the first valid ROS battery sample arrives.
+        self.battery_level = None
+        self.battery_voltage = None
+        self.battery_received_monotonic = None
+        self.battery_sampled_at = None
+        self.battery_lock = threading.Lock()
+        self.battery_voltage_samples = deque(maxlen=BATTERY_FILTER_WINDOW)
+        self.sensor_battery_received_monotonic = None
+        self.battery_source = None
         self.status = "IDLE"
         self.last_pose = None
         self.simulated_pose = None
@@ -83,16 +103,18 @@ class LogisticsNavigator(Node):
         self.camera_lock = threading.Lock()
         self.latest_camera_jpeg = None
         self.latest_camera_received_at = 0.0
-        
+
         # 3. ROS 2 구독 설정 (실시간 상태 수신)
         # 배터리 상태 구독
         self.battery_sub = self.create_subscription(
             BatteryState, "/battery_state", self._battery_callback, 10)
-        
+        self.sensor_state_sub = self.create_subscription(
+            SensorState, "/sensor_state", self._sensor_state_callback, qos_profile_sensor_data)
+
         # 비상 정지 및 장애물 신호 구독
         self.estop_sub = self.create_subscription(
             Bool, "/emergency_stop", self._estop_callback, 10)
-        
+
         self.obstacle_sub = self.create_subscription(
             String, "/obstacle_status", self._obstacle_callback, 10)
 
@@ -236,17 +258,85 @@ class LogisticsNavigator(Node):
             self.get_logger().info("Nav2 active state 확인 완료.")
             return True
 
-    def _battery_callback(self, msg):
-        """배터리 잔량 업데이트
+    def _ensure_battery_filter_state(self):
+        if not hasattr(self, "battery_voltage_samples"):
+            self.battery_voltage_samples = deque(maxlen=BATTERY_FILTER_WINDOW)
+        if not hasattr(self, "sensor_battery_received_monotonic"):
+            self.sensor_battery_received_monotonic = None
+        if not hasattr(self, "battery_source"):
+            self.battery_source = None
 
-        ROS BatteryState.percentage is conventionally 0.0..1.0, but some
-        TurtleBot3 bringup stacks publish an already-percent value such as
-        86.6. Normalize both forms for API consumers.
-        """
+
+    def _percent_from_voltage(self, voltage):
+        span = BATTERY_FULL_VOLTAGE - BATTERY_EMPTY_VOLTAGE
+        if span <= 0.0:
+            return None
+        return max(0.0, min(100.0, (voltage - BATTERY_EMPTY_VOLTAGE) * 100.0 / span))
+
+    def _battery_callback(self, msg):
+        """Use BatteryState only while the primary OpenCR sensor sample is stale."""
+        self._ensure_battery_filter_state()
+        now = time.monotonic()
+        if (
+            self.sensor_battery_received_monotonic is not None
+            and now - self.sensor_battery_received_monotonic <= BATTERY_STALE_SEC
+        ):
+            return
         percentage = float(msg.percentage)
-        if percentage <= 1.0:
-            percentage *= 100.0
-        self.battery_level = max(0.0, min(100.0, percentage))
+        if math.isfinite(percentage) and percentage >= 0.0:
+            if percentage <= 1.0:
+                percentage *= 100.0
+            percentage = max(0.0, min(100.0, percentage))
+        else:
+            percentage = None
+        voltage = float(msg.voltage)
+        if not math.isfinite(voltage) or voltage <= 0.0:
+            voltage = None
+        if percentage is None and voltage is not None:
+            percentage = self._percent_from_voltage(voltage)
+        self._record_battery_sample(percentage=percentage, voltage=voltage, source="battery_state")
+
+    def _sensor_state_callback(self, msg):
+        """Filter the primary OpenCR voltage with a rolling median and slew limits."""
+        self._ensure_battery_filter_state()
+        voltage = float(msg.battery)
+        if not math.isfinite(voltage) or voltage <= 0.0:
+            self.battery_voltage_samples.clear()
+            self._record_battery_sample(percentage=None, voltage=None, source="sensor_state")
+            return
+        self.sensor_battery_received_monotonic = time.monotonic()
+        self.battery_voltage_samples.append(voltage)
+        filtered_voltage = float(median(self.battery_voltage_samples))
+        percentage = self._percent_from_voltage(filtered_voltage)
+        self._record_battery_sample(percentage=percentage, voltage=filtered_voltage, source="sensor_state")
+
+    def _record_battery_sample(self, percentage=None, voltage=None, source=None):
+        from datetime import datetime, timezone
+
+        with self.battery_lock:
+            if percentage is None:
+                filtered_percentage = None
+            elif self.battery_level is None:
+                filtered_percentage = float(percentage)
+            else:
+                delta = float(percentage) - float(self.battery_level)
+                delta = max(-BATTERY_FALL_STEP_PERCENT, min(BATTERY_RISE_STEP_PERCENT, delta))
+                filtered_percentage = float(self.battery_level) + delta
+            self.battery_level = filtered_percentage
+            self.battery_voltage = None if voltage is None else float(voltage)
+            self.battery_received_monotonic = time.monotonic()
+            self.battery_sampled_at = datetime.now(timezone.utc).isoformat()
+            self.battery_source = source
+
+    def get_battery_snapshot(self):
+        with self.battery_lock:
+            return {
+                "battery": None if self.battery_received_monotonic is None else self.battery_level,
+                "battery_voltage": self.battery_voltage,
+                "battery_received_monotonic": self.battery_received_monotonic,
+                "battery_sampled_at": self.battery_sampled_at,
+                "battery_source": getattr(self, "battery_source", None),
+            }
 
     def _estop_callback(self, msg):
         """비상 정지 신호 처리"""
@@ -740,14 +830,14 @@ class LogisticsNavigator(Node):
         waypoints = self.zones_data.get("waypoints", {})
         if name not in waypoints:
             return None
-        
+
         wp = waypoints[name]
         pose = PoseStamped()
         pose.header.frame_id = 'map'
         pose.header.stamp = self.nav.get_clock().now().to_msg()
         pose.pose.position.x = float(wp['x'])
         pose.pose.position.y = float(wp['y'])
-        
+
         # Yaw(theta)를 Quaternion으로 변환
         theta = float(wp.get('theta', 0.0))
         pose.pose.orientation.z = math.sin(theta / 2.0)
@@ -1000,7 +1090,7 @@ class LogisticsNavigator(Node):
 
         info = self.waypoint_index.get(name, {})
         print(f"\n[임무 시작] 목적지: {name} (구역: {info.get('role', '일반')})")
-        
+
         self.ensure_nav2_ready()
         self.nav.goToPose(pose)
         result = self._monitor_nav_task(name, target_pose=pose)
@@ -1043,6 +1133,17 @@ class LogisticsNavigator(Node):
     def cmd_vel_subscriber_count(self):
         """Return the number of subscribers listening for final velocity commands."""
         return len(self.cmd_vel_subscribers())
+
+    def topic_publishers(self, topic_name):
+        """Return ROS graph endpoints publishing a hardware-readiness topic."""
+        return [
+            {
+                "node_name": info.node_name,
+                "node_namespace": info.node_namespace,
+                "topic_type": info.topic_type,
+            }
+            for info in self.get_publishers_info_by_topic(topic_name)
+        ]
 
     def publish_stop_velocity(self):
         """진행 중인 수동 조작을 중단하고 /cmd_vel 정지 명령을 즉시 보냅니다."""
@@ -1252,7 +1353,7 @@ class LogisticsNavigator(Node):
             self.manual_stop_event.clear()
 
     def publish_velocity_to_map_xy(self, linear_x, target_x, target_y, rate_hz=10.0, max_duration_sec=15.0, tolerance_m=0.015):
-        """Drive straight until the map-frame base pose reaches a saved XY target."""
+        """Reverse on the current heading with zero angular velocity; target pose is stop validation only."""
         if self.safety.estop:
             return {"ok": False, "reason": "estop", "remaining_m": None}
         linear_x = float(linear_x)
@@ -1265,10 +1366,31 @@ class LogisticsNavigator(Node):
         previous_status = self.status
         self.status = "MANUAL"
         self.manual_stop_event.clear()
+        start_pose = self.get_current_pose()
+        if start_pose is None:
+            self.status = "IDLE" if previous_status == "IDLE" else previous_status
+            return {"ok": False, "reason": "pose_unavailable", "remaining_m": None}
+        start_x, start_y = float(start_pose["x"]), float(start_pose["y"])
+        route_x, route_y = target_x - start_x, target_y - start_y
+        route_length = math.hypot(route_x, route_y)
+        if route_length <= tolerance_m:
+            self.status = "IDLE" if previous_status == "IDLE" else previous_status
+            return {
+                "ok": True,
+                "reason": "map_target_reached",
+                "remaining_m": route_length,
+                "along_remaining_m": route_length,
+                "lateral_error_m": 0.0,
+                "target": {"x": target_x, "y": target_y},
+            }
+        unit_x, unit_y = route_x / route_length, route_y / route_length
         twist = TwistStamped()
         twist.header.frame_id = "base_link"
         twist.twist.linear.x = linear_x
-        remaining, reason, ok = None, "timeout", False
+        lateral_tolerance_m = 0.03
+        twist.twist.angular.z = 0.0
+        remaining, along_remaining, lateral_error = None, None, None
+        reason, ok = "timeout", False
         try:
             while time.monotonic() < deadline:
                 if self.safety.estop:
@@ -1279,14 +1401,31 @@ class LogisticsNavigator(Node):
                     break
                 pose = self.get_current_pose()
                 if pose is not None:
-                    remaining = math.hypot(float(pose["x"]) - target_x, float(pose["y"]) - target_y)
-                    if remaining <= tolerance_m:
-                        reason, ok = "map_target_reached", True
+                    current_x, current_y = float(pose["x"]), float(pose["y"])
+                    remaining = math.hypot(current_x - target_x, current_y - target_y)
+                    traveled_x, traveled_y = current_x - start_x, current_y - start_y
+                    progress = traveled_x * unit_x + traveled_y * unit_y
+                    along_remaining = route_length - progress
+                    lateral_error = abs(traveled_x * unit_y - traveled_y * unit_x)
+                    if along_remaining <= tolerance_m:
+                        if remaining <= lateral_tolerance_m and lateral_error <= lateral_tolerance_m:
+                            reason = "map_target_reached"
+                            ok = True
+                        else:
+                            reason = "map_target_plane_crossed_lateral_error"
+                            ok = False
                         break
                 twist.header.stamp = self.get_clock().now().to_msg()
                 self.cmd_vel_pub.publish(twist)
                 time.sleep(interval)
-            return {"ok": ok, "reason": reason, "remaining_m": remaining, "target": {"x": target_x, "y": target_y}}
+            return {
+                "ok": ok,
+                "reason": reason,
+                "remaining_m": remaining,
+                "along_remaining_m": along_remaining,
+                "lateral_error_m": lateral_error,
+                "target": {"x": target_x, "y": target_y},
+            }
         finally:
             self._publish_stop_velocity()
             self.status = "IDLE" if previous_status == "IDLE" else previous_status
@@ -1314,10 +1453,10 @@ def main():
             # Nav2 활성화 대기
             print("Nav2 시스템 확인 중...")
             navigator.nav.waitUntilNav2Active(localizer="amcl")
-            
+
             # 이동 수행
             navigator.go_to_waypoint(command)
-            
+
         except KeyboardInterrupt:
             print("\n사용자에 의해 중단되었습니다.")
             navigator.nav.cancelTask()

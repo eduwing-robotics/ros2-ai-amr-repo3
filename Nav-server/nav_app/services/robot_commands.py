@@ -214,7 +214,7 @@ def docking_approach_goal_overrides(waypoint_id: Optional[str]) -> Dict[str, flo
         "yaw_tolerance_rad": NAV_APPROACH_YAW_TOLERANCE_RAD,
         "soft_xy_tolerance_m": NAV_APPROACH_SOFT_XY_TOLERANCE_M,
         "soft_yaw_tolerance_rad": NAV_APPROACH_SOFT_YAW_TOLERANCE_RAD,
-        "require_exact_approach": True,
+        "require_exact_approach": False,
     }
     # 슬롯 approach: Nav2는 xy만 맞추고 yaw는 ArUco가 담당 (벽 앞에서 Nav2 yaw 보정 시 전진 충돌 방지)
     if is_slot_docking_approach(waypoint_id):
@@ -406,6 +406,7 @@ def move_to_point_steps(req: RobotCommandRequest, goal: Dict[str, Any], traffic_
             "fork_insert_on_hold": False,
             "fork_insert_enabled": False,
             "metric_distance_only": True,
+            "close_from_marker_width_only": False,
             "dock_linear_speed": 0.018,
             "dock_min_linear_speed": 0.006,
             "dock_angular_gain": 0.45,
@@ -414,9 +415,20 @@ def move_to_point_steps(req: RobotCommandRequest, goal: Dict[str, Any], traffic_
             "coarse_center_tolerance_norm": float(two_stage.get("coarse_center_tolerance_norm", 0.14)),
             "docking_timeout_sec": 65.0,
         }
-        stage1 = MovementStep(action="aruco_align", payload={**common, "terminal_state": "DONE", "target_distance_m": float(two_stage.get("stage1_target_distance_m", 0.40))})
+        stage1_target = float(two_stage.get("stage1_target_distance_m", 0.40))
+        stage2_target = float(two_stage.get("stage2_target_distance_m", 0.20))
+        stage1 = MovementStep(action="aruco_align", payload={**common, "terminal_state": "ARRIVED", "target_distance_m": stage1_target})
         stop = MovementStep(action="wait", duration=float(two_stage.get("interstage_stop_sec", 3.0)), payload={"reason": "future_lift_stage"})
-        stage2 = MovementStep(action="aruco_align", payload={**common, "terminal_state": "ARRIVED", "target_distance_m": float(two_stage.get("stage2_target_distance_m", 0.20)), "skip_approach_yaw_rotate": True, "straight_insert": True})
+        stage2 = MovementStep(
+            action="aruco_align",
+            payload={
+                **common,
+                "terminal_state": "ARRIVED",
+                "target_distance_m": stage2_target,
+                "skip_approach_yaw_rotate": True,
+            },
+        )
+        stage1.payload["metric_insert_distance_m"] = max(0.0, stage1_target - stage2_target)
         return prepend_leave_dock_if_parked([nav_step, stage1, stop, stage2])
 
     align_step = MovementStep(action="aruco_align", payload=align_payload)
@@ -461,13 +473,14 @@ def movement_request_from_robot_command(req: RobotCommandRequest):
             dock_payload["align_mode"] = "skip"
         if gate.get("post_align_done"):
             dock_payload["skip_approach_yaw_rotate"] = True
-            travel_m = gate.get("metric_approach_travel_m")
-            if travel_m is not None and float(travel_m) > 0.0:
-                dock_payload["fork_insert_enabled"] = False
-                dock_payload["reverse_distance_m"] = float(travel_m)
+            insert_m = gate.get("metric_insert_distance_m")
+            if insert_m is not None and float(insert_m) > 0.0:
+                dock_payload["fork_insert_distance_m"] = float(insert_m)
+                dock_payload["insert_vision_stop"] = False
+                dock_payload["fork_insert_slip_compensation_m"] = 0.0
+            if gate.get("metric_approach_start_pose"):
                 dock_payload["metric_return_to_approach"] = True
-                if gate.get("metric_approach_start_pose"):
-                    dock_payload["return_target_pose"] = dict(gate["metric_approach_start_pose"])
+                dock_payload["return_target_pose"] = dict(gate["metric_approach_start_pose"])
             dock_payload.setdefault("require_center_before_insert", False)
             dock_payload.setdefault("marker_search_on_miss", False)
             dock_payload.setdefault("pre_insert_center_cycles", 0)

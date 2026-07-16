@@ -8,9 +8,11 @@ from fastapi import FastAPI
 
 from nav_app.config import active_robot_profile, ensure_process_domain_matches_profile
 from nav_app.runtime import runtime
-from nav_app.settings import ACTIVE_ROBOT_ID
+from nav_app.settings import ACTIVE_ROBOT_ID, MOVEMENT_STATE_PATH, ROBOT_STATUS_HEARTBEAT_SEC
 from nav_app.services import robot_context
 from nav_app.services.lift_client import LiftClient
+from nav_app.services.state_store import MovementStateStore
+from nav_app.adapters.callbacks import post_json_callback
 from nav_app.routers import include_routers
 
 
@@ -54,6 +56,45 @@ def startup_runtime() -> None:
     runtime.mission_manager = MissionManager(runtime.navigator, zone_lock_manager=runtime.zone_lock_manager)
     runtime.mission_manager.set_robot_profile(profile)
     runtime.lift_client = LiftClient(runtime.navigator, profile.get("lift") or {})
+    runtime.state_store = MovementStateStore(MOVEMENT_STATE_PATH)
+    runtime.movement_commands = runtime.state_store.load_commands()
+    for command in runtime.movement_commands.values():
+        if command.get("state") in ("ACCEPTED", "RUNNING", "STOPPING"):
+            command["state"] = "STOPPED"
+            command["reason"] = "server_restart"
+            command["resumable"] = True
+            command["authority_owner"] = "MAIN"
+            command["authority_released"] = True
+            runtime.state_store.save_command(command)
+
+    runtime.outbox_stop.clear()
+
+    def flush_outbox():
+        while not runtime.outbox_stop.wait(1.0):
+            if not runtime.state_store:
+                continue
+            for item in runtime.state_store.pending_callbacks():
+                if post_json_callback(item["callback_url"], item["payload"], label="DurableOutbox"):
+                    runtime.state_store.mark_callback_delivered(item["event_id"])
+
+    runtime.outbox_thread = threading.Thread(target=flush_outbox, name="movement-outbox", daemon=True)
+    runtime.outbox_thread.start()
+
+    runtime.status_heartbeat_stop.clear()
+
+    def report_status_heartbeat():
+        while not runtime.status_heartbeat_stop.wait(ROBOT_STATUS_HEARTBEAT_SEC):
+            try:
+                robot_context.report_movement_robot_status(profile.get("bridge_robot_id"))
+            except Exception as exc:
+                print(f"[RobotStatusHeartbeat 경고] {exc}")
+
+    runtime.status_heartbeat_thread = threading.Thread(
+        target=report_status_heartbeat,
+        name="robot-status-heartbeat",
+        daemon=True,
+    )
+    runtime.status_heartbeat_thread.start()
 
     print(f"Nav Server: 담당 로봇 ID = {ACTIVE_ROBOT_ID}")
     print(f"Nav Server: ROS_DOMAIN_ID = {domain_id}, namespace = {profile['namespace']}")
@@ -68,6 +109,12 @@ def shutdown_runtime() -> None:
     """서버 종료 시 ROS 2 정리"""
     import rclpy
 
+    runtime.outbox_stop.set()
+    runtime.status_heartbeat_stop.set()
+    if runtime.outbox_thread:
+        runtime.outbox_thread.join(timeout=2.0)
+    if runtime.status_heartbeat_thread:
+        runtime.status_heartbeat_thread.join(timeout=2.0)
     if runtime.navigator:
         cancel_task = getattr(getattr(runtime.navigator, "nav", None), "cancelTask", None)
         if callable(cancel_task):
@@ -84,6 +131,9 @@ def shutdown_runtime() -> None:
     runtime.zone_lock_manager = None
     runtime.traffic_manager = None
     runtime.lift_client = None
+    runtime.state_store = None
+    runtime.outbox_thread = None
+    runtime.status_heartbeat_thread = None
     print("Nav Server: 시스템 종료됨.")
 
 

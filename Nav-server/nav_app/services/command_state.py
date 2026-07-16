@@ -33,6 +33,11 @@ def release_traffic_locks_for_command(command: Dict[str, Any]):
     )
 
 
+def persist_command(command: Dict[str, Any]):
+    if runtime.state_store:
+        runtime.state_store.save_command(command)
+
+
 def report_movement_result(command_id: str, task_id: Optional[int], robot_name: str, state: str, message: str):
     return _post_main_callback(
         "/movement/results",
@@ -58,6 +63,12 @@ def command_callback_payload(command: Dict[str, Any], event: str, message: Optio
         "event": event,
         "command_id": command.get("command_id"),
         "task_id": command.get("task_id"),
+        "execution_id": command.get("execution_id"),
+        "scenario_id": command.get("scenario_id"),
+        "scenario_version": command.get("scenario_version"),
+        "source_command_id": command.get("source_command_id"),
+        "parent_execution_id": command.get("parent_execution_id"),
+        "resume_from_step_index": command.get("resume_from_step_index"),
         "robot_name": command.get("robot_name"),
         "robot_id": ACTIVE_ROBOT_ID,
         "state": state,
@@ -69,7 +80,14 @@ def command_callback_payload(command: Dict[str, Any], event: str, message: Optio
         "failure_diagnostics": command.get("failure_diagnostics"),
         "message": message if message is not None else command.get("message"),
         "current_step_index": command.get("current_step_index"),
+        "current_step_code": command.get("current_step_code"),
         "current_step_action": command.get("current_step_action"),
+        "last_completed_step_index": command.get("last_completed_step_index"),
+        "cargo_state": command.get("cargo_state"),
+        "business_completed": command.get("business_completed"),
+        "park_status": command.get("park_status"),
+        "authority_owner": command.get("authority_owner"),
+        "authority_released": command.get("authority_released"),
         "route_type": command.get("route_type"),
         "item": command.get("item"),
         "waypoints": command.get("waypoints"),
@@ -89,7 +107,13 @@ def report_command_callback(command: Dict[str, Any], event: str, message: Option
     if not callback_url:
         return True
     payload = command_callback_payload(command, event=event, message=message)
-    return _post_json_callback(callback_url, payload, label="CommandCallback")
+    persist_command(command)
+    if runtime.state_store:
+        runtime.state_store.enqueue_callback(callback_url, payload)
+    delivered = _post_json_callback(callback_url, payload, label="CommandCallback")
+    if delivered and runtime.state_store:
+        runtime.state_store.mark_callback_delivered(payload["event_id"])
+    return delivered
 
 
 def mark_command_aborted(command: Dict[str, Any], reason: str, stage: str, robot_at: Optional[str] = None, resumable: bool = False, message: Optional[str] = None):
@@ -103,8 +127,13 @@ def mark_command_aborted(command: Dict[str, Any], reason: str, stage: str, robot
         command["robot_at"] = robot_at
         command["resumable"] = resumable
         command["updated_at"] = _utc_now()
+        command["authority_owner"] = "MAIN"
+        command["authority_released"] = True
+        persist_command(command)
     report_movement_result(command.get("command_id"), command.get("task_id"), command.get("robot_name"), "ABORTED", command["message"])
-    report_command_callback(command, "ABORTED", command["message"])
+    if reason == "estop":
+        report_command_callback(command, "ESTOP_LATCHED", command["message"])
+    report_command_callback(command, "COMMAND_ABORTED", command["message"])
     _report_movement_robot_status(command.get("robot_name"), None, "idle" if reason == "timeout" else "estop")
     release_traffic_locks_for_command(command)
     return True
@@ -142,6 +171,7 @@ def record_arrived_gate(command: Dict[str, Any]):
         "nav_position_only": bool(command.get("nav_position_only_approach")),
         "metric_approach_travel_m": command.get("metric_approach_travel_m"),
         "metric_approach_start_pose": command.get("metric_approach_start_pose"),
+        "metric_insert_distance_m": command.get("metric_insert_distance_m"),
     }
     runtime.last_arrived_gate_by_robot[command.get("robot_name")] = gate
     command["robot_at"] = "approach"

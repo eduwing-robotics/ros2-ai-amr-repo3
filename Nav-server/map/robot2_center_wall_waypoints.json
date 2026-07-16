@@ -1,0 +1,80 @@
+{
+  "wall": {
+    "x_west": 0.5509999999999999,
+    "x_east": 0.7110000000000001,
+    "y_bot": -0.76,
+    "y_top": -0.21999999999999997,
+    "length": 0.54,
+    "thickness": 0.16000000000000014
+  },
+  "slots": [
+    {
+      "zone_key": "warehouse_section_a",
+      "waypoint_key": "warehouse_a_approach",
+      "marker_id": 7,
+      "side": "west",
+      "aruco_marker": {
+        "id": 7,
+        "x": 0.551,
+        "y": -0.615,
+        "theta": 3.142
+      },
+      "approach": {
+        "x": 0.101,
+        "y": -0.615,
+        "theta": 0.0
+      }
+    },
+    {
+      "zone_key": "warehouse_section_b",
+      "waypoint_key": "warehouse_b_approach",
+      "marker_id": 8,
+      "side": "west",
+      "aruco_marker": {
+        "id": 8,
+        "x": 0.551,
+        "y": -0.365,
+        "theta": 3.142
+      },
+      "approach": {
+        "x": 0.101,
+        "y": -0.365,
+        "theta": 0.0
+      }
+    },
+    {
+      "zone_key": "warehouse_section_d",
+      "waypoint_key": "warehouse_d_approach",
+      "marker_id": 9,
+      "side": "east",
+      "aruco_marker": {
+        "id": 9,
+        "x": 0.711,
+        "y": -0.615,
+        "theta": 0.0
+      },
+      "approach": {
+        "x": 1.161,
+        "y": -0.615,
+        "theta": 3.142
+      }
+    },
+    {
+      "zone_key": "warehouse_section_c",
+      "waypoint_key": "warehouse_c_approach",
+      "marker_id": 10,
+      "side": "east",
+      "aruco_marker": {
+        "id": 10,
+        "x": 0.711,
+        "y": -0.365,
+        "theta": 0.0
+      },
+      "approach": {
+        "x": 1.161,
+        "y": -0.365,
+        "theta": 3.142
+      }
+    }
+  ]
+}

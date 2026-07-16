@@ -60,6 +60,16 @@ class MovementRouteRequest(BaseModel):
     callback_url: Optional[str] = Field(default=None, description="명령 상태 이벤트를 받을 관제 callback URL")
 
 
+class Inbound2StorageBScenarioRequest(BaseModel):
+    command_id: str
+    task_id: Optional[int] = None
+    robot_name: str = Field(default="tb3_2", description="이 시나리오는 tb3_2 전용")
+    scenario_version: int = Field(default=1, ge=1)
+    dry_run: bool = False
+    skip_lift: bool = Field(default=False, description="이동/도킹 검증 시 리프트 명령을 완전히 생략")
+    callback_url: Optional[str] = Field(default=None, description="명령 상태 이벤트를 받을 LMS callback URL")
+
+
 class InitialPoseRequest(BaseModel):
     x: float
     y: float
@@ -145,7 +155,7 @@ class StatusResponse(BaseModel):
     capabilities: List[str]
     status: str
     mission_status: str
-    battery: float
+    battery: Optional[float]
     is_emergency: bool
     current_mission: Optional[str]
     mission_id: Optional[str]

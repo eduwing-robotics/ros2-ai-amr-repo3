@@ -15,6 +15,11 @@ class NavRuntime:
         self.zone_lock_manager: Any = None
         self.traffic_manager: Any = None
         self.lift_client: Any = None
+        self.state_store: Any = None
+        self.outbox_thread: Optional[threading.Thread] = None
+        self.outbox_stop = threading.Event()
+        self.status_heartbeat_thread: Optional[threading.Thread] = None
+        self.status_heartbeat_stop = threading.Event()
         self.movement_commands: Dict[str, Dict[str, Any]] = {}
         self.last_arrived_gate_by_robot: Dict[str, Dict[str, Any]] = {}
         self.command_state_lock = threading.Lock()

@@ -157,6 +157,47 @@ def _marker_center_error_norm(detection: Optional[Dict[str, Any]]) -> Optional[f
         return None
 
 
+def _marker_yaw_error_rad(detection: Optional[Dict[str, Any]]) -> Optional[float]:
+    if not detection or detection.get("marker_yaw_error_rad") is None:
+        return None
+    try:
+        value = _normalize_angle(float(detection["marker_yaw_error_rad"]))
+        return value if math.isfinite(value) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _marker_pose_yaw_tolerance_rad(payload: Dict[str, Any]) -> float:
+    if payload.get("marker_yaw_tolerance_rad") is not None:
+        return abs(float(payload["marker_yaw_tolerance_rad"]))
+    return math.radians(abs(float(payload.get("marker_yaw_tolerance_deg", 4.0))))
+
+
+def _marker_pose_aligned(detection: Optional[Dict[str, Any]], payload: Dict[str, Any]) -> bool:
+    """Require marker-face yaw when calibrated pose is available; preserve fallback cameras."""
+    yaw_error = _marker_yaw_error_rad(detection)
+    if yaw_error is None:
+        return not bool(payload.get("require_marker_pose_yaw", True))
+    return abs(yaw_error) <= _marker_pose_yaw_tolerance_rad(payload)
+
+
+def _pose_aware_docking_angular_z(
+    detection: Dict[str, Any], payload: Dict[str, Any], *, wall_mode: bool, max_angular: float
+) -> float:
+    """Blend image bearing and marker-face yaw so every zone approaches perpendicular."""
+    center_error = float(detection.get("center_error_norm", 0.0))
+    yaw_error = _marker_yaw_error_rad(detection)
+    center_gain = float(payload.get("dock_angular_gain", ARUCO_DOCK_ANGULAR_GAIN))
+    if wall_mode:
+        center_gain *= 0.45
+    command = -center_gain * center_error
+    if yaw_error is not None and payload.get("marker_pose_yaw_enabled", True):
+        yaw_gain = float(payload.get("marker_yaw_gain", 0.55))
+        yaw_sign = float(payload.get("marker_yaw_angular_sign", -1.0))
+        command += yaw_sign * yaw_gain * yaw_error
+    return _clamp(command, -max_angular, max_angular)
+
+
 def _acquire_center_tolerance(payload: Dict[str, Any]) -> float:
     base = float(payload.get("center_tolerance_norm", ARUCO_DOCK_CENTER_TOLERANCE_NORM))
     if resolve_align_mode(payload) == "skip":
@@ -544,7 +585,7 @@ def acquire_dock_marker(marker_id: int, payload: Dict[str, Any]):
                 marker_id,
                 {
                     **payload,
-                    "marker_seek_mode": "monotonic",
+                    "marker_seek_mode": payload.get("marker_seek_mode", "monotonic"),
                     "docking_timeout_sec": min(
                         15.0,
                         float(payload.get("docking_timeout_sec", ARUCO_DOCKING_TIMEOUT_SEC)),
@@ -553,9 +594,10 @@ def acquire_dock_marker(marker_id: int, payload: Dict[str, Any]):
             )
         print(
             f"[aruco_seek] marker={marker_id} not visible "
-            f"→ monotonic slow seek (timeout={payload.get('marker_search_timeout_sec', ARUCO_MARKER_SEARCH_TIMEOUT_SEC)}s)"
+            f"→ {payload.get('marker_seek_mode', 'monotonic')} slow seek (timeout={payload.get('marker_search_timeout_sec', ARUCO_MARKER_SEARCH_TIMEOUT_SEC)}s)"
         )
-        seek_payload = {**payload, "marker_seek_mode": "monotonic"}
+        seek_payload = {**payload}
+        seek_payload.setdefault("marker_seek_mode", "monotonic")
         if payload.get("wall_adjacent_approach"):
             seek_payload["marker_search_angular_speed"] = min(
                 0.08,
@@ -727,21 +769,27 @@ def execute_center_align_only(marker_id: int, payload: Dict[str, Any]):
         last_detection = detection
         error_norm = float(detection.get("center_error_norm", 0.0))
         done, settle_count, label = _try_align_settled(error_norm, payload, settle_count, settle_need)
-        if done:
+        pose_yaw_required = bool(payload.get("align_marker_pose_yaw", False))
+        pose_yaw_aligned = _marker_pose_aligned(detection, payload)
+        if done and (not pose_yaw_required or pose_yaw_aligned):
             runtime.navigator.publish_stop_velocity()
             if label == "good-enough":
                 print(f"[center_align] marker={marker_id} good-enough err={error_norm:.4f}")
             return detection
-        if settle_count > 0:
+        if settle_count > 0 and not (pose_yaw_required and not pose_yaw_aligned):
             runtime.navigator.publish_stop_velocity()
             time.sleep(control_period)
             continue
         settle_count = 0
         speed = min(max_angular, search_speed, max(centering_speed, abs(angular_gain * error_norm)))
-        angular_z = _apply_angular_deadband(
-            _clamp(-angular_gain * error_norm, -speed, speed),
-            payload,
+        raw_angular = (
+            _pose_aware_docking_angular_z(
+                detection, payload, wall_mode=False, max_angular=speed
+            )
+            if pose_yaw_required
+            else _clamp(-angular_gain * error_norm, -speed, speed)
         )
+        angular_z = _apply_angular_deadband(raw_angular, payload)
         runtime.navigator.publish_velocity_for_duration(
             linear_x=0.0,
             angular_z=angular_z,
@@ -764,7 +812,10 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
     coarse_center_tolerance = float(payload.get("coarse_center_tolerance_norm", max(center_tolerance * 3.0, 0.30)))
     control_period = max(0.05, float(payload.get("control_period_sec", ARUCO_DOCK_CONTROL_PERIOD_SEC)))
     linear_speed = abs(float(payload.get("dock_linear_speed", ARUCO_DOCK_LINEAR_SPEED)))
-    min_linear_speed = abs(float(payload.get("dock_min_linear_speed", ARUCO_DOCK_MIN_LINEAR_SPEED)))
+    min_linear_speed = max(
+        abs(float(payload.get("dock_min_linear_speed", ARUCO_DOCK_MIN_LINEAR_SPEED))),
+        abs(float(payload.get("dock_hardware_min_linear_speed", 0.012))),
+    )
     angular_gain = float(payload.get("dock_angular_gain", ARUCO_DOCK_ANGULAR_GAIN))
     max_angular = abs(float(payload.get("dock_max_angular_speed", ARUCO_DOCK_MAX_ANGULAR_SPEED)))
     wall_mode = bool(payload.get("wall_adjacent_approach"))
@@ -783,13 +834,18 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
     settle_count = 0
     settle_need = _center_settle_need(payload)
     last_progress_log = 0.0
+    filtered_yaw_error = None
 
     while time.monotonic() < deadline:
         if runtime.navigator.safety.estop:
             raise RuntimeError("precision docking aborted by estop")
         detection = runtime.navigator.get_latest_aruco_detection(marker_id, max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC)
         if not detection:
-            if last_detection and marker_near_insert_start(last_detection, payload):
+            if (
+                last_detection
+                and marker_near_insert_start(last_detection, payload)
+                and _marker_pose_aligned(last_detection, payload)
+            ):
                 runtime.navigator.publish_stop_velocity()
                 last_detection = dict(last_detection)
                 last_detection["marker_lost_at_insert_start"] = True
@@ -803,9 +859,9 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
             ):
                 last_err = abs(float(last_detection.get("center_error_norm", 1.0)))
                 forward_tol = float(
-                    payload.get("forward_center_tolerance_norm", center_tolerance)
+                    payload.get("forward_center_tolerance_norm", coarse_center_tolerance)
                 )
-                if last_err <= forward_tol:
+                if last_err <= forward_tol and _marker_pose_aligned(last_detection, payload):
                     runtime.navigator.publish_velocity_for_duration(
                         linear_x=linear_speed,
                         angular_z=0.0,
@@ -819,12 +875,25 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
                 raise RuntimeError(f"ArUco marker {marker_id} lost before insert start")
             time.sleep(0.05)
             continue
+        raw_yaw_error = _marker_yaw_error_rad(detection)
+        if raw_yaw_error is not None:
+            alpha = _clamp(float(payload.get("marker_yaw_filter_alpha", 0.35)), 0.0, 1.0)
+            if filtered_yaw_error is None:
+                filtered_yaw_error = raw_yaw_error
+            else:
+                filtered_yaw_error = _normalize_angle(
+                    filtered_yaw_error + alpha * _normalize_angle(raw_yaw_error - filtered_yaw_error)
+                )
+            detection = dict(detection)
+            detection["marker_yaw_error_raw_rad"] = raw_yaw_error
+            detection["marker_yaw_error_rad"] = filtered_yaw_error
+            detection["marker_yaw_error_deg"] = math.degrees(filtered_yaw_error)
         last_detection = detection
         last_seen_at = time.monotonic()
         error_norm = float(detection.get("center_error_norm", 0.0))
-        if marker_close_enough(detection, payload) and (bool(payload.get("straight_insert", False)) or abs(error_norm) <= center_tolerance):
+        if marker_close_enough(detection, payload) and (bool(payload.get("straight_insert", False)) or (abs(error_norm) <= center_tolerance and _marker_pose_aligned(detection, payload))):
             settle_count += 1
-            if _centered_enough(error_norm, center_tolerance, settle_count, settle_need):
+            if _centered_enough(error_norm, center_tolerance, settle_count, settle_need) and _marker_pose_aligned(detection, payload):
                 runtime.navigator.publish_stop_velocity()
                 return detection
             runtime.navigator.publish_stop_velocity()
@@ -837,20 +906,41 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
         target_width = float(payload.get("target_marker_width_px", ARUCO_DOCK_TARGET_WIDTH_PX))
         angular_z = 0.0
         straight_insert = bool(payload.get("straight_insert", False))
-        if not straight_insert and abs_error > center_tolerance:
-            gain = angular_gain * (0.45 if wall_mode else 1.0)
+        yaw_error = _marker_yaw_error_rad(detection)
+        yaw_aligned = _marker_pose_aligned(detection, payload)
+        estimated_distance = detection.get("estimated_distance_m")
+        try:
+            distance_m = float(estimated_distance) if estimated_distance is not None else None
+        except (TypeError, ValueError):
+            distance_m = None
+        target_distance_m = float(payload.get("target_distance_m", ARUCO_DOCK_TARGET_DISTANCE_M))
+        pose_align_buffer_m = max(0.0, float(payload.get("marker_pose_align_buffer_m", 0.10)))
+        near_pose_align_zone = distance_m is not None and distance_m <= target_distance_m + pose_align_buffer_m
+        if not straight_insert and (abs_error > center_tolerance or not yaw_aligned):
             cap = max_angular * (0.6 if wall_mode and width < target_width * 0.85 else 1.0)
             angular_z = _apply_angular_deadband(
-                _clamp(-gain * error_norm, -cap, cap),
+                _pose_aware_docking_angular_z(
+                    detection, payload, wall_mode=wall_mode, max_angular=cap
+                ),
                 payload,
             )
 
         close_enough = marker_close_enough(detection, payload)
         forward_tol = float(
-            payload.get("forward_center_tolerance_norm", center_tolerance)
+            payload.get("forward_center_tolerance_norm", coarse_center_tolerance)
         )
-        # 중앙이 맞기 전에는 전진하지 않음 (계속 디텍팅 → 회전 → 중앙 → 전진)
-        if not straight_insert and abs(error_norm) > forward_tol:
+        # 중심 또는 면 yaw가 크게 틀리면 먼저 제자리 보정한다. 이후에는
+        # 중심+yaw 결합 조향으로 전진해 마커 면에 수직으로 수렴한다.
+        forward_yaw_deg = float(payload.get("marker_forward_yaw_tolerance_deg", 12.0))
+        if near_pose_align_zone:
+            forward_yaw_deg = float(payload.get("marker_near_forward_yaw_tolerance_deg", 6.0))
+        forward_yaw_tolerance = math.radians(abs(forward_yaw_deg))
+        yaw_blocks_forward = yaw_error is not None and abs(yaw_error) > forward_yaw_tolerance
+        if not straight_insert and (abs(error_norm) > forward_tol or yaw_blocks_forward):
+            command_linear = 0.0
+        elif close_enough and not straight_insert:
+            # Once the metric stop distance is reached, never advance farther.
+            # Finish center and marker-face alignment by rotation only.
             command_linear = 0.0
         elif not close_enough:
             command_linear = linear_speed
@@ -860,6 +950,12 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
             command_linear = max(min_linear_speed, linear_speed * scale)
         else:
             command_linear = linear_speed
+
+        if command_linear > 0.0 and distance_m is not None:
+            remaining_m = max(0.0, distance_m - target_distance_m)
+            slowdown_span_m = max(0.01, float(payload.get("dock_slowdown_span_m", 0.12)))
+            speed_scale = _clamp(remaining_m / slowdown_span_m, min_linear_speed / max(linear_speed, 1e-6), 1.0)
+            command_linear = min(command_linear, max(min_linear_speed, linear_speed * speed_scale))
 
         ok = runtime.navigator.publish_velocity_for_duration(
             linear_x=command_linear,
@@ -878,8 +974,8 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
         if now - last_progress_log >= 2.0:
             print(
                 f"[dock] full align progress marker={marker_id} "
-                f"err={error_norm:.3f} width={width:.0f}/{target_width:.0f} "
-                f"linear={command_linear:.3f} angular={angular_z:.3f}"
+                f"err={error_norm:.3f} yaw={math.degrees(yaw_error) if yaw_error is not None else float('nan'):.1f}deg "
+                f"width={width:.0f}/{target_width:.0f} linear={command_linear:.3f} angular={angular_z:.3f}"
             )
             last_progress_log = now
 
@@ -1119,11 +1215,13 @@ def ensure_marker_centered_for_insert(marker_id: int, payload: Dict[str, Any]):
             **payload,
             "docking_timeout_sec": max(4.0, min(remaining, 18.0)),
             "use_good_enough": False,
+            "align_marker_pose_yaw": True,
+            "require_marker_pose_yaw": True,
         }
         try:
             detection = execute_center_align_only(marker_id, cycle_payload)
             error_norm = _marker_center_error_norm(detection)
-            if detection and error_norm is not None and abs(error_norm) <= center_tolerance:
+            if detection and error_norm is not None and abs(error_norm) <= center_tolerance and _marker_pose_aligned(detection, payload):
                 runtime.navigator.publish_stop_velocity()
                 print(
                     f"[dock] pre-insert centered marker={marker_id} "
@@ -1139,7 +1237,7 @@ def ensure_marker_centered_for_insert(marker_id: int, payload: Dict[str, Any]):
 
         detection = runtime.navigator.get_latest_aruco_detection(marker_id, max_age_sec=max_age_sec)
         error_norm = _marker_center_error_norm(detection)
-        if detection and error_norm is not None and abs(error_norm) <= center_tolerance:
+        if detection and error_norm is not None and abs(error_norm) <= center_tolerance and _marker_pose_aligned(detection, payload):
             runtime.navigator.publish_stop_velocity()
             return detection
 
@@ -1191,7 +1289,7 @@ def ensure_marker_centered_for_insert(marker_id: int, payload: Dict[str, Any]):
 
     detection = runtime.navigator.get_latest_aruco_detection(marker_id, max_age_sec=max_age_sec)
     error_norm = _marker_center_error_norm(detection)
-    if detection and error_norm is not None and abs(error_norm) <= center_tolerance:
+    if detection and error_norm is not None and abs(error_norm) <= center_tolerance and _marker_pose_aligned(detection, payload):
         runtime.navigator.publish_stop_velocity()
         return detection
     raise RuntimeError(
@@ -1470,6 +1568,30 @@ def execute_lift_action(action: str, level: int, payload: Dict[str, Any]):
     return True
 
 
+def execute_lift_move_step(step: MovementStep):
+    """Move the lift to an explicit safe height and wait for position feedback."""
+    payload = step.payload
+    if payload.get("skip_lift"):
+        print("[lift_move] skipped (skip_lift=true)")
+        return True
+    if payload.get("target_height_mm") is None:
+        raise ValueError("lift_move step requires payload.target_height_mm")
+    lift_client = getattr(runtime, "lift_client", None)
+    if not lift_client or not getattr(lift_client, "enabled", False):
+        raise RuntimeError("lift_move requires an enabled lift client")
+    target = float(payload["target_height_mm"])
+    tolerance = float(payload.get("lift_position_tolerance_mm", lift_client.config.get("position_tolerance_mm", 2.0)))
+    print(f"[lift_move] target={target:.1f}mm tolerance={tolerance:.1f}mm")
+    result = lift_client.move_to_if_needed(target, timeout_sec=payload.get("lift_timeout_sec"), tolerance_mm=tolerance, force=bool(payload.get("force_move", False)))
+    reported = (result or {}).get("position_mm")
+    if reported is None:
+        raise RuntimeError(f"lift_move target={target:.1f}mm completed without position feedback")
+    if not lift_client._at_target_mm(target, tolerance):
+        raise RuntimeError(f"lift_move target={target:.1f}mm reported={float(reported):.1f}mm")
+    print(f"[lift_move] complete: {result}")
+    return True
+
+
 def execute_pre_insert_lift(action: str, level: int, payload: Dict[str, Any]):
     """insert 전 선반 높이 맞춤 (level 2 등). lift 미연동이면 skip."""
     if payload.get("skip_lift"):
@@ -1549,30 +1671,47 @@ def resolve_dock_reverse_distance_m(payload: Dict[str, Any]) -> float:
 
 
 def execute_dock_reverse(payload: Dict[str, Any]):
+    """Back straight to a marker-safe clearance, then hand control to Nav2."""
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
-    speed = abs(float(payload.get("reverse_speed", DOCK_REVERSE_SPEED)))
-    if speed <= 0.0:
+    configured_speed = abs(float(payload.get("reverse_speed", DOCK_REVERSE_SPEED)))
+    if configured_speed <= 0.0:
         raise ValueError("reverse_speed must be greater than 0")
-    distance = resolve_dock_reverse_distance_m(payload)
-    duration = distance / speed if distance > 0.0 else 0.0
-    if duration <= 0.0:
-        raise ValueError("reverse_duration_sec or reverse_distance_m must be greater than 0")
-    print(f"[dock_transfer] dock reverse speed={speed:.3f}m/s distance={distance:.3f}m duration={duration:.2f}s")
-    target = payload.get("return_target_pose")
-    if target and target.get("x") is not None and target.get("y") is not None:
-        result = runtime.navigator.publish_velocity_to_map_xy(
-            linear_x=-speed, target_x=float(target["x"]), target_y=float(target["y"]),
-            max_duration_sec=duration * 2.0 + 0.5,
-            tolerance_m=float(payload.get("reverse_target_tolerance_m", 0.015)),
+    speed = min(configured_speed, abs(float(payload.get("approach_reverse_speed", 0.03))))
+    clearance_m = max(0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40)))
+    fallback_m = max(0.05, float(payload.get("reverse_clearance_fallback_m", 0.22)))
+    distance = fallback_m
+    distance_source = "fallback"
+    marker_id = payload.get("aruco_marker_id")
+    if marker_id is not None:
+        detection = runtime.navigator.get_latest_aruco_detection(
+            int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 2.0))
         )
-    else:
-        result = runtime.navigator.publish_velocity_for_distance(
-            linear_x=-speed, distance_m=distance, max_duration_sec=duration * 2.0 + 0.5,
-            tolerance_m=float(payload.get("reverse_tolerance_m", 0.005)),
-        )
+        if detection and detection.get("estimated_distance_m") is not None:
+            try:
+                current_marker_distance = float(detection["estimated_distance_m"])
+                if math.isfinite(current_marker_distance) and current_marker_distance >= 0.0:
+                    distance = max(0.0, clearance_m - current_marker_distance)
+                    distance_source = f"marker:{current_marker_distance:.3f}m->clearance:{clearance_m:.3f}m"
+            except (TypeError, ValueError):
+                pass
+    if distance <= 0.005:
+        print(f"[dock_transfer] straight clearance already satisfied ({distance_source})")
+        runtime.navigator.publish_stop_velocity()
+        return True
+    duration = distance / speed
+    print(
+        f"[dock_transfer] straight clearance reverse speed={speed:.3f}m/s "
+        f"distance={distance:.3f}m source={distance_source} angular_z=0"
+    )
+    result = runtime.navigator.publish_velocity_for_distance(
+        linear_x=-speed,
+        distance_m=distance,
+        max_duration_sec=duration * 2.5 + 0.5,
+        tolerance_m=float(payload.get("reverse_tolerance_m", 0.005)),
+    )
     runtime.navigator.publish_stop_velocity()
-    print(f"[dock_transfer] reverse result={result}")
+    print(f"[dock_transfer] reverse result={result}; handoff=Nav2")
     return bool(result.get("ok"))
 
 
@@ -1609,29 +1748,38 @@ def hold_fork_insert_enabled(payload: Dict[str, Any]) -> bool:
 
 
 def resolve_leave_dock_distance_m(payload: Dict[str, Any]) -> float:
-    """leave_dock 후진 거리: 명시값 → hold 주차 insert 실측 → env 기본."""
+    """leave_dock 후진 거리: 명시값 → 지정 마커 40cm 이격 → 저장값 → 20cm fallback."""
     for key in ("distance_m", "reverse_distance_m"):
         if payload.get(key) is not None:
             return abs(float(payload[key]))
+
+    marker_id = payload.get("aruco_marker_id")
+    if marker_id is not None and runtime.navigator:
+        detection = runtime.navigator.get_latest_aruco_detection(
+            int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
+        )
+        if detection and detection.get("estimated_distance_m") is not None:
+            try:
+                current_marker_distance = float(detection["estimated_distance_m"])
+                clearance_m = max(
+                    0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40))
+                )
+                if math.isfinite(current_marker_distance) and current_marker_distance >= 0.0:
+                    distance = max(0.0, clearance_m - current_marker_distance)
+                    print(
+                        f"[leave_dock] marker={int(marker_id)} current={current_marker_distance:.3f}m "
+                        f"clearance={clearance_m:.3f}m reverse={distance:.3f}m"
+                    )
+                    return distance
+            except (TypeError, ValueError):
+                pass
+
     stored = runtime.get_standby_park_reverse_distance_m()
     if stored is not None and stored > 0.0:
         return stored
-    detections = runtime.navigator.get_latest_aruco_detection(max_age_sec=2.0) if runtime.navigator else []
-    pose = runtime.navigator.get_current_pose() if runtime.navigator else None
-    if pose and detections:
-        from nav_app.services.robot_commands import approach_waypoint_id_for_marker, load_waypoint_goals
-
-        visible = max(detections, key=lambda item: float(item.get("marker_width_px", 0.0)))
-        marker_id = int(visible["marker_id"])
-        waypoint_id = approach_waypoint_id_for_marker(marker_id)
-        waypoint = load_waypoint_goals().get(waypoint_id or "") or {}
-        if waypoint.get("x") is not None and waypoint.get("y") is not None:
-            payload["return_target_pose"] = {"x": float(waypoint["x"]), "y": float(waypoint["y"])}
-            distance = math.hypot(float(pose["x"]) - float(waypoint["x"]), float(pose["y"]) - float(waypoint["y"]))
-            if distance > 0.01:
-                print(f"[leave_dock] startup pose return marker={marker_id} waypoint={waypoint_id} distance={distance:.3f}m")
-                return distance
-    raise ValueError("leave_dock distance unavailable: no stored approach travel and current marker/pose cannot resolve approach")
+    fallback_m = max(0.05, float(payload.get("reverse_clearance_fallback_m", 0.20)))
+    print(f"[leave_dock] marker unavailable; calibrated fallback={fallback_m:.3f}m")
+    return fallback_m
 
 
 def leave_dock_motion_params(payload: Dict[str, Any]):
@@ -1676,15 +1824,45 @@ def execute_leave_dock_step(step: MovementStep):
     force = bool(payload.get("force", False))
     parked = runtime.get_standby_parked()
 
+    # Runtime state can be stale after a previous leave/recovery command while the
+    # robot has since been physically parked again. A fresh, close standby marker
+    # is stronger evidence than the in-memory flag and must restore reverse-out.
+    marker_requires_reverse = False
+    marker_id = payload.get("aruco_marker_id")
+    if parked is False and marker_id is not None:
+        detection = runtime.navigator.get_latest_aruco_detection(
+            int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
+        )
+        if detection and detection.get("estimated_distance_m") is not None:
+            marker_distance = float(detection["estimated_distance_m"])
+            clearance_m = max(
+                0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40))
+            )
+            marker_requires_reverse = (
+                math.isfinite(marker_distance)
+                and marker_distance >= 0.0
+                and marker_distance < clearance_m - 0.005
+            )
+            if marker_requires_reverse:
+                print(
+                    f"[leave_dock] stale standby_parked=False overridden by fresh "
+                    f"marker={int(marker_id)} distance={marker_distance:.3f}m"
+                )
+
     # 상태 게이트: '대기 도킹이 아님(False)'을 확실히 아는 경우에만 후진을 건너뛴다.
     # None(기동 직후 등 미상)은 대기 상태일 수 있으므로 후방 안전체크를 거쳐 후진한다.
-    if parked is False and not force:
+    if parked is False and not force and not marker_requires_reverse:
         print("[leave_dock] 대기-도킹 상태가 아님(standby_parked=False) → 후진 생략(no-op). "
               "강제하려면 params.force=true")
         return True
 
-    speed, duration = leave_dock_motion_params(payload)
     requested_distance = resolve_leave_dock_distance_m(payload)
+    if requested_distance <= 0.005:
+        print("[leave_dock] marker clearance already satisfied; handoff=Nav2")
+        runtime.navigator.publish_stop_velocity()
+        runtime.set_standby_parked(False)
+        return True
+    speed, duration = leave_dock_motion_params({**payload, "distance_m": requested_distance})
     stored = runtime.get_standby_park_reverse_distance_m()
     if stored is not None and payload.get("distance_m") is None and payload.get("reverse_distance_m") is None:
         print(f"[leave_dock] using hold-park insert distance {stored:.3f}m for reverse")
@@ -1721,20 +1899,14 @@ def execute_leave_dock_step(step: MovementStep):
 
     print(f"[leave_dock] reversing out speed={speed:.3f}m/s distance={requested_distance:.3f}m "
           f"(parked={parked}, force={force})")
-    target = payload.get("return_target_pose")
-    if target and target.get("x") is not None and target.get("y") is not None:
-        distance_drive = runtime.navigator.publish_velocity_to_map_xy(
-            linear_x=-speed, target_x=float(target["x"]), target_y=float(target["y"]),
-            max_duration_sec=duration * 2.0 + 0.5,
-            tolerance_m=float(payload.get("reverse_target_tolerance_m", 0.015)),
-        )
-    else:
-        distance_drive = runtime.navigator.publish_velocity_for_distance(
-            linear_x=-speed, distance_m=requested_distance, max_duration_sec=duration * 2.0 + 0.5,
-            tolerance_m=float(payload.get("reverse_tolerance_m", 0.005)),
-        )
+    # 대기 슬롯을 벗어날 때는 현재 자세 그대로 직선 후진한다. 지도상의 approach
+    # 좌표는 Nav2가 이어서 처리하며, 여기서 횡오차를 실패로 판정하지 않는다.
+    distance_drive = runtime.navigator.publish_velocity_for_distance(
+        linear_x=-speed, distance_m=requested_distance, max_duration_sec=duration * 2.0 + 0.5,
+        tolerance_m=float(payload.get("reverse_tolerance_m", 0.005)),
+    )
     runtime.navigator.publish_stop_velocity()
-    print(f"[leave_dock] reverse result={distance_drive}")
+    print(f"[leave_dock] reverse result={distance_drive}; handoff=Nav2")
     if distance_drive.get("ok"):
         runtime.set_standby_parked(False)
     return bool(distance_drive.get("ok"))
@@ -1855,10 +2027,6 @@ def execute_dock_transfer_step(step: MovementStep):
         target = payload.get("return_target_pose")
         if not target or target.get("x") is None or target.get("y") is None:
             raise ValueError("metric return requires payload.return_target_pose")
-        if not execute_dock_reverse(payload):
-            raise StageError("reverse", "map approach return failed")
-        runtime.set_standby_parked(False)
-        return True
     for field in ("aruco_marker_id", "action", "level"):
         if field not in payload:
             raise ValueError(f"dock_transfer step requires payload.{field}")

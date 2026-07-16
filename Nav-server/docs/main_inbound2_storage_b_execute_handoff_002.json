@@ -1,0 +1,184 @@
+{
+  "handoff_version": 2,
+  "ready_to_execute": true,
+  "generated_at": "2026-07-15",
+  "scenario": {
+    "scenario_id": "inbound2-storage-b",
+    "scenario_version": 1,
+    "robot_name": "tb3_2",
+    "plan_hash": "67062080a11d960c689fc72baee28b60b6906a4ca4737193490eae7d1fce9305"
+  },
+  "preview_request": {
+    "method": "POST",
+    "url": "http://smartfactory-nav.local:8002/movement-api/v1/scenarios/inbound2-storage-b/preview",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "command_id": "main-task-344-tb3_2-handoff-002",
+      "task_id": 344,
+      "robot_name": "tb3_2",
+      "scenario_version": 1,
+      "dry_run": false,
+      "skip_lift": true,
+      "callback_url": "http://192.168.30.9:8088/api/v1/movement/command-events"
+    },
+    "required_result": {
+      "executable": true,
+      "blocking_reasons": [],
+      "plan_hash": "67062080a11d960c689fc72baee28b60b6906a4ca4737193490eae7d1fce9305"
+    }
+  },
+  "command_request": {
+    "method": "POST",
+    "url": "http://smartfactory-nav.local:8002/movement-api/v1/scenarios/inbound2-storage-b/commands",
+    "headers": {
+      "Content-Type": "application/json",
+      "Idempotency-Key": "main-task-344-tb3_2-handoff-002"
+    },
+    "body": {
+      "command_id": "main-task-344-tb3_2-handoff-002",
+      "task_id": 344,
+      "robot_name": "tb3_2",
+      "scenario_version": 1,
+      "dry_run": false,
+      "skip_lift": true,
+      "callback_url": "http://192.168.30.9:8088/api/v1/movement/command-events"
+    },
+    "required_acceptance": {
+      "accepted": true,
+      "command_id": "main-task-344-tb3_2-handoff-002",
+      "state": "ACCEPTED",
+      "execution_id": "exec-main-task-344-tb3_2-handoff-002",
+      "scenario_id": "inbound2-storage-b",
+      "scenario_version": 1,
+      "authority_owner": "MOVEMENT",
+      "plan_hash": "67062080a11d960c689fc72baee28b60b6906a4ca4737193490eae7d1fce9305"
+    }
+  },
+  "status_request": {
+    "method": "GET",
+    "url": "http://smartfactory-nav.local:8002/movement-api/v1/commands/main-task-344-tb3_2-handoff-002"
+  },
+  "safe_stop_request": {
+    "method": "POST",
+    "url": "http://smartfactory-nav.local:8002/movement-api/v1/commands/main-task-344-tb3_2-handoff-002/safe-stop"
+  },
+  "leave_wait2_policy": {
+    "aruco_marker_id": 4,
+    "target_clearance_m": 0.4,
+    "marker_max_age_sec": 5.0,
+    "fallback_reverse_distance_m": 0.2,
+    "motion": "straight_reverse",
+    "angular_z": 0.0,
+    "rear_lidar_limit_enabled": true,
+    "map_lateral_error_check_enabled": false,
+    "success_handoff": "Nav2",
+    "stored_approach_travel_required": false,
+    "latest_aruco_detection_required": false,
+    "resolved_previous_failure": "leave_dock distance unavailable: no stored approach travel and current marker/pose cannot resolve approach"
+  },
+  "operation_sequence": [
+    {
+      "order": 1,
+      "stage": "leave_wait2",
+      "behavior": "marker4_to_40cm_else_20cm_fallback_straight_reverse_then_nav2"
+    },
+    {
+      "order": 2,
+      "stage": "go_to_inbound2",
+      "waypoint": "inbound_slot_2_approach",
+      "navigation": "nav2_position_only"
+    },
+    {
+      "order": 3,
+      "stage": "inbound2_metric_approach",
+      "aruco_marker_id": 1,
+      "first_stop_distance_m": 0.4,
+      "wait_sec": 3.0,
+      "final_stop_distance_m": 0.2
+    },
+    {
+      "order": 4,
+      "stage": "inbound2_load",
+      "action": "load",
+      "level": 1,
+      "skip_lift": true,
+      "exit": "straight_reverse_to_40cm_then_nav2"
+    },
+    {
+      "order": 5,
+      "stage": "go_to_storage_b",
+      "waypoint": "warehouse_b_approach",
+      "navigation": "nav2_position_only"
+    },
+    {
+      "order": 6,
+      "stage": "storage_b_metric_approach",
+      "aruco_marker_id": 8,
+      "first_stop_distance_m": 0.4,
+      "wait_sec": 3.0,
+      "final_stop_distance_m": 0.18
+    },
+    {
+      "order": 7,
+      "stage": "storage_b_unload",
+      "action": "unload",
+      "level": 2,
+      "skip_lift": true,
+      "exit": "straight_reverse_to_40cm_then_nav2"
+    },
+    {
+      "order": 8,
+      "stage": "return_to_wait2",
+      "waypoint": "vehicle_2_approach",
+      "navigation": "nav2_position_only"
+    },
+    {
+      "order": 9,
+      "stage": "park_wait2",
+      "aruco_marker_id": 4,
+      "first_stop_distance_m": 0.4,
+      "wait_sec": 3.0,
+      "final_stop_distance_m": 0.2,
+      "terminal_business_state": "PARK_COMPLETE"
+    }
+  ],
+  "verified_success_baseline": {
+    "physical_run_date": "2026-07-15",
+    "mode": {
+      "dry_run": false,
+      "skip_lift": true
+    },
+    "warehouse_b_first_stop_m": 0.3953,
+    "warehouse_b_final_stop_m": 0.1745,
+    "warehouse_b_reverse_target_m": 0.2255,
+    "warehouse_b_reverse_actual_m": 0.222,
+    "warehouse_b_reverse_reason": "distance_reached",
+    "wait2_first_stop_m": 0.3956,
+    "wait2_final_park_m": 0.1969,
+    "final_command_state": "DONE",
+    "final_business_state": "PARK_COMPLETE",
+    "final_navigator_status": "IDLE",
+    "final_is_emergency": false
+  },
+  "success_condition": {
+    "command_state": "DONE",
+    "message": "completed",
+    "business_state": "PARK_COMPLETE",
+    "navigator_status": "IDLE",
+    "is_emergency": false
+  },
+  "failure_handling": {
+    "failure_state": "FAILED",
+    "record_fields": [
+      "reason",
+      "stage",
+      "current_step_code",
+      "last_completed_step_index"
+    ],
+    "do_not_reuse_command_id": true,
+    "http_409_action": "Do not execute. Recheck preview, health, and blocking_reasons."
+  },
+  "main_execution_rule": "POST preview_request.body first. Execute command_request.body only when preview executable=true, blocking_reasons is empty, and plan_hash matches. Do not POST this entire handoff envelope as the command body."
+}

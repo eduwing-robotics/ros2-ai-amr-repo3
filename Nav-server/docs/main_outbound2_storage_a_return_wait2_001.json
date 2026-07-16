@@ -1,0 +1,529 @@
+{
+  "command_id": "main-task-345-tb3_2-outbound2-storage-a-001",
+  "task_id": 345,
+  "robot_name": "tb3_2",
+  "steps": [
+    {
+      "action": "leave_dock",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "stage": "leave_wait2",
+        "aruco_marker_id": 4,
+        "reverse_clearance_marker_distance_m": 0.4,
+        "reverse_clearance_fallback_m": 0.2,
+        "reverse_marker_max_age_sec": 5,
+        "terminal_state": "DONE",
+        "business_step_index": 0,
+        "business_step_code": "LEAVE_HOME_COMPLETE",
+        "business_step_action": "leave_home",
+        "business_step_start": true,
+        "business_step_complete": true
+      }
+    },
+    {
+      "action": "nav2_waypoints",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "frame_id": "map",
+        "route_type": "outbound2_storage_a_return_wait2",
+        "stage": "go_to_outbound2",
+        "waypoints": [
+          "outbound_slot_2_approach"
+        ],
+        "goals": [
+          {
+            "x": 1.45,
+            "y": 0.006,
+            "yaw": 1.571,
+            "waypoint": "outbound_slot_2_approach",
+            "nav_position_only": true,
+            "yaw_tolerance_rad": null,
+            "soft_xy_tolerance_m": 0.1,
+            "require_exact_approach": false,
+            "relax_forward_clearance": true
+          }
+        ],
+        "terminal_state": "ARRIVED",
+        "traffic_policy": {
+          "enabled": true,
+          "rule": "right_hand_traffic",
+          "traffic_segments": [
+            "inbound_lane",
+            "warehouse_aisle"
+          ],
+          "yield_candidates": [
+            "aisle_right_mid",
+            "aisle_right_mid"
+          ]
+        },
+        "traffic_segments": [
+          "inbound_lane",
+          "warehouse_aisle"
+        ],
+        "yield_candidates": [
+          "aisle_right_mid",
+          "aisle_right_mid"
+        ],
+        "business_step_index": 1,
+        "business_step_code": "OUTBOUND_APPROACH_COMPLETE",
+        "business_step_action": "inbound_approach",
+        "business_step_start": true,
+        "business_step_complete": true
+      }
+    },
+    {
+      "action": "aruco_align",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "aruco_marker_id": 6,
+        "align_mode": "full",
+        "final": "hold",
+        "fork_insert_on_hold": false,
+        "fork_insert_enabled": false,
+        "metric_distance_only": true,
+        "marker_search_on_miss": true,
+        "marker_seek_mode": "sweep",
+        "marker_search_timeout_sec": 45,
+        "docking_timeout_sec": 65,
+        "dock_linear_speed": 0.018,
+        "dock_min_linear_speed": 0.006,
+        "dock_angular_gain": 0.45,
+        "dock_max_angular_speed": 0.16,
+        "fork_insert_speed_mps": 0.01,
+        "fork_insert_slip_compensation_m": 0,
+        "pre_insert_settle_sec": 2,
+        "center_tolerance_norm": 0.03,
+        "center_good_enough_norm": 0.06,
+        "align_settle_frames": 4,
+        "target_marker_width_px": 130,
+        "fork_insert_max_marker_width_px": 190,
+        "insert_vision_stop": true,
+        "insert_reference_start_width_px": 65,
+        "insert_stop_width_px": 135,
+        "insert_extra_m": 0.11,
+        "close_from_marker_width_only": false,
+        "coarse_center_tolerance_norm": 0.14,
+        "business_step_index": 2,
+        "business_step_code": "OUTBOUND_PRECISION_COMPLETE",
+        "business_step_action": "inbound_precision",
+        "business_step_start": true,
+        "business_step_complete": false,
+        "stage": "outbound2_align_40cm",
+        "target_distance_m": 0.4,
+        "terminal_state": "ARRIVED",
+        "capture_return_pose_key": "outbound2"
+      }
+    },
+    {
+      "action": "wait",
+      "command": null,
+      "duration": 3,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "stage": "outbound2_wait_3sec",
+        "reason": "two_stage_metric_approach",
+        "business_step_index": 2,
+        "business_step_code": "OUTBOUND_PRECISION_COMPLETE",
+        "business_step_action": "inbound_precision",
+        "business_step_start": false,
+        "business_step_complete": true
+      }
+    },
+    {
+      "action": "aruco_align",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "aruco_marker_id": 6,
+        "align_mode": "full",
+        "final": "hold",
+        "fork_insert_on_hold": false,
+        "fork_insert_enabled": false,
+        "metric_distance_only": true,
+        "marker_search_on_miss": true,
+        "marker_seek_mode": "sweep",
+        "marker_search_timeout_sec": 45,
+        "docking_timeout_sec": 65,
+        "dock_linear_speed": 0.018,
+        "dock_min_linear_speed": 0.006,
+        "dock_angular_gain": 0.45,
+        "dock_max_angular_speed": 0.16,
+        "fork_insert_speed_mps": 0.01,
+        "fork_insert_slip_compensation_m": 0,
+        "pre_insert_settle_sec": 2,
+        "center_tolerance_norm": 0.03,
+        "center_good_enough_norm": 0.06,
+        "align_settle_frames": 4,
+        "target_marker_width_px": 130,
+        "fork_insert_max_marker_width_px": 190,
+        "insert_vision_stop": true,
+        "insert_reference_start_width_px": 65,
+        "insert_stop_width_px": 135,
+        "insert_extra_m": 0.11,
+        "close_from_marker_width_only": false,
+        "coarse_center_tolerance_norm": 0.14,
+        "business_step_index": 3,
+        "business_step_code": "OUTBOUND_LOAD_COMPLETE",
+        "business_step_action": "inbound_load",
+        "business_step_start": true,
+        "business_step_complete": false,
+        "stage": "outbound2_insert_calibrated",
+        "target_distance_m": 0.2,
+        "skip_approach_yaw_rotate": true,
+        "terminal_state": "ARRIVED"
+      }
+    },
+    {
+      "action": "dock_transfer",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "stage": "outbound2_load",
+        "aruco_marker_id": 6,
+        "action": "load",
+        "level": 1,
+        "align_mode": "skip",
+        "skip_approach_yaw_rotate": true,
+        "fork_insert_enabled": false,
+        "skip_lift": true,
+        "use_return_pose_key": "outbound2",
+        "terminal_state": "DONE",
+        "business_step_index": 3,
+        "business_step_code": "OUTBOUND_LOAD_COMPLETE",
+        "business_step_action": "inbound_load",
+        "business_step_start": false,
+        "business_step_complete": true
+      }
+    },
+    {
+      "action": "nav2_waypoints",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "frame_id": "map",
+        "route_type": "outbound2_storage_a_return_wait2",
+        "stage": "go_to_storage_a",
+        "waypoints": [
+          "warehouse_a_approach"
+        ],
+        "goals": [
+          {
+            "x": 0.019,
+            "y": -0.618,
+            "yaw": 0,
+            "waypoint": "warehouse_a_approach",
+            "nav_position_only": true,
+            "yaw_tolerance_rad": null,
+            "soft_xy_tolerance_m": 0.1,
+            "require_exact_approach": false,
+            "relax_forward_clearance": true
+          }
+        ],
+        "terminal_state": "ARRIVED",
+        "traffic_policy": {
+          "enabled": true,
+          "rule": "right_hand_traffic",
+          "traffic_segments": [
+            "inbound_lane",
+            "warehouse_aisle"
+          ],
+          "yield_candidates": [
+            "aisle_right_mid",
+            "aisle_right_mid"
+          ]
+        },
+        "traffic_segments": [
+          "inbound_lane",
+          "warehouse_aisle"
+        ],
+        "yield_candidates": [
+          "aisle_right_mid",
+          "aisle_right_mid"
+        ],
+        "business_step_index": 4,
+        "business_step_code": "STORAGE_APPROACH_COMPLETE",
+        "business_step_action": "storage_approach",
+        "business_step_start": true,
+        "business_step_complete": true
+      }
+    },
+    {
+      "action": "aruco_align",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "aruco_marker_id": 7,
+        "align_mode": "full",
+        "final": "hold",
+        "fork_insert_on_hold": false,
+        "fork_insert_enabled": false,
+        "metric_distance_only": true,
+        "marker_search_on_miss": true,
+        "marker_seek_mode": "sweep",
+        "marker_search_timeout_sec": 45,
+        "docking_timeout_sec": 65,
+        "dock_linear_speed": 0.018,
+        "dock_min_linear_speed": 0.006,
+        "dock_angular_gain": 0.45,
+        "dock_max_angular_speed": 0.16,
+        "center_tolerance_norm": 0.03,
+        "center_good_enough_norm": 0.06,
+        "align_settle_frames": 4,
+        "target_marker_width_px": 130,
+        "fork_insert_max_marker_width_px": 190,
+        "insert_vision_stop": true,
+        "insert_reference_start_width_px": 65,
+        "insert_stop_width_px": 180,
+        "insert_extra_m": 0.06,
+        "close_from_marker_width_only": false,
+        "coarse_center_tolerance_norm": 0.14,
+        "business_step_index": 5,
+        "business_step_code": "STORAGE_PRECISION_COMPLETE",
+        "business_step_action": "storage_precision",
+        "business_step_start": true,
+        "business_step_complete": false,
+        "stage": "storage_a_align_40cm",
+        "target_distance_m": 0.4,
+        "terminal_state": "ARRIVED",
+        "capture_return_pose_key": "storage_a"
+      }
+    },
+    {
+      "action": "wait",
+      "command": null,
+      "duration": 3,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "stage": "storage_a_wait_3sec",
+        "reason": "two_stage_metric_approach",
+        "business_step_index": 5,
+        "business_step_code": "STORAGE_PRECISION_COMPLETE",
+        "business_step_action": "storage_precision",
+        "business_step_start": false,
+        "business_step_complete": true
+      }
+    },
+    {
+      "action": "aruco_align",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "aruco_marker_id": 7,
+        "align_mode": "full",
+        "final": "hold",
+        "fork_insert_on_hold": false,
+        "fork_insert_enabled": false,
+        "metric_distance_only": true,
+        "marker_search_on_miss": true,
+        "marker_seek_mode": "sweep",
+        "marker_search_timeout_sec": 45,
+        "docking_timeout_sec": 65,
+        "dock_linear_speed": 0.018,
+        "dock_min_linear_speed": 0.006,
+        "dock_angular_gain": 0.45,
+        "dock_max_angular_speed": 0.16,
+        "center_tolerance_norm": 0.03,
+        "center_good_enough_norm": 0.06,
+        "align_settle_frames": 4,
+        "target_marker_width_px": 130,
+        "fork_insert_max_marker_width_px": 190,
+        "insert_vision_stop": true,
+        "insert_reference_start_width_px": 65,
+        "insert_stop_width_px": 180,
+        "insert_extra_m": 0.06,
+        "close_from_marker_width_only": false,
+        "coarse_center_tolerance_norm": 0.14,
+        "business_step_index": 6,
+        "business_step_code": "STORAGE_UNLOAD_COMPLETE",
+        "business_step_action": "storage_unload",
+        "business_step_start": true,
+        "business_step_complete": false,
+        "stage": "storage_a_insert_calibrated",
+        "target_distance_m": 0.18,
+        "skip_approach_yaw_rotate": true,
+        "terminal_state": "ARRIVED"
+      }
+    },
+    {
+      "action": "dock_transfer",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "stage": "storage_a_unload",
+        "aruco_marker_id": 7,
+        "action": "unload",
+        "level": 2,
+        "align_mode": "skip",
+        "skip_approach_yaw_rotate": true,
+        "fork_insert_enabled": false,
+        "skip_lift": true,
+        "use_return_pose_key": "storage_a",
+        "terminal_state": "DONE",
+        "business_step_index": 6,
+        "business_step_code": "STORAGE_UNLOAD_COMPLETE",
+        "business_step_action": "storage_unload",
+        "business_step_start": false,
+        "business_step_complete": true
+      }
+    },
+    {
+      "action": "nav2_waypoints",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "frame_id": "map",
+        "route_type": "outbound2_storage_a_return_wait2",
+        "stage": "return_to_wait2",
+        "waypoints": [
+          "vehicle_2_approach"
+        ],
+        "goals": [
+          {
+            "x": 0.816,
+            "y": 0.006,
+            "yaw": 1.571,
+            "waypoint": "vehicle_2_approach",
+            "nav_position_only": true,
+            "yaw_tolerance_rad": null,
+            "soft_xy_tolerance_m": 0.1,
+            "require_exact_approach": false,
+            "relax_forward_clearance": true
+          }
+        ],
+        "terminal_state": "ARRIVED",
+        "traffic_policy": {
+          "enabled": true,
+          "rule": "right_hand_traffic",
+          "traffic_segments": [
+            "inbound_lane",
+            "warehouse_aisle"
+          ],
+          "yield_candidates": [
+            "aisle_right_mid",
+            "aisle_right_mid"
+          ]
+        },
+        "traffic_segments": [
+          "inbound_lane",
+          "warehouse_aisle"
+        ],
+        "yield_candidates": [
+          "aisle_right_mid",
+          "aisle_right_mid"
+        ],
+        "business_step_index": 7,
+        "business_step_code": "RETURN_HOME_COMPLETE",
+        "business_step_action": "return_home",
+        "business_step_start": true,
+        "business_step_complete": true
+      }
+    },
+    {
+      "action": "aruco_align",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "aruco_marker_id": 4,
+        "align_mode": "full",
+        "fork_insert_on_hold": false,
+        "fork_insert_enabled": false,
+        "metric_distance_only": true,
+        "marker_search_on_miss": true,
+        "marker_seek_mode": "sweep",
+        "marker_search_timeout_sec": 45,
+        "docking_timeout_sec": 65,
+        "dock_linear_speed": 0.018,
+        "dock_min_linear_speed": 0.006,
+        "dock_angular_gain": 0.45,
+        "dock_max_angular_speed": 0.16,
+        "center_tolerance_norm": 0.03,
+        "center_good_enough_norm": 0.05,
+        "align_settle_frames": 4,
+        "target_marker_width_px": 65,
+        "fork_insert_max_marker_width_px": 170,
+        "insert_vision_stop": true,
+        "insert_reference_start_width_px": 65,
+        "insert_stop_width_px": 132,
+        "close_from_marker_width_only": false,
+        "coarse_center_tolerance_norm": 0.14,
+        "stage": "park_wait2_align_40cm",
+        "final": "return_approach",
+        "target_distance_m": 0.4,
+        "terminal_state": "ARRIVED",
+        "business_step_index": 8,
+        "business_step_code": "PARK_COMPLETE",
+        "business_step_action": "park_home",
+        "business_step_start": true,
+        "business_step_complete": false
+      }
+    },
+    {
+      "action": "wait",
+      "command": null,
+      "duration": 3,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "stage": "park_wait2_wait_3sec",
+        "reason": "two_stage_metric_hold_park",
+        "business_step_index": 8,
+        "business_step_code": "PARK_COMPLETE",
+        "business_step_action": "park_home",
+        "business_step_start": false,
+        "business_step_complete": false
+      }
+    },
+    {
+      "action": "aruco_align",
+      "command": null,
+      "duration": null,
+      "payload": {
+        "route_type": "outbound2_storage_a_return_wait2",
+        "aruco_marker_id": 4,
+        "align_mode": "full",
+        "fork_insert_on_hold": false,
+        "fork_insert_enabled": false,
+        "metric_distance_only": true,
+        "marker_search_on_miss": true,
+        "marker_seek_mode": "sweep",
+        "marker_search_timeout_sec": 45,
+        "docking_timeout_sec": 65,
+        "dock_linear_speed": 0.018,
+        "dock_min_linear_speed": 0.006,
+        "dock_angular_gain": 0.45,
+        "dock_max_angular_speed": 0.16,
+        "center_tolerance_norm": 0.03,
+        "center_good_enough_norm": 0.05,
+        "align_settle_frames": 4,
+        "target_marker_width_px": 65,
+        "fork_insert_max_marker_width_px": 170,
+        "insert_vision_stop": true,
+        "insert_reference_start_width_px": 65,
+        "insert_stop_width_px": 132,
+        "close_from_marker_width_only": false,
+        "coarse_center_tolerance_norm": 0.14,
+        "stage": "park_wait2_hold_20cm",
+        "final": "hold",
+        "target_distance_m": 0.2,
+        "skip_approach_yaw_rotate": true,
+        "terminal_state": "DONE",
+        "business_step_index": 8,
+        "business_step_code": "PARK_COMPLETE",
+        "business_step_action": "park_home",
+        "business_step_start": false,
+        "business_step_complete": true
+      }
+    }
+  ],
+  "callback_url": "http://192.168.30.9:8088/api/v1/movement/command-events"
+}

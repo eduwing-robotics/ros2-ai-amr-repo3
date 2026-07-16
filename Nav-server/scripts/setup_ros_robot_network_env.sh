@@ -10,7 +10,7 @@ else
   unset ROS_LOCALHOST_ONLY
   export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
   export ROS_STATIC_PEERS="${ROS_STATIC_PEERS:-192.168.30.101;192.168.30.102;192.168.30.9;192.168.30.5;192.168.30.12;192.168.30.3}"
-  if [[ -f "$HOME/.ros/fastdds_ghost_fix.xml" ]]; then
-    export FASTRTPS_DEFAULT_PROFILES_FILE="$HOME/.ros/fastdds_ghost_fix.xml"
+  if [[ -f "$HOME/slam_nav_ws/config/fastdds_robot_network.xml" ]]; then
+    export FASTRTPS_DEFAULT_PROFILES_FILE="$HOME/slam_nav_ws/config/fastdds_robot_network.xml"
   fi
 fi

@@ -2,6 +2,11 @@
 import unittest
 
 from nav_app.services.docking import (
+    _marker_seek_monotonic,
+    _marker_pose_aligned,
+    _marker_yaw_error_rad,
+    _pose_aware_docking_angular_z,
+    _marker_seek_sweep_enabled,
     marker_close_enough,
     _require_center_before_insert,
     compute_fork_insert_motion,
@@ -32,6 +37,30 @@ from nav_app.settings import NAV_APPROACH_SOFT_XY_TOLERANCE_M, NAV_APPROACH_XY_T
 
 
 class DockingMotionTests(unittest.TestCase):
+    def test_marker_pose_yaw_is_required_globally(self):
+        self.assertFalse(_marker_pose_aligned({"center_error_norm": 0.0}, {}))
+        self.assertTrue(_marker_pose_aligned(
+            {"marker_yaw_error_rad": 0.03},
+            {"marker_yaw_tolerance_deg": 4.0},
+        ))
+        self.assertFalse(_marker_pose_aligned(
+            {"marker_yaw_error_rad": 0.20},
+            {"marker_yaw_tolerance_deg": 4.0},
+        ))
+
+    def test_pose_aware_steering_uses_center_and_face_yaw(self):
+        detection = {"center_error_norm": 0.10, "marker_yaw_error_rad": 0.10}
+        angular = _pose_aware_docking_angular_z(
+            detection, {}, wall_mode=False, max_angular=0.5
+        )
+        self.assertLess(angular, -0.09)
+        self.assertAlmostEqual(_marker_yaw_error_rad(detection), 0.10, places=6)
+
+    def test_marker_seek_sweep_is_bidirectional(self):
+        payload = {"marker_seek_mode": "sweep"}
+        self.assertFalse(_marker_seek_monotonic(payload))
+        self.assertTrue(_marker_seek_sweep_enabled(payload))
+
     def test_insert_auto_extends_max_duration_for_full_distance(self):
         payload = {"fork_insert_distance_m": 0.395, "fork_insert_speed_mps": 0.035, "fork_insert_max_duration_sec": 10.0}
         speed, duration, actual, requested = compute_fork_insert_motion(payload)
@@ -150,7 +179,6 @@ class DockingMotionTests(unittest.TestCase):
         finally:
             runtime.set_standby_parked(False)
 
-
 class ApproachChainingTests(unittest.TestCase):
     def test_warehouse_c_has_marker_and_tolerances(self):
         marker_id = marker_id_for_approach_waypoint("warehouse_c_approach")
@@ -207,6 +235,8 @@ class ApproachChainingTests(unittest.TestCase):
         self.assertEqual(steps[3].payload["target_distance_m"], 0.20)
         self.assertTrue(steps[3].payload.get("skip_approach_yaw_rotate"))
         self.assertTrue(steps[1].payload.get("metric_distance_only"))
+        self.assertFalse(steps[1].payload.get("close_from_marker_width_only"))
+        self.assertFalse(steps[3].payload.get("close_from_marker_width_only"))
         self.assertFalse(steps[1].payload.get("fork_insert_enabled"))
 
     def test_inbound_approach_has_longer_aruco_seek(self):
@@ -267,7 +297,7 @@ class ApproachChainingTests(unittest.TestCase):
         self.assertTrue(overrides.get("nav_position_only"))
         self.assertIsNone(overrides.get("yaw_tolerance_rad"))
         self.assertTrue(overrides.get("relax_forward_clearance"))
-        self.assertAlmostEqual(overrides["soft_xy_tolerance_m"], NAV_APPROACH_SOFT_XY_TOLERANCE_M, places=3)
+        self.assertAlmostEqual(overrides["soft_xy_tolerance_m"], 0.10, places=3)
 
     def test_prepend_leave_dock_when_parked(self):
         runtime.set_standby_parked(True)

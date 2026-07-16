@@ -103,6 +103,7 @@ Nav PC에서 한 번에 Nav2+RViz / 서버 / detector를 띄운다. `WITH_ROBOT=
 ```bash
 cd ~/slam_nav_ws
 # 기본: terminator split + 로봇 SBC bringup/카메라 ssh (WITH_ROBOT=1 기본값)
+# EKF도 기본 활성화 (WITH_EKF=1); 비활성화할 때만 WITH_EKF=0 지정
 scripts/start_all_tb3_2.sh
 scripts/start_all_tb3_2.sh restart   # 전체 종료 후 재기동
 scripts/start_all_tb3_2.sh stop      # Nav PC + 로봇 SBC + terminator 종료
