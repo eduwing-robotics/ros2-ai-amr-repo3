@@ -1,6 +1,6 @@
 import type { InventoryRecord } from "../../types";
 
-export const EMPTY_ITEM = { itemCode: "", itemName: "", unit: "EA" };
+export const EMPTY_ITEM = { itemCode: "", itemName: "", unit: "EA", markerId: "" };
 export const EMPTY_SLOT = { slotId: "", slotLabel: "", waypointId: "", sortOrder: "0", approachGroup: "", enabled: true };
 export const EMPTY_INV = { slot: "", item: "", floor: "1", qty: "0" };
 

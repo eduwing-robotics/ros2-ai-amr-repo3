@@ -207,7 +207,8 @@ export function WorkOrderQueue() {
                   key={o.order_id}
                   order={o}
                   highlighted={o.order_id === requestedOrderId}
-                  itemName={items.find((it) => it.item_code === o.item_code)?.item_name}
+                  itemName={o.item_name ?? items.find((it) => it.item_code === o.item_code)?.item_name}
+                  itemMarkerId={o.aruco_marker_id ?? items.find((it) => it.item_code === o.item_code)?.aruco_marker_id}
                   open={expanded === o.order_id}
                   showReorder={showReorder}
                   reorderDirty={reorder.dirty}

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 from app.core.config import settings
-from app.db.repo_bridge import evidence_repo
+from app.db.repo_bridge import evidence_repo, item_repo
 from app.services.vision_proxy import VisionUpstreamError, post_lift_load_evaluate
 
 logger = logging.getLogger(__name__)
@@ -42,9 +42,22 @@ def _item_id(task: dict[str, Any]) -> str | None:
     return str(value) if value else None
 
 
-def _marker_for_item(item_id: str) -> str | None:
-    marker = settings.lift_load_marker_map.get(item_id)
-    return str(marker) if marker is not None and str(marker).strip() else None
+def _item_catalog_entry(conn, item_id: str) -> dict[str, Any] | None:
+    item = item_repo(conn).get(item_id)
+    if not item:
+        return None
+    marker = item.get("aruco_marker_id")
+    if marker is None:
+        return item
+    if isinstance(marker, bool) or not isinstance(marker, (int, str)):
+        return {**item, "aruco_marker_id": None}
+    try:
+        normalized = int(marker)
+    except (TypeError, ValueError):
+        return {**item, "aruco_marker_id": None}
+    if not 20 <= normalized <= 49:
+        return {**item, "aruco_marker_id": None}
+    return {**item, "aruco_marker_id": normalized}
 
 
 def _storage_zone_for_floor(floor: Any) -> str:
@@ -77,7 +90,7 @@ def _operation_and_zone(task: dict[str, Any], leg: dict[str, Any]) -> tuple[str,
     return operation, zone
 
 
-def build_request(task: dict[str, Any], leg: dict[str, Any], command_def_id: int | str | None) -> dict[str, object]:
+def build_request(conn, task: dict[str, Any], leg: dict[str, Any], command_def_id: int | str | None) -> dict[str, object]:
     """Build the Main-facing AI Server request from task + dock_transfer leg context."""
 
     robot_id = task.get("assigned_robot_id")
@@ -86,9 +99,12 @@ def build_request(task: dict[str, Any], leg: dict[str, Any], command_def_id: int
     item_id = _item_id(task)
     if not item_id:
         raise LiftLoadEvidenceSkip("task has no item_id")
-    marker_id = _marker_for_item(item_id)
+    item = _item_catalog_entry(conn, item_id)
+    if item is None:
+        raise LiftLoadEvidenceSkip(f"item catalog entry missing: {item_id}")
+    marker_id = item.get("aruco_marker_id")
     if marker_id is None:
-        raise LiftLoadEvidenceSkip(f"item marker mapping missing: {item_id}")
+        raise LiftLoadEvidenceSkip(f"item ArUco marker missing: {item_id}")
 
     operation, vision_zone_id = _operation_and_zone(task, leg)
     return {
@@ -98,7 +114,7 @@ def build_request(task: dict[str, Any], leg: dict[str, Any], command_def_id: int
         "command_id": command_def_id,
         "operation": operation,
         "expected_item_id": item_id,
-        "expected_marker_id": marker_id,
+        "expected_marker_id": str(marker_id),
         "expected_item_count": 1,
         "vision_zone_id": vision_zone_id,
         "burst_frames": settings.lift_load_burst_frames,
@@ -340,6 +356,8 @@ def _gate_result(
     command_satisfying: bool,
     status: str = "recorded",
     binding_errors: list[str] | None = None,
+    expected_item_id: str | None = None,
+    expected_marker_id: object | None = None,
 ) -> dict[str, Any]:
     binding_errors = binding_errors or []
     if binding_errors and status == "recorded":
@@ -355,6 +373,12 @@ def _gate_result(
         "approved": approved,
         "status": status,
         "binding_errors": binding_errors,
+        "expected_item_id": expected_item_id,
+        "expected_marker_id": (
+            int(normalized_marker)
+            if (normalized_marker := _marker_id(expected_marker_id)) is not None
+            else None
+        ),
     }
 
 
@@ -375,10 +399,17 @@ def evaluate_and_record(conn, task: dict[str, Any], leg: dict[str, Any], command
         return _gate_result(evidence_id=None, result=None, reason_code="NOT_DOCK_TRANSFER", command_satisfying=False, status="skip") if gate else None
 
     try:
-        request_payload = build_request(task, leg, command_def_id)
+        request_payload = build_request(conn, task, leg, command_def_id)
     except LiftLoadEvidenceSkip as exc:
         ev_id = record_skip(conn, task=task, command_def_id=command_def_id, reason=str(exc))
-        return _gate_result(evidence_id=ev_id, result=None, reason_code=str(exc), command_satisfying=False, status="skip") if gate else ev_id
+        return _gate_result(
+            evidence_id=ev_id,
+            result=None,
+            reason_code=str(exc),
+            command_satisfying=False,
+            status="skip",
+            expected_item_id=_item_id(task),
+        ) if gate else ev_id
 
     try:
         response = post_lift_load_evaluate(request_payload)
@@ -391,7 +422,15 @@ def evaluate_and_record(conn, task: dict[str, Any], leg: dict[str, Any], command
             error=str(exc),
             status_code=exc.status_code,
         )
-        return _gate_result(evidence_id=ev_id, result="ERROR", reason_code=str(exc), command_satisfying=False, status="error") if gate else ev_id
+        return _gate_result(
+            evidence_id=ev_id,
+            result="ERROR",
+            reason_code=str(exc),
+            command_satisfying=False,
+            status="error",
+            expected_item_id=str(request_payload.get("expected_item_id") or "") or None,
+            expected_marker_id=request_payload.get("expected_marker_id"),
+        ) if gate else ev_id
     except Exception as exc:  # pragma: no cover - defensive boundary for record-only hook
         logger.exception("lift-load evidence call failed")
         ev_id = record_error(
@@ -401,7 +440,15 @@ def evaluate_and_record(conn, task: dict[str, Any], leg: dict[str, Any], command
             request_payload=request_payload,
             error=str(exc),
         )
-        return _gate_result(evidence_id=ev_id, result="ERROR", reason_code=str(exc), command_satisfying=False, status="error") if gate else ev_id
+        return _gate_result(
+            evidence_id=ev_id,
+            result="ERROR",
+            reason_code=str(exc),
+            command_satisfying=False,
+            status="error",
+            expected_item_id=str(request_payload.get("expected_item_id") or "") or None,
+            expected_marker_id=request_payload.get("expected_marker_id"),
+        ) if gate else ev_id
 
     event = response.get("event") if isinstance(response.get("event"), dict) else {}
     data = event.get("data_json") if isinstance(event.get("data_json"), dict) else {}
@@ -437,4 +484,6 @@ def evaluate_and_record(conn, task: dict[str, Any], leg: dict[str, Any], command
         reason_code=response.get("reason_code") or event.get("reason_code"),
         command_satisfying=bool(data.get("command_satisfying")),
         binding_errors=binding_errors,
+        expected_item_id=str(request_payload.get("expected_item_id") or "") or None,
+        expected_marker_id=request_payload.get("expected_marker_id"),
     ) if gate else ev_id

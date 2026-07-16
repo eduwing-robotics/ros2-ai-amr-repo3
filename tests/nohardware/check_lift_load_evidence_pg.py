@@ -67,7 +67,7 @@ def main() -> int:
                 "task_type": "INBOUND",
                 "status": "CANCELLED",
                 "robot_id": "tb3_1",
-                "item_id": "BOX-A",
+                "item_id": "PART-BEARING",
                 "quantity": 1,
                 "from_location_id": "INBOUND_01",
                 "from_floor": 1,

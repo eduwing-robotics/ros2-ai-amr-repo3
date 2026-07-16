@@ -7,6 +7,7 @@ export interface Item {
   item_code: string;
   item_name: string;
   unit: string;
+  aruco_marker_id?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -14,6 +15,7 @@ export interface ItemUpsert {
   item_code: string;
   item_name: string;
   unit?: string;
+  aruco_marker_id: number;
 }
 
 // --- 보관 슬롯 — API alias for locations(type=storage) ---
@@ -55,6 +57,7 @@ export interface InventoryRecord {
   floor?: number;
   item_name?: string | null;
   unit?: string | null;
+  aruco_marker_id?: number | null;
   slot_label?: string | null;
   capacity?: number | null;
   updated_at?: string | null;
@@ -135,6 +138,8 @@ export interface WorkOrder {
   order_id: number;
   operation: Operation | string;
   item_code: string;
+  item_name?: string | null;
+  aruco_marker_id?: number | null;
   quantity: number;
   status: string;
   created_by?: string | null;

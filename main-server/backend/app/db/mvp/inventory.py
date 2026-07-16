@@ -13,17 +13,24 @@ class MvpInventoryRepository:
         clauses: list[str] = []
         params: list[Any] = []
         if slot_id:
-            clauses.append("location_id = %s")
+            clauses.append("inv.location_id = %s")
             params.append(slot_id)
         if item_code:
-            clauses.append("item_id = %s")
+            clauses.append("inv.item_id = %s")
             params.append(item_code)
         if floor is not None:
-            clauses.append("floor = %s")
+            clauses.append("inv.floor = %s")
             params.append(floor)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self.conn.execute(
-            f"SELECT item_id, location_id, floor, quantity, updated_at FROM inventory {where} ORDER BY location_id, floor, item_id",
+            f"""
+            SELECT inv.item_id, inv.location_id, inv.floor, inv.quantity, inv.updated_at,
+                   item.name AS item_name, item.unit, item.aruco_marker_id
+            FROM inventory AS inv
+            JOIN items AS item ON item.id = inv.item_id
+            {where}
+            ORDER BY inv.location_id, inv.floor, inv.item_id
+            """,
             tuple(params),
         ).fetchall()
         return [
@@ -34,6 +41,9 @@ class MvpInventoryRepository:
                 "item_id": r["item_id"],
                 "floor": r["floor"],
                 "quantity": r["quantity"],
+                "item_name": r.get("item_name"),
+                "unit": r.get("unit") or "EA",
+                "aruco_marker_id": r.get("aruco_marker_id"),
                 "updated_at": _row_ts(r.get("updated_at")),
             }
             for r in rows

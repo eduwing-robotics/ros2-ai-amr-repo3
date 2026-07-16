@@ -405,7 +405,11 @@ export function WorkOrderForm({
         <Field label="품목">
           <select value={itemCode} onChange={(e) => setItemCode(e.target.value)} disabled={items.length === 0}>
             <option value="">품목 선택</option>
-            {items.map((it) => <option key={it.item_code} value={it.item_code}>{it.item_name} ({it.item_code})</option>)}
+            {items.map((it) => (
+              <option key={it.item_code} value={it.item_code} disabled={it.aruco_marker_id == null}>
+                {it.item_name} ({it.item_code}) · {it.aruco_marker_id == null ? "ArUco 미지정" : `A${it.aruco_marker_id}`}
+              </option>
+            ))}
           </select>
           {itemCode ? (
             <span className="muted">

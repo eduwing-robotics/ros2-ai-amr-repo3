@@ -1,6 +1,5 @@
 """Main Server 관제 런타임 설정."""
 
-import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -106,19 +105,6 @@ def _movement_robot_keys() -> dict[str, str]:
     return parsed or dict(_DEFAULT_ROBOT_MOVEMENT_KEYS)
 
 
-def _lift_load_marker_map() -> dict[str, str]:
-    raw = os.getenv("LMS_LIFT_LOAD_MARKER_MAP_JSON", "").strip()
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(parsed, dict):
-        return {}
-    return {str(key): str(value) for key, value in parsed.items()}
-
-
 _DEFAULT_ROBOT_MOVEMENT_KEYS = {
     "tb3_burger_01": "tb3_1",
     "tb3_burger_02": "tb3_2",
@@ -192,7 +178,6 @@ class Settings:
     lift_load_evidence_enabled: bool = os.getenv("LMS_LIFT_LOAD_EVIDENCE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
     lift_load_evidence_mode: str = os.getenv("LMS_LIFT_LOAD_EVIDENCE_MODE", "record").strip().lower()
     lift_load_evidence_source: str = os.getenv("LMS_LIFT_LOAD_EVIDENCE_SOURCE", "global_cam_01").strip()
-    lift_load_marker_map: dict[str, str] = field(default_factory=_lift_load_marker_map)
     lift_load_burst_frames: int = int(os.getenv("LMS_LIFT_LOAD_BURST_FRAMES", "5"))
     lift_load_min_pass_frames: int = int(os.getenv("LMS_LIFT_LOAD_MIN_PASS_FRAMES", "1"))
     lift_load_sample_interval_ms: int = int(os.getenv("LMS_LIFT_LOAD_SAMPLE_INTERVAL_MS", "80"))

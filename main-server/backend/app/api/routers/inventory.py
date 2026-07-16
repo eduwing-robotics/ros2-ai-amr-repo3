@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
+from psycopg.errors import UniqueViolation
 
 from app.db.connection import transaction
 from app.db.mvp_repositories import DEFAULT_FLOOR
@@ -31,7 +32,10 @@ def list_items() -> list[Item]:
 def upsert_item(payload: ItemUpsert) -> ApiMessage:
     """품목을 생성하거나 수정한다."""
     with transaction() as conn:
-        item_repo(conn).upsert(payload.model_dump())
+        try:
+            item_repo(conn).upsert(payload.model_dump())
+        except UniqueViolation as exc:
+            raise HTTPException(status_code=409, detail="aruco_marker_id_already_in_use") from exc
         event_repo(conn).append(
             event_type="DB_ITEM_UPSERT",
             message=f"item upserted: {payload.item_code}",

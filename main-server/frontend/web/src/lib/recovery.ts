@@ -17,6 +17,9 @@ export interface RecoveryContext {
   evidence_class?: "physical" | "nonphysical";
   inventory_mutation_allowed?: boolean;
   hold_reason?: string;
+  item_code?: string | null;
+  item_name?: string | null;
+  aruco_marker_id?: number | null;
   recommended_actions?: string[];
   evidence?: {
     operation?: string | null;

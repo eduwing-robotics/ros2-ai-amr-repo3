@@ -44,14 +44,15 @@ export function InventoryView({
   );
 
   const itemTotals = useMemo(() => {
-    const byCode = new Map<string, { code: string; name: string; qty: number; locations: Set<string> }>();
+    const byCode = new Map<string, { code: string; name: string; markerId: number | null; qty: number; locations: Set<string> }>();
     for (const it of items) {
-      byCode.set(it.item_code, { code: it.item_code, name: it.item_name, qty: 0, locations: new Set() });
+      byCode.set(it.item_code, { code: it.item_code, name: it.item_name, markerId: it.aruco_marker_id ?? null, qty: 0, locations: new Set() });
     }
     for (const r of inventory) {
       const cur = byCode.get(r.item_code) ?? {
         code: r.item_code,
         name: r.item_name ?? r.item_code,
+        markerId: r.aruco_marker_id ?? null,
         qty: 0,
         locations: new Set<string>(),
       };
@@ -109,7 +110,7 @@ export function InventoryView({
               <tr><td colSpan={3} className="empty">{q ? "검색 결과 없음" : "재고 없음"}</td></tr>
             ) : filteredTotals.map((t) => (
               <tr key={t.code}>
-                <td>{t.name} <span className="muted mono">({t.code})</span></td>
+                <td>{t.name} <span className="muted mono">({t.code}){t.markerId == null ? "" : ` · A${t.markerId}`}</span></td>
                 <td>{t.locations.length ? t.locations.join(" / ") : <span className="muted">미보관</span>}</td>
                 <td className="num"><span className={t.qty === 0 ? "pill warn" : "pill ok"}>{t.qty}</span></td>
               </tr>
@@ -135,7 +136,7 @@ export function InventoryView({
                 <td>{floor}층</td>
                 <td className="num">{slot.capacity}</td>
                 <td className="num"><span className={used >= slot.capacity ? "pill warn" : used > 0 ? "pill ok" : "pill idle"}>{used}</span></td>
-                <td>{recs.length === 0 ? <span className="muted">비어있음</span> : recs.map((r) => `${r.item_name ?? r.item_code} ${r.quantity}`).join(" · ")}</td>
+                <td>{recs.length === 0 ? <span className="muted">비어있음</span> : recs.map((r) => `${r.item_name ?? r.item_code}${r.aruco_marker_id == null ? "" : ` A${r.aruco_marker_id}`} ${r.quantity}`).join(" · ")}</td>
               </tr>
             ))}
           </tbody>

@@ -20,6 +20,7 @@ export function WorkOrderQueueRow({
   order,
   highlighted,
   itemName,
+  itemMarkerId,
   open,
   showReorder,
   reorderDirty,
@@ -45,6 +46,7 @@ export function WorkOrderQueueRow({
   order: WorkOrder;
   highlighted?: boolean;
   itemName?: string;
+  itemMarkerId?: number | null;
   open: boolean;
   showReorder: boolean;
   reorderDirty: boolean;
@@ -90,7 +92,7 @@ export function WorkOrderQueueRow({
           </td>
         ) : null}
         <td className="work-order-cell-task"><span className="work-order-primary"><strong className="mono">#{order.order_id}</strong><small>{operationLabel(order.operation)}</small></span></td>
-        <td className="work-order-cell-item"><span className="work-order-primary" title={itemName ? itemName + " (" + order.item_code + ")" : order.item_code}><strong>{itemName || order.item_code}</strong><small>{order.quantity}개</small></span></td>
+        <td className="work-order-cell-item"><span className="work-order-primary" title={itemName ? itemName + " (" + order.item_code + ")" : order.item_code}><strong>{itemName || order.item_code}</strong><small>{itemMarkerId == null ? "ArUco 미지정" : `A${itemMarkerId}`} · {order.quantity}개</small></span></td>
         <td className="work-order-cell-context" title={taskPlanLabel(order)}><span className="work-order-context"><strong>{taskRobotLabel(order)}</strong><small>{taskPlanLabel(order)}{taskCommandLabel(order) ? " · " + taskCommandLabel(order) : ""}</small></span></td>
         <td className="work-order-cell-status"><Pill status={order.status} /></td>
         <td className="work-order-cell-actions">

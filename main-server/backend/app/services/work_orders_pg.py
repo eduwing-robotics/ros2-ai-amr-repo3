@@ -708,6 +708,8 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
     parking_error = orch.get("parking_error")
     source_zone, target_zone = _zones_from_task(conn, task, operation, plan_summary)
     task_floor = int((task.get("to_floor") if operation == "inbound" else task.get("from_floor")) or DEFAULT_FLOOR)
+    item_code = str(task.get("item_code") or task.get("item_id") or "")
+    item = MvpItemRepository(conn).get(item_code) if item_code else None
     wo_task = {
         "order_id": order_id,
         "task_id": order_id,
@@ -731,7 +733,9 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
     order = {
         "order_id": order_id,
         "operation": operation,
-        "item_code": task.get("item_code") or task.get("item_id"),
+        "item_code": item_code,
+        "item_name": item.get("item_name") if item else None,
+        "aruco_marker_id": item.get("aruco_marker_id") if item else None,
         "quantity": int(task.get("quantity") or 1),
         "status": status,
         "created_by": "operator",

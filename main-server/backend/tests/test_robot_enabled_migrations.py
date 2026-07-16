@@ -38,3 +38,14 @@ def test_canonical_schema_persists_enablement_but_not_realtime_pose() -> None:
 
     assert "enabled       BOOLEAN NOT NULL DEFAULT TRUE" in robots
     assert "robot_latest_poses" not in schema
+
+
+def test_item_catalog_migration_owns_the_six_field_markers() -> None:
+    migration = (MIGRATIONS / "0006_item_aruco_catalog.sql").read_text(encoding="utf-8")
+    items = SCHEMA.read_text(encoding="utf-8").split("CREATE TABLE IF NOT EXISTS items (", 1)[1].split(");", 1)[0]
+
+    for marker_id in (20, 22, 23, 24, 27, 29):
+        assert f", {marker_id})" in migration
+    assert "aruco_marker_id BETWEEN 20 AND 49" in migration
+    assert "uq_items_aruco_marker_id" in migration
+    assert "aruco_marker_id INTEGER" in items

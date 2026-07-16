@@ -193,7 +193,7 @@ Main 시작 설정도 [Main lift-load evidence decision](../../main-server/docs/
 
 - [ ] `LMS_LIFT_LOAD_EVIDENCE_ENABLED=true`다.
 - [ ] `LMS_LIFT_LOAD_EVIDENCE_MODE=gate`다. 기본 `record` mode 결과를 E2E gate PASS로 사용하지 않는다.
-- [ ] `LMS_LIFT_LOAD_EVIDENCE_SOURCE=global_cam_01`과 `LMS_LIFT_LOAD_MARKER_MAP_JSON`의 시험 item→marker 매핑이 실제 화물과 일치한다.
+- [ ] `LMS_LIFT_LOAD_EVIDENCE_SOURCE=global_cam_01`이며 Main 관리 UI의 품목 ArUco ID가 실제 화물 마커와 일치한다. 환경변수 매핑 사본을 두지 않는다.
 - [ ] Main 재시작 후 load 실패·stale·wrong marker가 다음 movement를 실제로 hold하는 negative case를 먼저 확인한다.
 
 ```bash

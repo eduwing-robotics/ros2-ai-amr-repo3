@@ -27,7 +27,12 @@ export function WarehouseItemsPanel({
   };
 
   const editItem = (it: Item) => {
-    setItemForm({ itemCode: it.item_code, itemName: it.item_name, unit: it.unit || "EA" });
+    setItemForm({
+      itemCode: it.item_code,
+      itemName: it.item_name,
+      unit: it.unit || "EA",
+      markerId: it.aruco_marker_id == null ? "" : String(it.aruco_marker_id),
+    });
     setEditingItemCode(it.item_code);
   };
 
@@ -47,14 +52,31 @@ export function WarehouseItemsPanel({
         <Field label="단위">
           <input value={itemForm.unit} onChange={(e) => setItemForm((f) => ({ ...f, unit: e.target.value }))} />
         </Field>
+        <Field label="품목 ArUco ID">
+          <input
+            type="number"
+            min={20}
+            max={49}
+            value={itemForm.markerId}
+            onChange={(e) => setItemForm((f) => ({ ...f, markerId: e.target.value }))}
+          />
+          <span className="muted">20~49 · 품목별 중복 불가</span>
+        </Field>
         <div className="action-row">
           <Button
-            disabled={!itemForm.itemCode || !itemForm.itemName || mutations.upsertItem.isPending}
+            disabled={
+              !itemForm.itemCode
+              || !itemForm.itemName
+              || Number(itemForm.markerId) < 20
+              || Number(itemForm.markerId) > 49
+              || mutations.upsertItem.isPending
+            }
             onClick={() => run(async () => {
               await mutations.upsertItem.mutateAsync({
                 item_code: itemForm.itemCode.trim(),
                 item_name: itemForm.itemName.trim(),
                 unit: itemForm.unit.trim() || "EA",
+                aruco_marker_id: Number(itemForm.markerId),
               });
               resetItemForm();
             })}
@@ -68,12 +90,14 @@ export function WarehouseItemsPanel({
       </div>
       <div className="table-wrap clean-table">
         <table>
-          <thead><tr><th>코드</th><th>이름</th><th>단위</th><th></th></tr></thead>
+          <thead><tr><th>코드</th><th>이름</th><th>ArUco</th><th>단위</th><th></th></tr></thead>
           <tbody>
-            {items.length === 0 ? <tr><td colSpan={4} className="empty">품목 없음</td></tr> :
+            {items.length === 0 ? <tr><td colSpan={5} className="empty">품목 없음</td></tr> :
               items.map((it) => (
                 <tr key={it.item_code}>
-                  <td className="mono">{it.item_code}</td><td>{it.item_name}</td><td>{it.unit}</td>
+                  <td className="mono">{it.item_code}</td><td>{it.item_name}</td>
+                  <td className="mono">{it.aruco_marker_id == null ? <span className="pill warn">미지정</span> : `A${it.aruco_marker_id}`}</td>
+                  <td>{it.unit}</td>
                   <td>
                     <Button variant="row" onClick={() => editItem(it)}>수정</Button>
                     {pendingDelete === it.item_code ? (

@@ -169,6 +169,13 @@ function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
       {ctx.execution_mode === "synthetic_hil" ? (
         <p className="muted recovery-strategy-hint">가상 리프트 시험 · 결과는 NONPHYSICAL이며 물리 lift 합격이나 재고 변경에 사용되지 않습니다.</p>
       ) : null}
+      {isEvidenceHold ? (
+        <p>
+          <strong>{ctx.item_name ?? ctx.item_code ?? "품목 확인 필요"}</strong>
+          {ctx.item_code && ctx.item_name ? <span className="muted"> ({ctx.item_code})</span> : null}
+          <span className="muted"> · 기대 ArUco {ctx.evidence?.expected_marker_id == null ? "미지정" : `A${ctx.evidence.expected_marker_id}`} · {evidenceResultLabel(ctx.evidence?.result)}</span>
+        </p>
+      ) : null}
       <div className="recovery-checks">
         <label>
           <input

@@ -550,6 +550,9 @@ def _gate_approval_metadata(result: Any) -> dict[str, Any]:
             "reason_code": result.get("reason_code"),
             "command_satisfying": bool(result.get("command_satisfying")),
             "status": result.get("status") or "recorded",
+            "expected_item_id": result.get("expected_item_id"),
+            "expected_marker_id": result.get("expected_marker_id"),
+            "binding_errors": list(result.get("binding_errors") or []),
         }
     else:
         decision = {
@@ -559,6 +562,9 @@ def _gate_approval_metadata(result: Any) -> dict[str, Any]:
             "reason_code": "NO_GATE_RESULT",
             "command_satisfying": False,
             "status": "missing",
+            "expected_item_id": None,
+            "expected_marker_id": None,
+            "binding_errors": [],
         }
     approved = (
         str(decision.get("status") or "recorded") == "recorded"
@@ -592,6 +598,9 @@ def _record_gate_decision(
         "decision": "PASS" if decision.get("approved") else "HOLD",
         "approved": bool(decision.get("approved")),
         "status": decision.get("status"),
+        "expected_item_id": decision.get("expected_item_id"),
+        "expected_marker_id": decision.get("expected_marker_id"),
+        "binding_errors": list(decision.get("binding_errors") or []),
     }
     evidence_runtime.record_movement_evidence(
         conn,
@@ -719,6 +728,11 @@ def dispatch_current_step(conn, task_id: int) -> str:
                 step_index=step_index,
                 decision=approval,
             )
+            # The caller surfaces a 409 to explain why no Nav command was sent.
+            # Persist the operator hold first; otherwise the route transaction
+            # would roll it back and the poller would silently retry the gate.
+            if getattr(conn, "is_postgres", False) is True:
+                conn.commit()
             raise HTTPException(status_code=409, detail="evidence_gate_hold")
 
     # Arm before claiming a dispatch.  A monitor outage must not leave a step

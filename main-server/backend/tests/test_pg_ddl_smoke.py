@@ -68,6 +68,26 @@ class PgDdlSmokeTest(unittest.TestCase):
         for table in DBML_TABLES:
             self.assertIn(f"CREATE TABLE IF NOT EXISTS {table}", sql)
 
+    def test_item_aruco_catalog_is_db_owned_and_field_ready(self) -> None:
+        expected = {
+            "PART-BEARING": 20,
+            "PART-GEAR": 22,
+            "PART-MOTOR": 23,
+            "PART-SENSOR": 24,
+            "PART-BRACKET": 27,
+            "PART-CONTROLLER": 29,
+        }
+        with transaction() as conn:
+            rows = conn.execute(
+                "SELECT id, aruco_marker_id FROM items WHERE id = ANY(%s) ORDER BY id",
+                (list(expected),),
+            ).fetchall()
+            indexes = conn.execute(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'items'",
+            ).fetchall()
+        self.assertEqual({row["id"]: int(row["aruco_marker_id"]) for row in rows}, expected)
+        self.assertIn("uq_items_aruco_marker_id", {row["indexname"] for row in indexes})
+
 
 if __name__ == "__main__":
     unittest.main()

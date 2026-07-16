@@ -9,6 +9,7 @@ class Item(BaseModel):
     item_code: str
     item_name: str
     unit: str = "ea"
+    aruco_marker_id: int | None = Field(default=None, ge=20, le=49)
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -19,6 +20,7 @@ class ItemUpsert(BaseModel):
     item_code: str
     item_name: str
     unit: str = "ea"
+    aruco_marker_id: int = Field(ge=20, le=49)
 
 
 class StorageSlot(BaseModel):
@@ -56,6 +58,7 @@ class InventoryRecord(BaseModel):
     floor: int = Field(default=1, ge=1, le=2)
     item_name: str | None = None
     unit: str | None = None
+    aruco_marker_id: int | None = Field(default=None, ge=20, le=49)
     slot_label: str | None = None
     capacity: int | None = None
     updated_at: str | None = None

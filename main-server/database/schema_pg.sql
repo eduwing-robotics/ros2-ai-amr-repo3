@@ -2,9 +2,18 @@
 -- CHECK/default policies from PHASE_59 minimum supplement.
 
 CREATE TABLE IF NOT EXISTS items (
-    id   TEXT PRIMARY KEY,
-    name TEXT NOT NULL
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    unit            TEXT NOT NULL DEFAULT 'EA',
+    aruco_marker_id INTEGER,
+    CONSTRAINT items_aruco_marker_id_chk CHECK (
+        aruco_marker_id IS NULL OR aruco_marker_id BETWEEN 20 AND 49
+    )
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_items_aruco_marker_id
+    ON items(aruco_marker_id)
+    WHERE aruco_marker_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS robots (
     id            TEXT PRIMARY KEY,

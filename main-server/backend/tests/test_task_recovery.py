@@ -152,6 +152,49 @@ class TaskRecoveryTest(unittest.TestCase):
             plan = recovery.preview_recovery_plan(MagicMock(), 1, cargo_state="EMPTY", strategy="safe_move")
         self.assertEqual([step["kind"] for step in plan["steps"]], ["move_to_point"])
 
+    def test_evidence_hold_context_uses_db_item_catalog_for_operator_ui(self) -> None:
+        conn = MagicMock()
+        task = {
+            "task_id": 1,
+            "status": "RUNNING",
+            "assigned_robot_id": "tb3_2",
+            "item_id": "PART-GEAR",
+            "preset_snapshot": {
+                "_orchestration": {
+                    "phase": "AWAITING_OPERATOR",
+                    "step_index": 0,
+                    "steps": [{"kind": "dock_transfer", "params": {"action": "load"}}],
+                    "recovery": {
+                        "reason": "evidence_gate",
+                        "gate_decision": {
+                            "result": "FAIL",
+                            "reason_code": "EXPECTED_ITEM_MISSING",
+                            "expected_item_id": "PART-GEAR",
+                            "expected_marker_id": 22,
+                        },
+                    },
+                }
+            },
+        }
+        with (
+            patch.object(recovery.evidence_runtime, "attach_orchestration", return_value=task),
+            patch.object(recovery, "task_repo") as tasks,
+            patch.object(recovery, "item_repo") as items,
+        ):
+            tasks.return_value.get.return_value = task
+            items.return_value.get.return_value = {
+                "item_code": "PART-GEAR",
+                "item_name": "기어",
+                "unit": "EA",
+                "aruco_marker_id": 22,
+            }
+            context = recovery.get_recovery_context(conn, 1)
+
+        self.assertEqual(context["item_name"], "기어")
+        self.assertEqual(context["aruco_marker_id"], 22)
+        self.assertEqual(context["evidence"]["expected_item_id"], "PART-GEAR")
+        self.assertEqual(context["evidence"]["expected_marker_id"], 22)
+
 
 if __name__ == "__main__":
     unittest.main()

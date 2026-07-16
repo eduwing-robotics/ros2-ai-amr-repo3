@@ -14,7 +14,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.db.mvp.evidence import MvpEvidenceRepository
-from app.db.repo_bridge import evidence_repo, location_repo, safety_stop_repo, task_repo
+from app.db.repo_bridge import evidence_repo, item_repo, location_repo, safety_stop_repo, task_repo
 from app.models.schemas import RobotCommandRequest
 from app.services import evidence_runtime, person_hazard
 from app.services import orchestration_state as orch_state
@@ -156,6 +156,8 @@ def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
     decision = (current_step or {}).get("decision") if isinstance((current_step or {}).get("decision"), dict) else recovery.get("gate_decision") or {}
     execution_mode = str(provenance.get("execution_mode") or "physical")
     hold_reason = str(recovery.get("reason") or orch.get("hold_reason") or "")
+    item_id = str(task.get("item_id") or task.get("item_code") or "")
+    item = item_repo(conn).get(item_id) if item_id else None
     evidence_hold = hold_reason in {"evidence_gate", "evidence_not_approved", "manual_fixture_transfer_required"}
     if execution_mode == "evidence_only":
         recommended_actions = ["retry_evidence", "cancel_test"]
@@ -181,12 +183,15 @@ def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
         "evidence_class": provenance.get("evidence_class", "physical"),
         "inventory_mutation_allowed": provenance.get("inventory_mutation_allowed", True),
         "hold_reason": hold_reason,
+        "item_code": item_id or None,
+        "item_name": item.get("item_name") if item else None,
+        "aruco_marker_id": item.get("aruco_marker_id") if item else None,
         "recommended_actions": recommended_actions,
         "evidence": {
             "operation": (current_step or {}).get("operation") or ((current_step or {}).get("params") or {}).get("evidence_operation"),
             "vision_zone_id": (current_step or {}).get("vision_zone_id"),
-            "expected_marker_id": scenario.get("expected_marker_id"),
-            "expected_item_id": scenario.get("expected_item_id"),
+            "expected_marker_id": decision.get("expected_marker_id") or scenario.get("expected_marker_id") or (item or {}).get("aruco_marker_id"),
+            "expected_item_id": decision.get("expected_item_id") or scenario.get("expected_item_id") or item_id or None,
             "result": decision.get("result"),
             "reason_code": decision.get("reason_code"),
             "command_satisfying": decision.get("command_satisfying"),

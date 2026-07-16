@@ -2,7 +2,7 @@
 
 상태: Active
 소유: Integration
-최종 갱신: 2026-07-10 16:01 KST
+최종 갱신: 2026-07-16 KST
 목적: Vision lift-load 결과를 Main이 기록·승인·보류로 해석하는 현재 정책을 정의한다.
 
 AI request/response schema는 [AI Server lift-load evidence contract](../../../ai-server/docs/contracts/lift-load-evidence.md)를 따른다. 이 문서는 AI endpoint나 payload를 복제하지 않는다.
@@ -14,7 +14,8 @@ AI request/response schema는 [AI Server lift-load evidence contract](../../../a
 - `record`: 기존 호환 모드. `evaluate_and_record`는 evidence id(`int`) 또는 `None`을 반환하고, Vision 결과가 `PASS`가 아니어도 task 전진을 막지 않는다.
 - `gate`: 구조화 결과(`evidence_id`, `result`, `reason_code`, `command_satisfying`, `approved`)를 반환한다. Main은 **`result=PASS` 이면서 `command_satisfying=true`인 경우만 승인**한다. `skip`/`error`/`None`/`FAIL`/`UNCERTAIN`은 모두 비승인이다.
 - AI advisory evidence는 `trusted=false`로 저장한다. Main이 내린 gate 결정 evidence/event(`LIFT_LOAD_GATE_DECISION`)만 `trusted=true`이다.
-- DB 스키마 변경 없음. marker 매핑은 Main 설정(`LMS_LIFT_LOAD_*`).
+- 품목과 ArUco ID의 정본은 Main PostgreSQL `items.aruco_marker_id`다. 환경변수 item→marker 사본은 사용하지 않는다.
+- Main은 evidence 요청 직전에 task의 `item_id`로 DB를 조회한다. 품목 또는 마커가 없거나 중복·범위 오류가 있으면 승인하지 않고 같은 evidence 복구 흐름으로 보낸다.
 
 ## Decision table
 
@@ -31,7 +32,8 @@ Main은 이미지·bbox·mask를 저장하거나 업무 판단에 요구하지 �
 
 | 항목 | 위치 |
 | --- | --- |
-| Config | `LMS_LIFT_LOAD_*` (`core/config.py`) |
+| Config | evidence 동작/시간값 `LMS_LIFT_LOAD_*` (`core/config.py`) |
+| 품목 정본 | `items(id, name, unit, aruco_marker_id)`; `aruco_marker_id`는 20..49, NULL 제외 unique |
 | Client | `vision_proxy.post_lift_load_evaluate` |
 | Service | `lift_load_evidence.evaluate_and_record` |
 | Hook | load: `dock_transfer` DONE 직후 / unload: Nav dispatch 직전 `operation=PRE_DROP_OFF` gate |
@@ -43,3 +45,4 @@ Main은 이미지·bbox·mask를 저장하거나 업무 판단에 요구하지 �
 - 적재는 `dock_transfer`가 `DONE` 된 직후 평가한다.
 - 하역은 Nav dispatch 전에 `PRE_DROP_OFF`로 평가한다.
 - Main은 평가 기록을 `evidence_events`에 남기며, 조회는 `GET /evidence-events`를 사용한다.
+- `gate` 비승인은 task를 실패 종료하지 않고 `AWAITING_OPERATOR`로 보낸다. 운영자는 Main UI에서 DB 품목·기대 ArUco·판정 이유를 확인하고 안전 확인 뒤 같은 evidence 단계를 재평가하거나 안전 이동/수동 중단을 선택한다.

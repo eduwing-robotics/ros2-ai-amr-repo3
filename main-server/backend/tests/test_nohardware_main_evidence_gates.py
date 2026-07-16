@@ -36,7 +36,6 @@ def _lift_gate_settings() -> SimpleNamespace:
         lift_load_evidence_enabled=True,
         lift_load_evidence_mode="gate",
         lift_load_evidence_source="global_cam_01",
-        lift_load_marker_map={"BOX-A": "20"},
         lift_load_burst_frames=5,
         lift_load_min_pass_frames=1,
         lift_load_sample_interval_ms=80,
@@ -102,8 +101,9 @@ class MainChargeScenarioNoHardwareTest(unittest.TestCase):
 
 
 class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
-    def _dispatch_unload_with_evidence(self, evidence_result):
+    def _dispatch_unload_with_evidence(self, evidence_result, *, postgres: bool = False):
         conn = MagicMock()
+        conn.is_postgres = postgres
         steps = [
             {"kind": "move_to_point", "status": "DONE", "command_id": "cmd-move", "params": {"map_id": "m", "x": 1, "y": 2}},
             {
@@ -138,10 +138,10 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
             except HTTPException as exc:
                 result = None
                 raised = exc
-        return result, raised, evaluate, dispatch, runtime
+        return result, raised, evaluate, dispatch, runtime, conn
 
     def test_nohardware_unload_dispatches_only_after_ai_evidence_pass_and_command_satisfying_true(self):
-        result, raised, evaluate, dispatch, _ = self._dispatch_unload_with_evidence(
+        result, raised, evaluate, dispatch, _, _ = self._dispatch_unload_with_evidence(
             {"advisory_evidence_id": 501, "result": "PASS", "command_satisfying": True}
         )
 
@@ -152,6 +152,13 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
 
     def test_nohardware_unload_pre_dispatch_calls_pre_drop_off_evidence_without_nav_param_leak(self):
         conn = MagicMock()
+        catalog = MagicMock()
+        catalog.get.return_value = {
+            "id": "BOX-A",
+            "name": "Box A",
+            "unit": "EA",
+            "aruco_marker_id": 20,
+        }
         repo = MagicMock()
         repo.append.return_value = 777
         steps = [
@@ -206,6 +213,8 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
             patch.object(orchestrator.lift_load_evidence, "settings", _lift_gate_settings()),
             patch.object(orchestrator.lift_load_evidence, "post_lift_load_evaluate", return_value=response) as post,
             patch.object(orchestrator.lift_load_evidence, "evidence_repo", return_value=repo),
+            patch.object(orchestrator.lift_load_evidence, "item_repo", return_value=catalog),
+            patch.object(orchestrator, "event_repo"),
             patch.object(orchestrator.person_hazard, "arm_physical_motion_monitor", return_value=True),
         ):
             task_repo.return_value.get.return_value = task
@@ -228,8 +237,9 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
         self.assertEqual(nav_payload.params["action"], "unload")
 
     def test_nohardware_unload_fail_holds_without_dispatching_lift_down(self):
-        _, raised, evaluate, dispatch, runtime = self._dispatch_unload_with_evidence(
-            {"advisory_evidence_id": 502, "result": "FAIL", "command_satisfying": False}
+        _, raised, evaluate, dispatch, runtime, conn = self._dispatch_unload_with_evidence(
+            {"advisory_evidence_id": 502, "result": "FAIL", "command_satisfying": False},
+            postgres=True,
         )
 
         self.assertIsNotNone(raised)
@@ -238,6 +248,7 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
         dispatch.assert_not_called()
         saved_orch = runtime.save_orchestration.call_args[0][2]
         self.assertIn(saved_orch["phase"], {"AWAITING_OPERATOR", "NEEDS_ATTENTION"})
+        conn.commit.assert_called_once()
 
 
 class MainLoadTrustedGateDecisionNoHardwareTest(unittest.TestCase):

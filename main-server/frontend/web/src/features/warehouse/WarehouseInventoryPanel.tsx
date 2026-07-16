@@ -51,7 +51,11 @@ export function WarehouseInventoryPanel({
         <Field label="품목">
           <select value={invForm.item} disabled={editingInvKey != null} onChange={(e) => setInvForm((f) => ({ ...f, item: e.target.value }))}>
             <option value="">선택</option>
-            {items.map((it) => <option key={it.item_code} value={it.item_code}>{it.item_name}</option>)}
+            {items.map((it) => (
+              <option key={it.item_code} value={it.item_code} disabled={it.aruco_marker_id == null}>
+                {it.item_name} ({it.item_code}) · {it.aruco_marker_id == null ? "ArUco 미지정" : `A${it.aruco_marker_id}`}
+              </option>
+            ))}
           </select>
         </Field>
         <Field label="층 (1|2)">
@@ -90,7 +94,8 @@ export function WarehouseInventoryPanel({
             {inventory.length === 0 ? <tr><td colSpan={5} className="empty">재고 없음</td></tr> :
               inventory.map((r) => (
                 <tr key={invKey(r)}>
-                  <td>{r.slot_label || r.slot_id}</td><td>{r.floor ?? 1}</td><td>{r.item_name || r.item_code}</td>
+                  <td>{r.slot_label || r.slot_id}</td><td>{r.floor ?? 1}</td>
+                  <td>{r.item_name || r.item_code} {r.aruco_marker_id == null ? null : <span className="muted mono">A{r.aruco_marker_id}</span>}</td>
                   <td>{r.quantity}</td>
                   <td>
                     <Button variant="row" onClick={() => editInventory(r)}>수정</Button>

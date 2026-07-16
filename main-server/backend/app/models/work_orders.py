@@ -50,6 +50,8 @@ class WorkOrder(BaseModel):
     order_id: int
     operation: Literal["inbound", "outbound"] | str
     item_code: str
+    item_name: str | None = None
+    aruco_marker_id: int | None = Field(default=None, ge=20, le=49)
     quantity: int = Field(ge=1)
     status: str
     created_by: str | None = None
