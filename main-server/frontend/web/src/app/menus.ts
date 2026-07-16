@@ -1,4 +1,4 @@
-// 운영/관리 2모드 네비게이션 (IA.md · PHASE_10 기준).
+// 운영/관리 2모드 네비게이션 (IA.md ·  기준).
 // route 는 React Router 경로 `/{area}/{section}` 과 registry 키에 1:1 대응한다.
 
 export interface NavItem {
@@ -18,16 +18,19 @@ export interface ModeDef {
 const item = (route: string, label: string): NavItem => ({ key: route, label, route });
 
 const RECORDS = item("records/events", "기록");
-/** 운영 재고(읽기전용) — 기록처럼 드로어로 진입 (PHASE_40-C). */
-const INVENTORY = item("operate/control?drawer=inventory", "재고");
+/** 운영 조회 목적지 — 좌측 메뉴는 중앙 워크스페이스를 전환한다. */
+const INOUT = item("operate/control?drawer=inout", "입출고");
+const TASKS = item("operate/tasks", "작업");
+const INVENTORY = item("operate/inventory", "재고");
+const EVENTS = item("operate/events", "이벤트");
 
-/** 운영 슬림 네비 (OperatorShell). 재고·기록은 드로어로 진입. */
+/** 운영 슬림 네비 (OperatorShell). 목적지만 배치하고 실행 명령은 콘텐츠 문맥에 둔다. */
 export const OPERATE_SLIM_NAV: NavItem[] = [
   item("operate/control", "관제"),
-  item("operate/inout", "입출고"),
-  item("operate/tasks", "작업"),
+  INOUT,
+  TASKS,
   INVENTORY,
-  item("operate/control?drawer=records", "기록"),
+  EVENTS,
 ];
 
 export const MODES: ModeDef[] = [
@@ -38,10 +41,10 @@ export const MODES: ModeDef[] = [
     accent: "operator",
     items: [
       item("operate/control", "관제"),
-      item("operate/inout", "입출고"),
-      item("operate/tasks", "작업"),
+      INOUT,
+      TASKS,
       INVENTORY,
-      RECORDS,
+      EVENTS,
     ],
   },
   {
@@ -52,7 +55,6 @@ export const MODES: ModeDef[] = [
     items: [
       item("admin/map", "맵 & 구역"),
       item("admin/warehouse", "슬롯·재고·품목"),
-      // admin/actions — placeholder 숨김(PHASE_39). 컴포넌트는 보존.
       item("admin/devices", "로봇·카메라"),
       item("admin/system", "시스템"),
       RECORDS,

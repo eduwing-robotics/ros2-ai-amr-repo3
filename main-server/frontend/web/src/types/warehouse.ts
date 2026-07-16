@@ -66,7 +66,7 @@ export interface InventoryUpsert {
   floor?: number;
 }
 
-// --- DBML logs (PHASE_61) ---
+// --- DBML logs ---
 export interface TaskLogRecord {
   id: number;
   task_id: number;
@@ -110,7 +110,7 @@ export interface WorkOrderTaskProgress {
   steps: WorkOrderTaskProgressStep[];
 }
 
-export interface WorkOrderTask {
+export interface WorkOrderRobotTask {
   order_id: number;
   task_id: number;
   slot_id?: string | null;
@@ -140,7 +140,7 @@ export interface WorkOrder {
   created_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
-  tasks: WorkOrderTask[];
+  tasks: WorkOrderRobotTask[];
   mission_results?: JsonObject[];
   start_failed?: Array<{ task_id: number; detail: string | unknown }>;
   business_completed?: boolean;

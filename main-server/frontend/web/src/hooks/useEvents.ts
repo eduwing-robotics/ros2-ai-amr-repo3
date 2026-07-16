@@ -41,7 +41,7 @@ export function useEvents(limit = 200) {
 export function useMovementCommandRecords(limit = 200) {
   return useQuery({
     queryKey: ["movement-commands", limit],
-    queryFn: () => apiGet<import("../types").MovementCommand[]>(`/movement-commands?limit=${limit}`),
+    queryFn: () => apiGet<import("../types").RobotCommandRecord[]>(`/movement-commands?limit=${limit}`),
     refetchInterval: 5000,
   });
 }

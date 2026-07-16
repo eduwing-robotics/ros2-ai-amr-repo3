@@ -3,7 +3,6 @@ import { apiGet, apiSend } from "../lib/api";
 import type {
   MapImportResult,
   MapRecord,
-  MapUpsert,
   Robot,
   Waypoint,
   WaypointUpsert,
@@ -56,17 +55,12 @@ export function useScenarioMutations() {
     mutationFn: (id: string) => apiSend(`/waypoints/${encodeURIComponent(id)}/force-delete`, "POST"),
     onSuccess: () => invalidate(["waypoints", "inventory", "tasks", "work-orders"]),
   });
-  const upsertMap = useMutation({
-    mutationFn: (body: MapUpsert) => apiSend("/maps", "POST", body),
-    onSuccess: () => invalidate(["maps"]),
-  });
   const importMaps = useMutation({
     mutationFn: () => apiSend<MapImportResult>("/maps/import-folder", "POST"),
     onSuccess: () => invalidate(["maps", "waypoints"]),
   });
   const upsertWaypointRoute = useMutation({
-    mutationFn: (body: { waypoint_id: string; target_location_id: string }) =>
-      apiSend("/waypoint-routes", "POST", body),
+    mutationFn: (body: { waypoint_id: string; target_location_id: string }) => apiSend("/waypoint-routes", "POST", body),
     onSuccess: () => invalidate(["waypoints"]),
   });
   const deleteWaypointRoute = useMutation({
@@ -74,14 +68,5 @@ export function useScenarioMutations() {
     onSuccess: () => invalidate(["waypoints"]),
   });
 
-  return {
-    upsertWaypoint,
-    deleteWaypoint,
-    disableWaypoint,
-    forceDeleteWaypoint,
-    upsertMap,
-    importMaps,
-    upsertWaypointRoute,
-    deleteWaypointRoute,
-  };
+  return { upsertWaypoint, deleteWaypoint, disableWaypoint, forceDeleteWaypoint, importMaps, upsertWaypointRoute, deleteWaypointRoute };
 }

@@ -30,16 +30,16 @@ export function Teleop({
 }) {
   const { teleop } = useAdminMutations();
   const { toast } = useFeedback();
-  const [robotId, setRobotId] = useState("");
   const [status, setStatus] = useState("로봇을 선택하고 방향 버튼을 누르세요.");
   const holdingRef = useRef(false);
   const stopSentRef = useRef(false);
   const activePointerRef = useRef<number | null>(null);
-  const robot = robotId || robots[0]?.robot_id || "";
+  const robot = robots[0]?.robot_id || "";
   const robotBlocked = Boolean(disabled) || Boolean(robot && isRobotEmergency?.(robot));
+  const blockedMessage = disabled ? "수동 조작 불가" : "비상 정지 중 — 수동 조작 불가";
 
   const send = useCallback(async (command: TeleopCommand, hold: boolean) => {
-    if (robotBlocked) { setStatus("비상 정지 중 — 수동 조작 불가"); return; }
+    if (robotBlocked) { setStatus(blockedMessage); return; }
     if (!robot) { setStatus("전송 실패: 선택 가능한 로봇이 없습니다."); return; }
     const label = command === "stop" ? "정지" : hold ? "시작" : "전송";
     setStatus(`${label}: ${robot} / ${command} · 전송 중`);
@@ -51,7 +51,7 @@ export function Teleop({
       setStatus(`전송 실패: ${msg}`);
       toast(`수동 조작 실패: ${msg}`, "err");
     }
-  }, [robotBlocked, robot, teleop, toast]);
+  }, [blockedMessage, robotBlocked, robot, teleop, toast]);
 
   const ensureStop = useCallback(() => {
     if (stopSentRef.current || !holdingRef.current) return;
@@ -130,11 +130,8 @@ export function Teleop({
   return (
     <div className="panel">
       <h2>수동 조작</h2>
-      <div className="toolbar">
-        <select className="filter" value={robot} disabled={robotBlocked} onChange={(e) => setRobotId(e.target.value)}>
-          {robots.length === 0 ? <option value="">로봇 없음</option> : robots.map((r) => <option key={r.robot_id} value={r.robot_id}>{r.robot_id}</option>)}
-        </select>
-      </div>
+      {robotBlocked && !disabled ? <p className="inline-alert warn compact-alert">{blockedMessage}</p> : null}
+      <div className="teleop-target"><span>조작 대상</span><strong>{robots[0]?.display_name || robot || "로봇 없음"}</strong>{robot ? <code>{robot}</code> : null}</div>
       <div className="controller manual">
         <span className="ghost" />
         {holdBtn("forward", "▲")}

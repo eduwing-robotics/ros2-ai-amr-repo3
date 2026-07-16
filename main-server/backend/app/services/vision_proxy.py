@@ -24,7 +24,7 @@ from urllib.request import Request, urlopen
 
 from app.core.config import settings
 from app.security import sign_headers
-from app.services.api_logs import begin_call, finish_call
+from app.services.api_logs import begin_call, finish_call, record_heartbeat
 
 
 class VisionUpstreamError(RuntimeError):
@@ -186,7 +186,7 @@ def fetch_camera_health(camera_sources: list[str] | None = None, *, force: bool 
             source = "none"
             base_url = str(ai.get("base_url") or bridge.get("base_url") or "")
         error = None if ok else str(ai.get("error") or bridge.get("error") or "camera unreachable")
-        return {
+        result = {
             "ok": ok,
             "source": source,
             "base_url": base_url,
@@ -195,6 +195,14 @@ def fetch_camera_health(camera_sources: list[str] | None = None, *, force: bool 
             "bridge": bridge,
             "ai_image": ai,
         }
+        record_heartbeat(
+            "vision",
+            "camera",
+            ok,
+            detail=str(error or source),
+            url=base_url,
+        )
+        return result
 
     return get_cached_swr("camera_health", _compute, force=force)
 

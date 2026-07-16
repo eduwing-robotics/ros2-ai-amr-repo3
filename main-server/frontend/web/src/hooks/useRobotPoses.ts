@@ -2,12 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api";
 import type { RobotPose } from "../types";
 
-// 맵 좌표계 기준 로봇 실시간 pose. 화면 성격에 따라 polling 주기를 조정한다.
-export const useRobotPoses = (mapId: string | undefined, refetchMs = 1000) =>
+/** Operator/admin map refresh cadence. React Query shares the latest-pose cache. */
+export const MAP_POSE_REFETCH_MS = 500;
+
+/** Shared latest-pose cache. All consumers use one query key; map conversion is server-owned. */
+export const useRobotPoses = (_mapId?: string, refetchMs = 1000) =>
   useQuery({
-    queryKey: ["robot-poses", mapId],
-    queryFn: () => apiGet<RobotPose[]>(`/robot-poses?map_id=${encodeURIComponent(mapId!)}`),
-    enabled: !!mapId,
+    queryKey: ["robot-poses"],
+    queryFn: () => apiGet<RobotPose[]>("/robot-poses"),
     refetchInterval: refetchMs,
     staleTime: Math.max(0, Math.floor(refetchMs / 2)),
   });

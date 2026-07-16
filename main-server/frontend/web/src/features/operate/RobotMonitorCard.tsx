@@ -1,18 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pill } from "../../components/Pill";
+import { BatteryIndicator } from "../../components/BatteryIndicator";
 import { CameraTile } from "../control/LiveCamera";
 import { defaultView, viewsForSource } from "../../lib/visionTransport";
 import { RobotStatusDetails } from "./RobotStatusCard";
-import type { CameraSource, MovementHealth, Robot, Task } from "../../types";
+import type { CameraSource, MovementHealth, Robot, RobotTask } from "../../types";
 
 type Kind = "overlay" | "frame";
-
-function batteryClass(battery: number | null | undefined) {
-  if (battery == null || Number.isNaN(battery)) return "";
-  if (battery <= 20) return "battery-low";
-  if (battery <= 35) return "battery-warn";
-  return "";
-}
 
 export function RobotMonitorCard({
   robot,
@@ -20,15 +14,22 @@ export function RobotMonitorCard({
   health,
   tasks,
   emergency,
+  cameraOnline = true,
 }: {
   robot: Robot;
   cameras: CameraSource[];
   health?: MovementHealth;
-  tasks: Task[];
+  tasks: RobotTask[];
   emergency?: boolean;
+  cameraOnline?: boolean;
 }) {
   const [kind, setKind] = useState<Kind>("overlay");
   const [cameraId, setCameraId] = useState(cameras[0]?.source_id ?? "");
+  // 영상 없는데 4:3 검은 박스로 레일 세로를 소비하지 않도록, 오프라인이면 기본 접힘.
+  // null = 기본값(카메라 상태 따라감), true/false = 사용자가 수동 토글.
+  const [videoOpen, setVideoOpen] = useState<boolean | null>(null);
+  const hasCamera = cameras.length > 0;
+  const videoVisible = videoOpen ?? (hasCamera && cameraOnline);
 
   useEffect(() => {
     if (!cameras.length) {
@@ -59,12 +60,10 @@ export function RobotMonitorCard({
           <strong>{robot.robot_id}</strong>
           {emergency ? <span className="pill err">ESTOP</span> : null}
           <Pill status={robot.status} />
-          <span className={`mono robot-monitor-battery ${batteryClass(robot.battery ?? null)}`}>
-            {robot.battery != null ? `🔋 ${robot.battery}%` : "🔋 —"}
-          </span>
+          <BatteryIndicator value={robot.battery} className="robot-monitor-battery" />
         </div>
         <div className="robot-monitor-head-controls">
-          {cameras.length > 1 ? (
+          {videoVisible && cameras.length > 1 ? (
             <select
               className="filter compact-select"
               value={activeCamera?.source_id ?? ""}
@@ -75,11 +74,13 @@ export function RobotMonitorCard({
               ))}
             </select>
           ) : null}
-          <select className="filter compact-select" value={kind} onChange={(e) => setKind(e.target.value as Kind)}>
-            <option value="overlay">overlay</option>
-            <option value="frame">frame</option>
-          </select>
-          {viewOptions.length > 1 && activeCamera ? (
+          {videoVisible ? (
+            <select className="filter compact-select" value={kind} onChange={(e) => setKind(e.target.value as Kind)} aria-label="영상 종류">
+              <option value="overlay">오버레이</option>
+              <option value="frame">원본 영상</option>
+            </select>
+          ) : null}
+          {videoVisible && viewOptions.length > 1 && activeCamera ? (
             <select
               className="filter compact-select"
               value={view}
@@ -91,8 +92,8 @@ export function RobotMonitorCard({
         </div>
       </div>
 
-      <div className="robot-monitor-camera">
-        {activeCamera ? (
+      {videoVisible && activeCamera ? (
+        <div className="robot-monitor-camera">
           <CameraTile
             source={activeCamera.source_id}
             label={activeCamera.label}
@@ -106,10 +107,18 @@ export function RobotMonitorCard({
                 : undefined
             }
           />
-        ) : (
-          <div className="robot-monitor-camera-placeholder muted">카메라 없음</div>
-        )}
-      </div>
+          <button type="button" className="rowbtn ghost robot-monitor-camera-toggle" onClick={() => setVideoOpen(false)}>
+            영상 접기
+          </button>
+        </div>
+      ) : (
+        <div className="robot-monitor-camera-offline">
+          <span>{hasCamera ? (cameraOnline ? "📷 영상 접힘" : "📷 카메라 오프라인") : "📷 카메라 없음"}</span>
+          {hasCamera ? (
+            <button type="button" className="rowbtn ghost" onClick={() => setVideoOpen(true)}>펼치기</button>
+          ) : null}
+        </div>
+      )}
 
       <div className="robot-monitor-details">
         <RobotStatusDetails robot={robot} health={health} tasks={tasks} />

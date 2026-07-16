@@ -148,12 +148,16 @@ function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
   );
 }
 
-export function TaskRecoveryBanner() {
-  const { data: tasks = [] } = useQuery({
+export function useRecoveryAttentionTasks() {
+  return useQuery({
     queryKey: ["recovery-needs-attention"],
     queryFn: fetchNeedsAttentionTasks,
     refetchInterval: 5000,
   });
+}
+
+export function TaskRecoveryBanner() {
+  const { data: tasks = [] } = useRecoveryAttentionTasks();
 
   if (!tasks.length) return null;
 

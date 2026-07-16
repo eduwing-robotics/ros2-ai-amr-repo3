@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiGet, apiSend } from "../lib/api";
-import type { MovementCommand } from "../types";
+import type { RobotCommandRecord } from "../types";
 
 export interface CommLog {
   service?: string;
@@ -11,14 +11,17 @@ export interface CommLog {
   started_at?: string;
   finished_at?: string;
   ok?: boolean;
-  status?: string;
+  status?: string | number;
   detail?: string;
   elapsed_ms?: number;
+  heartbeat?: boolean;
+  repeat_count?: number;
+  last_checked_at?: string;
 }
 
 interface CommLogsResponse {
   logs: CommLog[];
-  movement_commands: MovementCommand[];
+  movement_commands: RobotCommandRecord[];
 }
 
 export const useCommLogs = (service: string, limit: number) =>
@@ -56,7 +59,7 @@ export const liveStreamUrl = (
   return `/api/v1/vision/${kind}/stream?${qs}`;
 };
 
-/** MJPEG 재연결 시 죽은 keep-alive 회피용 캐시버스터(PHASE_52). */
+/** MJPEG 재연결 시 죽은 keep-alive 회피용 캐시버스터. */
 export const liveStreamUrlWithBust = (
   source: string,
   kind: "overlay" | "frame",

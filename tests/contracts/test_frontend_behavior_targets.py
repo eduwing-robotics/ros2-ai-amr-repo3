@@ -57,17 +57,18 @@ def test_route_drawer_work_order_and_recovery_contracts_remain_explicit() -> Non
     menus = source("app/menus.ts")
     shell = source("features/operate/OperatorShell.tsx")
     drawer = source("components/Drawer.tsx")
-    result = source("features/operate/WorkOrderResultNotice.tsx")
+    result = source("features/operate/WorkOrderForm.tsx")
     queue = source("features/operate/taskQueueModel.ts")
     recovery = source("features/operate/TaskRecoveryPanel.tsx")
     recovery_api = source("lib/recovery.ts")
 
-    assert 'operate/control?drawer=inventory' in menus
-    assert 'operate/control?drawer=records' in menus
+    assert 'item("operate/inventory", "재고")' in menus
+    assert 'item("operate/events", "이벤트")' in menus
     assert 'searchParams.get("drawer")' in shell
-    assert 'navigate("/operate/control")' in shell
+    assert "navigate(contextPath(null))" in shell
     assert 'e.key === "Escape"' in drawer and 'triggerRef.current' in drawer
-    assert "일부만 즉시 시작됨" in result and 'to="/operate/tasks"' in result
+    assert "작업 생성됨 · 자동 시작 실패" in result and "start_failed" in result
+    assert 'to="/operate/tasks"' in result and "FleetMissionDock" in shell
     assert 's === "QUEUED" || s === "ASSIGNED"' in queue
     assert "진행 중 작업" in queue and "취소되지 않습니다" in queue
     assert "checks.site_clear && checks.pose_ok && checks.cargo_ok" in recovery
@@ -159,9 +160,9 @@ def test_map_route_planning_guards_coordinate_mismatch_and_readiness() -> None:
     goto = source("features/control/MapGotoOperate.tsx")
     runtime = source("lib/mapRuntime.ts")
 
-    assert "onPointerDown={gotoMode ? onGotoStageDown : undefined}" in dashboard
+    assert "onPointerDown={onStagePointerDown}" in dashboard
     assert "gotoCtx.setMapId(map.map_id)" in dashboard
-    assert "gotoCtx.setTarget(null)" in dashboard
+    assert "gotoCtx.setTarget({ x: w.x, y: w.y" in dashboard
     assert "runtimeMismatch || mapIdMismatch" in goto
     assert "navState?.robot_online === false" in goto
     assert "navState?.command_accepting === false" in goto
@@ -174,18 +175,13 @@ def test_map_route_planning_guards_coordinate_mismatch_and_readiness() -> None:
 def test_disabled_robots_are_monitored_but_not_offered_for_operations() -> None:
     shell = source("features/operate/OperatorShell.tsx")
     work_order = source("features/operate/WorkOrderForm.tsx")
-    queue = source("features/operate/TaskQueue.tsx")
-
     assert "const enabledRobots = useMemo(() => robots.filter((robot) => robot.enabled), [robots])" in shell
     assert "enabledRobots.length > 0 && enabledRobots.every" in shell
-    assert "<WorkOrderForm" in shell and "robots={enabledRobots}" in shell
-    assert "<TaskQueue robots={enabledRobots} />" in shell
+    assert "selectedRobotOperational" in shell
     assert "<Teleop" in shell and "<MapGotoOperate" in shell
-    assert shell.count("robots={enabledRobots}") == 4
-    assert "robots.map((r: Robot)" in shell
-    assert "robots: Robot[]" in work_order and "robots: Robot[]" in queue
-    assert "useRobots" not in work_order
-    assert "useRobots" not in queue
+    assert "allRobots.filter((robot) => robot.enabled)" in work_order
+    assert "useRobots" in work_order
+    assert "<FleetMissionDock" in shell and "robots={robots}" in shell
 
 
 def test_pose_quality_and_connectivity_are_separate_from_server_health() -> None:
@@ -194,10 +190,10 @@ def test_pose_quality_and_connectivity_are_separate_from_server_health() -> None
     layout = source("components/Layout.tsx")
 
     assert "MAX_PLAUSIBLE_AGE_SEC = 86_400" in formatting
-    assert "Number.isFinite(sourceAge)" in formatting
+    assert "Number.isFinite(numericSourceAge)" in formatting
     assert 'if (ageSec <= 1) return { state: "live"' in formatting
     assert 'if (ageSec <= 3) return { state: "stale"' in formatting
-    assert 'queryKey: ["robot-poses", "header-all"]' in connectivity
+    assert "useRobotPoses(undefined, 2000)" in connectivity
     assert 'state === "live" || state === "stale"' in connectivity
     assert 'queryKey: ["status"]' in source("hooks/useStatus.ts")
     assert "useRobotConnectivity(robots)" in layout
@@ -227,13 +223,9 @@ def test_camera_transport_retry_and_staleness_watchdog_contracts() -> None:
 def test_alarm_acknowledgement_is_local_presentation_state_target() -> None:
     """G001 F031/UI-10 target, wired through the current split EventFeed path."""
 
-    feed = source("features/operate/EventFeed.tsx")
     shell = source("features/operate/OperatorShell.tsx")
     alerts = source("hooks/useCriticalAlerts.ts")
 
-    assert ".sort((a, b)" in feed and ".slice(0, limit)" in feed
-    assert 'aria-label="실시간 알람"' in feed
-    assert "eventDotClass(ev)" in feed
     assert "seenEvents" in alerts and "playAlertBeep" in alerts
     assert "flashTitle" in alerts and 'toast(`경보 — ${m}`' in alerts
     assert 'const ALARM_ACK_STORAGE_KEY = "lms.alarms.acked"' in shell
@@ -241,12 +233,10 @@ def test_alarm_acknowledgement_is_local_presentation_state_target() -> None:
     assert "const [ackedAlarmKeys, setAckedAlarmKeys] = useState<Set<string>>(loadAckedAlarmKeys)" in shell
     assert "const acknowledgeAlarms = useCallback" in shell
     assert "localStorage.setItem(ALARM_ACK_STORAGE_KEY" in shell
-    assert "ackedKeys={ackedAlarmKeys}" in shell
-    assert "onAckAll={acknowledgeAlarms}" in shell
-    assert "ackedKeys: Set<string>" in feed and "onAckAll: () => void" in feed
-    assert "ackedKeys.has(eventKey(" in feed
-    assert "onClick={onAckAll}" in feed
-    assert "모두 확인" in feed and "확인됨" in feed
+    assert "ackedAlarmKeys.has(eventKey(event))" in shell
+    assert "firstUnackedAlarm" in shell
+    assert "onClick={acknowledgeAlarms}" in shell
+    assert "확인" in shell and "이벤트 보기" in shell
 
 
 def test_work_order_safe_stop_is_visible_idempotent_and_reports_results() -> None:

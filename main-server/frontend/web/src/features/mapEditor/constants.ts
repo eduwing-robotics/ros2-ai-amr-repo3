@@ -28,7 +28,7 @@ export const ZONE_COLOR: Record<string, string> = {
   dropoff: "var(--teal)",
 };
 
-/** 맵 레이어 가시성 토글에서 "알 수 없는 타입"을 묶는 키 (PHASE_41). */
+/** 맵 레이어 가시성 토글에서 "알 수 없는 타입"을 묶는 키. */
 export const OTHER_LAYER_KEY = "__other__";
 
 /** 레이어 체크박스 목록 = 알려진 구역 타입 + 기타. */

@@ -1,0 +1,10 @@
+/* Single source of truth for status-colored rows across operate and admin surfaces. */
+:is(.fleet-mission-row.is-history,.operator-workspace .clean-table tbody tr)[data-status-tone="success"]{background:color-mix(in srgb,var(--status-success-bg) 72%,var(--surface));box-shadow:inset 3px 0 0 var(--status-success-border)}
+:is(.fleet-mission-row.is-history,.operator-workspace .clean-table tbody tr)[data-status-tone="progress"]{background:color-mix(in srgb,var(--status-progress-bg) 72%,var(--surface));box-shadow:inset 3px 0 0 var(--status-progress-border)}
+:is(.fleet-mission-row.is-history,.operator-workspace .clean-table tbody tr)[data-status-tone="waiting"]{background:color-mix(in srgb,var(--status-waiting-bg) 52%,var(--surface));box-shadow:inset 3px 0 0 var(--status-waiting-border)}
+:is(.fleet-mission-row.is-history,.operator-workspace .clean-table tbody tr)[data-status-tone="warning"]{background:color-mix(in srgb,var(--status-warning-bg) 76%,var(--surface));box-shadow:inset 3px 0 0 var(--status-warning-border)}
+:is(.fleet-mission-row.is-history,.operator-workspace .clean-table tbody tr)[data-status-tone="danger"]{background:color-mix(in srgb,var(--status-danger-bg) 78%,var(--surface));box-shadow:inset 3px 0 0 var(--status-danger-border)}
+:is(.fleet-mission-row.is-history,.operator-workspace .clean-table tbody tr)[data-status-tone="cancelled"]{background:color-mix(in srgb,var(--status-cancelled-bg) 82%,var(--surface));box-shadow:inset 3px 0 0 var(--status-cancelled-border)}
+:is(.fleet-mission-row.is-history,.operator-workspace .clean-table tbody tr)[data-status-tone]{opacity:1}
+.operator-workspace .clean-table tbody tr[data-status-tone]:hover{filter:brightness(.985)}
+.operator-workspace .work-order-expanded-row[data-status-tone]>td{background:transparent}

@@ -1,10 +1,10 @@
-// 관제 화면 snapshot (backend StatusSnapshot) 및 라이브 상태 관련 타입.
+// 관제 화면 snapshot (backend ControlSystemStatusSnapshot) 및 라이브 상태 관련 타입.
 import type {
   CameraSource,
   JsonObject,
-  MovementCommand,
+  RobotCommandRecord,
   Robot,
-  Task,
+  RobotTask,
 } from "./entities";
 
 // Movement 서버 health probe 결과 (robot_id -> health).
@@ -31,12 +31,12 @@ export interface AppEvent {
   [key: string]: unknown;
 }
 
-export interface StatusSnapshot {
+export interface ControlSystemStatusSnapshot {
   system: JsonObject;
   movement_health: Record<string, MovementHealth>;
   robots: Robot[];
   camera_sources: CameraSource[];
-  movement_commands: MovementCommand[];
+  movement_commands: RobotCommandRecord[];
   events: AppEvent[];
-  tasks: Task[];
+  tasks: RobotTask[];
 }

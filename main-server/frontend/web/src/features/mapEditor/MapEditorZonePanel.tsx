@@ -11,12 +11,15 @@ interface MapEditorZonePanelProps {
   mapDockPairs: DockPair[];
   pairByDock: Map<string, DockPair>;
   linkMode: boolean;
+  selectedZoneId: string;
   editZoneId: string;
+  onSelect: (zoneId: string) => void;
   onStartLink: (helperId?: string) => void;
   onEdit: (zoneId: string) => void;
   onCancelEdit: () => void;
   onDelete: (zoneId: string) => void;
   onClearPair: (dockId: string) => void;
+  onClearRoute: (waypointId: string) => void;
   onUpdateAruco: (scanId: string, markerId: number) => void;
   onSave: (z: Waypoint, fields: {
     name: string; x: number; y: number; yaw: number; waypoint_type: string;
@@ -30,51 +33,35 @@ export function MapEditorZonePanel({
   mapDockPairs,
   pairByDock,
   linkMode,
+  selectedZoneId,
   editZoneId,
+  onSelect,
   onStartLink,
   onEdit,
   onCancelEdit,
   onDelete,
   onClearPair,
+  onClearRoute,
   onUpdateAruco,
   onSave,
   onValidationError,
 }: MapEditorZonePanelProps) {
-  const zoneById = (id: string) => zones.find((z) => z.waypoint_id === id) ?? null;
+  const selectedZone = zones.find((z) => z.waypoint_id === selectedZoneId) ?? null;
 
   return (
   <aside className="scenario-side">
     <section className="workflow-card zone-list-card">
-      <div className="section-kicker">도킹 스캔 페어</div>
-      <p className="muted" style={{ margin: "0 0 8px" }}>helper ↔ approach 스캔 링크. ArUco #는 여기서 편집하고, 맵 마커에 배지로 표시됩니다. 페어 해제는 helper↔스캔 연결만 끊으며 마커 자체는 삭제하지 않습니다.</p>
-      <ul className="dock-pair-summary">
-        {mapDockPairs.length === 0 ? <li className="muted">등록된 페어 없음</li> : mapDockPairs.map((p) => {
-          const z = zoneById(p.dock_waypoint_id);
-          const scanId = z?.scan_waypoint_id ?? null;
-          return (
-            <li key={p.dock_waypoint_id}>
-              <span className="dock-pair-name">{z ? z.name : p.dock_waypoint_id}</span>
-              <label className="dock-pair-aruco">ArUco #
-                <input className="search mono compact" type="number" min={1} step={1}
-                  value={p.aruco_marker_id}
-                  disabled={!scanId}
-                  title={scanId ? "ArUco 마커 번호" : "스캔 미연결"}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    if (scanId && Number.isFinite(n) && n >= 1) onUpdateAruco(scanId, n);
-                  }} />
-              </label>
-              <button type="button" className="rowbtn" onClick={() => onStartLink(p.dock_waypoint_id)}>연결</button>
-              <button type="button" className="rowbtn danger" onClick={() => onClearPair(p.dock_waypoint_id)}>페어 해제</button>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="section-kicker">연결 현황</div>
+      <div className="connection-summary">
+        <span><strong>{mapDockPairs.length}</strong> 스캔↔helper</span>
+        <span><strong>{zones.filter((z) => z.waypoint_type === "transit" && z.route_target_id).length}</strong> 경유→스캔</span>
+      </div>
+      <p className="muted zone-list-hint">목록에서 구역을 선택하면 연결·수정·삭제 작업이 표시됩니다.</p>
     </section>
 
     <section className="workflow-card zone-list-card">
       <div className="section-kicker">구역 목록</div>
-      <p className="muted" style={{ margin: "0 0 8px" }}>스캔(approach)은 구역 추가·연결 모드에서만 맵에 표시됩니다. 목록에서는 항상 확인할 수 있습니다.</p>
+      <p className="muted zone-list-description">스캔(approach)은 구역 추가·연결 모드에서만 맵에 표시됩니다. 목록에서는 항상 확인할 수 있습니다.</p>
       <div className="table-wrap clean-table compact-table">
         <table>
           <thead><tr><th>이름</th><th>타입</th><th>좌표</th><th>도킹</th><th></th></tr></thead>
@@ -83,11 +70,13 @@ export function MapEditorZonePanel({
               <tr><td colSpan={5} className="empty">등록된 구역 없음</td></tr>
             ) : zones.map((z) => (
               <ZoneRow key={z.waypoint_id} z={z} editing={editZoneId === z.waypoint_id}
+                selected={selectedZoneId === z.waypoint_id}
                 dockPair={pairByDock.get(z.waypoint_id)}
                 linkActive={linkMode}
                 linkedHelperName={z.waypoint_type === "approach" ? helperForScan(z.waypoint_id, zones)?.name ?? null : null}
+                onSelect={() => onSelect(z.waypoint_id)}
                 onStartLink={() => onStartLink(z.waypoint_id)}
-                onClearScan={() => onClearPair(z.waypoint_id)}
+                onClearScan={() => z.waypoint_type === "transit" ? onClearRoute(z.waypoint_id) : onClearPair(z.waypoint_id)}
                 onEdit={() => onEdit(z.waypoint_id)}
                 onCancel={onCancelEdit}
                 onDelete={() => onDelete(z.waypoint_id)}
@@ -97,6 +86,28 @@ export function MapEditorZonePanel({
           </tbody>
         </table>
       </div>
+      {selectedZone ? (
+        <div className="zone-selection-summary" role="status">
+          <div>
+            <strong>{selectedZone.name}</strong>
+            <span>{typeLabel(selectedZone.waypoint_type)} · <span className="mono">{selectedZone.x.toFixed(2)}, {selectedZone.y.toFixed(2)}</span></span>
+          </div>
+          {selectedZone.waypoint_type === "transit" ? (
+            <span>연결: {selectedZone.route_target_id ?? "연결되지 않음"}</span>
+          ) : null}
+          {selectedZone.waypoint_type === "approach" ? (
+            <label className="dock-pair-aruco">ArUco #
+              <input className="search mono compact" type="number" min={0} step={1}
+                value={selectedZone.aruco_marker_id ?? ""}
+                title="ArUco 마커 번호"
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isInteger(n) && n >= 0) onUpdateAruco(selectedZone.waypoint_id, n);
+                }} />
+            </label>
+          ) : null}
+        </div>
+      ) : <p className="muted zone-selection-empty">구역을 선택하면 상세 작업이 표시됩니다.</p>}
     </section>
   </aside>
   );
@@ -119,11 +130,12 @@ function ConfirmButton({ onConfirm, label = "삭제", confirmLabel = "확인?", 
   );
 }
 
-function ZoneRow({ z, editing, dockPair, linkActive, linkedHelperName, onStartLink, onClearScan, onEdit, onCancel, onDelete, onSave, onValidationError }: {
-  z: Waypoint; editing: boolean;
+function ZoneRow({ z, editing, selected, dockPair, linkActive, linkedHelperName, onSelect, onStartLink, onClearScan, onEdit, onCancel, onDelete, onSave, onValidationError }: {
+  z: Waypoint; editing: boolean; selected: boolean;
   dockPair?: { aruco_marker_id: number };
   linkActive?: boolean;
   linkedHelperName?: string | null;
+  onSelect: () => void;
   onStartLink?: () => void;
   onClearScan?: () => void;
   onEdit: () => void; onCancel: () => void; onDelete: () => void;
@@ -132,6 +144,7 @@ function ZoneRow({ z, editing, dockPair, linkActive, linkedHelperName, onStartLi
 }) {
   const isApproach = z.waypoint_type === "approach";
   const isHelper = isHelperWaypoint(z);
+  const isTransit = z.waypoint_type === "transit";
   const [name, setName] = useState(z.name);
   const [x, setX] = useState(String(z.x));
   const [y, setY] = useState(String(z.y));
@@ -146,10 +159,10 @@ function ZoneRow({ z, editing, dockPair, linkActive, linkedHelperName, onStartLi
 
   if (!editing) {
     return (
-      <tr>
+      <tr className={selected ? "selected" : ""} onClick={onSelect} aria-selected={selected}>
         <td>{z.name}</td>
         <td><span className={`pill ${z.waypoint_type === "home" ? "warn" : z.waypoint_type === "approach" ? "ok" : "idle"}`}>{typeLabel(z.waypoint_type)}</span>
-          {z.status && z.status !== "ACTIVE" ? <span className="pill warn" style={{ marginLeft: 4 }}>{z.status}</span> : null}
+          {z.status && z.status !== "ACTIVE" ? <span className="pill warn pill-adjacent">{z.status}</span> : null}
         </td>
         <td className="mono">{coordLabel}</td>
         <td>
@@ -162,10 +175,11 @@ function ZoneRow({ z, editing, dockPair, linkActive, linkedHelperName, onStartLi
           ) : null}
         </td>
         <td>
-          {isDockWaypoint(z) ? (
+          {(isDockWaypoint(z) || isTransit || isApproach) ? (
             <>
               <button className={`rowbtn${linkActive ? " primary" : ""}`} onClick={onStartLink}>연결</button>
-              {(dockPair || z.scan_waypoint_id) ? <button className="rowbtn danger" onClick={onClearScan}>페어 해제</button> : null}
+              {/* 해제는 재연결 가능한 동작 — solid red는 삭제에만 남긴다 (주의 피로 방지) */}
+              {(dockPair || z.scan_waypoint_id || z.route_target_id) ? <button className="rowbtn" onClick={onClearScan}>{isTransit ? "연결 해제" : "페어 해제"}</button> : null}
             </>
           ) : null}
           <button className="rowbtn" onClick={onEdit}>수정</button>
@@ -177,13 +191,13 @@ function ZoneRow({ z, editing, dockPair, linkActive, linkedHelperName, onStartLi
   return (
     <tr className="editing">
       <td>
-        <input className="search" value={name} onChange={(e) => setName(e.target.value)} style={{ width: 84 }} />
+        <input className="search zone-name-input" value={name} onChange={(e) => setName(e.target.value)} />
         {!isApproach && !isHelper ? (
-          <input className="search mono" type="number" step="1" value={yawDeg} onChange={(e) => setYawDeg(e.target.value)} style={{ width: 50 }} title="방향(°)" />
+          <input className="search mono zone-yaw-input" type="number" step="1" value={yawDeg} onChange={(e) => setYawDeg(e.target.value)} title="방향(°)" />
         ) : null}
       </td>
       <td><select className="filter" value={type} onChange={(e) => setType(e.target.value)}>{ZONE_TYPES.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</select></td>
-      <td><input className="search mono" type="number" step="0.01" value={x} onChange={(e) => setX(e.target.value)} style={{ width: 62 }} /><input className="search mono" type="number" step="0.01" value={y} onChange={(e) => setY(e.target.value)} style={{ width: 62 }} /></td>
+      <td><input className="search mono zone-coordinate-input" type="number" step="0.01" value={x} onChange={(e) => setX(e.target.value)} /><input className="search mono zone-coordinate-input" type="number" step="0.01" value={y} onChange={(e) => setY(e.target.value)} /></td>
       <td />
       <td>
         <button className="rowbtn" onClick={() => {

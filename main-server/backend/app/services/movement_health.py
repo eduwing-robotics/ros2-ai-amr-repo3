@@ -14,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from app.core.config import settings
-from app.services.api_logs import begin_call, finish_call
+from app.services.api_logs import begin_call, finish_call, record_heartbeat
 from app.services.health_cache import get_cached_swr
 from app.services.movement import (
     movement_client,
@@ -111,6 +111,19 @@ def fake_health(robot_id: str) -> dict[str, Any]:
 
 
 def http_health(robot_id: str) -> dict[str, Any]:
+    """Probe a robot and emit only its canonical connectivity transitions."""
+    result = _probe_http_health(robot_id)
+    record_heartbeat(
+        "movement",
+        robot_id,
+        bool(result.get("ok")),
+        detail=str(result.get("error") or result.get("source") or "connected"),
+        url=str(result.get("base_url") or ""),
+    )
+    return result
+
+
+def _probe_http_health(robot_id: str) -> dict[str, Any]:
     """Movement 서버의 primary endpoint에서 /health를 짧은 timeout으로 조회한다.
 
     Movement base URL은 보통 ``/movement-api/v1`` prefix까지 포함한다. 따라서

@@ -1,43 +1,29 @@
 import { useState } from "react";
 import { useStatus } from "../../hooks/useStatus";
 import { useAdminMutations } from "../../hooks/useAdminData";
-import { useCommLogs, useProbes } from "../../hooks/useCommLogs";
-import { DataTable, type Column } from "../../components/DataTable";
+import { useProbes } from "../../hooks/useCommLogs";
 import { Pill } from "../../components/Pill";
 import { Panel } from "../../components/Panel";
 import { Field } from "../../components/Field";
 import { Button } from "../../components/Button";
 import { ApiError } from "../../lib/api";
 import { cell } from "../../lib/format";
-import type { CommLog } from "../../hooks/useCommLogs";
 import type { CameraSource, Robot } from "../../types";
-import { MapGoto } from "../control/MapGoto";
 
 const EMPTY_ROBOT = { robot_id: "", display_name: "", status: "IDLE", enabled: true, battery: "" };
 const EMPTY_CAMERA = { source_id: "", label: "", robot_id: "", status: "not_connected", stream_url: "" };
-
-const logColumns: Column<CommLog>[] = [
-  { header: "시각", cell: (r) => cell(r.finished_at || r.started_at) },
-  { header: "service", cell: (r) => cell(r.service) },
-  { header: "결과", cell: (r) => <><Pill status={r.ok ? "ok" : "error"} /> {cell(r.status)}</> },
-  { header: "ms", className: "mono", cell: (r) => cell(r.elapsed_ms) },
-  { header: "url", className: "mono", cell: (r) => cell(r.url) },
-];
 
 export function DevicesAdmin() {
   const { data } = useStatus();
   const { saveRobot, deleteRobot, saveCamera, deleteCamera } = useAdminMutations();
   const [robotForm, setRobotForm] = useState(EMPTY_ROBOT);
   const [cameraForm, setCameraForm] = useState(EMPTY_CAMERA);
-  const [service, setService] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ kind: "robot" | "camera"; id: string } | null>(null);
-  const { data: commData } = useCommLogs(service, 80);
   const { probeMovement } = useProbes();
 
   const robots = data?.robots ?? [];
   const cameras = data?.camera_sources ?? [];
-  const logs = commData?.logs ?? [];
 
   const run = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -69,7 +55,7 @@ export function DevicesAdmin() {
       <div className="ops-heading">
         <div>
           <h2>로봇 · 카메라</h2>
-          <p>장치 등록·점검과 통신 로그</p>
+          <p>운용할 로봇과 카메라 소스를 등록하고 연결 상태를 점검합니다.</p>
         </div>
         <Button variant="secondary" onClick={() => probeMovement.mutate()}>Movement probe</Button>
       </div>
@@ -121,11 +107,8 @@ export function DevicesAdmin() {
                             checked={r.enabled}
                             disabled={saveRobot.isPending}
                             onChange={(e) => run(() => saveRobot.mutateAsync({
-                              robot_id: r.robot_id,
-                              display_name: r.display_name,
-                              status: r.status,
-                              battery: r.battery ?? null,
-                              enabled: e.target.checked,
+                              robot_id: r.robot_id, display_name: r.display_name, status: r.status,
+                              battery: r.battery ?? null, enabled: e.target.checked,
                             }))}
                           />
                           <span className="operation-switch-track" aria-hidden="true" />
@@ -208,15 +191,6 @@ export function DevicesAdmin() {
           </div>
         </Panel>
       </div>
-
-      <Panel title="통신 로그" className="devices-logs">
-        <div className="toolbar">
-          <input className="search" placeholder="service 필터" value={service} onChange={(e) => setService(e.target.value)} />
-        </div>
-        <DataTable columns={logColumns} rows={logs} getKey={(_, i) => i} emptyText="통신 로그 없음" />
-      </Panel>
-
-      <MapGoto robots={robots} />
     </div>
   );
 }
