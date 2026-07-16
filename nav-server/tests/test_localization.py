@@ -117,6 +117,42 @@ def test_localized_idle_duplicate_stays_valid_with_fresh_scan_and_tf():
     assert result["amcl_age_sec"] == pytest.approx(1.1)
 
 
+def test_transient_scan_gap_after_pass_recovers_without_restarting_admission():
+    gate = LocalizationGate(PROFILE)
+    gate.start(None, now_monotonic=9.0)
+    gate.observe(observation())
+    second = observation(receipt_monotonic=10.1)
+    second["amcl"] = {**second["amcl"], "receipt_monotonic": 10.1}
+    assert gate.observe(second)["state"] == LOCALIZED
+    assert gate.started_monotonic is None
+
+    # Long after the original convergence timeout, one stale scan must still
+    # fail closed for that sample without poisoning the completed admission.
+    stale = observation(receipt_monotonic=25.0, scan_age_sec=2.0)
+    stale["amcl"] = dict(second["amcl"])
+    degraded = gate.observe(stale)
+    assert degraded["localized"] is False
+    assert degraded["reason"] == "scan_missing_or_stale"
+
+    recovered = observation(receipt_monotonic=25.1, scan_age_sec=0.01, tf_age_sec=0.01)
+    recovered["amcl"] = dict(second["amcl"])
+    result = gate.observe(recovered)
+    assert result["state"] == LOCALIZED
+    assert result["localized"] is True
+    assert result["reason"] == "converged"
+
+
+def test_convergence_timeout_still_fails_an_unfinished_admission():
+    gate = LocalizationGate(PROFILE)
+    gate.start(None, now_monotonic=0.0)
+
+    result = gate.observe(observation(receipt_monotonic=10.1))
+
+    assert result["state"] == "FAILED"
+    assert result["localized"] is False
+    assert result["reason"] == "convergence_timeout"
+
+
 @pytest.mark.parametrize(
     "overrides, reason",
     [

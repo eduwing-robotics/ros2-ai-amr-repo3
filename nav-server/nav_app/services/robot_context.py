@@ -49,6 +49,29 @@ def active_robot_online():
     return cmd_vel_subscriber_count() > 0
 
 
+def nav2_is_ready():
+    if not runtime.navigator:
+        return False
+    liveness = getattr(type(runtime.navigator), "nav2_liveness", None)
+    if callable(liveness):
+        return bool(liveness(runtime.navigator))
+    return bool(getattr(runtime.navigator, "nav2_ready", False))
+
+
+def nav2_liveness_payload():
+    navigator = runtime.navigator
+    if not navigator:
+        return {"ready": False, "reason": "navigator_missing", "age_sec": None}
+    last_probe = float(getattr(navigator, "nav2_last_probe_monotonic", 0.0) or 0.0)
+    age_sec = max(0.0, time.monotonic() - last_probe) if last_probe > 0.0 else None
+    return {
+        "ready": nav2_is_ready(),
+        "reason": str(getattr(navigator, "nav2_liveness_reason", "legacy_cached_state")),
+        "age_sec": round(age_sec, 3) if age_sec is not None else None,
+        "required_lifecycle_nodes": ["amcl", "bt_navigator"],
+    }
+
+
 def command_accepting(is_emergency: bool = False):
     if not runtime.navigator:
         return False
@@ -57,7 +80,7 @@ def command_accepting(is_emergency: bool = False):
     nav2_ready = bool(
         dry_run
         or is_simulation_mode()
-        or getattr(runtime.navigator, "nav2_ready", False)
+        or nav2_is_ready()
     )
     return bool(
         not is_emergency

@@ -163,16 +163,45 @@ def _poll_robot_pose(robot_id: str) -> None:
 
 
 async def pose_fallback_poller_loop() -> None:
-    """Poll Movement only when canonical push is absent/stale."""
+    """Keep one fixed-rate fallback worker per robot.
+
+    A slow or unreachable Movement endpoint must not delay pose updates for a
+    different robot.  Each worker also subtracts request time from its sleep,
+    so the configured interval is the poll period rather than
+    ``request_time + interval``.
+    """
+    workers: dict[str, asyncio.Task[None]] = {}
+    try:
+        while True:
+            robot_ids = set(pose_runtime.known_robot_ids())
+            removed = set(workers) - robot_ids
+            for robot_id in removed:
+                workers.pop(robot_id).cancel()
+
+            for robot_id in robot_ids:
+                worker = workers.get(robot_id)
+                if worker is None or worker.done():
+                    workers[robot_id] = asyncio.create_task(
+                        _pose_fallback_robot_loop(robot_id),
+                        name=f"pose-fallback-{robot_id}",
+                    )
+
+            await asyncio.sleep(max(0.1, min(1.0, settings.pose_poll_interval_sec)))
+    finally:
+        for worker in workers.values():
+            worker.cancel()
+        if workers:
+            await asyncio.gather(*workers.values(), return_exceptions=True)
+
+
+async def _pose_fallback_robot_loop(robot_id: str) -> None:
+    loop = asyncio.get_running_loop()
     while True:
-        due = [
-            robot_id
-            for robot_id in pose_runtime.known_robot_ids()
-            if (age := pose_runtime.receive_age_sec(robot_id)) is None or age > settings.pose_push_preferred_sec
-        ]
-        if due:
-            await asyncio.gather(*(asyncio.to_thread(_poll_robot_pose, robot_id) for robot_id in due))
-        await asyncio.sleep(max(0.1, settings.pose_poll_interval_sec))
+        started = loop.time()
+        if pose_runtime.fallback_poll_due(robot_id, settings.pose_push_preferred_sec):
+            await asyncio.to_thread(_poll_robot_pose, robot_id)
+        elapsed = loop.time() - started
+        await asyncio.sleep(max(0.05, settings.pose_poll_interval_sec - elapsed))
 
 
 def pose_runtime_metrics() -> dict[str, Any]:

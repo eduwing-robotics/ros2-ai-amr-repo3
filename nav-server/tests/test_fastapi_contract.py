@@ -215,7 +215,7 @@ def test_automatic_localization_uses_profile_policy_once(client):
     assert request["strategy"] == "observe_only"
     assert request["allow_motion"] is False
     assert request["coarse_consecutive_samples"] == 3
-    assert request["fine_consecutive_samples"] == 10
+    assert request["fine_consecutive_samples"] == 6
     assert request["max_global_reinitializations"] == 2
     assert request["covariance_limits"] == {"x": 0.25, "y": 0.25, "yaw": 0.35}
 

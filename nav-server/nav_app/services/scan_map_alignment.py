@@ -110,7 +110,7 @@ def confirm_alignment(
         else "correction_available" if current.get("refinement_required")
         else None
     )
-    if prior.get("accepted") and outcome == "correction_available":
+    if prior.get("accepted") and outcome != "aligned":
         hard_drift = _localized_alignment_hard_drift(current, cfg)
         if not hard_drift:
             retained = dict(prior)
@@ -124,26 +124,30 @@ def confirm_alignment(
                 "last_recheck_observation": current,
             })
             return retained
-        failure_count = int(prior.get("recheck_failure_count", 0)) + 1
-        if failure_count < int(cfg["failure_confirmation_scans"]):
-            retained = dict(prior)
-            retained.update({
-                "accepted": True,
-                "refinement_required": False,
-                "reason": "localized_recheck_pending",
+        if outcome == "correction_available":
+            failure_count = int(prior.get("recheck_failure_count", 0)) + 1
+            if failure_count < int(cfg["failure_confirmation_scans"]):
+                retained = dict(prior)
+                retained.update({
+                    "accepted": True,
+                    "refinement_required": False,
+                    "reason": "localized_recheck_pending",
+                    "recheck_failure_count": failure_count,
+                    "last_confirmation_scan_token": float(scan_token),
+                    "last_recheck_observation": current,
+                })
+                return retained
+            current.update({
+                "accepted": False,
+                "refinement_required": True,
+                "reason": "correction_available",
                 "recheck_failure_count": failure_count,
                 "last_confirmation_scan_token": float(scan_token),
-                "last_recheck_observation": current,
             })
-            return retained
-        current.update({
-            "accepted": False,
-            "refinement_required": False,
-            "reason": "localized_alignment_lost",
-            "recheck_failure_count": failure_count,
-            "last_confirmation_scan_token": float(scan_token),
-        })
-        return current
+            return current
+        # Missing/invalid evidence still follows the existing debounced
+        # failure path below. Only a confirmed hard correction uses the
+        # localized-drift release path.
     if outcome is None:
         failure_count = int(prior.get("recheck_failure_count", 0)) + 1
         observations = list(prior.get("confirmation_observations") or [])

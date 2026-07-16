@@ -709,7 +709,46 @@ def test_localized_alignment_latches_across_small_repeatable_corrections():
     assert status["last_soft_correction"] == correction["correction"]
 
 
-def test_localized_alignment_releases_only_after_persistent_hard_drift():
+def test_localized_alignment_latches_across_minor_unreliable_wall_fit():
+    config = {
+        "confirmation_scans": 3,
+        "confirmation_window_scans": 5,
+        "failure_confirmation_scans": 3,
+        "localized_exit_translation_m": 0.05,
+        "localized_exit_yaw_rad": math.radians(5.0),
+        "localized_exit_mean_distance_m": 0.03,
+        "localized_exit_min_match_ratio": 0.50,
+    }
+    status = {
+        "accepted": True,
+        "refinement_required": False,
+        "reason": "aligned",
+        "correction": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+    }
+    # A live TB1 scan can remain a good map fit while one strict fine-alignment
+    # metric (for example wall direction) briefly misses its acquisition gate.
+    # Once localized, that small residual must not restart AMCL refinement.
+    minor_unreliable = {
+        "accepted": False,
+        "refinement_required": False,
+        "reason": "alignment_unreliable",
+        "correction": {"x": 0.005, "y": 0.0, "yaw": math.radians(-0.4)},
+        "current": {
+            "mean_distance_m": 0.0128,
+            "match_ratio": 0.90,
+            "wall_direction_error_rad": math.radians(4.0),
+        },
+    }
+
+    retained = confirm_alignment(minor_unreliable, status, scan_token=2.0, config=config)
+
+    assert retained["accepted"] is True
+    assert retained["refinement_required"] is False
+    assert retained["reason"] == "localized_recheck_ok"
+    assert retained["last_soft_correction"] == minor_unreliable["correction"]
+
+
+def test_localized_alignment_requests_refinement_after_persistent_hard_drift():
     config = {
         "confirmation_scans": 3,
         "confirmation_window_scans": 5,
@@ -741,8 +780,8 @@ def test_localized_alignment_releases_only_after_persistent_hard_drift():
     assert second["accepted"] is True
     assert first["reason"] == "localized_recheck_pending"
     assert lost["accepted"] is False
-    assert lost["refinement_required"] is False
-    assert lost["reason"] == "localized_alignment_lost"
+    assert lost["refinement_required"] is True
+    assert lost["reason"] == "correction_available"
 
 
 def test_pending_confirmation_survives_transient_unreliable_scan():

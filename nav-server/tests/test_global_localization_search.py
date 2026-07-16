@@ -189,7 +189,6 @@ def test_new_global_search_discards_previous_pose_and_tf_generation():
     navigator.latest_tf_monotonic = 123.0
     navigator.latest_tf_header_stamp_sec = 456.0
     navigator.latest_tf_continuous = True
-    navigator.localization_heartbeat_future = MagicMock()
 
     navigator._reset_global_localization_observations()
 
@@ -199,7 +198,6 @@ def test_new_global_search_discards_previous_pose_and_tf_generation():
     assert navigator.latest_tf_monotonic == 0.0
     assert navigator.latest_tf_header_stamp_sec is None
     assert navigator.latest_tf_continuous is False
-    assert navigator.localization_heartbeat_future is None
 
 
 def test_observe_only_repeats_nomotion_updates_without_cmd_vel():
@@ -236,27 +234,6 @@ def test_nomotion_loop_waits_for_a_new_amcl_sample_after_each_request():
     assert navigator.request_nomotion_update_client.call_async.call_count >= 2
     assert navigator._wait_for_new_amcl_sample.call_count >= 2
     navigator.publish_velocity_for_duration.assert_not_called()
-
-
-def test_converged_localization_heartbeat_requests_fresh_stationary_amcl_evidence():
-    navigator = navigator_stub()
-    navigator.global_localization_status = {"reason": "converged"}
-    navigator.localization_heartbeat_future = None
-
-    navigator._maintain_converged_localization()
-
-    navigator.request_nomotion_update_client.call_async.assert_called_once()
-    assert navigator.localization_heartbeat_future is navigator.request_nomotion_update_client.call_async.return_value
-
-
-def test_localization_heartbeat_is_idle_before_convergence():
-    navigator = navigator_stub()
-    navigator.global_localization_status = {"reason": "map_wide_scan_search_started"}
-    navigator.localization_heartbeat_future = None
-
-    navigator._maintain_converged_localization()
-
-    navigator.request_nomotion_update_client.call_async.assert_not_called()
 
 
 def test_observe_only_fails_closed_when_nomotion_service_is_missing():

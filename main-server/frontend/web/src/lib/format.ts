@@ -66,6 +66,7 @@ export function poseFreshness(
   const sourceUsable = numericSourceAge !== null && Number.isFinite(numericSourceAge) && numericSourceAge >= 0 && numericSourceAge <= MAX_PLAUSIBLE_AGE_SEC;
   const ageSec = sourceUsable ? numericSourceAge : receivedAge;
   if (ageSec == null || !Number.isFinite(ageSec)) return { state: pose?.pose_state ?? "none", ageSec: null };
+  if (pose?.pose_state && pose.pose_state !== "none") return { state: pose.pose_state, ageSec };
   if (ageSec <= 1) return { state: "live", ageSec };
   if (ageSec <= 3) return { state: "stale", ageSec };
   return { state: "lost", ageSec };

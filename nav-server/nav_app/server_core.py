@@ -73,6 +73,9 @@ def shutdown_runtime() -> None:
     import rclpy
 
     if runtime.navigator:
+        stop_event = getattr(runtime.navigator, "nav2_readiness_stop_event", None)
+        if stop_event:
+            stop_event.set()
         cancel_task = getattr(getattr(runtime.navigator, "nav", None), "cancelTask", None)
         if callable(cancel_task):
             cancel_task()

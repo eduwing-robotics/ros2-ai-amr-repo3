@@ -239,7 +239,7 @@ def _movement_accept_command(
     localization = robot_context.localization_health()
     if not explicit_bypass and not localization["localized"]:
         raise HTTPException(status_code=409, detail={"message": "movement requires localized AMCL/scan/TF state", "localization": localization})
-    if not explicit_bypass and not getattr(runtime.navigator, "nav2_ready", False):
+    if not explicit_bypass and not robot_context.nav2_is_ready():
         runtime.navigator.start_nav2_readiness_monitor()
         raise HTTPException(
             status_code=503,
@@ -367,6 +367,7 @@ def movement_robot_nav_state(robot_name: str):
     cmd_vel_subscribers = robot_context.cmd_vel_subscriber_count()
     is_emergency = bool(runtime.navigator.safety.estop)
     command_accepting = robot_context.command_accepting(is_emergency)
+    nav2_liveness = robot_context.nav2_liveness_payload()
     pose_age = pose.get("age_sec") if pose else None
     return {
         "robot_name": robot_name,
@@ -380,7 +381,8 @@ def movement_robot_nav_state(robot_name: str):
         "cmd_vel_subscribers": cmd_vel_subscribers,
         "cmd_vel_subscriber_nodes": robot_context.cmd_vel_subscribers(),
         "command_accepting": command_accepting,
-        "nav2_ready": bool(runtime.mission_manager.dry_run or getattr(runtime.navigator, "nav2_ready", False)),
+        "nav2_ready": bool(runtime.mission_manager.dry_run or nav2_liveness["ready"]),
+        "nav2_liveness": nav2_liveness,
         "navigator_status": runtime.navigator.status,
         "mission_status": runtime.mission_manager.mission_status,
         "is_emergency": is_emergency,

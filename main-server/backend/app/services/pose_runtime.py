@@ -141,6 +141,21 @@ class PoseRuntime:
             entry = self._entries.get(robot_id)
             return max(0.0, self._monotonic() - entry.received_monotonic) if entry else None
 
+    def fallback_poll_due(self, robot_id: str, push_preferred_sec: float) -> bool:
+        """Keep an established poll fallback at its own cadence.
+
+        ``push_preferred_sec`` is only the grace period for a higher-priority
+        canonical/status source. Reapplying it after every fallback sample
+        stretches a 1 Hz poll into a 2-3 second cycle and makes a healthy pose
+        cross the stale threshold between samples.
+        """
+        with self._lock:
+            entry = self._entries.get(robot_id)
+            if entry is None or entry.source_kind == "poll":
+                return True
+            age = max(0.0, self._monotonic() - entry.received_monotonic)
+            return age > push_preferred_sec
+
     def update_map_context(self, context: dict[str, Any]) -> None:
         with self._lock:
             self._map_context = dict(context)

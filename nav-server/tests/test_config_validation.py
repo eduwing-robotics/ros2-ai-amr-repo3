@@ -1,3 +1,7 @@
+import math
+
+import pytest
+
 from nav_app.config.validation import (
     validate_main_server_routes,
     validate_robot_profile,
@@ -357,6 +361,13 @@ def test_robot1_uses_confirmed_map_without_changing_robot_ownership():
     assert robot1["active_map_yaml"] == "map/robot2_map.yaml"
     assert robot1["localization"]["map_id"] == "robot2_map"
     assert robot1["localization"]["map_metadata_identity"] == "map/robot2_map.yaml"
+    assert robot1["localization"]["consecutive_samples"] == 6
+    assert robot1["localization"]["global_search"]["fine_consecutive_samples"] == 6
+    assert robot1["localization"]["scan_map_alignment"]["confirmation_scans"] == 3
+    assert robot1["localization"]["scan_map_alignment"]["max_mean_distance_m"] == 0.018
+    assert robot1["localization"]["scan_map_alignment"]["max_wall_direction_error_rad"] == pytest.approx(
+        math.radians(4.5), abs=1e-8
+    )
     assert robot1["localization"]["convergence_timeout_sec"] >= (
         robot1["localization"]["global_search"]["nomotion_update_timeout_sec"] + 30.0
     )

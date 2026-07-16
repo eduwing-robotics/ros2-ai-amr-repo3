@@ -71,6 +71,19 @@ class TestPoseRuntime:
         )
         assert self.runtime.list_snapshots()[0]["x"] == 1
 
+    def test_fallback_poll_grace_applies_only_to_higher_priority_sources(self) -> None:
+        assert self.runtime.fallback_poll_due("r1", 2.0)
+        assert self.runtime.ingest("r1", {"x": 1, "y": 1}, source_kind="canonical")
+        assert not self.runtime.fallback_poll_due("r1", 2.0)
+
+        self.clock.advance(2.1)
+        assert self.runtime.fallback_poll_due("r1", 2.0)
+        assert self.runtime.ingest("r1", {"x": 2, "y": 2}, source_kind="poll")
+
+        # The outer poller supplies the 1 Hz cadence. A fallback sample must
+        # not start another canonical-source grace period.
+        assert self.runtime.fallback_poll_due("r1", 2.0)
+
     def test_localization_source_clock_and_bounds_are_quality_reasons(self) -> None:
         self.runtime.update_map_context({"width": 10, "height": 10, "resolution": 1.0, "origin": [0, 0, 0]})
         self.runtime.ingest(

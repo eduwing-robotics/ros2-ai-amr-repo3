@@ -20,6 +20,13 @@ LOST = "LOST"
 FAILED = "FAILED"
 STATES = (UNLOCALIZED, SEEDING, GLOBAL_SEARCH, CONVERGING, LOCALIZED, DEGRADED, LOST, FAILED)
 
+_TRANSIENT_POST_ADMISSION_REASONS = {
+    "scan_missing_or_stale",
+    "tf_missing_or_stale",
+    "tf_discontinuous",
+    "amcl_missing_or_stale",
+}
+
 DEFAULTS = {
     "max_scan_age_sec": 1.0,
     "max_tf_age_sec": 1.0,
@@ -172,8 +179,8 @@ class LocalizationGate:
         ):
             return self._degrade("amcl_missing_or_stale")
         if self.amcl_age_sec > float(self.config["max_amcl_age_sec"]):
-            if self.state == LOCALIZED and duplicate_sample:
-                return self.health()
+            if duplicate_sample and self._can_reuse_admitted_sample():
+                return self._restore_localized()
             return self._degrade("amcl_missing_or_stale")
         covariance = {key: _number(amcl["covariance"].get(key)) for key in ("x", "y", "yaw")}
         if any(value is None or value < 0 for value in covariance.values()):
@@ -192,8 +199,8 @@ class LocalizationGate:
             self.state, self.reason = CONVERGING, "awaiting_post_search_sample"
             return self.health()
         if duplicate_sample:
-            if self.state == LOCALIZED:
-                return self.health()
+            if self._can_reuse_admitted_sample():
+                return self._restore_localized()
             self.state, self.reason = CONVERGING, "awaiting_new_amcl_sample"
             return self.health()
         if self.state == LOCALIZED and self.last_pose and math.hypot(pose["x"] - self.last_pose["x"], pose["y"] - self.last_pose["y"]) > float(self.config["kidnapped_jump_distance_m"]):  # type: ignore[operator]
@@ -235,8 +242,26 @@ class LocalizationGate:
         stable_duration = max(0.0, sample_receipt - self.stable_started_monotonic)
         if self.sample_count >= limit and stable_duration >= float(self.config["stable_min_duration_sec"]):
             self.state, self.reason = LOCALIZED, "converged"
+            # This timer belongs to the current admission attempt.  Keeping it
+            # after PASS makes a later one-frame scan/TF gap immediately turn
+            # into convergence_timeout even though admission already
+            # completed successfully.
+            self.started_monotonic = None
         else:
             self.state, self.reason = CONVERGING, "awaiting_stable_samples"
+        return self.health()
+
+    def _can_reuse_admitted_sample(self) -> bool:
+        return self.state == LOCALIZED or (
+            self.state == DEGRADED
+            and self.reason in _TRANSIENT_POST_ADMISSION_REASONS
+            and self.last_pose is not None
+            and self.last_covariance is not None
+        )
+
+    def _restore_localized(self) -> Dict[str, Any]:
+        self.state, self.reason = LOCALIZED, "converged"
+        self.started_monotonic = None
         return self.health()
 
     def _degrade(self, reason: str) -> Dict[str, Any]:

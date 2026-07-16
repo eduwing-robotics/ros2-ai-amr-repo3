@@ -50,6 +50,7 @@ def movement_health():
     robot_online = robot_context.active_robot_online()
     cmd_vel_subscribers = robot_context.cmd_vel_subscriber_count()
     command_accepting = robot_context.command_accepting(is_emergency)
+    nav2_liveness = robot_context.nav2_liveness_payload()
     pose = runtime.navigator.get_current_pose() if runtime.navigator else None
     localization = robot_context.localization_health()
     return {
@@ -67,7 +68,8 @@ def movement_health():
         "cmd_vel_subscribers": cmd_vel_subscribers,
         "cmd_vel_subscriber_nodes": robot_context.cmd_vel_subscribers(),
         "command_accepting": command_accepting,
-        "nav2_ready": bool(dry_run or (runtime.navigator and getattr(runtime.navigator, "nav2_ready", False))),
+        "nav2_ready": bool(dry_run or nav2_liveness["ready"]),
+        "nav2_liveness": nav2_liveness,
         "navigator_status": navigator_status,
         "is_emergency": is_emergency,
         "map_frame": "map",

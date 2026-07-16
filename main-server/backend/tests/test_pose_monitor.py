@@ -1,5 +1,9 @@
 """Tests for pose fallback polling and issue-only persistence queue."""
 
+import asyncio
+import time
+from contextlib import suppress
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.services import pose_monitor
@@ -70,3 +74,43 @@ def test_fallback_poll_marks_movement_disconnected() -> None:
         pose_monitor._poll_robot_pose("r1")
 
     connected.assert_called_once_with("r1", False)
+
+
+def test_fallback_workers_isolate_a_slow_robot() -> None:
+    async def scenario() -> tuple[dict[str, int], float]:
+        loop = asyncio.get_running_loop()
+        fast_ready = asyncio.Event()
+        calls = {"fast": 0, "slow": 0}
+
+        def poll(robot_id: str) -> None:
+            calls[robot_id] += 1
+            if robot_id == "slow":
+                time.sleep(0.3)
+            elif calls[robot_id] >= 3:
+                loop.call_soon_threadsafe(fast_ready.set)
+
+        fake_settings = SimpleNamespace(
+            pose_poll_interval_sec=0.02,
+            pose_push_preferred_sec=0.0,
+        )
+        with (
+            patch.object(pose_monitor, "settings", fake_settings),
+            patch.object(pose_monitor.pose_runtime, "known_robot_ids", return_value=["fast", "slow"]),
+            patch.object(pose_monitor.pose_runtime, "fallback_poll_due", return_value=True),
+            patch.object(pose_monitor, "_poll_robot_pose", side_effect=poll),
+        ):
+            started = loop.time()
+            supervisor = asyncio.create_task(pose_monitor.pose_fallback_poller_loop())
+            try:
+                await asyncio.wait_for(fast_ready.wait(), timeout=0.2)
+                elapsed = loop.time() - started
+            finally:
+                supervisor.cancel()
+                with suppress(asyncio.CancelledError):
+                    await supervisor
+        return calls, elapsed
+
+    calls, elapsed = asyncio.run(scenario())
+    assert calls["fast"] >= 3
+    assert calls["slow"] == 1
+    assert elapsed < 0.2

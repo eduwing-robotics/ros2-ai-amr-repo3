@@ -81,7 +81,7 @@ def require_real_mission_admission() -> None:
             detail={"message": "legacy mission requires fresh localization state", "localization": localization},
         )
 
-    if not getattr(runtime.navigator, "nav2_ready", False):
+    if not robot_context.nav2_is_ready():
         runtime.navigator.start_nav2_readiness_monitor()
         raise HTTPException(
             status_code=503,

@@ -334,14 +334,12 @@ def test_nav2_readiness_monitor_starts_only_one_background_check(navigator_class
     release = threading.Event()
     calls = []
 
-    def ensure_ready():
+    def monitor_loop():
         calls.append(time.monotonic())
         entered.set()
         assert release.wait(2.0)
-        navigator.nav2_ready = True
-        return True
 
-    navigator.ensure_nav2_ready = ensure_ready
+    navigator._nav2_readiness_monitor_loop = monitor_loop
 
     first = navigator.start_nav2_readiness_monitor()
     assert entered.wait(1.0)
@@ -352,7 +350,40 @@ def test_nav2_readiness_monitor_starts_only_one_background_check(navigator_class
     release.set()
     first.join(timeout=2.0)
     assert not first.is_alive()
-    assert navigator.nav2_ready is True
+
+
+def test_nav2_liveness_expires_a_stale_success(navigator_class, monkeypatch):
+    navigator = navigator_class.__new__(navigator_class)
+    navigator.nav2_ready = True
+    navigator.nav2_last_probe_monotonic = 10.0
+    navigator.nav2_liveness_max_age_sec = 3.0
+    monkeypatch.setattr(time, "monotonic", lambda: 14.1)
+
+    assert navigator.nav2_liveness() is False
+
+
+def test_nav2_liveness_refresh_tracks_lifecycle_loss(navigator_class, monkeypatch):
+    navigator = navigator_class.__new__(navigator_class)
+    navigator.nav2_ready = True
+    navigator.nav2_ready_lock = threading.Lock()
+    navigator.nav2_last_probe_monotonic = 0.0
+    navigator.nav2_liveness_reason = "not_checked"
+    navigator._probe_lifecycle_active = Mock(
+        side_effect=[
+            (True, "active"),
+            (True, "active"),
+            (True, "active"),
+            (False, "service_unavailable"),
+        ]
+    )
+    clock = iter((20.0, 22.0))
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
+
+    assert navigator.refresh_nav2_liveness() is True
+    assert navigator.nav2_liveness_reason == "active"
+    assert navigator.refresh_nav2_liveness() is False
+    assert navigator.nav2_ready is False
+    assert navigator.nav2_liveness_reason == "bt_navigator_service_unavailable"
 
 
 def test_nav2_readiness_does_not_publish_a_default_amcl_initial_pose(

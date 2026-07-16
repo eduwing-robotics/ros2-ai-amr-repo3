@@ -165,6 +165,11 @@ class LogisticsNavigator(Node):
         self.nav2_ready_lock = threading.Lock()
         self.nav2_readiness_start_lock = threading.Lock()
         self.nav2_readiness_thread = None
+        self.nav2_readiness_stop_event = threading.Event()
+        self.nav2_last_probe_monotonic = 0.0
+        self.nav2_liveness_reason = "not_checked"
+        self.nav2_liveness_interval_sec = 1.0
+        self.nav2_liveness_max_age_sec = 3.0
         self.nav2_lifecycle_clients = {}
         self.last_nav_failure = None
         self.controller_param_clients = {}
@@ -189,10 +194,6 @@ class LogisticsNavigator(Node):
         # health/localization polls cannot duplicate the expensive matcher or
         # overwrite one another's confirmation window.
         self.scan_map_alignment_lock = threading.RLock()
-        self.localization_heartbeat_future = None
-        self.localization_heartbeat_timer = self.create_timer(
-            1.0, self._maintain_converged_localization
-        )
 
     def set_external_spin(self, enabled=True):
         """Skip local spin calls when another thread owns this node's executor."""
@@ -281,13 +282,17 @@ class LogisticsNavigator(Node):
             print("[Nav2] warning: failed to restore controller params after position-only approach")
 
     def start_nav2_readiness_monitor(self):
-        """Start one daemon check so API health becomes ready before the first command."""
+        """Continuously mirror required Nav2 lifecycle state into API health."""
         with self.nav2_readiness_start_lock:
             current = self.nav2_readiness_thread
-            if self.nav2_ready or (current is not None and current.is_alive()):
+            if current is not None and current.is_alive():
                 return current
+            stop_event = getattr(self, "nav2_readiness_stop_event", None)
+            if stop_event is None:
+                stop_event = self.nav2_readiness_stop_event = threading.Event()
+            stop_event.clear()
             current = threading.Thread(
-                target=self.ensure_nav2_ready,
+                target=self._nav2_readiness_monitor_loop,
                 daemon=True,
                 name="nav2-readiness-monitor",
             )
@@ -295,39 +300,87 @@ class LogisticsNavigator(Node):
             current.start()
             return current
 
-    def _wait_for_lifecycle_active(self, node_name):
-        """Wait for one lifecycle node without leaving an unbounded RPC pending."""
+    def _nav2_readiness_monitor_loop(self):
+        interval = max(0.2, float(getattr(self, "nav2_liveness_interval_sec", 1.0)))
+        stop_event = getattr(self, "nav2_readiness_stop_event", None)
+        while rclpy.ok() and not (stop_event and stop_event.is_set()):
+            self.refresh_nav2_liveness()
+            if stop_event:
+                stop_event.wait(interval)
+            else:
+                time.sleep(interval)
+
+    def nav2_liveness(self):
+        """Return only a recently verified lifecycle result, never a stale success."""
+        if not bool(getattr(self, "nav2_ready", False)):
+            return False
+        last_probe = float(getattr(self, "nav2_last_probe_monotonic", 0.0) or 0.0)
+        max_age = max(0.1, float(getattr(self, "nav2_liveness_max_age_sec", 3.0)))
+        return last_probe > 0.0 and time.monotonic() - last_probe <= max_age
+
+    def _lifecycle_client(self, node_name):
         normalized_name = str(node_name).strip("/")
         clients = getattr(self, "nav2_lifecycle_clients", None)
         if clients is None:
-            clients = {}
-            self.nav2_lifecycle_clients = clients
+            clients = self.nav2_lifecycle_clients = {}
         client = clients.get(normalized_name)
         if client is None:
             client = self.create_client(GetState, f"/{normalized_name}/get_state")
             clients[normalized_name] = client
+        return normalized_name, client
 
+    def _probe_lifecycle_active(self, node_name):
+        """Perform one bounded lifecycle probe for background liveness checks."""
+        _, client = self._lifecycle_client(node_name)
+        if not client.wait_for_service(timeout_sec=0.2):
+            return False, "service_unavailable"
+        future = client.call_async(GetState.Request())
+        result = self._wait_for_future(future, timeout_sec=0.8)
+        if result is None:
+            cancel = getattr(future, "cancel", None)
+            if callable(cancel):
+                cancel()
+            return False, "response_timeout"
+        state = str(getattr(getattr(result, "current_state", None), "label", ""))
+        return state == "active", state or "unknown"
+
+    def refresh_nav2_liveness(self):
+        """Refresh cached readiness from AMCL and navigator lifecycle services."""
+        with self.nav2_ready_lock:
+            ready = True
+            reason = "active"
+            for node_name in ("amcl", "bt_navigator"):
+                active, state = self._probe_lifecycle_active(node_name)
+                if not active:
+                    ready = False
+                    reason = f"{node_name}_{state}"
+                    break
+            self.nav2_ready = ready
+            self.nav2_liveness_reason = reason
+            self.nav2_last_probe_monotonic = time.monotonic()
+            if not ready:
+                self.last_nav_failure = reason
+            else:
+                self.last_nav_failure = None
+            return ready
+
+    def _wait_for_lifecycle_active(self, node_name):
+        """Wait for one lifecycle node without leaving an unbounded RPC pending."""
         while rclpy.ok():
-            if not client.wait_for_service(timeout_sec=1.0):
+            active, state = self._probe_lifecycle_active(node_name)
+            if active:
+                return True
+            normalized_name = str(node_name).strip("/")
+            if state == "service_unavailable":
                 self.get_logger().info(
                     f"Nav2 lifecycle service 대기 중: /{normalized_name}/get_state"
                 )
                 continue
-
-            future = client.call_async(GetState.Request())
-            result = self._wait_for_future(future, timeout_sec=2.0)
-            if result is None:
-                cancel = getattr(future, "cancel", None)
-                if callable(cancel):
-                    cancel()
+            if state == "response_timeout":
                 self.get_logger().info(
                     f"Nav2 lifecycle 응답 재시도 중: {normalized_name}"
                 )
                 continue
-
-            state = str(getattr(getattr(result, "current_state", None), "label", ""))
-            if state == "active":
-                return True
             self.get_logger().info(
                 f"Nav2 lifecycle 활성화 대기 중: {normalized_name} state={state or 'unknown'}"
             )
@@ -336,14 +389,16 @@ class LogisticsNavigator(Node):
 
     def ensure_nav2_ready(self):
         """Wait once for Nav2 action servers/lifecycle nodes before sending a goal."""
-        if self.nav2_ready:
+        if self.nav2_liveness():
             return True
 
         with self.nav2_ready_lock:
-            if self.nav2_ready:
+            if self.nav2_liveness():
                 return True
             if nav2_active_wait_is_skipped():
                 self.nav2_ready = True
+                self.nav2_last_probe_monotonic = time.monotonic()
+                self.nav2_liveness_reason = "simulation_bypass"
                 self.get_logger().info("Nav2 active wait skipped; using available action servers.")
                 return True
 
@@ -362,6 +417,8 @@ class LogisticsNavigator(Node):
                         self.nav2_ready = False
                         return False
                 self.nav2_ready = True
+                self.nav2_last_probe_monotonic = time.monotonic()
+                self.nav2_liveness_reason = "active"
                 self.get_logger().info("Nav2 active state 확인 완료.")
                 return True
             except Exception as exc:
@@ -1013,7 +1070,6 @@ class LogisticsNavigator(Node):
                     history.clear()
         else:
             self.last_pose = None
-        self.localization_heartbeat_future = None
 
     def global_localization_search_active(self):
         """Return whether one localization worker still owns the search state."""
@@ -1345,17 +1401,6 @@ class LogisticsNavigator(Node):
 
     def global_localization_search_status(self):
         return dict(self.global_localization_status)
-
-    def _maintain_converged_localization(self):
-        """Keep stationary AMCL evidence fresh after the finite search worker exits."""
-        if self.global_localization_status.get("reason") != "converged":
-            return
-        pending = self.localization_heartbeat_future
-        if pending is not None and not pending.done():
-            return
-        if not self.request_nomotion_update_client.wait_for_service(timeout_sec=0.0):
-            return
-        self.localization_heartbeat_future = self.request_nomotion_update_client.call_async(Empty.Request())
 
     def cancel_global_localization_search(self):
         self.global_localization_stop_event.set()
