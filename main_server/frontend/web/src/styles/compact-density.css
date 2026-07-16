@@ -1,0 +1,38 @@
+/* Dense content chrome: preserve safety signals while returning space to live work surfaces. */
+.operator-kpi-strip{flex-basis:38px;border-radius:7px}
+.operator-kpi-strip .kpi-tile{min-height:36px;display:grid;grid-template-columns:auto auto;grid-template-rows:1fr;align-items:center;justify-content:space-between;column-gap:6px;padding:4px 9px}
+.operator-kpi-strip .kpi-label{font-size:9px}
+.operator-kpi-strip .kpi-value{font-size:14px}
+.operator-kpi-strip .kpi-hint{display:none}
+
+.operator-global-camera-head{flex-basis:34px;padding:0 9px}
+.operator-global-camera-head h2{font-size:12px}
+.operator-global-camera-head .muted{display:none}
+.operator-global-camera-body{padding:5px}
+
+.operator-fleet-head{flex-basis:38px;padding:0 9px}
+.operator-fleet-head h2{font-size:12px}
+.operator-fleet-head .operator-eyebrow{display:none}
+.fleet-mission-head{flex-basis:34px;padding:0 8px}
+.fleet-mission-head h2{font-size:11px}
+.fleet-mission-head p{display:none}
+.fleet-mission-columns{padding:3px 10px;font-size:8px}
+.fleet-mission-row{min-height:62px;padding:5px 10px}
+.fleet-dock-tabs{padding:2px;border:0;background:transparent}
+.fleet-dock-tabs button{min-height:24px;padding:3px 8px}
+
+.work-order-map-form>.work-order-panel>h2{padding:7px 11px;font-size:12px}
+.work-order-map-form .work-order-form-body{padding:7px 9px}
+.work-order-map-form .work-order-footer{padding:6px 9px}
+.work-order-map-form .work-order-operation-switch{margin-bottom:4px}
+.work-order-map-reference{margin-top:4px;padding:4px 7px}
+
+.admin-context-pane{padding:16px 14px}
+.admin-context-head h1{margin:4px 0 5px;font-size:17px}
+.admin-context-head p{font-size:11px;line-height:1.4}
+.admin-context-section{margin-top:16px;padding-top:12px}
+.admin-context-note{padding:9px}
+.admin-workbench{padding:12px 14px 18px}
+.admin-workbench .ops-heading{top:-12px;margin:-12px -14px 0;padding:9px 14px}
+
+@media(max-width:1200px){.operator-kpi-strip{flex-basis:auto}.operator-kpi-strip .kpi-tile{min-height:34px}}

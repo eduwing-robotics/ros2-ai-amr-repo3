@@ -511,7 +511,7 @@ export function OperatorShell() {
                   </div>
                 </section>
               </div>
-              <Resizer className="operator-dock-resizer" orientation="vertical" storageKey="lms.layout.operator-task-queue-height" cssVar="--operator-dock-h" containerRef={workbenchRef} defaultSize={240} min={170} max={520} adjacent="trailing" />
+              <Resizer className="operator-dock-resizer" orientation="vertical" storageKey="lms.layout.operator-task-queue-height" cssVar="--operator-dock-h" containerRef={workbenchRef} defaultSize={210} min={150} max={520} adjacent="trailing" />
               <FleetMissionDock robots={robots} selectedRobotId={selectedRobotId} onRobotSelect={selectRobot} />
             </div>
           </div>
