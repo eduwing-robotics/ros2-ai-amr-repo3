@@ -18,6 +18,7 @@ import {
   viewsForSource,
 } from "../../lib/visionTransport";
 import type { CameraSource } from "../../types";
+import { ResizableVideoWall } from "../../components/ResizableVideoWall";
 
 type Kind = "overlay" | "frame";
 type TransportMode = "mjpeg" | "webrtc" | "idle";
@@ -42,6 +43,7 @@ export function CameraTile({
   view,
   onViewChange,
   compact = false,
+  chrome = true,
 }: {
   source: string;
   label: string;
@@ -51,6 +53,8 @@ export function CameraTile({
   onViewChange?: (view: string) => void;
   /** 레일 융합 카드 — 타일 헤더 생략(PHASE_55). */
   compact?: boolean;
+  /** CCTV wall tiles omit duplicated per-card chrome. */
+  chrome?: boolean;
 }) {
   const [status, setStatus] = useState("연결 중");
   const [mode, setMode] = useState<TransportMode>("mjpeg");
@@ -360,7 +364,7 @@ export function CameraTile({
 
   return (
     <div ref={tileRef} className={tileClass}>
-      {!compact ? (
+      {chrome && !compact ? (
         <div className="cam-tile-head">
           <span>{label}</span>
           <span className={badgeClass}>{badgeLabel}</span>
@@ -393,7 +397,7 @@ export function CameraTile({
         />
         <span className={`cam-fallback cam-fallback--${transportDisplay}`}>{status}</span>
       </div>
-      {compact ? (
+      {chrome && compact ? (
         <div className="cam-tile-foot">
           <span className={badgeClass}>{badgeLabel}</span>
         </div>
@@ -449,7 +453,7 @@ export function LiveCamera({ cameras }: { cameras: CameraSource[] }) {
       {cameras.length === 0 ? (
         <div className="status-line">카메라 없음</div>
       ) : mode === "grid" ? (
-        <div className="cam-grid">
+        <ResizableVideoWall>
           {cameras.map((c) => (
             <CameraTile
               key={c.source_id}
@@ -459,9 +463,10 @@ export function LiveCamera({ cameras }: { cameras: CameraSource[] }) {
               maxFps={8}
               view={viewFor(c.source_id)}
               onViewChange={viewsForSource(c.source_id).length > 1 ? (v) => setViewFor(c.source_id, v) : undefined}
+              chrome={false}
             />
           ))}
-        </div>
+        </ResizableVideoWall>
       ) : (
         <CameraTile
           source={active}
