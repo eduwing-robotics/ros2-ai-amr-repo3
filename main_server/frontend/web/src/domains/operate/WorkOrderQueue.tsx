@@ -189,20 +189,17 @@ export function WorkOrderQueue() {
             <tr>
               <th></th>
               {showReorder ? <th aria-label="순서" /> : null}
-              <th>#</th>
-              <th>구분</th>
-              <th>품목</th>
-              <th>수량</th>
-              <th>로봇</th>
-              <th>슬롯/경로</th>
-              <th>상태</th>
-              <th></th>
+              <th className="work-order-col-task">작업</th>
+              <th className="work-order-col-item">품목</th>
+              <th className="work-order-col-context">배정 · 경로</th>
+              <th className="work-order-col-status">상태</th>
+              <th className="work-order-col-actions">작업 제어</th>
             </tr>
           </thead>
           <tbody>
             {displayOrders.length === 0 ? (
               <tr>
-                <td colSpan={showReorder ? 10 : 9} className="empty">작업 없음</td>
+                <td colSpan={showReorder ? 7 : 6} className="empty">작업 없음</td>
               </tr>
             ) : (
               displayOrders.map((o) => (
@@ -226,9 +223,6 @@ export function WorkOrderQueue() {
                   onToggle={() => setExpanded((cur) => (cur === o.order_id ? null : o.order_id))}
                   onCancelOrder={() => void cancelOrder(o)}
                   onStopOrder={() => void stopOrder(o)}
-                  onCancelTask={(taskId) => {
-                    if (confirm("작업을 취소할까요?")) cancelTask.mutate(taskId);
-                  }}
                   onMoveUp={() => reorder.move(o.order_id, -1)}
                   onMoveDown={() => reorder.move(o.order_id, 1)}
                   onDragStart={() => reorder.onDragStart(o.order_id)}

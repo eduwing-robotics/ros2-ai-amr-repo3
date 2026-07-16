@@ -1,12 +1,11 @@
 import type { DragEvent } from "react";
 import { Pill } from "../../components/Pill";
-import { operationLabel, formatPlanSummaryLine, taskStatusLabel } from "./workOrderLabels";
+import { operationLabel, formatPlanSummaryLine } from "./workOrderLabels";
 import type { Robot, WorkOrder } from "../../types";
 import { OrderReorderControls } from "./WorkOrderQueueControls";
 import { TaskProgressTimeline } from "./TaskProgressTimeline";
 import {
   canCancelOrder,
-  canCancelTask,
   primaryTask,
   taskCanAssign,
   taskCanStart,
@@ -35,7 +34,6 @@ export function WorkOrderQueueRow({
   onToggle,
   onCancelOrder,
   onStopOrder,
-  onCancelTask,
   onMoveUp,
   onMoveDown,
   onDragStart,
@@ -61,7 +59,6 @@ export function WorkOrderQueueRow({
   onToggle: () => void;
   onCancelOrder: () => void;
   onStopOrder: () => void;
-  onCancelTask: (taskId: number) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
   onDragStart: () => void;
@@ -91,30 +88,16 @@ export function WorkOrderQueueRow({
             />
           </td>
         ) : null}
-        <td className="mono">#{order.order_id}</td>
-        <td>{operationLabel(order.operation)}</td>
-        <td>{itemName ? `${itemName} (${order.item_code})` : order.item_code}</td>
-        <td>{order.quantity}</td>
-        <td className="mono">{taskRobotLabel(order)}</td>
-        <td className="mono" title={taskPlanLabel(order)}>
-          {taskPlanLabel(order)}
-          {taskCommandLabel(order) ? ` · ${taskCommandLabel(order)}` : ""}
-        </td>
-        <td><Pill status={order.status} /></td>
-        <td>
+        <td className="work-order-cell-task"><span className="work-order-primary"><strong className="mono">#{order.order_id}</strong><small>{operationLabel(order.operation)}</small></span></td>
+        <td className="work-order-cell-item"><span className="work-order-primary" title={itemName ? itemName + " (" + order.item_code + ")" : order.item_code}><strong>{itemName || order.item_code}</strong><small>{order.quantity}개</small></span></td>
+        <td className="work-order-cell-context" title={taskPlanLabel(order)}><span className="work-order-context"><strong>{taskRobotLabel(order)}</strong><small>{taskPlanLabel(order)}{taskCommandLabel(order) ? " · " + taskCommandLabel(order) : ""}</small></span></td>
+        <td className="work-order-cell-status"><Pill status={order.status} /></td>
+        <td className="work-order-cell-actions">
           <span className="task-queue-actions">
             {showAssign && primary ? (
-              <>
-                <RobotSelect robots={idleRobots} value={robotPick} onChange={onRobotPick} />
-                <button
-                  type="button"
-                  className="rowbtn"
-                  disabled={!robotPick || assignPending}
-                  onClick={() => onAssign(primary.task_id, robotPick)}
-                >
-                  배정
-                </button>
-              </>
+              <button type="button" className="rowbtn primary" onClick={onToggle}>
+                {open ? "배정 닫기" : "배정"}
+              </button>
             ) : null}
             {showStart && primary ? (
               <button
@@ -138,23 +121,18 @@ export function WorkOrderQueueRow({
         </td>
       </tr>
       {open && order.tasks.length > 0 ? (
-        <tr>
-          <td colSpan={showReorder ? 10 : 9}>
+        <tr className="work-order-expanded-row">
+          <td colSpan={showReorder ? 7 : 6}>
             <div className="nested-table">
               {order.tasks.map((t) => {
                 const planLine = formatPlanSummaryLine(t, order.operation);
-                const status = String(t.status || "QUEUED").toUpperCase();
-                const canAssign = status === "QUEUED" && idleRobots.length > 0;
-                const canStart = status === "ASSIGNED";
+                const canAssign = String(t.status || "QUEUED").toUpperCase() === "QUEUED" && idleRobots.length > 0;
                 return (
                   <div key={t.task_id} className="task-queue-task">
                     <div className="task-queue-nested mono">
-                    <span>
-                      task {t.task_id}
-                      {planLine ? ` · ${planLine}` : ` · 슬롯 ${t.slot_label || t.slot_id || "-"}`}
-                      {" · "}{taskStatusLabel(t.status)}
-                      {t.assigned_robot_id ? ` · robot ${t.assigned_robot_id}` : ""}
-                      {t.command_id ? ` · cmd ${t.command_id}` : ""}
+                    <span className="task-queue-task-copy">
+                      <strong>Task #{t.task_id}</strong>
+                      <span>{planLine || "슬롯 " + (t.slot_label || t.slot_id || "-")}</span>
                     </span>
                     <span className="task-queue-actions">
                       {canAssign ? (
@@ -170,23 +148,7 @@ export function WorkOrderQueueRow({
                           </button>
                         </>
                       ) : null}
-                      {canStart ? (
-                        <button
-                          type="button"
-                          className="rowbtn primary"
-                          disabled={startPending}
-                          onClick={() => onStartMission(t.task_id)}
-                        >
-                          ▶ 시작
-                        </button>
-                      ) : null}
-                      {status === "RUNNING" ? (
-                        <button type="button" className="rowbtn danger" disabled={cancelPending || stopPending} onClick={onStopOrder}>
-                          {stopPending ? "중단 요청 중…" : order.business_completed ? "복귀 중단" : "안전 중단"}
-                        </button>
-                      ) : canCancelTask(t) ? (
-                        <button type="button" className="rowbtn danger" onClick={() => onCancelTask(t.task_id)}>취소</button>
-                      ) : null}
+
                     </span>
                     </div>
                     <TaskProgressTimeline task={t} />

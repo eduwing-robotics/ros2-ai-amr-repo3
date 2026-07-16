@@ -530,9 +530,10 @@ export function OperatorShell() {
               <div className="operator-fleet-list">
                 {robots.length === 0 ? <div className="empty">등록된 로봇이 없습니다.</div> : robots.map((robot) => {
                   const selected = selectedRobotId === robot.robot_id;
+                  const selectRobotCamera = () => { selectRobot(robot.robot_id); setCameraRobotId(robot.robot_id); };
                   return (
-                    <article className={`operator-fleet-card${selected ? " selected" : ""}${robotEmergency(robot.robot_id) ? " emergency" : ""}`} key={robot.robot_id}>
-                      <button type="button" className="operator-fleet-select" onClick={() => { selectRobot(robot.robot_id); setCameraRobotId(robot.robot_id); }}>
+                    <article className={`operator-fleet-card${selected ? " selected" : ""}${robotEmergency(robot.robot_id) ? " emergency" : ""}`} key={robot.robot_id} onClick={selectRobotCamera}>
+                      <button type="button" className="operator-fleet-select" onClick={selectRobotCamera}>
                         <span><strong>{robot.display_name || robot.robot_id}</strong><small className="mono">{robot.robot_id}</small></span>
                         {robotEmergency(robot.robot_id) ? <span className="pill err">ESTOP</span> : <Pill status={robot.status} />}
                         <BatteryIndicator value={robot.battery} />
@@ -543,7 +544,7 @@ export function OperatorShell() {
                         className="rowbtn operator-robot-command"
                         disabled={!movementAvailable || robotEmergency(robot.robot_id) || workspaceSection !== "control"}
                         title={workspaceSection !== "control" ? "수동 조작은 관제 목적지에서 사용합니다" : !movementAvailable ? "Movement 서버 오프라인" : `${robot.robot_id} 수동 조작`}
-                        onClick={() => openRobotControl(robot.robot_id)}
+                        onClick={(event) => { event.stopPropagation(); openRobotControl(robot.robot_id); }}
                       >
                         조작 →
                       </button>

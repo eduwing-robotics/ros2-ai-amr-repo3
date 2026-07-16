@@ -88,6 +88,7 @@ export function useSetWorkOrderPriority() {
 
 export function useCancelWorkOrder() {
   const qc = useQueryClient();
+  const { toast } = useFeedback();
   return useMutation({
     mutationFn: (orderId: number) => apiSend<WorkOrder>(`/work-orders/${orderId}/cancel`, "POST"),
     onSuccess: () => {
@@ -95,6 +96,7 @@ export function useCancelWorkOrder() {
       qc.invalidateQueries({ queryKey: ["tasks"] });
       qc.invalidateQueries({ queryKey: ["inventory"] });
       qc.invalidateQueries({ queryKey: ["status"] });
+      toast("대기 작업이 취소되었습니다.", "ok");
     },
   });
 }

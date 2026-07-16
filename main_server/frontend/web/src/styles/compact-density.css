@@ -20,7 +20,7 @@
 .fleet-mission-head h2{font-size:11px}
 .fleet-mission-head p{display:none}
 .fleet-mission-columns{padding:3px 10px;font-size:8px}
-.fleet-mission-row{min-height:62px;padding:5px 10px}
+.fleet-mission-row{padding:5px 9px}.fleet-mission-row:not(.is-running){min-height:64px}
 .fleet-dock-tabs{padding:2px;border:0;background:transparent}
 .fleet-dock-tabs button{min-height:24px;padding:3px 8px}
 
