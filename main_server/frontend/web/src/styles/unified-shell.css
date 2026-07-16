@@ -1,0 +1,27 @@
+/* Shared product chrome: operations and administration use one header and activity rail grammar. */
+.shell[data-mode="operate"] { display:grid; grid-template-rows:64px minmax(0,1fr); }
+.shell[data-mode="operate"] > .header { position:relative; inset:auto; z-index:30; width:100%; height:64px; }
+.shell[data-mode="operate"] > .header .brand { display:flex; }
+.shell[data-mode="operate"] > .header .mode-tabs { margin-right:0; }
+.shell[data-mode="operate"] > .body { position:relative; inset:auto; min-height:0; }
+.shell[data-mode="operate"] .operator-stage { height:100%; margin-top:0; }
+
+.slim-nav { grid-template-columns:68px minmax(0,180px); }
+.app-activity-rail { width:68px; padding:10px 7px; border-right:1px solid var(--border); background:var(--surface); }
+.app-activity-mark { width:38px; height:38px; margin:0 auto; border-radius:10px; background:var(--accent); color:#fff; font-size:9px; font-weight:800; box-shadow:none; }
+.app-activity-rail .app-activity-item { position:relative; min-height:54px; border-radius:8px; }
+.app-activity-rail .app-activity-item.active::before { content:""; position:absolute; top:8px; bottom:8px; left:-7px; width:3px; border-radius:0 3px 3px 0; background:var(--accent); }
+.app-activity-rail .app-activity-item.active::after { display:none; }
+
+.admin-shell { grid-template-columns:68px 224px minmax(0,1fr); }
+.admin-activity-rail { min-width:68px; padding:10px 7px; }
+.admin-rail-header { min-height:54px; justify-content:center; padding:0 0 8px; border-bottom:0; }
+.admin-rail-header > div:last-child,.admin-rail-copy small { display:none; }
+.admin-rail-destinations { padding-top:0; gap:4px; }
+.admin-activity-rail .admin-rail-destinations button { min-height:54px; display:flex; flex-direction:column; justify-content:center; gap:3px; padding:5px 2px; text-align:center; }
+.admin-rail-copy strong { max-width:54px; font-size:9px; }
+.admin-rail-glyph { font-size:17px; }
+.admin-rail-return { min-height:54px; }
+
+@media(max-width:1200px){.header{gap:10px;padding:0 16px}.header .brand{min-width:148px}}
+@media(max-width:760px){.shell[data-mode="operate"]{--operator-nav-w:76px}.admin-activity-rail.app-activity-rail{width:100%;padding:6px 8px}.admin-rail-header{min-height:44px;padding:0}}

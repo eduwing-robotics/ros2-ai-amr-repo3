@@ -314,9 +314,9 @@ export function OperatorShell() {
     <GotoTargetProvider>
       <div className="operator-shell">
         <nav className="slim-nav" aria-label="운영 메뉴">
-          <div className="operator-activity-rail">
+          <div className="operator-activity-rail app-activity-rail">
             <div className="operator-nav-brand" aria-label="AMR Control">
-              <span className="operator-nav-mark">AMR</span>
+              <span className="operator-nav-mark app-activity-mark">AMR</span>
             </div>
             {OPERATE_SLIM_NAV.map((item) => {
               const active = isActiveNav(item.route);
@@ -324,7 +324,7 @@ export function OperatorShell() {
               return (
                 <button
                   type="button"
-                  className={active ? "active" : ""}
+                  className={`app-activity-item${active ? " active" : ""}`}
                   title={item.label}
                   aria-label={item.label}
                   aria-current={active ? "page" : undefined}

@@ -20,6 +20,7 @@ import "./styles/queue-camera-enhancements.css";
 import "./styles/admin-data-workspace.css";
 import "./styles/inout-navigation.css";
 import "./styles/camera-video-wall.css";
+import "./styles/unified-shell.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
