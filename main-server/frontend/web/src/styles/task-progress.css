@@ -1,0 +1,141 @@
+.task-queue-task + .task-queue-task {
+  border-top: 1px solid var(--border);
+}
+
+.task-progress {
+  margin: 6px 0 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--bg));
+  font-family: inherit;
+}
+
+.task-progress-head,
+.task-progress-head > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-progress-phase {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.task-progress-phase.phase-running { color: var(--accent); }
+.task-progress-phase.phase-failed,
+.task-progress-phase.phase-aborted,
+.task-progress-phase.phase-rejected { color: var(--err-fg); }
+.task-progress-phase.phase-awaiting_operator,
+.task-progress-phase.phase-recovery_required,
+.task-progress-phase.phase-recovery_running,
+.task-progress-phase.phase-cancel_requested { color: var(--warn-fg); }
+
+.task-progress-summary,
+.task-progress-source {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.task-progress-steps {
+  display: flex;
+  gap: 0;
+  margin: 12px 0 8px;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+}
+
+.task-progress-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(82px, 1fr);
+  flex: 1 0 122px;
+  gap: 7px;
+  min-width: 0;
+  padding-right: 12px;
+}
+
+.task-progress-step:not(:last-child)::after {
+  position: absolute;
+  z-index: 0;
+  top: 11px;
+  right: 0;
+  left: 24px;
+  height: 2px;
+  background: var(--border);
+  content: "";
+}
+
+.task-progress-step.is-done:not(:last-child)::after { background: var(--ok-border); }
+
+.task-progress-marker {
+  z-index: 1;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 2px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.task-progress-step.is-done .task-progress-marker { border-color: var(--ok-border); color: var(--ok-border); }
+.task-progress-step.is-active .task-progress-marker { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+.task-progress-step.is-failed .task-progress-marker { border-color: var(--err-fg); color: var(--err-fg); }
+.task-progress-step.is-recovery .task-progress-marker,
+.task-progress-step.is-stopped .task-progress-marker { border-color: var(--warn-fg); color: var(--warn-fg); }
+
+.task-progress-copy {
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  background: inherit;
+}
+
+.task-progress-copy strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-progress-index,
+.task-progress-state,
+.task-progress-error { color: var(--text-dim); font-size: 10px; }
+.task-progress-step.is-active .task-progress-state { color: var(--accent); font-weight: 700; }
+.task-progress-step.is-failed .task-progress-state,
+.task-progress-error { color: var(--err-fg); font-weight: 700; }
+.task-progress-step.is-recovery .task-progress-state { color: var(--warn-fg); font-weight: 700; }
+.task-progress-error { white-space: normal; }
+.task-progress-source { margin: 0; text-align: right; }
+
+.task-progress-empty {
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .task-progress-head { align-items: flex-start; flex-direction: column; }
+  .task-progress-steps { flex-direction: column; gap: 6px; overflow: visible; }
+  .task-progress-step { flex: none; grid-template-columns: 24px 1fr; padding: 0 0 8px; }
+  .task-progress-step:not(:last-child)::after { top: 24px; bottom: -6px; left: 11px; width: 2px; height: auto; }
+  .task-progress-copy strong { white-space: normal; }
+  .task-progress-source { text-align: left; }
+}

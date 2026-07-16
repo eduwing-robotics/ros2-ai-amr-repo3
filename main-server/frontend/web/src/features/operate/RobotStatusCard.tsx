@@ -1,15 +1,9 @@
 import { Pill } from "../../components/Pill";
-import { cell, shortId } from "../../lib/format";
+import { BatteryIndicator } from "../../components/BatteryIndicator";
+import { shortId } from "../../lib/format";
 import type { MovementHealth, Robot, Task } from "../../types";
 
 const healthState = (h: MovementHealth) => (h.ok ? (h.dry_run ? "dry_run" : "online") : "offline");
-
-function batteryClass(battery: number | null | undefined) {
-  if (battery == null || Number.isNaN(battery)) return "";
-  if (battery <= 20) return "battery-low";
-  if (battery <= 35) return "battery-warn";
-  return "";
-}
 
 function taskForRobot(tasks: Task[], robotId: string, currentTaskId?: number | null) {
   if (currentTaskId) {
@@ -47,9 +41,9 @@ export function RobotStatusDetails({
         movement: {health ? <Pill status={healthState(health)} /> : <Pill status="unknown" />}
         {movementDetail ? <span className="mono muted"> · {movementDetail}</span> : null}
       </div>
-      <div className={`mono robot-battery ${batteryClass(robot.battery ?? null)}`}>
-        battery: {cell(robot.battery)}{robot.battery != null && robot.battery <= 20 ? " ⚠" : ""}
-        {" · "}cmd: {shortId(robot.last_command_id)}
+      <div className="robot-battery-row">
+        <BatteryIndicator value={robot.battery} showLabel className="robot-battery" />
+        <span className="mono muted">cmd: {shortId(robot.last_command_id)}</span>
       </div>
     </>
   );
