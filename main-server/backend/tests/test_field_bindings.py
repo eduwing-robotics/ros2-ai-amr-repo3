@@ -27,6 +27,16 @@ class FieldBindingsTest(unittest.TestCase):
             {binding["kind"] for binding in document["locations"].values()},
             {"inbound", "outbound", "storage", "home", "charge"},
         )
+        self.assertTrue({"INBOUND_02", "OUTBOUND_02", "HOME_02"} <= set(document["locations"]))
+
+    def test_robot_returns_to_its_own_validated_wait_marker(self) -> None:
+        self.assertEqual(field_bindings.home_location_for_robot("tb3_1"), "HOME_01")
+        self.assertEqual(field_bindings.home_location_for_robot("tb3_2"), "HOME_02")
+        self.assertEqual(field_bindings.home_location_for_robot("tb3_burger_01"), "HOME_01")
+        self.assertEqual(field_bindings.home_location_for_robot("tb3_burger_02"), "HOME_02")
+        self.assertEqual(field_bindings.home_location_for_robot(None), "HOME_01")
+        with self.assertRaises(HTTPException):
+            field_bindings.home_location_for_robot("tb3_unknown")
 
     def test_runtime_accepts_exact_bound_location(self) -> None:
         self.assertEqual(field_bindings.validate_runtime_location(self.row, "STORAGE_S1"), self.binding)

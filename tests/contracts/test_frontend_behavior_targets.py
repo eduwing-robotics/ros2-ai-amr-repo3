@@ -209,6 +209,16 @@ def test_map_legend_keeps_connection_and_localization_visually_separate() -> Non
     assert "awaiting_new_amcl_sample" not in dashboard
 
 
+def test_dock_overlay_labels_the_physical_marker_not_the_approach_point() -> None:
+    overlay = source("features/mapEditor/DockPairOverlay.tsx")
+
+    assert 'className="dock-physical-marker"' in overlay
+    assert 'transform={`translate(${dockPx.x} ${dockPx.y}) scale(${u})`}' in overlay
+    scan_group = overlay.split('className={`dock-scan-marker', 1)[1].split('</g>', 1)[0]
+    assert "dock-scan-dot" in scan_group
+    assert "dock-scan-badge" not in scan_group
+
+
 def test_camera_transport_retry_and_staleness_watchdog_contracts() -> None:
     transport = source("lib/visionTransport.ts")
     camera = source("features/control/LiveCamera.tsx")

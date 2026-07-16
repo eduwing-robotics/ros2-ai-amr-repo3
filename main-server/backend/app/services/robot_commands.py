@@ -175,7 +175,9 @@ def _normalize_aruco_tolerance(raw: Any) -> dict[str, float]:
     return {"xy_m": 0.05}
 
 
-DOCK_TRANSFER_OPTIONAL_KEYS = ("lift_height_mm", "lift_timeout_sec", "home_on_unload")
+DOCK_TRANSFER_NUMERIC_KEYS = ("lift_height_mm", "lift_timeout_sec", "pre_insert_lift_mm")
+DOCK_TRANSFER_BOOL_KEYS = ("home_on_unload", "pre_insert_force_move")
+DOCK_TRANSFER_OPTIONAL_KEYS = DOCK_TRANSFER_NUMERIC_KEYS + DOCK_TRANSFER_BOOL_KEYS
 
 
 def normalize_dock_transfer_params(
@@ -211,15 +213,17 @@ def normalize_dock_transfer_params(
         if key not in raw:
             continue
         val = raw[key]
-        if key == "home_on_unload":
+        if key in DOCK_TRANSFER_BOOL_KEYS:
             if not isinstance(val, bool):
-                raise HTTPException(status_code=status_code, detail=f"{detail_prefix}.home_on_unload must be a boolean")
+                raise HTTPException(status_code=status_code, detail=f"{detail_prefix}.{key} must be a boolean")
             out[key] = val
         else:
             try:
                 out[key] = float(val)
             except (TypeError, ValueError) as exc:
                 raise HTTPException(status_code=status_code, detail=f"{detail_prefix}.{key} must be a number") from exc
+            if key == "pre_insert_lift_mm" and out[key] < 0.0:
+                raise HTTPException(status_code=status_code, detail=f"{detail_prefix}.{key} must not be negative")
     return out
 
 

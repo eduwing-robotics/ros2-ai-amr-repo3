@@ -16,13 +16,19 @@ from app.services import evidence_runtime
 def _mock_locations() -> dict[str, dict]:
     return {
         "INBOUND_01": {"slot_id": "INBOUND_01", "location_id": "INBOUND_01", "x": 2.0, "y": 0.0},
+        "INBOUND_02": {"slot_id": "INBOUND_02", "location_id": "INBOUND_02", "x": 2.5, "y": 0.0},
         "OUTBOUND_01": {"slot_id": "OUTBOUND_01", "location_id": "OUTBOUND_01", "x": 4.0, "y": 0.0},
+        "OUTBOUND_02": {"slot_id": "OUTBOUND_02", "location_id": "OUTBOUND_02", "x": 4.5, "y": 0.0},
         "STORAGE_S1": {"slot_id": "STORAGE_S1", "location_id": "STORAGE_S1", "x": 1.0, "y": 1.0},
         "inbound_slot_1_approach": {"slot_id": "inbound_slot_1_approach", "location_id": "inbound_slot_1_approach", "x": 1.8, "y": 0.0, "marker_id": 0},
+        "inbound_slot_2_approach": {"slot_id": "inbound_slot_2_approach", "location_id": "inbound_slot_2_approach", "x": 2.3, "y": 0.0, "marker_id": 1},
         "outbound_slot_1_approach": {"slot_id": "outbound_slot_1_approach", "location_id": "outbound_slot_1_approach", "x": 3.8, "y": 0.0, "marker_id": 5},
+        "outbound_slot_2_approach": {"slot_id": "outbound_slot_2_approach", "location_id": "outbound_slot_2_approach", "x": 4.3, "y": 0.0, "marker_id": 6},
         "warehouse_a_approach": {"slot_id": "warehouse_a_approach", "location_id": "warehouse_a_approach", "x": 0.8, "y": 1.0, "marker_id": 7},
         "HOME_01": {"slot_id": "HOME_01", "location_id": "HOME_01", "x": 0.0, "y": 0.0},
+        "HOME_02": {"slot_id": "HOME_02", "location_id": "HOME_02", "x": 0.5, "y": 0.0},
         "vehicle_1_approach": {"slot_id": "vehicle_1_approach", "location_id": "vehicle_1_approach", "x": 0.3, "y": 0.0, "marker_id": 3},
+        "vehicle_2_approach": {"slot_id": "vehicle_2_approach", "location_id": "vehicle_2_approach", "x": 0.6, "y": 0.0, "marker_id": 4},
     }
 
 
@@ -55,10 +61,13 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         steps = scenario["steps"]
         self.assertEqual(len(steps), 7)
         self.assertEqual(steps[0]["action_type"], "leave_dock")
+        self.assertEqual(steps[0]["params"], {"aruco_marker_id": 3})
         self.assertEqual(steps[1]["action_type"], "move")
         self.assertAlmostEqual(steps[1]["x"], 1.8)
         self.assertEqual(steps[2]["action_type"], "dock_transfer")
         self.assertEqual(steps[2]["params"]["action"], "load")
+        self.assertEqual(steps[2]["params"]["pre_insert_lift_mm"], 0)
+        self.assertIs(steps[2]["params"]["pre_insert_force_move"], True)
         self.assertEqual(steps[4]["params"]["action"], "unload")
         self.assertEqual(steps[5]["action_type"], "move")
         self.assertEqual(steps[5]["waypoint_id"], "vehicle_1_approach")
@@ -87,6 +96,45 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         self.assertEqual(steps[5]["waypoint_id"], "vehicle_1_approach")
         self.assertEqual(steps[6]["action_type"], "aruco_align")
         self.assertEqual(steps[6]["params"], {"aruco_marker_id": 3, "final": "park"})
+
+    @patch("app.services.evidence_runtime.location_repo")
+    def test_tb2_uses_validated_second_slots_and_wait2_return(self, location_repo_fn) -> None:
+        data = _mock_locations()
+        location_repo_fn.return_value = self._repo(data)
+
+        inbound = evidence_runtime.build_scenario_from_task(MagicMock(), {
+            "task_id": 21,
+            "task_type": "INBOUND",
+            "assigned_robot_id": "tb3_2",
+            "from_location_id": "INBOUND_02",
+            "to_location_id": "STORAGE_S1",
+            "from_floor": 1,
+            "to_floor": 1,
+        })["steps"]
+        outbound = evidence_runtime.build_scenario_from_task(MagicMock(), {
+            "task_id": 22,
+            "task_type": "OUTBOUND",
+            "assigned_robot_id": "tb3_2",
+            "from_location_id": "STORAGE_S1",
+            "to_location_id": "OUTBOUND_02",
+            "from_floor": 1,
+            "to_floor": 1,
+        })["steps"]
+
+        self.assertEqual(
+            [step["params"]["aruco_marker_id"] for step in inbound if step["action_type"] in {"dock_transfer", "aruco_align"}],
+            [1, 7, 4],
+        )
+        self.assertEqual(inbound[0]["params"], {"aruco_marker_id": 4})
+        self.assertEqual(inbound[2]["params"]["pre_insert_lift_mm"], 0)
+        self.assertEqual(inbound[-2]["waypoint_id"], "vehicle_2_approach")
+        self.assertEqual(
+            [step["params"]["aruco_marker_id"] for step in outbound if step["action_type"] in {"dock_transfer", "aruco_align"}],
+            [7, 6, 4],
+        )
+        self.assertEqual(outbound[0]["params"], {"aruco_marker_id": 4})
+        self.assertEqual(outbound[2]["params"]["pre_insert_lift_mm"], 0)
+        self.assertEqual(outbound[-2]["waypoint_id"], "vehicle_2_approach")
 
     @patch("app.services.evidence_runtime.location_repo")
     def test_inbound_preserves_ordered_transit_then_scan_then_dock(self, location_repo_fn) -> None:

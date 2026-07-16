@@ -11,6 +11,7 @@ MAIN_ROOT = REPO_ROOT / "main-server"
 BACKEND_ROOT = MAIN_ROOT / "backend"
 MANIFEST = MAIN_ROOT / "database" / "reference" / "robot2_map.json"
 FIELD_BINDINGS = BACKEND_ROOT / "config" / "field-bindings.json"
+NAV_ZONES = REPO_ROOT / "nav-server" / "map" / "zones.json"
 SCHEMA = MAIN_ROOT / "database" / "schema_pg.sql"
 SCENARIO_ROUTER = BACKEND_ROOT / "app" / "api" / "routers" / "scenario.py"
 
@@ -70,6 +71,27 @@ def test_charge_uses_robot2_approach_but_final_dispatch_stays_uncommissioned() -
     assert dispatch["inbound"] is False
     assert dispatch["outbound"] is False
     assert "PENDING" in dispatch["status"] or "UNCOMMISSIONED" in dispatch["status"]
+
+
+def test_main_field_bindings_mirror_nav_physical_zone_and_dock_authority() -> None:
+    bindings = json.loads(FIELD_BINDINGS.read_text(encoding="utf-8"))
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    nav = json.loads(NAV_ZONES.read_text(encoding="utf-8"))
+    scans = {row["id"]: row for row in manifest["locations"] if row["type"] == "scan"}
+
+    assert bindings["robot_home_locations"] == {
+        "default": "HOME_01",
+        "tb3_1": "HOME_01",
+        "tb3_2": "HOME_02",
+    }
+    for location_id, binding in bindings["locations"].items():
+        zone = nav["semantic_zones"][binding["nav_zone"]]
+        dock = nav["waypoints"][binding["nav_waypoint"]]
+        scan = scans[binding["scan_location_id"]]
+        assert zone["approach_waypoint"] == binding["scan_location_id"], location_id
+        assert zone["dock_waypoint"] == binding["nav_waypoint"], location_id
+        assert zone["aruco_marker_id"] == scan["marker_id"], location_id
+        assert binding["pose"] == {"x": dock["x"], "y": dock["y"], "yaw": dock["theta"]}, location_id
 
 
 def test_schema_has_release_owned_routes_and_proven_claim_constraints() -> None:

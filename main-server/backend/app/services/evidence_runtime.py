@@ -116,14 +116,21 @@ def _append_route_and_scan(
 
 
 def _dock_step(conn, dock_id: str, scan: dict[str, Any], action: str, floor: int) -> dict[str, Any]:
+    marker_id = _aruco_marker_for_dock(conn, dock_id, scan)
+    params: dict[str, Any] = {
+        "aruco_marker_id": marker_id,
+        "action": action,
+        "level": floor,
+    }
+    if action == "load" and floor == 1:
+        # The field-proven level-1 sequence begins from raw lift home (0 mm).
+        # Use the existing dock_transfer pre-insert phase instead of adding a
+        # second lift-only orchestration API.
+        params.update({"pre_insert_lift_mm": 0, "pre_insert_force_move": True})
     return {
         "action_type": "dock_transfer",
         "name": f"dock:{dock_id}:{action}",
-        "params": {
-            "aruco_marker_id": _aruco_marker_for_dock(conn, dock_id, scan),
-            "action": action,
-            "level": floor,
-        },
+        "params": params,
     }
 
 
@@ -161,17 +168,24 @@ def _append_aruco_align_gate(
 def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
     task_type = str(task.get("task_type") or "").upper()
     floor = int(task.get("to_floor") or task.get("from_floor") or 1)
+    home_id = field_bindings.home_location_for_robot(task.get("assigned_robot_id"))
     steps: list[dict[str, Any]] = []
 
-    # 항상 출차(후진)로 시작: 미도킹 상태면 이동서버가 no-op 처리한다(계약 §3.4/§5).
-    steps.append({"action_type": "leave_dock", "name": "leave_dock", "params": {}})
+    # 항상 출차(후진)로 시작한다. 로봇별 대기 마커를 함께 보내면 Nav가
+    # stale process state보다 fresh physical marker evidence를 우선할 수 있다.
+    _, home_scan = field_bindings.scan_binding_for(home_id)
+    steps.append({
+        "action_type": "leave_dock",
+        "name": "leave_dock",
+        "params": {"aruco_marker_id": int(home_scan["marker_id"])},
+    })
 
     if task_type == "INBOUND":
         inbound_id = task.get("from_location_id")
         storage_id = task.get("to_location_id")
         if not inbound_id or not storage_id:
             raise HTTPException(status_code=409, detail="inbound task missing from/to locations")
-        map_id = field_bindings.map_for_locations([str(inbound_id), str(storage_id), "HOME_01"])
+        map_id = field_bindings.map_for_locations([str(inbound_id), str(storage_id), home_id])
         _append_dock_gate(conn, steps, str(inbound_id), "load", floor)
         _append_dock_gate(conn, steps, str(storage_id), "unload", floor)
     elif task_type == "OUTBOUND":
@@ -179,13 +193,12 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
         outbound_id = task.get("to_location_id")
         if not storage_id or not outbound_id:
             raise HTTPException(status_code=409, detail="outbound task missing from/to locations")
-        map_id = field_bindings.map_for_locations([str(storage_id), str(outbound_id), "HOME_01"])
+        map_id = field_bindings.map_for_locations([str(storage_id), str(outbound_id), home_id])
         _append_dock_gate(conn, steps, str(storage_id), "load", floor)
         _append_dock_gate(conn, steps, str(outbound_id), "unload", floor)
     else:
         raise HTTPException(status_code=409, detail=f"unsupported in/out task_type={task_type}")
 
-    home_id = "HOME_01"
     _require_location(conn, home_id, label="home")
     # Lift work completes only after a configured scan approach and final ArUco park.
     # A missing or malformed home/park setup blocks scenario creation instead of

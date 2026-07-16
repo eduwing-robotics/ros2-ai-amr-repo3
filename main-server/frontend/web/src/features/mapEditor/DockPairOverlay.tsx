@@ -14,7 +14,7 @@ interface DockPairOverlayProps {
   onScanClick?: (scanWaypointId: string) => void;
 }
 
-/** scan↔helper 연결 흐름(선·화살표·작은 dot·#N). yaw 선은 그리지 않음 — 흐름은 연결선이 표현. */
+/** scan↔helper 연결 흐름. 접근점은 작은 dot, 실제 helper는 #N으로 구분한다. */
 export function DockPairOverlay({
   map, zones, pairs, scale, zoneMode = false, linkMode = false, linkScanId = null,
   onScanClick,
@@ -61,6 +61,14 @@ export function DockPairOverlay({
               >
                 <circle className="scan-hit" cx={0} cy={0} r={SCAN_HIT_R} fill="transparent" />
                 <circle className="dock-scan-dot" cx={0} cy={0} r={SCAN_DOT_R} />
+              </g>
+            ) : null}
+            {showScanGlyph ? (
+              <g
+                className="dock-physical-marker"
+                transform={`translate(${dockPx.x} ${dockPx.y}) scale(${u})`}
+                style={{ pointerEvents: "none" }}
+              >
                 <text className="dock-scan-badge" x={SCAN_BADGE_OFFSET} y={2}>#{pair.aruco_marker_id}</text>
               </g>
             ) : null}

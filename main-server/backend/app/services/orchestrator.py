@@ -481,7 +481,7 @@ def start_task_orchestration(
             if location_id
         ]
         if task_type in {"INBOUND", "OUTBOUND"}:
-            location_ids.append("HOME_01")
+            location_ids.append(field_bindings.home_location_for_robot(str(robot_id)))
         field_bindings.assert_locations_match_map(location_ids, scenario_map_id)
     if provenance.execution_mode == "physical":
         field_bindings.assert_field_dispatch_commissioned(task_type, scenario_map_id)

@@ -51,8 +51,9 @@ def load_field_bindings() -> dict[str, Any]:
     if not isinstance(document, dict) or document.get("version") != 1:
         raise _invalid("version must be 1")
     locations, map_dispatch = document.get("locations"), document.get("map_dispatch")
-    if not isinstance(locations, dict) or not isinstance(map_dispatch, dict):
-        raise _invalid("locations and map_dispatch must be objects")
+    robot_homes = document.get("robot_home_locations")
+    if not isinstance(locations, dict) or not isinstance(map_dispatch, dict) or not isinstance(robot_homes, dict):
+        raise _invalid("locations, map_dispatch, and robot_home_locations must be objects")
     scans = load_release_scans()
     for map_id, dispatch in map_dispatch.items():
         if not isinstance(map_id, str) or not map_id or not isinstance(dispatch, dict):
@@ -69,6 +70,16 @@ def load_field_bindings() -> dict[str, Any]:
             raise _invalid(f"location {location_id} has invalid scalar fields")
         if binding["scan_location_id"] not in scans:
             raise _invalid(f"location {location_id} scan_location_id is not in the release manifest")
+    if not robot_homes or any(not isinstance(robot_id, str) or not robot_id for robot_id in robot_homes):
+        raise _invalid("robot_home_locations requires non-empty string keys")
+    for robot_id, location_id in robot_homes.items():
+        if not isinstance(location_id, str) or not location_id:
+            raise _invalid(f"robot_home_locations.{robot_id} must be a location id")
+        binding = locations.get(location_id)
+        if not binding or binding["kind"] != "home":
+            raise _invalid(f"robot_home_locations.{robot_id} must reference a home binding")
+    if "default" not in robot_homes:
+        raise _invalid("robot_home_locations.default is required")
     return document
 
 
@@ -83,6 +94,21 @@ def scan_binding_for(location_id: str) -> tuple[str, dict[str, Any]]:
     binding = binding_for(location_id)
     scan_id = binding["scan_location_id"]
     return scan_id, load_release_scans()[scan_id]
+
+
+def home_location_for_robot(robot_id: str | None) -> str:
+    """Return the configured precision-return location for a robot."""
+    from app.services.robot_mapping import movement_robot_key
+
+    robot_homes = load_field_bindings()["robot_home_locations"]
+    supplied = str(robot_id or "").strip()
+    if not supplied:
+        return str(robot_homes["default"])
+    normalized = movement_robot_key(supplied)
+    location_id = robot_homes.get(normalized)
+    if not location_id:
+        raise HTTPException(status_code=409, detail=f"robot has no precision-return binding: {supplied}")
+    return str(location_id)
 
 
 def assert_robot_live_map(robot_id: str, binding_map_id: str) -> dict[str, Any]:

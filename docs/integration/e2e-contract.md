@@ -38,11 +38,11 @@ Nav는 configured Main origin과 고정 Movement callback path만 허용하고 r
 
 ## Authoritative field binding
 
-`main-server/backend/config/field-bindings.json`은 location, scan location, map, Nav zone/waypoint, pose, marker ID의 정본이다. Main runtime row와 Nav `zones.json`이 binding과 다르면 command 계획을 거부한다. 현재 confirmed field asset은 `robot2_map`이며 입고·출고·창고·home 후보 binding과 테스트 seed도 이 map ID 및 Nav 후보 좌표와 정적으로 동기화되어 있다. 다만 전체 location/dock pose의 현장 commissioning은 끝나지 않았으므로 `robot1_map`과 `robot2_map` field dispatch를 모두 차단한다. 아직 commissioning하지 않은 `CHARGE_01`은 live `robot2_map`과 의도적으로 일치시키지 않아 charge dispatch도 막는다. Nav `/map-state`는 YAML·PGM SHA-256, map identity digest, resolution/origin/width/height를 함께 보고한다. Main은 coordinate와 initial-pose dispatch 전에 requested id, Nav asset existence, geometry, YAML/PGM digest와 identity를 Main asset과 모두 exact match로 검증하며 하나라도 다르면 HTTP 409으로 거부한다. UI/legacy map remap은 적용하지 않는다.
+실물 위치·마커·도킹 값의 정본은 `nav-server/map/zones.json`이다. `main-server/backend/config/field-bindings.json`은 그 값을 Main location과 연결하는 실행 계약이며, 계약 테스트가 Nav zone·dock pose·scan marker와의 정적 불일치를 거부한다. 운영 DB row가 이 계약과 다르면 Main은 command 계획을 HTTP 409로 거부한다. 현재 field asset은 `robot2_map`이며 Main은 coordinate와 initial-pose dispatch 전에 Nav의 map ID·geometry·YAML/PGM digest를 exact match로 검증한다. UI/legacy map remap은 적용하지 않는다.
 
-`tb3_burger_01`과 `tb3_burger_02`는 production에서 `robot2_map`을 정직하게 보고한다. 로봇1은 domain 2/API 8001, 로봇2는 domain 5/API 8002와 lift ownership을 그대로 유지한다. 둘 다 `field_dispatch.inbound/outbound=false` (`BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS`)이므로 per-map zones, bindings, seed audit 전 field task를 dispatch할 수 없다. 두 로봇이 같은 map ID를 공유하므로 향후 commissioning은 robot-scoped policy를 도입한 뒤 수행하며, map-level `robot2_map` 정책만 true로 바꿔 로봇2 격리를 해제하면 안 된다.
+`tb3_1`과 `tb3_2`는 production에서 `robot2_map`을 보고한다. TB1은 `HOME_01`/marker 3, TB2는 `HOME_02`/marker 4로 복귀한다. 두 로봇이 같은 map ID를 공유하므로 `field_dispatch.inbound/outbound=false`는 유지한다. 맵 단위 스위치를 바로 켜지 말고 로봇·경로별 현장 승인 후 commissioning해야 한다.
 
-Nav의 현재 `robot2_map` 현장 시험 후보 scan approach는 다음과 같다. 같은 실물 장비와 같은 맵으로 시험한 `origin/nav_server`의 최신 좌표 문맥을 `nav-server/map/zones.json`에 선택 반영한 값이다.
+Nav의 현재 `robot2_map` 현장 scan approach는 다음과 같다. 같은 실물 장비와 맵으로 검증한 Nav tag `pre-scenario-api-v1-20260716` (`3ed56bf`)의 값만 `nav-server/map/zones.json`에 선별 반영했다.
 
 | waypoint | pose |
 | --- | --- |
@@ -50,6 +50,8 @@ Nav의 현재 `robot2_map` 현장 시험 후보 scan approach는 다음과 같�
 | `warehouse_b_approach` | `(0.033, -0.376, 0.0)` |
 | `warehouse_c_approach` | `(1.239, -0.631, 3.142)` |
 | `warehouse_d_approach` | `(1.225, -0.377, 3.142)` |
+
+TB2에서 실물 완료된 최소 경로는 `HOME_02(#4) → INBOUND_02(#1) → STORAGE_S1(#7) → HOME_02(#4)`와 `HOME_02(#4) → STORAGE_S1(#7) → OUTBOUND_02(#6) → HOME_02(#4)`다. 이 경로의 A구역 1층 lift cycle은 `0 → 6 → 0 mm`이며, Main의 분리된 evidence gate와 Nav의 `dock_transfer` 구조는 그대로 유지한다.
 
 변경된 A/C 접근점은 `robot2_map`에서 0.18m 자유 공간 검사를 통과했고 Main binding·테스트 seed와도 일치한다. 이 정적 일치는 물리 정확성이나 field commissioning을 뜻하지 않는다. 운영 DB row와 전체 dock pose를 현장에서 검증하고 `field_dispatch`를 별도 승인하기 전에는 Main field task를 시작하지 않는다.
 

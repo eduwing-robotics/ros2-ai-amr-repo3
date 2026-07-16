@@ -137,6 +137,7 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             self.assertIn("inbound_slot_1_approach", steps[1].get("name", ""))
             self.assertEqual(steps[2].get("action_type"), "dock_transfer")
             self.assertEqual(steps[2]["params"]["action"], "load")
+            self.assertEqual(steps[2]["params"]["pre_insert_lift_mm"], 0)
             self.assertEqual(steps[3].get("action_type"), "move")
             self.assertEqual(steps[4].get("action_type"), "dock_transfer")
             self.assertEqual(steps[4]["params"]["action"], "unload")
@@ -168,6 +169,50 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             self.assertEqual(steps[4]["params"]["action"], "unload")
             self.assertEqual(steps[5].get("waypoint_id"), "vehicle_1_approach")
             self.assertEqual(steps[6]["params"]["final"], "park")
+
+    def test_tb2_field_validated_second_slot_routes_are_db_backed(self) -> None:
+        with transaction() as conn:
+            inbound_id = self._make_task(conn, {
+                "task_type": "INBOUND",
+                "status": "ASSIGNED",
+                "robot_id": "tb3_2",
+                "quantity": 1,
+                "from_location_id": "INBOUND_02",
+                "to_location_id": "STORAGE_S1",
+                "from_floor": 1,
+                "to_floor": 1,
+            })
+            inbound = evidence_runtime.build_scenario_from_task(
+                conn, task_repo(conn).get(inbound_id) or {}
+            )["steps"]
+            conn.execute("UPDATE tasks SET status = 'COMPLETED' WHERE id = %s", (inbound_id,))
+            outbound_id = self._make_task(conn, {
+                "task_type": "OUTBOUND",
+                "status": "ASSIGNED",
+                "robot_id": "tb3_2",
+                "quantity": 1,
+                "from_location_id": "STORAGE_S1",
+                "to_location_id": "OUTBOUND_02",
+                "from_floor": 1,
+                "to_floor": 1,
+            })
+            outbound = evidence_runtime.build_scenario_from_task(
+                conn, task_repo(conn).get(outbound_id) or {}
+            )["steps"]
+
+        self.assertEqual(inbound[0]["params"], {"aruco_marker_id": 4})
+        self.assertEqual(inbound[2]["params"]["pre_insert_lift_mm"], 0)
+        self.assertEqual(
+            [step["params"]["aruco_marker_id"] for step in inbound if step["action_type"] == "dock_transfer"],
+            [1, 7],
+        )
+        self.assertEqual(inbound[-2]["waypoint_id"], "vehicle_2_approach")
+        self.assertEqual(
+            [step["params"]["aruco_marker_id"] for step in outbound if step["action_type"] == "dock_transfer"],
+            [7, 6],
+        )
+        self.assertEqual(outbound[-2]["waypoint_id"], "vehicle_2_approach")
+        self.assertEqual(outbound[2]["params"]["pre_insert_lift_mm"], 0)
 
 
 if __name__ == "__main__":

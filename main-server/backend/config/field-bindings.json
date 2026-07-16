@@ -12,6 +12,11 @@
       "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"
     }
   },
+  "robot_home_locations": {
+    "default": "HOME_01",
+    "tb3_1": "HOME_01",
+    "tb3_2": "HOME_02"
+  },
   "locations": {
     "INBOUND_01": {
       "kind": "inbound",
@@ -25,6 +30,18 @@
       },
       "scan_location_id": "inbound_slot_1_approach"
     },
+    "INBOUND_02": {
+      "kind": "inbound",
+      "map_id": "robot2_map",
+      "nav_zone": "inbound_slot_2",
+      "nav_waypoint": "inbound_slot_2_dock",
+      "pose": {
+        "x": 0.473,
+        "y": 0.27,
+        "yaw": -1.57
+      },
+      "scan_location_id": "inbound_slot_2_approach"
+    },
     "OUTBOUND_01": {
       "kind": "outbound",
       "map_id": "robot2_map",
@@ -36,6 +53,18 @@
         "yaw": -1.57
       },
       "scan_location_id": "outbound_slot_1_approach"
+    },
+    "OUTBOUND_02": {
+      "kind": "outbound",
+      "map_id": "robot2_map",
+      "nav_zone": "outbound_slot_2",
+      "nav_waypoint": "outbound_slot_2_dock",
+      "pose": {
+        "x": 1.541,
+        "y": 0.27,
+        "yaw": -1.57
+      },
+      "scan_location_id": "outbound_slot_2_approach"
     },
     "STORAGE_S1": {
       "kind": "storage",
@@ -96,6 +125,18 @@
         "yaw": -1.57
       },
       "scan_location_id": "vehicle_1_approach"
+    },
+    "HOME_02": {
+      "kind": "home",
+      "map_id": "robot2_map",
+      "nav_zone": "vehicle_2_zone",
+      "nav_waypoint": "vehicle_2_dock",
+      "pose": {
+        "x": 0.836,
+        "y": 0.953,
+        "yaw": 1.394
+      },
+      "scan_location_id": "vehicle_2_approach"
     },
     "CHARGE_01": {
       "kind": "charge",
