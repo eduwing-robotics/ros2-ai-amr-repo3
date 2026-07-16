@@ -113,16 +113,17 @@ class HttpMovementClientTest(unittest.TestCase):
 
     def test_scenario_contract_paths_and_idempotency_header(self) -> None:
         body = {
+            "contract_version": "1.0",
             "command_id": "main-task-344-tb3_2-contract-001",
             "task_id": 344,
             "robot_name": "tb3_2",
-            "scenario_version": 1,
-            "dry_run": False,
-            "skip_lift": False,
+            "scenario_type": "inbound",
+            "map": {"map_id": "robot2_map", "frame_id": "map"},
+            "pickup": {"location_id": "INBOUND_02", "floor": 1, "approach": {"waypoint_id": "inbound_slot_2_approach", "x": 0.234, "y": 0.006, "yaw": 1.571}},
+            "dropoff": {"location_id": "STORAGE_02", "floor": 1, "approach": {"waypoint_id": "warehouse_a_approach", "x": 0.019, "y": -0.618, "yaw": 0.0}},
             "callback_url": "http://main/callback",
         }
         responses = [
-            b'{"executable":true,"blocking_reasons":[],"plan_hash":"h"}',
             b'{"accepted":true}',
             b'{"state":"RUNNING"}',
             b'{"accepted":true}',
@@ -134,16 +135,17 @@ class HttpMovementClientTest(unittest.TestCase):
             return BytesIO(responses[len(requests) - 1])
 
         with patch("app.domains.movement.client.urlopen", side_effect=open_request):
-            self.client.scenario_preview("tb3_2", "inbound2-storage-b", body)
-            self.client.scenario_command("tb3_2", "inbound2-storage-b", body)
-            self.client.scenario_command_status("tb3_2", body["command_id"])
-            self.client.scenario_safe_stop("tb3_2", body["command_id"])
+            self.client.inout_scenario_command("tb3_2", body)
+            self.client.inout_scenario_status("tb3_2", body["command_id"])
+            self.client.inout_scenario_safe_stop(
+                "tb3_2", body["command_id"], {"request_id": "stop-344", "reason": "OPERATOR_REQUESTED", "requested_by": "main-operator"}
+            )
 
-        self.assertEqual(requests[0].full_url, "http://nav.local:8002/movement-api/v1/scenarios/inbound2-storage-b/preview")
-        self.assertEqual(requests[1].full_url, "http://nav.local:8002/movement-api/v1/scenarios/inbound2-storage-b/commands")
-        self.assertEqual(requests[1].get_header("Idempotency-key"), body["command_id"])
-        self.assertEqual(requests[2].full_url, f"http://nav.local:8002/movement-api/v1/commands/{body['command_id']}")
-        self.assertEqual(requests[3].full_url, f"http://nav.local:8002/movement-api/v1/commands/{body['command_id']}/safe-stop")
+        self.assertEqual(requests[0].full_url, "http://nav.local:8002/movement-api/v1/scenario-commands")
+        self.assertEqual(requests[0].get_header("Idempotency-key"), body["command_id"])
+        self.assertEqual(requests[1].full_url, f"http://nav.local:8002/movement-api/v1/scenario-commands/{body['command_id']}")
+        self.assertEqual(requests[2].full_url, f"http://nav.local:8002/movement-api/v1/scenario-commands/{body['command_id']}/safe-stop")
+        self.assertEqual(requests[2].get_header("Idempotency-key"), "stop-344")
 
 
 if __name__ == "__main__":

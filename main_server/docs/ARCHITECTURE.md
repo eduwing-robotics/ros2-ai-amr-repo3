@@ -7,7 +7,7 @@
 보조 독자: 신규 개발자·기술 평가자
 난이도: 개발
 소유: Docs
-최종 갱신: 2026-07-16 16:00 KST
+최종 갱신: 2026-07-16 20:45 KST
 구현 기준: backend/app 도메인 구조와 현재 서버 경계
 목적: Main_Control의 시스템 경계, 주요 업무 흐름, 도메인 책임과 의존 방향을 정의한다.
 
@@ -86,7 +86,9 @@ flowchart TB
 | 영상·아루코·lift-load | 인식 | [INTERFACES](INTERFACES.md) |
 | DB SoT | 관제 | [DATABASE](DATABASE.md) |
 
-관제가 이동 서버에 내리는 명령은 `POST /robot-commands` 하나로 통일하고, `kind` 필드(`move_to_point` · `dock_transfer` · `aruco_align` · `leave_dock` · `manual_drive` · `estop`)로 동작을 구분한다. 이동 서버가 아직 구현하지 않은 kind는 조용히 대체하지 않고 `501 movement_robot_commands_api_missing`으로 드러낸다.
+일반 이동·수동 조작은 `/robot-commands` envelope를 사용한다. 자동 입출고는
+`POST /movement-api/v1/scenario-commands` 한 건으로 실행하며 상세 책임은
+[Scenario API Contract](MOVEMENT_SCENARIO_API_CONTRACT.md)를 따른다.
 
 ## 5. 입출고 업무 흐름
 
@@ -99,15 +101,13 @@ sequenceDiagram
   participant Mov as 이동서버
   Op->>Main: 입고 요청 품목+수량
   Main->>Main: 슬롯·존 계획 후 작업 생성
-  Main->>Main: 작업 단계 동결
-  Main->>Mov: 입고 precision waypoint
-  Mov-->>Main: ARRIVED(정밀 접근·삽입)
-  Main->>Mov: 보관슬롯 precision waypoint
-  Mov-->>Main: ARRIVED(정밀 접근·삽입)
-  Main->>Main: 재고 반영
-  Main->>Mov: vehicle_2 복귀·주차
-  Mov-->>Main: 완료
-  Main->>Main: 재고 반영
+  Main->>Main: DB 접근 좌표 snapshot + 9개 업무 단계 동결
+  Main->>Mov: Scenario command 1회
+  Mov-->>Main: 업무 단계 callback
+  Mov-->>Main: UNLOAD 완료 + EMPTY
+  Main->>Main: 재고 1회 반영
+  Mov-->>Main: PARK + 안전 Gate 완료
+  Main->>Main: Task 완료
 ```
 
 ```mermaid
@@ -131,16 +131,16 @@ flowchart TD
   end
 ```
 
-**게이트:** 1층 자동 입출고는 Movement Route API가 이동·정밀 접근·리프트 적재·리프트 하역·복귀를 한 command로 소유한다. Main은 preview에서 source/target section과 `load → unload`, 각 `level=1`을 확인한 경우에만 실행하고 최종 `DONE`에서 재고를 반영한다. 검증되지 않은 2층 route는 실행 전에 차단한다.
+**게이트:** Main은 pickup/dropoff 업무 위치와 DB 접근 waypoint 좌표를 보내고, Movement는 정밀 접근·ArUco·리프트·복귀를 소유한다. Main은 `UNLOAD + STEP_COMPLETED + EMPTY`에서 재고를 반영하고 PARK·IDLE·ESTOP 해제·권한 반환을 확인한 뒤 Task를 완료한다.
 
 원칙:
 
 - 별도의 업무(WMS) 서버를 두지 않고, 입출고 계층을 관제 서버 안에 둔다.
 - 슬롯·존은 기본적으로 자동 계획하되, 운영자가 직접 지정하면 그 값을 우선한다.
-- 재고는 리프트 하역과 복귀를 포함한 route가 최종 `DONE`인 시점에 멱등하게 반영한다.
-- load waypoint 완료 뒤 이동 실패는 `AWAITING_OPERATOR(cargo_state=LOADED)`로 보존하고 자동 재개하지 않는다.
+- 재고는 UNLOAD 업무 단계 완료 callback에서 멱등하게 반영한다.
+- LOAD 완료 뒤 이동 실패는 `AWAITING_OPERATOR(cargo_state=LOADED)`로 보존하고 자동 재개하지 않는다.
 
-용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **robot task**와 이동/도킹 한 번 단위의 **robot task step**으로 분해된다(§6).
+용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **robot task**와 callback으로 추적하는 9개 **업무 단계**로 분해된다(§6).
 
 Work Order 조회는 Task·실행 상태·계획·위치 정보를 읽기 전용 projection으로 조립한다. 내부 canonical 필드와
 기존 `/api/v1` 필드의 차이는 API compatibility adapter에서 변환한다.
@@ -172,23 +172,23 @@ sequenceDiagram
   participant Orch as 실행엔진
   participant Mov as 이동서버
   participant Poll as 진행폴러
-  Orch->>Mov: 이동_명령
-  Mov-->>Orch: 도착_또는_완료
-  Orch->>Orch: 다음_단계로_전진
+  Orch->>Mov: Scenario_명령_1회
+  Mov-->>Orch: 업무_단계_콜백
+  Orch->>Orch: 타임라인_상태_갱신
   Note over Poll: 약5초마다_콜백누락시
-  Poll->>Mov: 명령상태_조회
-  Poll->>Orch: 다음_단계로_전진
+  Poll->>Mov: Scenario_상태_조회
+  Poll->>Orch: 같은_상태함수로_보정
 ```
 
 원칙:
 
-- **미리 펼침:** 작업을 시작할 때 전체 단계 목록(`steps[]`)과 진행 인덱스(`step_index`)를 한 번에 계산해 동결한다. 이후에는 인덱스만 전진한다.
+- **미리 펼침:** 작업 시작 전에 9개 업무 단계 타임라인을 모두 `PENDING`으로 만들고 단일 command ID에 연결한다.
 - **하이브리드 전진:** 이동 서버의 콜백이 주 경로이고, 약 5초 주기의 진행 폴러가 콜백 누락 시의 안전망이다. 어느 쪽이 먼저 오든 같은 전진 함수를 태운다.
 - **멱등:** 명령 id·현재 단계·미완료 여부를 확인해 중복 콜백을 무시한다.
-- **게이트:** 접근 이동 → 도착 확인 → 도킹 지시 → 완료 확인 순서를 지킨다.
+- **게이트:** callback의 step index·code·cargo 상태를 검증하고 최종 PARK 안전 필드를 모두 확인한다.
 - **비상정지:** 이동 서버의 중단 콜백을 받으면 운영자 개입 대기 상태가 되고, 자동으로 재개하지 않는다.
 
-입고 작업의 단계 예: 입고존 접근 → 적재 도킹 → 보관슬롯 접근 → 하역 도킹 → 홈 복귀.
+입고 업무 단계: 출차 → pickup 접근·정렬·적재 → 운송 → dropoff 정렬·하역 → 홈 복귀·주차.
 
 ## 7. 백엔드 레이어
 

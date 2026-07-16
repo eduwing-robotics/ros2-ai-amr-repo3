@@ -11,7 +11,7 @@ from app.domains.execution import router as execution_router
 from app.domains.execution import state as orchestration_state
 from app.main import app
 from app.models import schemas
-from app.models.movement import RobotCommandEvent, RobotCommandRecord, RobotCommandResult
+from app.models.movement import RobotCommandEvent, RobotCommandRecord
 from app.models.records import ControlSystemStatusSnapshot
 from app.models.tasks import RobotTask, RobotTaskAssign, RobotTaskCreate
 from app.models.work_orders import WorkOrder, WorkOrderOperation, WorkOrderRobotTask
@@ -24,7 +24,6 @@ def _operation(path: str, method: str) -> dict:
 def test_legacy_python_schema_aliases_point_to_canonical_models() -> None:
     assert schemas.MovementCommand is RobotCommandRecord
     assert schemas.MovementCommandEvent is RobotCommandEvent
-    assert schemas.MovementCommandResult is RobotCommandResult
     assert schemas.StatusSnapshot is ControlSystemStatusSnapshot
     assert schemas.Task is RobotTask
     assert schemas.TaskAssign is RobotTaskAssign

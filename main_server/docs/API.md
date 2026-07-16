@@ -5,7 +5,7 @@
 보조 독자: QA·연동 개발자
 난이도: 개발
 소유: Backend
-최종 갱신: 2026-07-16 16:00 KST
+최종 갱신: 2026-07-16 20:50 KST
 구현 기준: 실행 서버의 OpenAPI와 backend/app/api route
 목적: Main `/api/v1` **작성 규칙 + 엔드포인트 카탈로그**. 외부 계약: [INTERFACES](INTERFACES.md).
 
@@ -120,7 +120,7 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | Browser | POST | `/robot/estop` · `/robot/clear_estop` | `— → JSON · object` | 전 로봇 일괄 비상정지·해제 |
 | Browser | POST | `/robots/estop-all` · `/robots/clear-estop-all` | `— → JSON · object` | 전 로봇 정지·enabled 로봇 해제 시도와 로봇별 확인 상태 |
 | Movement | POST | `/movement/command-events` | `RobotCommandEvent → MovementCallbackAck` | 검증·중복 제거 후 orchestrator |
-| Movement | POST | `/movement/results` · `/movement/robots/{name}/status` | typed result/status → ACK | 결과 상태 정규화·실시간 상태 수신 |
+| Movement | POST | `/movement/robots/{name}/status` | `MovementRobotStatusCallback → ApiMessage` | 실시간 상태·pose 수신 |
 | Browser / Main | GET | `/movement/map-state` · `/movement/runtime-map-context` | `— → JSON · object` | 활성 맵·runtime 컨텍스트 |
 | Browser | GET | `/movement/sync-status` | `— → JSON · object` | 맵·pose 동기화 진단 (+`planned_paths[]`) |
 | Browser | GET | `/movement/commands/{id}/trace` | `— → JSON · object` | 명령 실행 추적 |
@@ -203,22 +203,23 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | `estop` | ✅ | stop/clear |
 | `dock_transfer` | ⚠️ | marker/action/level(+lift override). dry_run OK; 실실행 404→501, 409→409 · [INTERFACES §10](INTERFACES.md) |
 | `aruco_align` | ⚠️ | marker/final/tolerance`{xy_m,yaw_deg}` · 동일 501/409 |
-| `scenario` | 내부 전용 | INBOUND_02→STORAGE_01 2층 tb3_2에서 Preview 검증 후 Movement 소유 9단계를 한 번에 실행 |
-| `route` | 내부 전용 | 1층 입·출고 preview에서 load/unload 리프트를 검증한 뒤 전체 경로를 한 번에 실행 |
+| `inout_scenario` | 내부 전용 | DB 접근 waypoint snapshot을 `/scenario-commands`로 한 번 전송 |
 
 명령 상태는 `GET /robot-commands/{id}?robot_id=`로 조회한다. Movement의 진행 콜백은 `POST /movement/command-events`로 들어와 orchestrator에 전달된다.
 
 Command callback은 `command_id`, robot, event/state가 필수이며 누락 시 `422`다. 릴리즈에서
 `LMS_MOVEMENT_CALLBACK_TOKEN`을 설정하면 `X-Movement-Callback-Token`이 필수다. `event_id` 중복은
-`200 duplicate=true`이고, legacy result에 `event_id`가 없으면 command/result/reported_at 조합으로 멱등 키를 만든다.
-작은/equal `sequence`는 task 상태에 재적용하지 않는다. 상세 계약은 [Movement 요구서](MOVEMENT_SERVER_REQUIREMENTS.md)를 따른다.
+`200 duplicate=true`다. 작은/equal `sequence`는 task 상태에 재적용하지 않는다. 입출고 callback은
+`contract_version=1.0`과 9개 업무 step 필드를 추가로 검증한다. 상세 계약은
+[Scenario API 규약](MOVEMENT_SCENARIO_API_CONTRACT.md)을 따른다.
 
 ESTOP 일괄 요청은 로봇마다 `request_id`를 만들고 `stop_requested → stop_confirmed|stop_unconfirmed`을
 `evidence_events`에 저장한다. 해제는 health 사전 판정으로 건너뛰지 않고 모든 enabled 로봇에 시도하며
 `clear_requested → clear_confirmed|clear_unconfirmed`을 저장한다. `GET /status`의
 `system.estop_summary.robot_states`가 이 수명주기를 제공한다. Main 재시작 시 마지막 이벤트로 latch를 복원한다.
 
-전용 `scenario`와 범용 `route`의 HTTP 경로, preview 검증, 멱등 실행과 완료 게이트는 [INTERFACES §8](INTERFACES.md)를 따른다.
+자동 입출고의 HTTP 경로, DB 좌표 snapshot, 멱등 실행과 완료 Gate는
+[Scenario API 규약](MOVEMENT_SCENARIO_API_CONTRACT.md)을 따른다.
 
 ## Work orders · recovery · waypoints · maps
 
@@ -226,7 +227,7 @@ ESTOP 일괄 요청은 로봇마다 `request_id`를 만들고 `stop_requested �
 - **응답 호환:** 내부 Work Order 조회는 `RobotTaskSummary`의 `requested_quantity`·`allocated_quantity`·`robot_task_id`·`active_command_id`를 사용한다. `/api/v1` 응답은 adapter가 기존 `quantity`·`tasks[]`·`task_id`·`command_id`를 유지한다.
 - **취소·우선순위:** `POST /work-orders/{id}/cancel`은 예약 상태의 요청을 취소하고, `/priority`는 디스패치 순서를 `tasks.priority`에 영속화한다.
 - **실행 중 안전 중단:** `POST /work-orders/{id}/stop`은 현재 Movement command 취소를 즉시 요청한다. 빈 로봇은 취소 callback 후 `CANCELLED`, 적재 상태는 `AWAITING_OPERATOR`, 하역 완료 후 복귀·주차 중단은 물류 `DONE`을 유지하고 `PARK_FAILED`로 기록한다.
-- **완료·복귀:** 1층 입출고는 `/routes/preview`에서 `dock_transfer(load, level=1)`과 `dock_transfer(unload, level=1)` 및 section을 확인한 뒤 `/routes/commands`로 한 번 실행한다. 최종 `DONE`에서 재고를 한 번만 반영한다. 검증된 2층 고정 조합은 전용 `scenario` 완료 게이트를 사용하며, 지원되지 않는 2층 조합은 실행 전에 `409 movement_route_floor_not_supported`로 차단한다.
+- **완료·복귀:** 모든 입출고는 DB 접근 waypoint 좌표를 포함한 Scenario v1 명령 한 건으로 실행한다. `UNLOAD + STEP_COMPLETED + EMPTY`에서 재고를 한 번 반영하고, PARK 안전 Gate 이후 Task를 완료한다.
 - **배정·복구:** `POST /tasks/auto-assign-and-start`는 로봇 배정과 mission 시작을 한 번에 처리한다. 비상정지 후 복구는 awaiting-operator 목록 → context 조회 → preview → execute 순서로 진행한다. 운영 UI는 명시된 HOME 안전 위치 이동과 정지 확인 후 수동 회수만 제공하며 자동 하역·자동 작업 재개는 지원하지 않는다. 운영 절차는 [OPERATIONS §3](OPERATIONS.md).
 - **waypoints:** `map_id`로 필터·저장한다. 다른 데이터가 참조 중이면 삭제가 `409 marker_in_use`로 거부되며, usage 확인 → disable 또는 force-delete로 처리한다. 도킹용 필드로 `scan_waypoint_id`·`aruco_marker_id`·`dock_mode`를 가진다.
 - **pose:** canonical push는 `POST /robots/{robot_id}/pose` 하나만 사용한다. Main은 최신 pose를 단일 worker 프로세스 메모리에 즉시 반영하고 `GET /robot-poses`는 DB·Movement 호출 없이 메모리 snapshot을 반환한다. 수신 지연, localization 상실, 맵 경계 이탈, 연결 단절의 발생/복구 전이만 운영 이벤트 DB에 기록한다. 재시작 시 이전 위치를 복원하지 않고 새 pose 수신 전까지 `수신 대기`로 표시한다.

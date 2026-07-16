@@ -6,22 +6,9 @@ import zlib
 from typing import Any
 
 from app.db.connection import MOVEMENT_CALLBACK_LOCK_NAMESPACE, advisory_xact_lock_for_key
-from app.db.postgres import operational_events, robot_command_records
+from app.db.postgres import operational_events
 from app.domains.execution import orchestrator
 from app.domains.movement.pose_runtime import pose_runtime
-
-RESULT_EVENT_MAP = {
-    "OK": "DONE",
-    "SUCCESS": "DONE",
-    "SUCCEEDED": "DONE",
-    "COMPLETED": "DONE",
-    "CANCELED": "CANCELED",
-    "CANCELLED": "CANCELLED",
-    "STOPPED": "STOPPED",
-    "ABORTED": "ABORTED",
-    "FAILED": "FAILED",
-    "REJECTED": "REJECTED",
-}
 
 
 def _callback_event_id(payload: dict[str, Any], channel: str) -> str:
@@ -86,42 +73,6 @@ def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
     )
     advanced = orchestrator.handle_command_event(conn, payload) is not None
     return {"message": "movement command event saved", "duplicate": False, "task_advanced": advanced}
-
-
-def ingest_result(conn, payload: dict[str, Any]) -> dict[str, Any]:
-    """Persist a result callback and update its command record and Execution."""
-    payload = _with_callback_event_id(payload, "result")
-    _lock_callback_event(conn, payload)
-    if _is_duplicate_callback(conn, payload):
-        return {"message": "duplicate movement result ignored", "duplicate": True, "task_advanced": False}
-    command_id = payload.get("command_id")
-    robot_id = payload.get("robot_name") or payload.get("robot_id")
-    result = str(payload.get("result") or "UNKNOWN").upper()
-    operational_events.append(
-        conn,
-        event_type=f"MOVEMENT_RESULT_{result}",
-        robot_id=robot_id,
-        command_id=command_id,
-        task_id=payload.get("task_id"),
-        message=payload.get("message") or str(result),
-        payload=_event_payload(payload),
-    )
-    if not command_id:
-        return {"message": "movement result saved without command", "duplicate": False, "task_advanced": False}
-    robot_command_records.record_result(
-        conn,
-        command_id,
-        str(result),
-        payload.get("message") or str(result),
-        payload,
-    )
-    normalized = {
-        **payload,
-        "event": RESULT_EVENT_MAP.get(result, result),
-        "_callback_channel": "legacy_result",
-    }
-    advanced = orchestrator.handle_command_event(conn, normalized) is not None
-    return {"message": "movement result saved", "duplicate": False, "task_advanced": advanced}
 
 
 def ingest_robot_status_pose(robot_name: str, payload: dict[str, Any]) -> bool:

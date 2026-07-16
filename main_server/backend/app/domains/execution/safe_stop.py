@@ -105,8 +105,17 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
         )
 
     try:
-        if str(step.get("kind")) in {"scenario", "route"}:
-            movement_response = movement_client.scenario_safe_stop(str(robot_id), str(command_id))
+        if str(step.get("kind")) == "inout_scenario":
+            request_id = f"stop-{command_id}"
+            movement_response = movement_client.inout_scenario_safe_stop(
+                str(robot_id),
+                str(command_id),
+                {
+                    "request_id": request_id,
+                    "reason": "OPERATOR_REQUESTED",
+                    "requested_by": "main-operator",
+                },
+            )
         else:
             movement_response = movement_client.cancel_command(str(robot_id), str(command_id))
     except MovementClientError as exc:
@@ -122,7 +131,18 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
         cargo_state = reported_cargo
     else:
         cargo_state = _cargo_state(steps)
-    accepted = bool(movement_response.get("accepted", True))
+    accepted = movement_response.get("accepted") is True
+    if str(step.get("kind")) == "inout_scenario":
+        response_command = str(movement_response.get("command_id") or "")
+        response_request = str(movement_response.get("request_id") or "")
+        response_state = str(movement_response.get("state") or "").upper()
+        if (
+            not accepted
+            or response_command != str(command_id)
+            or response_request != request_id
+            or response_state != "STOP_REQUESTED"
+        ):
+            raise HTTPException(status_code=502, detail="movement_safe_stop_acceptance_contract_mismatch")
     execution.transition_to(orch_state.PHASE_CANCEL_REQUESTED)
     orch["stop_request"] = {
         "command_id": str(command_id),

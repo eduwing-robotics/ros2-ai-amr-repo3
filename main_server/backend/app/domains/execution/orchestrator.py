@@ -12,7 +12,7 @@ from fastapi import HTTPException
 
 from app.db.connection import TASK_EVENT_LOCK_NAMESPACE, advisory_xact_lock_for_key
 from app.db.postgres import operational_events, robots, runtime_records, tasks
-from app.domains.execution import evidence, recovery
+from app.domains.execution import evidence, inout_scenarios, recovery
 from app.domains.execution import state as orch_state
 from app.domains.movement import commands
 from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
@@ -37,9 +37,9 @@ SCENARIO_EVENT_NAMES = {
     "COMMAND_CANCELLED": "CANCELLED",
 }
 SCENARIO_PROGRESS_FIELDS = (
+    "contract_version",
+    "event",
     "execution_id",
-    "scenario_id",
-    "scenario_version",
     "state",
     "current_step_index",
     "current_step_code",
@@ -47,14 +47,14 @@ SCENARIO_PROGRESS_FIELDS = (
     "last_completed_step_index",
     "cargo_state",
     "business_completed",
-    "resumable",
     "authority_owner",
     "authority_released",
     "navigator_status",
     "is_emergency",
-    "reason",
-    "plan_hash",
+    "reason_code",
+    "message",
     "reported_at",
+    "updated_at",
 )
 
 
@@ -78,46 +78,6 @@ def _update_scenario_progress(
     return progress
 
 
-def _route_timeline_label(action: str, payload: dict[str, Any]) -> str:
-    stage = str(payload.get("stage") or "")
-    labels = {
-        "go_to_pickup_approach": "픽업 위치 접근",
-        "pickup_dock_lift_up_reverse": "화물 적재",
-        "go_to_dropoff_approach": "목적 위치 이동",
-        "dropoff_dock_lift_down_reverse": "화물 하역",
-        "return_to_standby": "대기 위치 복귀",
-    }
-    if stage in labels:
-        return labels[stage]
-    transfer = str(payload.get("action") or "")
-    if action == "dock_transfer" and transfer == "load":
-        return "화물 적재"
-    if action == "dock_transfer" and transfer == "unload":
-        return "화물 하역"
-    if action == "wait":
-        return "완료 확인"
-    return stage or action
-
-
-def _route_timeline_from_preview(preview: dict[str, Any], command_id: str) -> list[dict[str, Any]]:
-    timeline: list[dict[str, Any]] = []
-    for index, raw in enumerate(preview.get("steps") or []):
-        action = str(raw.get("action") or "unknown")
-        payload = raw.get("payload") if isinstance(raw.get("payload"), dict) else {}
-        timeline.append(
-            {
-                "step_index": index,
-                "kind": action,
-                "label": _route_timeline_label(action, payload),
-                "status": "PENDING",
-                "command_id": command_id,
-                "transfer_action": payload.get("action") if action == "dock_transfer" else None,
-                "stage": payload.get("stage"),
-            }
-        )
-    return timeline
-
-
 def _update_route_timeline(step: dict[str, Any], event: dict[str, Any], event_name: str) -> None:
     timeline = step.get("route_timeline")
     if not isinstance(timeline, list) or not timeline:
@@ -131,13 +91,18 @@ def _update_route_timeline(step: dict[str, Any], event: dict[str, Any], event_na
     if current < 0:
         return
     current = min(current, len(timeline) - 1)
+    expected_code = str(timeline[current].get("step_code") or timeline[current].get("kind") or "")
+    callback_code = str(event.get("current_step_code") or "")
+    if callback_code and callback_code != expected_code:
+        return
     step["route_timeline_current_index"] = current
     terminal_failure = event_name in {"FAILED", "ABORTED", "REJECTED", "CANCELLED"}
+    step_completed = "COMPLETED" in event_name
     for index, item in enumerate(timeline):
         if index < current or event_name == "DONE":
             item["status"] = "DONE"
         elif index == current:
-            item["status"] = event_name if terminal_failure else "RUNNING"
+            item["status"] = event_name if terminal_failure else "DONE" if step_completed else "RUNNING"
             if terminal_failure:
                 item["failure_reason"] = event.get("message") or event.get("reason")
     step["route_timeline"] = timeline
@@ -157,7 +122,7 @@ def _scenario_business_milestone(progress: dict[str, Any]) -> bool:
 
 def _scenario_done_gate_errors(progress: dict[str, Any]) -> list[str]:
     checks = {
-        "current_step_code": str(progress.get("current_step_code") or "") == "PARK_COMPLETE",
+        "current_step_code": str(progress.get("current_step_code") or "") == "PARK",
         "business_completed": progress.get("business_completed") is True,
         "cargo_state": str(progress.get("cargo_state") or "").upper() == "EMPTY",
         "authority_owner": str(progress.get("authority_owner") or "").upper() == "MAIN",
@@ -170,6 +135,27 @@ def _scenario_done_gate_errors(progress: dict[str, Any]) -> list[str]:
     except (TypeError, ValueError):
         checks["last_completed_step_index"] = False
     return [field for field, valid in checks.items() if not valid]
+
+
+def _scenario_event_contract_errors(step: dict[str, Any], event: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if str(event.get("contract_version") or "") != inout_scenarios.CONTRACT_VERSION:
+        errors.append("contract_version")
+    raw_event = str(event.get("event") or event.get("state") or "").upper()
+    if raw_event in {"STEP_STARTED", "STEP_COMPLETED"}:
+        try:
+            index = int(event.get("current_step_index"))
+        except (TypeError, ValueError):
+            index = -1
+        code = str(event.get("current_step_code") or "")
+        if inout_scenarios.STEP_CODE_TO_INDEX.get(code) != index:
+            errors.append("current_step")
+    previous = step.get("scenario_progress") or {}
+    old_last = previous.get("last_completed_step_index")
+    new_last = event.get("last_completed_step_index")
+    if old_last is not None and new_last is not None and int(new_last) < int(old_last):
+        errors.append("last_completed_step_index")
+    return errors
 
 
 
@@ -357,17 +343,9 @@ def dispatch_current_step(conn, task_id: int) -> str:
 
     step["status"] = RobotTaskStepStatus.DISPATCHED
     step["command_id"] = result.command_id
-    if str(step.get("kind")) == "scenario":
-        step["execution_id"] = result.response.get("execution_id")
-        step["scenario_id"] = result.response.get("scenario_id")
-        step["scenario_version"] = result.response.get("scenario_version")
-        step["plan_hash"] = result.response.get("plan_hash")
-        step["authority_owner"] = result.response.get("authority_owner")
-    if str(step.get("kind")) == "route":
-        preview = result.response.get("preview")
-        if isinstance(preview, dict):
-            step["route_timeline"] = _route_timeline_from_preview(preview, result.command_id)
-            step["route_timeline_current_index"] = 0
+    if str(step.get("kind")) == "inout_scenario":
+        for timeline_step in step.get("route_timeline") or []:
+            timeline_step["command_id"] = result.command_id
     orch_state.set_steps(orch, steps)
     evidence.save_orchestration(conn, task_id, orch)
     evidence.record_movement_evidence(
@@ -465,36 +443,58 @@ def advance_on_command_event(
         return None
     if step.get("status") in TERMINAL_STEP_STATES:
         return None
+    if str(step.get("kind")) == "inout_scenario":
+        contract_errors = _scenario_event_contract_errors(step, event)
+        if contract_errors:
+            operational_events.append(
+                conn,
+                event_type="MOVEMENT_SCENARIO_CONTRACT_REJECTED",
+                task_id=task_id,
+                robot_id=task.get("assigned_robot_id"),
+                command_id=str(event_command_id),
+                message=f"task {task_id} scenario callback rejected",
+                payload={"fields": contract_errors, "event": event},
+            )
+            return None
+    if source == "task_progress_poller":
+        step.pop("callback_sequence_gap", None)
     sequence = event.get("sequence")
     if sequence is not None:
         sequence = int(sequence)
         last_sequence = step.get("last_event_sequence")
         if last_sequence is not None and sequence <= int(last_sequence):
             return None
+        expected_sequence = int(last_sequence) + 1 if last_sequence is not None else 0
+        if sequence > expected_sequence:
+            step["callback_sequence_gap"] = {
+                "expected": expected_sequence,
+                "received": sequence,
+            }
+        elif source == "task_progress_poller":
+            step.pop("callback_sequence_gap", None)
         step["last_event_sequence"] = sequence
 
     scenario_progress: dict[str, Any] = {}
-    if str(step.get("kind")) in {"scenario", "route"}:
+    if str(step.get("kind")) == "inout_scenario":
         scenario_progress = _update_scenario_progress(orch, step, event)
-    if str(step.get("kind")) == "route":
         _update_route_timeline(step, event, event_name)
-
-    if (
-        str(step.get("kind")) in {"scenario", "route"}
-        and event.get("_callback_channel") == "legacy_result"
-        and event_name in TERMINAL_STEP_STATES
-    ):
-        execution.steps = steps
-        evidence.save_orchestration(conn, task_id, orch)
-        return None
 
     if orch_state.normalize_phase(orch.get("phase")) == orch_state.PHASE_CANCEL_REQUESTED:
         stop_request = orch.get("stop_request") or {}
         if event_name in {"CANCELLED", "CANCELED", "STOPPED", "ABORTED"}:
             step["status"] = "CANCELLED"
             execution.steps = steps
-            business_completed = bool(stop_request.get("business_completed"))
-            cargo_state = str(stop_request.get("cargo_state") or "UNKNOWN")
+            business_completed = bool(
+                scenario_progress.get("business_completed")
+                if str(step.get("kind")) == "inout_scenario"
+                else stop_request.get("business_completed")
+            )
+            reported_cargo = str(scenario_progress.get("cargo_state") or "").upper()
+            cargo_state = (
+                reported_cargo
+                if reported_cargo in {"EMPTY", "LOADED", "UNKNOWN"}
+                else str(stop_request.get("cargo_state") or "UNKNOWN")
+            )
             robot_id = task.get("assigned_robot_id")
             if business_completed:
                 execution.return_status = "PARK_FAILED"
@@ -550,11 +550,15 @@ def advance_on_command_event(
         data_json={"command_id": event_command_id, "event": event, "commands_id": command_def_id},
     )
 
-    if (
-        str(step.get("kind")) == "scenario"
-        and not execution.business_completed
-        and _scenario_business_milestone(scenario_progress)
-    ):
+    raw_event = str(event.get("event") or event.get("state") or "").upper()
+    unload_completed = (
+        raw_event == "STEP_COMPLETED"
+        and str(scenario_progress.get("current_step_code") or "") == "UNLOAD"
+        and int(scenario_progress.get("last_completed_step_index") or -1) == 6
+        and str(scenario_progress.get("cargo_state") or "").upper() == "EMPTY"
+        and scenario_progress.get("business_completed") is True
+    )
+    if str(step.get("kind")) == "inout_scenario" and not execution.business_completed and unload_completed:
         inventory_ops.settle_inventory_for_completed_task(conn, task_id)
         execution.mark_business_completed(at_step=6)
         operational_events.append(
@@ -563,14 +567,14 @@ def advance_on_command_event(
             task_id=task_id,
             robot_id=task.get("assigned_robot_id"),
             command_id=str(event_command_id),
-            message=f"task {task_id} storage unload completed; parking remains",
+            message=f"task {task_id} scenario UNLOAD completed; parking remains",
             payload={"task_id": task_id, "scenario_progress": scenario_progress},
         )
 
     if event_name in {"FAILED", "ABORTED", "REJECTED", "CANCELLED"}:
         step["status"] = event_name
         execution.steps = steps
-        if execution.business_completed and str(step.get("kind")) in {"move_to_point", "aruco_align", "scenario", "route"}:
+        if execution.business_completed and str(step.get("kind")) in {"move_to_point", "aruco_align", "inout_scenario"}:
             execution.return_status = "PARK_FAILED"
             orch["parking_error"] = {
                 "state": event_name,
@@ -590,14 +594,16 @@ def advance_on_command_event(
             )
             return finished
         event_payload = event.get("event") if isinstance(event.get("event"), dict) else event
-        reason = str((event_payload or {}).get("reason") or "").lower()
+        reason = str(
+            (event_payload or {}).get("reason_code") or (event_payload or {}).get("reason") or ""
+        ).lower()
         cargo_state = str(scenario_progress.get("cargo_state") or "").upper()
         if cargo_state not in {"EMPTY", "LOADED"}:
-            cargo_state = orch_state.cargo_state_after_steps(steps)
+            cargo_state = "UNKNOWN" if str(step.get("kind")) == "inout_scenario" else orch_state.cargo_state_after_steps(steps)
         estop_failure = event_name == "ABORTED" and "estop" in reason
-        awaiting_operator = cargo_state == "LOADED" or estop_failure
+        awaiting_operator = cargo_state in {"LOADED", "UNKNOWN"} or estop_failure
         if awaiting_operator:
-            recovery_reason = "movement_failure_loaded_cargo" if cargo_state == "LOADED" else "movement_estop"
+            recovery_reason = "movement_failure_loaded_cargo" if cargo_state in {"LOADED", "UNKNOWN"} else "movement_estop"
             execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
             execution.replace_recovery({
                 "reason": recovery_reason,
@@ -643,7 +649,7 @@ def advance_on_command_event(
         )
         return _task(conn, task_id)
 
-    if event_name == "DONE" and str(step.get("kind")) == "scenario":
+    if event_name == "DONE" and str(step.get("kind")) == "inout_scenario":
         gate_errors = _scenario_done_gate_errors(scenario_progress)
         if gate_errors:
             step["completion_gate_errors"] = gate_errors
@@ -659,15 +665,10 @@ def advance_on_command_event(
                 payload={"missing_or_invalid": gate_errors, "scenario_progress": scenario_progress},
             )
             return None
-
-    if event_name == "DONE" and str(step.get("kind")) == "route" and not execution.business_completed:
-        inventory_ops.settle_inventory_for_completed_task(conn, task_id)
-        execution.mark_business_completed(at_step=step_index)
         step.pop("completion_gate_errors", None)
 
-
     if event_name not in _step_done_events(str(step.get("kind") or "move_to_point")):
-        if sequence is not None or str(step.get("kind")) in {"scenario", "route"}:
+        if sequence is not None or str(step.get("kind")) == "inout_scenario":
             execution.steps = steps
             evidence.save_orchestration(conn, task_id, orch)
         return None
@@ -748,11 +749,7 @@ def _bind_missing_callback_command(conn, task_id: int, task: dict[str, Any], pay
     step = steps[step_index]
     if step.get("command_id") or orch_state.normalize_robot_task_step_status(step.get("status")) != "PENDING":
         return False
-    if str(step.get("kind")) == "scenario":
-        expected_scenario = str((step.get("params") or {}).get("scenario_id") or "")
-        if str(payload.get("scenario_id") or "") != expected_scenario:
-            return False
-    else:
+    if str(step.get("kind")) != "inout_scenario":
         try:
             callback_step_index = int(payload.get("current_step_index"))
         except (TypeError, ValueError):
@@ -820,15 +817,32 @@ def poll_running_tasks(conn) -> int:
         if not robot_id:
             continue
         try:
-            if str(step.get("kind")) in {"scenario", "route"}:
-                status = movement_client.scenario_command_status(robot_id, str(step["command_id"]))
+            if str(step.get("kind")) == "inout_scenario":
+                status = movement_client.inout_scenario_status(robot_id, str(step["command_id"]))
             else:
                 status = movement_client.command_status(robot_id, str(step["command_id"]))
         except MovementClientError:
             continue
         state = str(status.get("state") or status.get("status") or "").upper()
         done_events = _step_done_events(str(step.get("kind") or "move_to_point"))
-        if state in done_events or state in {"FAILED", "ABORTED", "REJECTED", "CANCELLED", "CANCELED", "STOPPED"}:
+        scenario_changed = False
+        if str(step.get("kind")) == "inout_scenario":
+            previous = step.get("scenario_progress") or {}
+            status.setdefault("contract_version", inout_scenarios.CONTRACT_VERSION)
+            scenario_changed = any(
+                status.get(field) != previous.get(field)
+                for field in (
+                    "state",
+                    "current_step_index",
+                    "current_step_code",
+                    "last_completed_step_index",
+                    "cargo_state",
+                    "business_completed",
+                    "updated_at",
+                )
+                if field in status
+            )
+        if scenario_changed or state in done_events or state in {"FAILED", "ABORTED", "REJECTED", "CANCELLED", "CANCELED", "STOPPED"}:
             if advance_on_command_event(
                 conn,
                 int(task["task_id"]),

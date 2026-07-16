@@ -15,8 +15,8 @@ from app.core.config import settings
 from app.db.connection import init_db, transaction
 from app.db.postgres import operational_events
 from app.db.postgres import robots as postgres_robots
-from app.domains.movement.client import set_robot_emergency
 from app.domains.execution.poller import poll_task_progress_loop
+from app.domains.movement.client import set_robot_emergency
 from app.domains.movement.pose_monitor import (
     pose_event_writer_loop,
     pose_fallback_poller_loop,

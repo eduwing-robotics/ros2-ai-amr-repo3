@@ -33,7 +33,6 @@ from app.models.movement import (
     MovementCallbackAck,
     MovementRobotStatusCallback,
     RobotCommandEvent,
-    RobotCommandResult,
 )
 from app.models.robot_commands import RobotCommandRequest, RobotCommandResponse
 from app.models.robots import (
@@ -255,14 +254,6 @@ def movement_command_event(payload: RobotCommandEvent, request: Request) -> Move
     require_callback_token(request)
     with transaction() as conn:
         return MovementCallbackAck(**callbacks.ingest_command_event(conn, payload.to_payload()))
-
-
-@router.post("/movement/results", response_model=MovementCallbackAck)
-def movement_result(payload: RobotCommandResult, request: Request) -> MovementCallbackAck:
-    """Legacy result callback을 기록하고 command lifecycle에 반영한다."""
-    require_callback_token(request)
-    with transaction() as conn:
-        return MovementCallbackAck(**callbacks.ingest_result(conn, payload.to_payload()))
 
 
 @router.post("/movement/robots/{robot_name}/status", response_model=ApiMessage)

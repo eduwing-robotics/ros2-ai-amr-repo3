@@ -61,6 +61,46 @@ def test_stop_request_is_immediate_and_cargo_aware() -> None:
     assert saved["stop_request"]["accepted"] is True
 
 
+def test_scenario_stop_uses_contract_request_and_validates_acceptance() -> None:
+    conn = MagicMock()
+    task = _task()
+    orch = task["preset_snapshot"]["_orchestration"]
+    orch["step_index"] = 0
+    orch["steps"] = [
+        {
+            "kind": "inout_scenario",
+            "status": "DISPATCHED",
+            "command_id": "scenario-42",
+            "scenario_progress": {"cargo_state": "EMPTY", "business_completed": False},
+        }
+    ]
+    with (
+        patch.object(safe_stop.evidence, "attach_orchestration", return_value=task),
+        patch.object(safe_stop.evidence, "save_orchestration") as save,
+        patch.object(safe_stop, "movement_client") as movement,
+        patch.object(safe_stop, "operational_events"),
+    ):
+        movement.inout_scenario_safe_stop.return_value = {
+            "accepted": True,
+            "command_id": "scenario-42",
+            "request_id": "stop-scenario-42",
+            "state": "STOP_REQUESTED",
+        }
+        result = safe_stop.request_work_order_stop(conn, 42)
+
+    movement.inout_scenario_safe_stop.assert_called_once_with(
+        "robot1",
+        "scenario-42",
+        {
+            "request_id": "stop-scenario-42",
+            "reason": "OPERATOR_REQUESTED",
+            "requested_by": "main-operator",
+        },
+    )
+    assert result["accepted"] is True
+    assert save.call_args.args[2]["phase"] == "CANCEL_REQUESTED"
+
+
 def test_stop_without_active_command_confirms_robot_and_opens_recovery() -> None:
     conn = MagicMock()
     task = _task()

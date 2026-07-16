@@ -18,7 +18,7 @@ def _progress_snapshot(execution: RobotTaskExecutionState) -> RobotTaskProgress 
     steps = execution.steps
     if not steps:
         return None
-    if len(steps) == 1 and str(steps[0].get("kind")) == "route":
+    if len(steps) == 1 and str(steps[0].get("kind")) == "inout_scenario":
         route_steps = steps[0].get("route_timeline")
         if isinstance(route_steps, list) and route_steps:
             return RobotTaskProgress(

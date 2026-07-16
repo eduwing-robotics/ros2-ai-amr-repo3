@@ -7,13 +7,16 @@
 보조 독자: 배포 담당자·QA
 난이도: 연동
 소유: Integration
-최종 갱신: 2026-07-16 16:00 KST
+최종 갱신: 2026-07-16 20:50 KST
 구현 기준: Main outbound client·callback route·현재 환경변수
 목적: **Main 서버 기준** 외부 HTTP 계약 — Movement/Vision 경계, robot-commands, 콜백, lift-load evidence.
 
 Main 서버와 다른 서버(Movement·Vision) 사이의 HTTP 계약을 정의한다. Main이 호출하는 API, 수신하는 콜백,
 상대 서버가 지원하지 않는 command에 대한 `501` 응답을 담는다. 브라우저가 쓰는 REST 목록은
 [API](API.md), 시스템 전체 구조는 [ARCHITECTURE](ARCHITECTURE.md) 참고.
+
+자동 입고·출고 Scenario API의 요청·9개 업무 단계·callback·화물·재고 계약은
+[Main ↔ Movement Scenario API Contract](MOVEMENT_SCENARIO_API_CONTRACT.md)가 최우선 정본이다.
 
 ## 1. 큰 그림 (Main 경계)
 
@@ -149,6 +152,9 @@ POST /api/v1/robots/{robot_name}/pose  # Movement -> Main canonical latest-pose 
 POST /robot-commands
 GET /robot-commands/{command_id}
 POST /robot-commands/{command_id}/cancel
+POST /movement-api/v1/scenario-commands
+GET /movement-api/v1/scenario-commands/{command_id}
+POST /movement-api/v1/scenario-commands/{command_id}/safe-stop
 POST /movement-api/v1/manual/stop
 GET /movement-api/v1/robots/{robot_name}/localization
 GET /movement-api/v1/robots/{robot_name}/nav-state
@@ -165,7 +171,7 @@ GET /robot-commands/{id}
 
 ### 7.3 Waypoint 이동 요청
 
-업무 슬롯·입출고·대기장 이동은 좌표가 아니라 Movement의 canonical `waypoint_id`를 보낸다. Main outbound envelope:
+수동·일반 단일 이동은 Movement의 canonical `waypoint_id`를 보낸다. Main outbound envelope:
 
 ```json
 {
@@ -182,7 +188,7 @@ GET /robot-commands/{id}
 
 - 정상 상태: `ACCEPTED → RUNNING → ARRIVED`; Main은 `ARRIVED` 뒤에만 다음 step을 보낸다.
 - 슬롯 waypoint는 Movement가 `nav2_pose → aruco_align(0.4m) → wait(3s) → aruco_align(0.2m, straight_insert)`로 확장한다.
-- 자동 입출고는 동일 삽입이 반복되지 않도록 별도 `dock_transfer`를 만들지 않는다.
+- 자동 입출고는 이 envelope가 아니라 [Scenario API Contract](MOVEMENT_SCENARIO_API_CONTRACT.md)를 사용한다.
 - 수동 좌표 이동의 `map_id/x/y/yaw` 입력은 legacy 호환 경계로만 유지한다.
 - `robot_name`/포트 불일치 또는 같은 `command_id`의 다른 payload는 `409`다.
 - localization 미준비는 명확한 error/reason으로 실패한다.
@@ -250,7 +256,7 @@ Main은 callback 누락을 가정하고 `GET /robot-commands/{id}`로 보정한�
 
 상세 구현 요구는 [MOVEMENT_SERVER_REQUIREMENTS](MOVEMENT_SERVER_REQUIREMENTS.md)를 따른다.
 
-추가 inbound: `POST /api/v1/movement/results` · `/movement/robots/{name}/status` · canonical pose report (`/robots/{id}/pose`).
+추가 inbound: `/movement/robots/{name}/status` · canonical pose report (`/robots/{id}/pose`).
 
 Robot status callback이 `is_emergency`를 명시하면 Main은 해당 로봇의 ESTOP latch를 실제 보고값으로 정합화하고
 `ROBOT_ESTOP_CONFIRMED` 또는 `ROBOT_CLEAR_ESTOP_CONFIRMED` 이벤트를 남긴다. 같은 확인 상태의 반복 보고는
@@ -296,8 +302,7 @@ Main_Control의 `POST /api/v1/robot-commands`는 Robot Command 외부 계약이�
 | `estop` | ✅ | estop/clear | stop/clear |
 | `dock_transfer` | Movement 지원 여부 반영 | 미지원 응답 → Main `501` | marker/action/level |
 | `aruco_align` | Movement 지원 여부 반영 | 미지원 응답 → Main `501` | marker/final/tolerance |
-| `scenario` | ✅ (내부 실행 kind) | `/scenarios/{id}/*` | 한 command로 Movement가 내부 전체 단계를 소유 |
-| `route` | ✅ (내부 실행 kind) | `/routes/preview`, `/routes/commands` | 입출고 이동·적재·하역·복귀를 한 command로 소유 |
+| `inout_scenario` | Main 내부 전용 | `/scenario-commands` | DB 접근 좌표를 한 번 전송하고 9개 업무 callback 추적 |
 
 ```jsonc
 {
@@ -311,35 +316,10 @@ Main_Control의 `POST /api/v1/robot-commands`는 Robot Command 외부 계약이�
 }
 ```
 
-1층 일반 입출고는 Main에 단일 `route` step만 두고 다음 순서를 지킨다.
-
-1. `POST /movement-api/v1/routes/preview`
-2. source/target section 일치와 `dock_transfer(load, level=1) → dock_transfer(unload, level=1)` 확인
-3. 같은 body와 command ID로 `POST /movement-api/v1/routes/commands`
-4. callback 유실 시 `GET /movement-api/v1/commands/{command_id}`로 보정
-5. 운영자 중단 시 `POST .../commands/{command_id}/safe-stop`
-
-Movement의 현재 route builder는 창고 section override보다 `item_name`의 route catalog를 우선한다. Main은 실제
-재고 품목을 task에 그대로 유지하고, Movement 요청의 `item_name`에는 선택된 창고 section에 대응하는 경로
-profile 키(`bolt`=A, `nut`=B, `wire`=C, `rubber_packing`=D)를 사용한다. preview section 검증이 다르면 실행하지 않는다.
-
-`INBOUND_02 → STORAGE_01`, `to_floor=2`, `tb3_2` 작업은 검증된
-`inbound2-storage-b` 예외 계약을 사용한다. Main에는 단일 `scenario` step만 있고 Movement가 내부 9단계를 소유한다.
-
-이 예외 흐름은 다음 순서를 지킨다.
-
-1. `POST /movement-api/v1/scenarios/inbound2-storage-b/preview`
-2. `executable=true`, 빈 `blocking_reasons`, 설정된 `plan_hash` 일치 확인
-3. 같은 body와 `Idempotency-Key=command_id`로 `POST .../commands`
-4. callback 유실 시 `GET /movement-api/v1/commands/{command_id}`로 보정
-5. 운영자 중단 시 `POST .../commands/{command_id}/safe-stop`
-
-불확실한 Command POST 실패는 새 ID를 만들지 않는다. 같은 ID를 먼저 조회하고 404일 때만 동일 body를 한 번
-재전송한다. Movement가 `business_completed=true`, `cargo_state=EMPTY`, `last_completed_step_index>=6`을 보고하면
-재고를 확정하지만 작업은 계속 RUNNING이다. 최종 DONE은 `PARK_COMPLETE`, `last_completed_step_index>=8`,
-`navigator_status=IDLE`, `is_emergency=false`, `authority_owner=MAIN`, `authority_released=true`를 모두 확인한 뒤에만 처리한다.
-
-운영 기본값은 `skip_lift=false`다. `skip_lift=true`는 명시적으로 승인된 실물 검증에만 사용한다.
+자동 입출고는 Main에 단일 `inout_scenario` command step과 9개 업무 타임라인을 미리 생성한다. Main은 DB에서
+pickup/dropoff 업무 위치에 연결된 접근 waypoint의 `id/x/y/yaw`를 snapshot하고 한 번 POST한다. 품목·수량,
+marker, 리프트 높이, 정밀 거리와 속도는 전송하지 않는다. 상세 필드·멱등·callback·완료 Gate는
+[Scenario API Contract](MOVEMENT_SCENARIO_API_CONTRACT.md)만 정본으로 사용한다.
 
 ---
 
@@ -357,33 +337,25 @@ API 없으면 Main `movement_initial_pose_api_missing`.
 
 ---
 
-## 10. 입출고 Route Scenario 실행
-
-**Active 결정:**
-
-- Main은 위치 ID를 Movement semantic section ID로 변환해 route preview에 전달한다.
-- preview에 load와 unload 두 리프트 단계가 정확히 없으면 실행하지 않는다.
-- route 전체는 하나의 command ID로 실행하므로 Main이 중간 `dock_transfer`를 중복 전송하지 않는다.
-- 현재 범용 route는 1층만 허용한다. 검증된 2층 고정 시나리오 외 조합은 차단한다.
-- 최종 DONE 전에는 재고를 반영하지 않는다.
+## 10. 자동 입출고 Scenario 실행
 
 ```mermaid
 sequenceDiagram
   participant Main
   participant MV as Movement
-  Main->>MV: POST routes/preview (source·target·item)
-  MV-->>Main: steps 포함 load(level 1)·unload(level 1)
-  Main->>MV: POST routes/commands (동일 body·command ID)
-  MV-->>Main: 단계 callback
-  MV-->>Main: DONE
+  Main->>Main: DB approach snapshot + 9개 PENDING step 생성
+  Main->>MV: POST scenario-commands (한 번)
+  MV-->>Main: 202 ACCEPTED
+  MV-->>Main: 9개 업무 step callback
+  MV-->>Main: UNLOAD STEP_COMPLETED + EMPTY
   Main->>Main: 재고 1회 반영
+  MV-->>Main: PARK + COMMAND_DONE + 안전 Gate
+  Main->>Main: Task 완료
 ```
 
-입고 예: `inbound_slot_1 → warehouse_section_d → vehicle_2_approach`. Movement가 접근·정밀 정렬·load·이동·정밀 정렬·unload·복귀를 한 명령 안에서 수행한다.
-
-적재 후 `FAILED/ABORTED/CANCELLED` 또는 다음 dispatch 실패가 발생하면 Main은 task와 robot 할당을 유지한 채 `AWAITING_OPERATOR(cargo_state=LOADED)`로 전환한다. unload `ARRIVED` 이후 복귀·주차 실패는 이미 완료된 물류를 되돌리지 않고 `PARK_FAILED`로 기록한다.
-
-Movement 조회 결과의 `step_actions`는 슬롯 waypoint에서 `nav2_pose, aruco_align, wait, aruco_align`이어야 한다.
+적재 후 terminal 실패는 Task와 robot 할당을 유지한 채 `AWAITING_OPERATOR`로 전환한다. UNLOAD 이후 복귀·주차
+실패는 물류 완료를 되돌리지 않고 `PARK_FAILED`로 기록한다. callback 유실은 같은 command ID의 상태 조회로
+보정하고, 실제 재실행은 새 command ID를 사용한다.
 
 ---
 

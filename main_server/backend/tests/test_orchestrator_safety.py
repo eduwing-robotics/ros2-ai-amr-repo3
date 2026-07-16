@@ -216,10 +216,10 @@ class MovementOwnedScenarioTest(unittest.TestCase):
                     "business_completed": business_completed,
                     "steps": [
                         {
-                            "kind": "scenario",
+                            "kind": "inout_scenario",
                             "status": "DISPATCHED",
                             "command_id": "main-task-344-scenario-001",
-                            "params": {"scenario_id": "inbound2-storage-b"},
+                            "route_timeline": orchestrator.inout_scenarios.business_timeline(),
                         }
                     ],
                 }
@@ -251,18 +251,23 @@ class MovementOwnedScenarioTest(unittest.TestCase):
                 conn,
                 344,
                 {
+                    "contract_version": "1.0",
+                    "event_id": "exec-344-seq-15",
                     "command_id": "main-task-344-scenario-001",
-                    "event": "BUSINESS_COMPLETED",
+                    "task_id": 344,
+                    "robot_name": "tb3_2",
+                    "event": "STEP_COMPLETED",
                     "sequence": 15,
                     "execution_id": "exec-344",
-                    "scenario_id": "inbound2-storage-b",
                     "current_step_index": 6,
-                    "current_step_code": "STORAGE_UNLOAD_COMPLETE",
+                    "current_step_code": "UNLOAD",
                     "last_completed_step_index": 6,
                     "cargo_state": "EMPTY",
                     "business_completed": True,
                     "authority_owner": "MOVEMENT",
                     "authority_released": False,
+                    "message": "화물 하역 완료",
+                    "reported_at": "2026-07-16T10:23:00Z",
                 },
             )
 
@@ -287,9 +292,11 @@ class MovementOwnedScenarioTest(unittest.TestCase):
                 conn,
                 344,
                 {
+                    "contract_version": "1.0",
                     "command_id": "main-task-344-scenario-001",
                     "event": "COMMAND_DONE",
-                    "current_step_code": "PARK_COMPLETE",
+                    "current_step_index": 8,
+                    "current_step_code": "PARK",
                     "last_completed_step_index": 8,
                     "cargo_state": "EMPTY",
                     "business_completed": True,
@@ -318,10 +325,12 @@ class MovementOwnedScenarioTest(unittest.TestCase):
                 conn,
                 344,
                 {
+                    "contract_version": "1.0",
                     "command_id": "main-task-344-scenario-001",
                     "state": "DONE",
                     "event": "COMMAND_DONE",
-                    "current_step_code": "PARK_COMPLETE",
+                    "current_step_index": 8,
+                    "current_step_code": "PARK",
                     "last_completed_step_index": 8,
                     "cargo_state": "EMPTY",
                     "business_completed": True,
@@ -351,15 +360,19 @@ class MovementOwnedScenarioTest(unittest.TestCase):
                 conn,
                 344,
                 {
+                    "contract_version": "1.0",
                     "command_id": "main-task-344-scenario-001",
                     "event": "COMMAND_FAILED",
-                    "current_step_code": "STORAGE_PRECISION_APPROACH",
+                    "current_step_index": 4,
+                    "current_step_code": "TRANSPORT",
                     "last_completed_step_index": 4,
                     "cargo_state": "LOADED",
                     "business_completed": False,
                     "authority_owner": "MAIN",
                     "authority_released": True,
-                    "reason": "aruco timeout",
+                    "navigator_status": "IDLE",
+                    "is_emergency": False,
+                    "reason_code": "ARUCO_TIMEOUT",
                 },
             )
 

@@ -8,7 +8,6 @@ from app.models.movement import (
     MovementRobotStatusCallback,
     RobotCommandEvent,
     RobotCommandRecord,
-    RobotCommandResult,
 )
 from app.models.records import (
     CameraSource,
@@ -69,7 +68,6 @@ from app.models.work_orders import (
 # Legacy Python import compatibility. Product code imports canonical owner modules.
 MovementCommand = RobotCommandRecord
 MovementCommandEvent = RobotCommandEvent
-MovementCommandResult = RobotCommandResult
 StatusSnapshot = ControlSystemStatusSnapshot
 Task = RobotTask
 TaskAssign = RobotTaskAssign
@@ -93,11 +91,9 @@ __all__ = [
     "MovementCallbackAck",
     "MovementCommand",
     "MovementCommandEvent",
-    "MovementCommandResult",
     "MovementRobotStatusCallback",
     "RobotCommandEvent",
     "RobotCommandRecord",
-    "RobotCommandResult",
     "Robot",
     "RobotCommandKind",
     "RobotCommandRequest",

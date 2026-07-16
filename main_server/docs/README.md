@@ -5,11 +5,11 @@
 보조 독자: 전체 프로젝트 구성원
 난이도: 입문
 소유: Docs
-최종 갱신: 2026-07-16 16:00 KST
+최종 갱신: 2026-07-16 20:50 KST
 구현 기준: 현재 추적 중인 공개 문서와 저장소 경로
 목적: GitHub 공개 정본 목차와 권장 읽기 순서.
 
-공개 문서는 아래 12개가 전부다. 상세 설계 노트·의사결정 기록(ADR)·팀 정책 문서는 팀 내부에서 관리한다.
+공개 정본은 아래 목록으로 관리한다. 상세 설계 노트·의사결정 기록(ADR)·팀 정책 문서는 팀 내부에서 관리한다.
 
 ## 공개 정본
 
@@ -27,6 +27,7 @@
 | [DATABASE](DATABASE.md) | Backend·DB 담당자 | 개발 | 데이터 SoT와 수명주기 |
 | [API](API.md) | Main·Frontend 개발자 | 개발 | Browser→Main REST 경계 |
 | [INTERFACES](INTERFACES.md) | 서버 연동 개발자 | 연동 | Main↔외부 서버 계약 |
+| [Movement Scenario API Contract](MOVEMENT_SCENARIO_API_CONTRACT.md) | Main·Movement 개발자 | 연동 | 입출고 단일 실행·업무 단계·callback 정본 |
 | [MOVEMENT_SERVER_REQUIREMENTS](MOVEMENT_SERVER_REQUIREMENTS.md) | Movement 개발자 | 연동 | callback·재시도·ESTOP 요구 |
 
 ```mermaid
@@ -45,7 +46,8 @@ flowchart TD
   Glossary --> Architecture[ARCHITECTURE]
   Architecture --> API[API · DATABASE]
   Integrate --> Interfaces[INTERFACES]
-  Interfaces --> Movement[MOVEMENT 요구서]
+  Interfaces --> Scenario[Scenario API 규약]
+  Scenario --> Movement[MOVEMENT 요구서]
 ```
 ## 독자별 읽기 순서
 
@@ -55,7 +57,7 @@ flowchart TD
 | 현장 버튼 빠른 확인 | [운영자 버튼 빠른 안내](OPERATOR_BUTTON_GUIDE.md) | [UX](UX.md) · [OPERATIONS](OPERATIONS.md) |
 | 로컬 실행·장애 대응 | [OPERATIONS](OPERATIONS.md) | [Database](DATABASE.md) |
 | 시스템 구조 파악 | [GLOSSARY](GLOSSARY.md) | [ARCHITECTURE](ARCHITECTURE.md) · [INTERFACES](INTERFACES.md) |
-| API 연동 | [API](API.md) | [INTERFACES](INTERFACES.md) · [Movement 요구서](MOVEMENT_SERVER_REQUIREMENTS.md) |
+| API 연동 | [API](API.md) | [INTERFACES](INTERFACES.md) · [Scenario API 규약](MOVEMENT_SCENARIO_API_CONTRACT.md) · [Movement 요구서](MOVEMENT_SERVER_REQUIREMENTS.md) |
 
 README는 프로젝트 요약만, OPERATIONS는 실행 명령과 현장 절차만, TEST_CASES는 상태 정책과 검증 근거만 소유한다. 같은 내용을 여러 문서에 반복하지 않는다.
 
@@ -73,7 +75,8 @@ DDL을 정본으로 두고 문서에는 판단에 필요한 흐름과 경계만 
 
 ## 유지 기준
 
-- 문서마다 상태·주 독자·보조 독자·난이도·소유자·갱신 시각·구현 기준·목적을 둔다. `Draft`는 미확정 계약, `Active`는 현재 코드와 운영 기준이다.
+- 문서마다 상태·주 독자·보조 독자·난이도·소유자·갱신 시각·구현 기준·목적을 둔다. `Draft`는 미확정,
+  `Approved`는 합의됐지만 구현 전환 중인 계약, `Active`는 현재 코드와 운영 기준이다.
 - 코드·DDL·OpenAPI처럼 실행 가능한 산출물을 정본으로 두고, 문서는 의도·경계·사용법을 설명한다.
 - 구현된 기능, 미검증 항목, 향후 제안을 섞지 않는다. 미구현·미검증은 해당 문서에서 명시한다.
 - 같은 표나 절차를 복사하지 않고 정본 링크로 연결한다. 새 문서는 독립된 독자와 책임이 있을 때만 만든다.

@@ -146,23 +146,6 @@ class Settings:
     # Shared token for Movement -> Main callbacks. Empty keeps local development compatible.
     movement_callback_token: str = os.getenv("LMS_MOVEMENT_CALLBACK_TOKEN", "").strip()
     movement_active_map_id: str = os.getenv("LMS_MOVEMENT_ACTIVE_MAP_ID", "robot2_map")
-    inbound2_storage_b_scenario_enabled: bool = os.getenv(
-        "LMS_INBOUND2_STORAGE_B_SCENARIO_ENABLED", "true"
-    ).lower() in {"1", "true", "yes", "on"}
-    inbound2_storage_b_scenario_id: str = os.getenv(
-        "LMS_INBOUND2_STORAGE_B_SCENARIO_ID", "inbound2-storage-b"
-    ).strip()
-    inbound2_storage_b_scenario_version: int = int(
-        os.getenv("LMS_INBOUND2_STORAGE_B_SCENARIO_VERSION", "1")
-    )
-    inbound2_storage_b_plan_hash: str = os.getenv(
-        "LMS_INBOUND2_STORAGE_B_PLAN_HASH",
-        "9ed3212541519c8b7ea345105f50e3a52df3c49ed6de65f8f4a017d908c03a3a",
-    ).strip()
-    # 실물 검증의 skip_lift=true와 달리 운영 계약은 리프트를 수행한다.
-    inbound2_storage_b_skip_lift: bool = os.getenv(
-        "LMS_INBOUND2_STORAGE_B_SKIP_LIFT", "false"
-    ).lower() in {"1", "true", "yes", "on"}
     # Real-time Pose는 process memory를 사용하고 DB에는 품질 전이 event만 기록한다.
     pose_receive_stale_sec: float = float(os.getenv("LMS_POSE_RECEIVE_STALE_SEC", "1.5"))
     pose_receive_lost_sec: float = float(os.getenv("LMS_POSE_RECEIVE_LOST_SEC", "5.0"))

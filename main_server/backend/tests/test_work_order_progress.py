@@ -70,20 +70,20 @@ def test_work_order_progress_is_absent_before_orchestration_starts() -> None:
     assert robot_task_summary_to_v1(summary)["progress"] is None
 
 
-def test_route_progress_projects_preview_internal_steps() -> None:
+def test_scenario_progress_projects_business_steps() -> None:
     execution = RobotTaskExecutionState.wrap(
         {
             "phase": "RUNNING",
             "step_index": 0,
             "steps": [{
-                "kind": "route",
+                "kind": "inout_scenario",
                 "status": "DISPATCHED",
-                "command_id": "route-1",
+                "command_id": "scenario-1",
                 "route_timeline_current_index": 1,
                 "route_timeline": [
-                    {"kind": "nav2_waypoints", "label": "픽업 위치 접근", "status": "DONE", "command_id": "route-1"},
-                    {"kind": "dock_transfer", "label": "화물 적재", "status": "RUNNING", "command_id": "route-1", "transfer_action": "load"},
-                    {"kind": "nav2_waypoints", "label": "목적 위치 이동", "status": "PENDING", "command_id": "route-1"},
+                    {"kind": "LEAVE_HOME", "label": "대기 위치 출차", "status": "DONE", "command_id": "scenario-1"},
+                    {"kind": "PICKUP_APPROACH", "label": "적재 위치 이동", "status": "RUNNING", "command_id": "scenario-1"},
+                    {"kind": "PICKUP_ALIGN", "label": "적재 위치 정밀 접근", "status": "PENDING", "command_id": "scenario-1"},
                 ],
             }],
         }
@@ -92,11 +92,10 @@ def test_route_progress_projects_preview_internal_steps() -> None:
         robot_task={"task_id": 1, "task_type": "INBOUND", "quantity": 1, "status": "RUNNING"},
         order_id=1,
         execution=execution,
-        active_command_id="route-1",
+        active_command_id="scenario-1",
         floor=1,
     )
     assert summary.progress is not None
     assert summary.progress.current_step_index == 1
-    assert [step.label for step in summary.progress.steps] == ["픽업 위치 접근", "화물 적재", "목적 위치 이동"]
+    assert [step.label for step in summary.progress.steps] == ["대기 위치 출차", "적재 위치 이동", "적재 위치 정밀 접근"]
     assert [step.status for step in summary.progress.steps] == ["DONE", "RUNNING", "PENDING"]
-    assert summary.progress.steps[1].transfer_action == "load"

@@ -88,26 +88,6 @@ class MovementCallbackServiceTest(unittest.TestCase):
 
     @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
     @patch("app.domains.movement.callbacks.operational_events")
-    def test_legacy_result_without_event_id_uses_stable_dedup_key(self, operational_events, handle_event) -> None:
-        operational_events.callback_event_exists.return_value = True
-        result = callbacks.ingest_result(
-            self.conn,
-            {
-                "command_id": "cmd-legacy",
-                "robot_name": "r1",
-                "result": "DONE",
-                "reported_at": "2026-07-14T10:52:51.066727Z",
-            },
-        )
-
-        expected = "movement:result:cmd-legacy:DONE:2026-07-14T10:52:51.066727Z"
-        operational_events.callback_event_exists.assert_called_once_with(self.conn, expected)
-        self.assertTrue(result["duplicate"])
-        operational_events.append.assert_not_called()
-        handle_event.assert_not_called()
-
-    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
-    @patch("app.domains.movement.callbacks.operational_events")
     def test_event_write_failure_does_not_advance_execution(self, operational_events, handle_event) -> None:
         operational_events.callback_event_exists = self.event.callback_event_exists
         operational_events.append.side_effect = RuntimeError("event write failed")
@@ -116,47 +96,6 @@ class MovementCallbackServiceTest(unittest.TestCase):
             callbacks.ingest_command_event(self.conn, {"command_id": "cmd-1", "robot_name": "r1", "event": "DONE"})
 
         handle_event.assert_not_called()
-
-    @patch("app.domains.movement.callbacks.robot_command_records")
-    @patch("app.domains.movement.callbacks.operational_events")
-    def test_ingest_result_records_when_command_id_present(self, operational_events, robot_command_records) -> None:
-        operational_events.append = self.event.append
-        operational_events.callback_event_exists = self.event.callback_event_exists
-        robot_command_records.record_result = self.movement.record_result
-        payload = {"command_id": "cmd-2", "robot_id": "r2", "result": "SUCCESS", "message": "done"}
-
-        callbacks.ingest_result(self.conn, payload)
-
-        self.event.append.assert_called_once()
-        self.assertEqual(self.event.append.call_args.kwargs["event_type"], "MOVEMENT_RESULT_SUCCESS")
-        self.movement.record_result.assert_called_once_with(self.conn, "cmd-2", "SUCCESS", "done", payload)
-
-    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
-    @patch("app.domains.movement.callbacks.robot_command_records")
-    @patch("app.domains.movement.callbacks.operational_events")
-    def test_legacy_result_is_marked_for_canonical_terminal_policy(
-        self, operational_events, robot_command_records, handle_event
-    ) -> None:
-        operational_events.callback_event_exists.return_value = False
-        callbacks.ingest_result(
-            self.conn,
-            {"command_id": "route-1", "robot_name": "tb3_2", "result": "FAILED", "message": "legacy"},
-        )
-        forwarded = handle_event.call_args.args[1]
-        self.assertEqual(forwarded["event"], "FAILED")
-        self.assertEqual(forwarded["_callback_channel"], "legacy_result")
-
-    @patch("app.domains.movement.callbacks.robot_command_records")
-    @patch("app.domains.movement.callbacks.operational_events")
-    def test_ingest_result_skips_record_without_command_id(self, operational_events, robot_command_records) -> None:
-        operational_events.append = self.event.append
-        operational_events.callback_event_exists = self.event.callback_event_exists
-        robot_command_records.record_result = self.movement.record_result
-
-        callbacks.ingest_result(self.conn, {"result": "FAILED"})
-
-        self.event.append.assert_called_once()
-        self.movement.record_result.assert_not_called()
 
     @patch("app.domains.movement.callbacks.pose_runtime")
     def test_ingest_robot_status_updates_pose_memory_when_localized(self, pose_runtime) -> None:
@@ -325,21 +264,9 @@ class MovementCallbackRouteTest(unittest.TestCase):
         self.assertEqual(denied.status_code, 401)
         self.assertEqual(allowed.status_code, 200)
 
-    @patch("app.domains.movement.router.transaction")
-    @patch("app.domains.movement.router.callbacks.ingest_result")
-    def test_results_route_shape(self, ingest, transaction_ctx) -> None:
-        conn = MagicMock()
-        transaction_ctx.return_value.__enter__.return_value = conn
-        ingest.return_value = {"message": "movement result saved"}
-
-        res = self.client.post(
-            "/api/v1/movement/results", json={"command_id": "c1", "robot_name": "r1", "result": "OK"}
-        )
-
-        self.assertEqual(res.status_code, 200)
-        body = res.json()
-        self.assertEqual(body["message"], "movement result saved")
-        ingest.assert_called_once()
+    def test_legacy_results_route_is_removed(self) -> None:
+        operation = app.openapi().get("paths", {}).get("/api/v1/movement/results", {})
+        self.assertNotIn("post", operation)
 
     @patch("app.domains.movement.router.transaction")
     @patch("app.domains.movement.router.callbacks.ingest_robot_status")
