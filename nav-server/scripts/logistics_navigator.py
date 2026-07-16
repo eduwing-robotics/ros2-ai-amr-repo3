@@ -1652,11 +1652,12 @@ class LogisticsNavigator(Node):
         x = float(goal["x"])
         y = float(goal["y"])
         yaw = float(goal.get("yaw", 0.0))
-        now = self.get_clock().now().to_msg()
 
         pose = PoseStamped()
         pose.header.frame_id = frame_id
-        pose.header.stamp = now
+        # A zero stamp asks AMCL/tf2 to use the latest available transform.
+        # Stamping with the local current time races the bridged odom TF and
+        # can be rejected as a small extrapolation into the future.
         pose.pose.position.x = x
         pose.pose.position.y = y
         pose.pose.orientation.z = math.sin(yaw / 2.0)
@@ -1664,17 +1665,14 @@ class LogisticsNavigator(Node):
 
         msg = PoseWithCovarianceStamped()
         msg.header.frame_id = frame_id
-        msg.header.stamp = now
         msg.pose.pose = pose.pose
         msg.pose.covariance[0] = float((covariance or {}).get("x", 0.25))
         msg.pose.covariance[7] = float((covariance or {}).get("y", 0.25))
         msg.pose.covariance[35] = float((covariance or {}).get("yaw", 0.0685))
 
-        try:
-            self.nav.setInitialPose(pose)
-        except Exception as exc:
-            self.get_logger().warning(f"BasicNavigator initial pose set failed: {exc}")
-
+        # Publish through the application-owned channel only. BasicNavigator's
+        # helper rewrites the zero stamp to `now`, which races bridged odom TF
+        # and produces a second, future-dated initial pose.
         self.initial_pose_pub.publish(msg)
         return {
             "frame_id": frame_id,

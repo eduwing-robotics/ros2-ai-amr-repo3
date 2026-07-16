@@ -38,6 +38,15 @@ class TaskAssign(BaseModel):
     robot_id: str
 
 
+class TaskStartRequest(BaseModel):
+    """Explicit execution boundary for starting an assigned task."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    execution_mode: Literal["physical", "synthetic_hil"] = "physical"
+    admit_nonphysical: bool = False
+
+
 class RecoverySafetyChecks(BaseModel):
     """Operator confirmations required before any recovery action."""
 

@@ -201,6 +201,9 @@ class Settings:
     # This is intentionally separate from the camera-frame age sent to AI.
     lift_load_evidence_max_age_s: float = float(os.getenv("LMS_LIFT_LOAD_EVIDENCE_MAX_AGE_S", "5.0"))
     lift_load_evidence_clock_skew_s: float = float(os.getenv("LMS_LIFT_LOAD_EVIDENCE_CLOCK_SKEW_S", "1.0"))
+    nonphysical_task_admission_enabled: bool = os.getenv(
+        "LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED", "false"
+    ).lower() in {"1", "true", "yes", "on"}
     # 수동 조작 기본값 (Movement manual API 기준).
     manual_rotate_duration_sec: float = float(os.getenv("LMS_MANUAL_ROTATE_DURATION_SEC", "1.0"))
     manual_rotate_angular_z: float = float(os.getenv("LMS_MANUAL_ROTATE_ANGULAR_Z", "0.5"))

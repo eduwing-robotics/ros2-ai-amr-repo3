@@ -202,6 +202,12 @@ class LocalizationGate:
             return self.health()
         self.last_amcl_receipt_monotonic = sample_receipt
         self.last_pose = pose  # type: ignore[assignment]
+        # The stability window is an admission check, not a stationary-robot
+        # invariant. Once admitted, ordinary commanded motion must not revoke
+        # localization; freshness, covariance and kidnapped-pose checks above
+        # remain fail-closed.
+        if self.state == LOCALIZED:
+            return self.health()
         self.pose_window.append(pose)
         limit = int(self.config["consecutive_samples"])
         self.pose_window = self.pose_window[-limit:]

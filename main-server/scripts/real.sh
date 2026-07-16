@@ -301,6 +301,7 @@ if [[ "$DEV" -eq 1 ]]; then
   (
     cd "$FRONTEND"
     export VITE_API_PROXY_TARGET="http://smartfactory-main.local:$PORT"
+    export VITE_VISION_WEBRTC_ENABLED="${VITE_VISION_WEBRTC_ENABLED:-true}"
     exec ./node_modules/.bin/vite --host "$HOST" --port "$VITE_PORT"
   ) &
   VITE_PID=$!

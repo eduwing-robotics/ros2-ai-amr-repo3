@@ -231,12 +231,17 @@ export function DashboardMap({
   const legendRows = poses.map((p) => {
     const { state, ageSec } = poseFreshness(p);
     const sync = syncByRobot.get(p.robot_id);
-    const localized = sync?.localized === false ? "not localized" : sync?.localized ? "localized" : null;
-    const reason = sync?.reason && sync.reason !== "ok" ? sync.reason : null;
+    const localized = sync?.localized === false ? "위치 확인 중" : sync?.localized ? "위치 확인됨" : null;
+    const connectionState = sync?.api_ok === false || sync?.robot_online === false ? "none" : "live";
+    const reason = sync?.localized === false
+      ? null
+      : sync?.reason && !["ok", "converged"].includes(sync.reason)
+        ? "위치 상태 확인 필요"
+        : null;
     const oob = poseOutOfBounds(p) ? "지도 범위 밖" : null;
     const mismatchHint = runtimeMismatch ? "좌표계 불일치" : null;
     const abnormal = state !== "live" || sync?.localized === false || Boolean(oob || mismatchHint || reason);
-    return { p, state, ageSec, localized, reason, oob, mismatchHint, abnormal };
+    return { p, state, connectionState, ageSec, localized, reason, oob, mismatchHint, abnormal };
   });
   const normalPoseCount = legendRows.filter((r) => !r.abnormal).length;
 
@@ -357,8 +362,8 @@ export function DashboardMap({
         <div className="pose-legend">
           {legendRows
             .filter((row) => showAllPoses || row.abnormal)
-            .map(({ p, state, ageSec, localized, reason, oob, mismatchHint }) => (
-              <span key={p.robot_id} className={`pose-chip ${state}${oob || mismatchHint ? " warn" : ""}`} title={p.received_at ?? ""}>
+            .map(({ p, connectionState, ageSec, localized, reason, oob, mismatchHint }) => (
+              <span key={p.robot_id} className={`pose-chip ${connectionState}${oob || mismatchHint ? " warn" : ""}`} title={p.received_at ?? ""}>
                 <i className="pose-dot" /> {p.robot_id}
                 {mismatchHint ? ` · ${mismatchHint}` : ""}
                 {oob ? ` · pose 수신됨 · ${oob}` : ""}

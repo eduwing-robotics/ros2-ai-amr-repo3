@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.db.repo_bridge import event_repo, robot_repo, task_repo
+from app.db.repo_bridge import event_repo, evidence_repo, robot_repo, task_repo
 from app.services import evidence_runtime, inventory_ops, person_hazard
 from app.services import orchestration_state as orch_state
 from app.services import orchestrator as orchestrator_service
@@ -227,9 +227,22 @@ def cancel_task(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
     return _finish_task(conn, task_id, "CANCELLED", source)
 
 
-def start_task_mission(conn, task_id: int, callback_base_url: str | None = None, source: str = "operator") -> dict[str, Any]:
+def start_task_mission(
+    conn,
+    task_id: int,
+    callback_base_url: str | None = None,
+    source: str = "operator",
+    *,
+    execution_mode: str = "physical",
+    admit_nonphysical: bool = False,
+) -> dict[str, Any]:
     """ASSIGNED 작업을 steps로 펼치고 orchestrator로 step0 dispatch (PHASE_12-C)."""
-    return orchestrator_service.start_task_orchestration(conn, task_id, callback_base_url, source)
+    if execution_mode == "physical" and not admit_nonphysical:
+        return orchestrator_service.start_task_orchestration(conn, task_id, callback_base_url, source)
+    return orchestrator_service.start_task_orchestration(
+        conn, task_id, callback_base_url, source,
+        execution_mode=execution_mode, admit_nonphysical=admit_nonphysical,
+    )
 
 
 def auto_assign_and_start(
@@ -333,7 +346,9 @@ def _finish_task(conn, task_id: int, to_status: str, source: str) -> dict[str, A
     if task["status"] in {"DONE", "CANCELLED"}:
         raise HTTPException(status_code=409, detail=f"task already {task['status']}")
     robot_id = task.get("assigned_robot_id")
-    if to_status == "DONE":
+    orchestration = evidence_repo(conn).get_orchestration(task_id)
+    inventory_allowed = bool((orchestration or {}).get("provenance", {}).get("inventory_mutation_allowed", True))
+    if to_status == "DONE" and inventory_allowed:
         inventory_ops.apply_on_task_complete(conn, task_id)
     tasks.set_status(task_id, to_status, clear_robot=bool(robot_id and to_status in {"CANCELLED", "FAILED"}))
     if robot_id and to_status == "DONE":

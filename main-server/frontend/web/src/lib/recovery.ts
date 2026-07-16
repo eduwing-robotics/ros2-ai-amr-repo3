@@ -13,6 +13,20 @@ export interface RecoveryContext {
   last_leg_kind?: string | null;
   last_step_kind?: string | null;
   recovery?: Record<string, unknown>;
+  execution_mode?: "physical" | "synthetic_hil" | "evidence_only";
+  evidence_class?: "physical" | "nonphysical";
+  inventory_mutation_allowed?: boolean;
+  hold_reason?: string;
+  recommended_actions?: string[];
+  evidence?: {
+    operation?: string | null;
+    vision_zone_id?: string | null;
+    expected_marker_id?: number | null;
+    expected_item_id?: string | null;
+    result?: string | null;
+    reason_code?: string | null;
+    command_satisfying?: boolean | null;
+  };
 }
 
 export interface RecoveryPlan {
@@ -48,4 +62,19 @@ export function executeRecovery(
   },
 ): Promise<Record<string, unknown>> {
   return apiSend(`/tasks/${taskId}/recovery/execute`, "POST", body);
+}
+
+export function retryEvidenceOnly(taskId: number): Promise<Record<string, unknown>> {
+  return apiSend(`/tasks/${taskId}/evidence-only/continue`, "POST", {});
+}
+
+export function cancelEvidenceOnly(taskId: number): Promise<Record<string, unknown>> {
+  return apiSend(`/tasks/${taskId}/evidence-only/cancel`, "POST", {});
+}
+
+export function retryTaskEvidence(
+  taskId: number,
+  checks: Record<string, boolean>,
+): Promise<Record<string, unknown>> {
+  return apiSend(`/tasks/${taskId}/evidence/retry`, "POST", checks);
 }

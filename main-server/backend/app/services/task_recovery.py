@@ -151,6 +151,18 @@ def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
     step_index = orch_state.get_step_index(orch)
     current_step = steps[step_index] if step_index < len(steps) else None
     recovery = orch.get("recovery") or {}
+    provenance = orch.get("provenance") if isinstance(orch.get("provenance"), dict) else {}
+    scenario = orch.get("scenario") if isinstance(orch.get("scenario"), dict) else {}
+    decision = (current_step or {}).get("decision") if isinstance((current_step or {}).get("decision"), dict) else recovery.get("gate_decision") or {}
+    execution_mode = str(provenance.get("execution_mode") or "physical")
+    hold_reason = str(recovery.get("reason") or orch.get("hold_reason") or "")
+    evidence_hold = hold_reason in {"evidence_gate", "evidence_not_approved", "manual_fixture_transfer_required"}
+    if execution_mode == "evidence_only":
+        recommended_actions = ["retry_evidence", "cancel_test"]
+    elif evidence_hold:
+        recommended_actions = ["retry_evidence_with_safety_checks", "safe_move", "manual_abort"]
+    else:
+        recommended_actions = ["safe_move", "manual_abort"]
     active_recovery_cmd = recovery.get("active_command_id")
     return {
         "task_id": task_id,
@@ -165,6 +177,20 @@ def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
         "last_leg_kind": (current_step or {}).get("kind"),
         "last_step_kind": (current_step or {}).get("kind"),
         "recovery": recovery,
+        "execution_mode": execution_mode,
+        "evidence_class": provenance.get("evidence_class", "physical"),
+        "inventory_mutation_allowed": provenance.get("inventory_mutation_allowed", True),
+        "hold_reason": hold_reason,
+        "recommended_actions": recommended_actions,
+        "evidence": {
+            "operation": (current_step or {}).get("operation") or ((current_step or {}).get("params") or {}).get("evidence_operation"),
+            "vision_zone_id": (current_step or {}).get("vision_zone_id"),
+            "expected_marker_id": scenario.get("expected_marker_id"),
+            "expected_item_id": scenario.get("expected_item_id"),
+            "result": decision.get("result"),
+            "reason_code": decision.get("reason_code"),
+            "command_satisfying": decision.get("command_satisfying"),
+        },
     }
 
 

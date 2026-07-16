@@ -219,6 +219,9 @@ export interface InitialPoseRequest {
 
 export interface MovementSyncRobotRow {
   robot_id: string;
+  api_ok?: boolean | null;
+  robot_online?: boolean | null;
+  command_accepting?: boolean | null;
   localized?: boolean | null;
   pose_state?: string | null;
   reason?: string | null;

@@ -25,6 +25,7 @@ type TransportMode = "mjpeg" | "webrtc" | "idle";
 /** 타일·배지에 쓰는 수신 경로 표시 */
 type TransportDisplay = "pending" | "webrtc" | "mjpeg" | "error";
 const WEBRTC_RETRY_DELAYS_MS = [5000, 15000, 30000, 60000] as const;
+const CONNECTED_STATUS_VISIBLE_MS = 1800;
 
 function transportBadgeLabel(display: TransportDisplay, mjpegPoll: boolean): string {
   switch (display) {
@@ -59,6 +60,7 @@ export function CameraTile({
   const [status, setStatus] = useState("연결 중");
   const [mode, setMode] = useState<TransportMode>("mjpeg");
   const [transportDisplay, setTransportDisplay] = useState<TransportDisplay>("pending");
+  const [showStatusOverlay, setShowStatusOverlay] = useState(true);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [webrtcRetryToken, setWebrtcRetryToken] = useState(0);
   const [isVisible, setIsVisible] = useState(true);
@@ -81,6 +83,13 @@ export function CameraTile({
   useEffect(() => {
     visibleRef.current = isVisible;
   }, [isVisible]);
+
+  useEffect(() => {
+    setShowStatusOverlay(true);
+    if (transportDisplay !== "webrtc" && transportDisplay !== "mjpeg") return;
+    const timer = setTimeout(() => setShowStatusOverlay(false), CONNECTED_STATUS_VISIBLE_MS);
+    return () => clearTimeout(timer);
+  }, [transportDisplay]);
 
   useEffect(() => {
     const el = tileRef.current;
@@ -395,7 +404,9 @@ export function CameraTile({
           onLoad={handleMjpegLoad}
           onError={handleMjpegError}
         />
-        <span className={`cam-fallback cam-fallback--${transportDisplay}`}>{status}</span>
+        {showStatusOverlay ? (
+          <span className={`cam-fallback cam-fallback--${transportDisplay}`}>{status}</span>
+        ) : null}
       </div>
       {chrome && compact ? (
         <div className="cam-tile-foot">

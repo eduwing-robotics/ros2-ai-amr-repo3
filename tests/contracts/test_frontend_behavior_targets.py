@@ -200,6 +200,15 @@ def test_pose_quality_and_connectivity_are_separate_from_server_health() -> None
     assert "onlineCount" in layout and "movementHealth" in layout
 
 
+def test_map_legend_keeps_connection_and_localization_visually_separate() -> None:
+    dashboard = source("features/dashboard/DashboardMap.tsx")
+
+    assert 'sync?.api_ok === false || sync?.robot_online === false ? "none" : "live"' in dashboard
+    assert 'sync?.localized === false ? "위치 확인 중"' in dashboard
+    assert 'className={`pose-chip ${connectionState}' in dashboard
+    assert "awaiting_new_amcl_sample" not in dashboard
+
+
 def test_camera_transport_retry_and_staleness_watchdog_contracts() -> None:
     transport = source("lib/visionTransport.ts")
     camera = source("features/control/LiveCamera.tsx")

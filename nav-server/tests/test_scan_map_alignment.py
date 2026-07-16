@@ -672,6 +672,79 @@ def test_accepted_alignment_rechecks_new_scans_and_debounces_one_dynamic_failure
     assert recovered["recheck_failure_count"] == 0
 
 
+def test_localized_alignment_latches_across_small_repeatable_corrections():
+    config = {
+        "confirmation_scans": 3,
+        "confirmation_window_scans": 5,
+        "failure_confirmation_scans": 3,
+        "localized_exit_translation_m": 0.05,
+        "localized_exit_yaw_rad": 0.0873,
+        "localized_exit_mean_distance_m": 0.03,
+        "localized_exit_min_match_ratio": 0.50,
+    }
+    accepted = {
+        "accepted": True,
+        "refinement_required": False,
+        "reason": "aligned",
+        "correction": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+    }
+    status = {}
+    for token in (1.0, 2.0, 3.0):
+        status = confirm_alignment(accepted, status, scan_token=token, config=config)
+    correction = {
+        "accepted": False,
+        "refinement_required": True,
+        "reason": "correction_available",
+        "correction": {"x": -0.005, "y": 0.02, "yaw": 0.01},
+        "current": {"mean_distance_m": 0.017, "match_ratio": 0.86},
+    }
+
+    for token in (4.0, 5.0, 6.0, 7.0):
+        status = confirm_alignment(correction, status, scan_token=token, config=config)
+
+    assert status["accepted"] is True
+    assert status["refinement_required"] is False
+    assert status["reason"] == "localized_recheck_ok"
+    assert status["recheck_failure_count"] == 0
+    assert status["last_soft_correction"] == correction["correction"]
+
+
+def test_localized_alignment_releases_only_after_persistent_hard_drift():
+    config = {
+        "confirmation_scans": 3,
+        "confirmation_window_scans": 5,
+        "failure_confirmation_scans": 3,
+        "localized_exit_translation_m": 0.05,
+        "localized_exit_yaw_rad": 0.0873,
+        "localized_exit_mean_distance_m": 0.03,
+        "localized_exit_min_match_ratio": 0.50,
+    }
+    status = {
+        "accepted": True,
+        "refinement_required": False,
+        "reason": "aligned",
+        "correction": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+    }
+    hard_drift = {
+        "accepted": False,
+        "refinement_required": True,
+        "reason": "correction_available",
+        "correction": {"x": 0.08, "y": 0.0, "yaw": 0.10},
+        "current": {"mean_distance_m": 0.04, "match_ratio": 0.40},
+    }
+
+    first = confirm_alignment(hard_drift, status, scan_token=2.0, config=config)
+    second = confirm_alignment(hard_drift, first, scan_token=3.0, config=config)
+    lost = confirm_alignment(hard_drift, second, scan_token=4.0, config=config)
+
+    assert first["accepted"] is True
+    assert second["accepted"] is True
+    assert first["reason"] == "localized_recheck_pending"
+    assert lost["accepted"] is False
+    assert lost["refinement_required"] is False
+    assert lost["reason"] == "localized_alignment_lost"
+
+
 def test_pending_confirmation_survives_transient_unreliable_scan():
     config = {
         "confirmation_scans": 3,

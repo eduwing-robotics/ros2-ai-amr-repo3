@@ -168,6 +168,27 @@ def test_pose_jitter_resets_stability_window():
     assert result["reason"] == "pose_not_stable"
 
 
+def test_localized_gate_accepts_continuous_commanded_motion():
+    gate = LocalizationGate(PROFILE)
+    gate.start(None, now_monotonic=9.0)
+    gate.observe(observation())
+    second = observation(receipt_monotonic=10.1)
+    second["amcl"] = {**second["amcl"], "receipt_monotonic": 10.1}
+    assert gate.observe(second)["state"] == LOCALIZED
+
+    moving = observation(receipt_monotonic=10.2)
+    moving["amcl"] = {
+        **moving["amcl"],
+        "x": 1.12,
+        "receipt_monotonic": 10.2,
+    }
+    result = gate.observe(moving)
+
+    assert result["state"] == LOCALIZED
+    assert result["localized"] is True
+    assert result["reason"] == "converged"
+
+
 def test_stale_scan_tf_and_missing_covariance_fail_closed():
     gate = LocalizationGate(PROFILE)
     gate.start(None)

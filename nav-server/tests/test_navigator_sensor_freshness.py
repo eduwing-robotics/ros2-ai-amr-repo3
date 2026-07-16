@@ -178,6 +178,44 @@ def test_one_transient_tf_lookup_miss_keeps_recent_success_continuous(navigator_
     assert navigator.latest_tf_continuous is True
 
     navigator.latest_tf_monotonic = time.monotonic() - 3.0
+
+
+def test_initial_pose_uses_latest_tf_instead_of_future_dated_stamp(navigator_class, monkeypatch):
+    class Header:
+        def __init__(self):
+            self.frame_id = ""
+            self.stamp = SimpleNamespace(sec=0, nanosec=0)
+
+    class Pose:
+        def __init__(self):
+            self.position = SimpleNamespace(x=0.0, y=0.0)
+            self.orientation = SimpleNamespace(z=0.0, w=0.0)
+
+    class PoseStamped:
+        def __init__(self):
+            self.header = Header()
+            self.pose = Pose()
+
+    class PoseWithCovarianceStamped:
+        def __init__(self):
+            self.header = Header()
+            self.pose = SimpleNamespace(pose=Pose(), covariance=[0.0] * 36)
+
+    monkeypatch.setitem(navigator_class.set_initial_pose.__globals__, "PoseStamped", PoseStamped)
+    monkeypatch.setitem(
+        navigator_class.set_initial_pose.__globals__,
+        "PoseWithCovarianceStamped",
+        PoseWithCovarianceStamped,
+    )
+    navigator = navigator_class.__new__(navigator_class)
+    navigator.nav = SimpleNamespace(setInitialPose=Mock())
+    navigator.initial_pose_pub = SimpleNamespace(publish=Mock())
+
+    navigator.set_initial_pose({"x": 1.0, "y": 2.0, "yaw": 0.1})
+
+    message = navigator.initial_pose_pub.publish.call_args.args[0]
+    navigator.nav.setInitialPose.assert_not_called()
+    assert (message.header.stamp.sec, message.header.stamp.nanosec) == (0, 0)
     assert navigator._pose_from_transform() is None
     assert navigator.latest_tf_continuous is False
 

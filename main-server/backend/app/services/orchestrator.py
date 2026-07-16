@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.core.config import settings
 from app.db.mvp.evidence import MvpEvidenceRepository
 from app.db.repo_bridge import event_repo, evidence_repo, robot_repo, task_repo, waypoint_repo
 from app.models.schemas import RobotCommandRequest
@@ -21,6 +22,7 @@ from app.services import orchestration_state as orch_state
 from app.services import robot_commands as command_service
 from app.services import tasks as task_service
 from app.services.movement import MovementClientError, movement_client
+from app.services.nonphysical_execution import require_explicit_nonphysical_admission
 from app.services.robot_commands import normalize_dock_transfer_params
 
 logger = logging.getLogger(__name__)
@@ -435,7 +437,15 @@ def _seed_step_index(steps: list[dict[str, Any]], step_index: int) -> int:
 _seed_cursor = _seed_step_index
 
 
-def start_task_orchestration(conn, task_id: int, callback_base_url: str | None = None, source: str = "operator") -> dict[str, Any]:
+def start_task_orchestration(
+    conn,
+    task_id: int,
+    callback_base_url: str | None = None,
+    source: str = "operator",
+    *,
+    execution_mode: str = "physical",
+    admit_nonphysical: bool = False,
+) -> dict[str, Any]:
     tasks = task_repo(conn)
     task = _task(conn, task_id)
     if not task:
@@ -445,6 +455,14 @@ def start_task_orchestration(conn, task_id: int, callback_base_url: str | None =
     robot_id = task.get("assigned_robot_id")
     if not robot_id:
         raise HTTPException(status_code=409, detail="task has no assigned robot")
+    try:
+        provenance = require_explicit_nonphysical_admission(
+            execution_mode,
+            robot_id=str(robot_id),
+            admitted=bool(admit_nonphysical and settings.nonphysical_task_admission_enabled),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     # The callback destination is a Main-server capability.  Ignore callers that
     # attempt to supply one so orchestration cannot become an SSRF deputy.
@@ -465,12 +483,20 @@ def start_task_orchestration(conn, task_id: int, callback_base_url: str | None =
         if task_type in {"INBOUND", "OUTBOUND"}:
             location_ids.append("HOME_01")
         field_bindings.assert_locations_match_map(location_ids, scenario_map_id)
-    field_bindings.assert_field_dispatch_commissioned(task_type, scenario_map_id)
+    if provenance.execution_mode == "physical":
+        field_bindings.assert_field_dispatch_commissioned(task_type, scenario_map_id)
     # Bound field coordinates may only be sent in the exact map frame reported
     # by the assigned robot.  Never compatibility-remap a task scenario.
     field_bindings.assert_robot_live_map(str(robot_id), scenario_map_id)
+    if provenance.execution_mode == "synthetic_hil":
+        from app.services.movement_health import get_movement_health
+
+        live_health = get_movement_health([str(robot_id)], force=True).get(str(robot_id), {})
+        if live_health.get("execution_class") != "synthetic_hil" or live_health.get("evidence_class") != "nonphysical":
+            raise HTTPException(status_code=409, detail="tb1 synthetic_hil Nav profile is not active")
     steps = plan_command_steps(conn, scenario, task_id, robot_id)
     orchestration = orch_state.new_orchestration(steps, callback_base_url=configured_callback_base_url())
+    orchestration["provenance"] = provenance.as_dict()
     evidence_runtime.save_orchestration(conn, task_id, orchestration)
 
     tasks.set_status(task_id, "RUNNING")
@@ -784,6 +810,80 @@ def dispatch_current_step(conn, task_id: int) -> str:
         )
         raise HTTPException(status_code=409, detail="work_order_stop_already_requested")
     return result.command_id
+
+
+def retry_held_evidence(conn, task_id: int, *, safety_checks: dict[str, object]) -> dict[str, Any]:
+    """Re-evaluate a held physical/synthetic evidence gate without bypassing safety."""
+    if not all(safety_checks.get(key) is True for key in ("site_clear", "pose_ok", "cargo_ok")):
+        raise HTTPException(status_code=409, detail="evidence_retry_requires_all_safety_checks")
+    task = _task(conn, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    orch = evidence_repo(conn).get_orchestration(task_id) or {}
+    if orch_state.normalize_phase(orch.get("phase")) != orch_state.PHASE_AWAITING_OPERATOR:
+        raise HTTPException(status_code=409, detail="evidence_retry_requires_operator_hold")
+    provenance = orch.get("provenance") if isinstance(orch.get("provenance"), dict) else {}
+    if provenance.get("execution_mode") == "evidence_only":
+        raise HTTPException(status_code=409, detail="use evidence-only continue endpoint")
+    recovery = orch.get("recovery") if isinstance(orch.get("recovery"), dict) else {}
+    if recovery.get("reason") != "evidence_gate":
+        raise HTTPException(status_code=409, detail="task is not held by an evidence gate")
+    steps = orch_state.get_steps(orch)
+    step_index = orch_state.get_step_index(orch)
+    if step_index >= len(steps):
+        raise HTTPException(status_code=409, detail="evidence retry step missing")
+    step = steps[step_index]
+    if str(step.get("kind")) != "dock_transfer":
+        raise HTTPException(status_code=409, detail="evidence retry requires dock_transfer step")
+    command_def_id = evidence_runtime.resolve_command_def_id(
+        conn, task, _seed_step_index(steps, step_index), "dock_transfer"
+    )
+    action = _dock_action(step)
+    decision = _evaluate_gate(
+        conn,
+        task=task,
+        step=step,
+        command_def_id=command_def_id,
+        operation_override="PRE_DROP_OFF" if action == "unload" else None,
+    )
+    step["approval"] = decision
+    _record_gate_decision(
+        conn,
+        task_id=task_id,
+        command_def_id=command_def_id,
+        robot_id=task.get("assigned_robot_id"),
+        step_index=step_index,
+        action="PRE_DROP_OFF" if action == "unload" else "POST_PICK_UP",
+        decision=decision,
+    )
+    if not decision.get("approved"):
+        _hold_for_evidence_gate(
+            conn, task_id=task_id, task=task, orch=orch, steps=steps,
+            step_index=step_index, decision=decision,
+        )
+        return {"task_id": task_id, "phase": orch_state.PHASE_AWAITING_OPERATOR, "decision": decision}
+
+    orch.pop("recovery", None)
+    if action == "load" and str(step.get("status") or "").upper() == "DONE":
+        step_index += 1
+        orch_state.set_step_index(orch, step_index)
+    else:
+        # Unload is gated before dispatch. Let the normal dispatcher consume the
+        # freshly approved evidence and issue the original deterministic command.
+        step["approval"] = decision
+    orch_state.set_steps(orch, steps)
+    orch_state.set_phase(orch, orch_state.PHASE_RUNNING)
+    evidence_runtime.save_orchestration(conn, task_id, orch)
+    if step_index >= len(steps):
+        orch_state.set_phase(orch, orch_state.PHASE_DONE)
+        evidence_runtime.save_orchestration(conn, task_id, orch)
+        task_service.complete_task(conn, task_id, source="evidence_retry")
+        return {"task_id": task_id, "phase": orch_state.PHASE_DONE, "decision": decision}
+    if getattr(conn, "is_postgres", False) is True:
+        conn.commit()
+    command_id = dispatch_current_step(conn, task_id)
+    latest = evidence_repo(conn).get_orchestration(task_id) or orch
+    return {"task_id": task_id, "phase": latest.get("phase"), "decision": decision, "command_id": command_id}
 
 
 dispatch_current_leg = dispatch_current_step

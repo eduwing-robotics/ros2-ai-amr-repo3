@@ -7,11 +7,48 @@ from fastapi import APIRouter, Query, Request
 from app.api.helpers import callback_base_url
 from app.db.connection import transaction
 from app.db.repo_bridge import task_repo
-from app.models.schemas import MissionStatusResponse, RecoveryActionRequest, Task, TaskAssign, TaskCreate
+from app.models.schemas import (
+    MissionStatusResponse,
+    RecoveryActionRequest,
+    Task,
+    TaskAssign,
+    TaskCreate,
+    TaskStartRequest,
+)
+from app.services import evidence_only_tasks
+from app.services import orchestrator as orchestrator_service
 from app.services import task_recovery as recovery_service
 from app.services import tasks as task_service
 
 router = APIRouter(tags=["tasks"])
+
+
+@router.post("/tasks/{task_id}/evidence-only/start")
+def start_evidence_only_task(task_id: int, body: dict) -> dict:
+    with transaction() as conn:
+        return evidence_only_tasks.start(conn, task_id, body)
+
+
+@router.post("/tasks/{task_id}/evidence-only/continue")
+def continue_evidence_only_task(task_id: int) -> dict:
+    with transaction() as conn:
+        return evidence_only_tasks.continue_run(conn, task_id)
+
+
+@router.post("/tasks/{task_id}/evidence-only/cancel")
+def cancel_evidence_only_task(task_id: int) -> dict:
+    with transaction() as conn:
+        return evidence_only_tasks.cancel_run(conn, task_id)
+
+
+@router.post("/tasks/{task_id}/evidence/retry")
+def retry_task_evidence(task_id: int, body: dict) -> dict:
+    with transaction() as conn:
+        return orchestrator_service.retry_held_evidence(
+            conn,
+            task_id,
+            safety_checks={key: body.get(key) for key in ("site_clear", "pose_ok", "cargo_ok")},
+        )
 
 
 @router.get("/tasks", response_model=list[Task])
@@ -36,11 +73,17 @@ def assign_task(task_id: int, payload: TaskAssign) -> Task:
 
 
 @router.post("/tasks/{task_id}/start-mission")
-def start_task_mission(task_id: int, request: Request) -> dict:
+def start_task_mission(task_id: int, request: Request, body: TaskStartRequest = TaskStartRequest()) -> dict:
     """ASSIGNED 작업의 snapshot을 Movement mission으로 시작한다."""
     resolved_callback = callback_base_url(request)
     with transaction() as conn:
-        result = task_service.start_task_mission(conn, task_id, callback_base_url=resolved_callback)
+        result = task_service.start_task_mission(
+            conn,
+            task_id,
+            callback_base_url=resolved_callback,
+            execution_mode=body.execution_mode,
+            admit_nonphysical=body.admit_nonphysical,
+        )
     return {
         "task": Task(**result["task"]),
         "mission": MissionStatusResponse(

@@ -70,6 +70,10 @@ DEFAULTS = {
     "confirmation_window_scans": 5,
     "failure_confirmation_scans": 3,
     "continuous_check_interval_sec": 1.0,
+    "localized_exit_translation_m": 0.05,
+    "localized_exit_yaw_rad": math.radians(5.0),
+    "localized_exit_mean_distance_m": 0.03,
+    "localized_exit_min_match_ratio": 0.50,
     "confirmation_translation_tolerance_m": 0.01,
     "confirmation_yaw_tolerance_rad": math.radians(0.25),
     "correction_confirmation_translation_tolerance_m": None,
@@ -106,6 +110,40 @@ def confirm_alignment(
         else "correction_available" if current.get("refinement_required")
         else None
     )
+    if prior.get("accepted") and outcome == "correction_available":
+        hard_drift = _localized_alignment_hard_drift(current, cfg)
+        if not hard_drift:
+            retained = dict(prior)
+            retained.update({
+                "accepted": True,
+                "refinement_required": False,
+                "reason": "localized_recheck_ok",
+                "recheck_failure_count": 0,
+                "last_confirmation_scan_token": float(scan_token),
+                "last_soft_correction": _finite_correction(current.get("correction")),
+                "last_recheck_observation": current,
+            })
+            return retained
+        failure_count = int(prior.get("recheck_failure_count", 0)) + 1
+        if failure_count < int(cfg["failure_confirmation_scans"]):
+            retained = dict(prior)
+            retained.update({
+                "accepted": True,
+                "refinement_required": False,
+                "reason": "localized_recheck_pending",
+                "recheck_failure_count": failure_count,
+                "last_confirmation_scan_token": float(scan_token),
+                "last_recheck_observation": current,
+            })
+            return retained
+        current.update({
+            "accepted": False,
+            "refinement_required": False,
+            "reason": "localized_alignment_lost",
+            "recheck_failure_count": failure_count,
+            "last_confirmation_scan_token": float(scan_token),
+        })
+        return current
     if outcome is None:
         failure_count = int(prior.get("recheck_failure_count", 0)) + 1
         observations = list(prior.get("confirmation_observations") or [])
@@ -231,6 +269,23 @@ def confirm_alignment(
         if corrected_poses:
             current["corrected_pose"] = _median_pose(corrected_poses)
     return current
+
+
+def _localized_alignment_hard_drift(result: Mapping[str, Any], config: Mapping[str, Any]) -> bool:
+    correction = _finite_correction(result.get("correction"))
+    if correction is None:
+        return True
+    translation = math.hypot(correction["x"], correction["y"])
+    if translation > float(config["localized_exit_translation_m"]):
+        return True
+    if abs(_wrap(correction["yaw"])) > float(config["localized_exit_yaw_rad"]):
+        return True
+    metrics = result.get("current") if isinstance(result.get("current"), Mapping) else {}
+    mean_distance = metrics.get("mean_distance_m")
+    if mean_distance is not None and float(mean_distance) > float(config["localized_exit_mean_distance_m"]):
+        return True
+    match_ratio = metrics.get("match_ratio")
+    return match_ratio is not None and float(match_ratio) < float(config["localized_exit_min_match_ratio"])
 
 
 def _finite_correction(value: Any) -> dict[str, float] | None:

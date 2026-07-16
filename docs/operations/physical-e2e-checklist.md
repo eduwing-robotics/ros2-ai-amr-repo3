@@ -27,7 +27,7 @@
 - TB1과 TB2 모두 `field_dispatch.inbound=false`, `field_dispatch.outbound=false`다. 별도 commissioning과 robot-scoped audit 전에는 입고·출고를 시작하지 않는다.
 - TB1에는 물리 lift가 없다. TB1에서 lift가 필요한 단계는 `tb1-synthetic-hil`로만 수행하고 `PHYSICAL_LIFT_NOT_VERIFIED`를 기록한다.
 - TB1 synthetic 경로는 TB2 카메라 보정값이나 TB2 metric docking profile을 사용하지 않는다. 실제 base/Nav2/카메라/도킹 경로에서 lift 단계만 virtual backend로 바꾼다.
-- `tb1-synthetic-hil`은 Nav의 virtual lift test grant를 제공하지만 Main이 보는 TB1 capability는 현재 `navigate,charge`다. Main의 INBOUND/OUTBOUND 배정 요구사항을 통과하는 명시적 nonphysical test admission이 없으므로 UI 입고·출고는 아직 시작할 수 없다.
+- Main은 명시적으로 활성화한 `LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED=true`와 요청별 `admit_nonphysical=true`가 모두 있을 때만 TB1 nonphysical 실행을 허용한다. `evidence_only`와 `synthetic_hil`은 같은 provenance 계약을 쓰며 재고 변경과 물리 lift 합격 판정을 금지한다. 기본값은 차단이다.
 - TB2의 `0.40m 법선 정렬 → 0.18/0.20m 직선 진입 → lift/drop → 저장 pose 복귀`는 nohardware 계약 검증까지 완료한 구현 후보이며, 아직 실물 합격 근거가 아니다. checked-in 설정은 `metric_docking.live_enabled=false`라 자동 실행되지 않는다.
 - `/operate/control`의 teleop·맵 이동은 직접 robot command다. 현재 person monitor는 task orchestration의 physical-motion step에서 arm되므로, **수동 주행만으로는 Main trusted person-stop E2E 합격 근거가 되지 않는다.**
 - 따라서 현재 바로 수행 가능한 범위는 아래 0~3단계와 5단계다. 4단계는 marker commissioning 뒤, 6단계는 안전한 `robot2_map` task 경로가 준비된 뒤, 7단계는 field commissioning과 synthetic test admission이 모두 준비된 뒤, 8단계는 TB2 준비 뒤 수행한다.
@@ -181,7 +181,13 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 ## 7. TB1 lift-only synthetic 입고·출고
 
-이 단계는 0~6단계의 물리 합격, `robot2_map` field commissioning, Main의 명시적 nonphysical test admission이 모두 끝난 뒤 별도 세션으로 실행한다. 현재는 capability admission이 없으므로 `BLOCKED_SYNTHETIC_TASK_ADMISSION_NOT_IMPLEMENTED`다.
+이 단계는 0~6단계의 물리 합격과 `robot2_map` field commissioning 뒤 별도 세션으로 실행한다. admission 구현은 준비됐지만 기본 비활성이고, 실제 시험에서는 Main과 `tb1-synthetic-hil` Nav 양쪽을 명시적으로 활성화해야 한다.
+
+### 로봇 없이 먼저 수행하는 evidence-only 흐름
+
+`POST /api/v1/tasks/{task_id}/evidence-only/start`는 TB1 fixture용 Main task 상태기를 시작한다. 요청에는 `robot_id=tb3_1`, `admit_nonphysical=true`, item/marker, 출발·도착 ZoneROI를 넣는다. 시작 즉시 출발 Zone의 `PICK_UP` evidence를 평가하고, PASS면 수동 화물 이동 checkpoint에서 대기한다. 마커를 목적지로 옮긴 뒤 `POST /api/v1/tasks/{task_id}/evidence-only/continue`을 호출한다. 잘못된 마커·개수는 같은 step에서 `AWAITING_OPERATOR`로 hold되며, fixture를 바로잡고 같은 continue를 다시 호출하면 재평가한다. 최종 PASS는 task를 끝내지만 inventory를 변경하지 않는다.
+
+이 상태기는 `synthetic_hil`과 동일하게 `evidence_class=nonphysical`, `physical_lift_verified=false`, `inventory_mutation_allowed=false`를 저장한다. 차이는 `evidence_only`가 수동 fixture checkpoint를, `synthetic_hil`이 실제 base 이동과 Nav virtual lift를 사용한다는 점뿐이다.
 
 Main 시작 설정도 [Main lift-load evidence decision](../../main-server/docs/interfaces/LIFT_LOAD_EVIDENCE.md)에 맞춰 아래 gate를 먼저 통과해야 한다.
 

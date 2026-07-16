@@ -22,7 +22,7 @@ from app.models.robots import (
     TeleopRequest,
     TeleopResponse,
 )
-from app.models.tasks import RecoveryActionRequest, RecoverySafetyChecks, Task, TaskAssign, TaskCreate
+from app.models.tasks import RecoveryActionRequest, RecoverySafetyChecks, Task, TaskAssign, TaskCreate, TaskStartRequest
 from app.models.warehouse import (
     InventoryRecord,
     InventoryUpsert,
@@ -73,6 +73,7 @@ __all__ = [
     "Task",
     "TaskAssign",
     "TaskCreate",
+    "TaskStartRequest",
     "TaskLogRecord",
     "TeleopCommand",
     "TeleopRequest",
