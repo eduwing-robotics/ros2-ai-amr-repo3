@@ -11,6 +11,7 @@ export const storage = { ...inbound, waypoint_id: "dock_1", name: "슬롯 1", wa
 export const map = { map_id: "map", name: "테스트 맵", width: 1000, height: 800, resolution: 0.05, origin_x: 0, origin_y: 0, image_url: "" };
 
 type State = {
+  statusError?: boolean;
   emergency?: boolean;
   estopUnknown?: boolean;
   movementOk?: boolean;
@@ -40,6 +41,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
       entry.robot_id,
       { ok: state.movementOk ?? true, is_emergency: Boolean(state.emergency) },
     ]));
+    if (path === "/status" && state.statusError) return json(route, { detail: "status unavailable" }, 503);
     if (path === "/status") return json(route, {
       system: {
         ...(state.cameraOnline ? { camera_health: { ok: true } } : {}),
@@ -114,6 +116,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
     });
     if (path.startsWith("/comm/logs")) return json(route, { logs: [], movement_commands: [] });
     if (path.startsWith("/events")) return json(route, state.events ?? []);
+    if (path === "/db/tables") return json(route, []);
     if (path.startsWith("/api-logs") || path.startsWith("/movement-commands") || path.startsWith("/task-logs") || path.startsWith("/item-change-logs")) return json(route, []);
     if (path.startsWith("/cameras") || path.startsWith("/camera-sources")) return json(route, []);
     throw new Error(`Unhandled Main API mock: ${req.method()} ${path}`);

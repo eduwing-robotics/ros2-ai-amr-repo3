@@ -361,3 +361,14 @@ test("WEB-16 WebRTC 대기 영상 요소는 hidden으로 제거되지 않는다"
   await expect(video).not.toHaveAttribute("hidden", "");
   expect(await video.evaluate((element) => getComputedStyle(element).display)).not.toBe("none");
 });
+
+
+test("WEB-20 Main 오류 상태만 시스템 진단 이동을 제공한다", async ({ page }) => {
+  await mockMainApi(page, { statusError: true });
+  await page.goto("/operate/control");
+
+  const action = page.getByRole("button", { name: /Main 연결 대기 · 시스템 보기/ });
+  await expect(action).toBeVisible();
+  await action.click();
+  await expect(page).toHaveURL(new RegExp("/admin/system$"));
+});

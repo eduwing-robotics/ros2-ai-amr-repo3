@@ -27,7 +27,7 @@ export function Layout() {
   const currentRoute = areaKey === "records" ? `records/${recordsTab ?? "events"}` : `${areaKey}/${sectionKey}`;
   const operateShell = isOperateArea(areaKey);
   const { data: status, isError } = useStatus();
-  const { isEmergency, emergencyRobots } = useEmergency();
+  const { emergencyRobots } = useEmergency();
   const { toast } = useFeedback();
   const { probeMovement, probeCamera } = useProbes();
   const qc = useQueryClient();
@@ -95,10 +95,13 @@ export function Layout() {
           ))}
         </nav>
         <div className="header-right">
-          <div className={`livestat${liveOk ? "" : " err"}`}>
-            <span className={`dot ${liveOk ? "on" : "off"}`} aria-hidden="true" />
-            <span>{liveOk ? "Main 정상" : "Main 연결 대기"}</span>
-          </div>
+          {liveOk ? (
+            <div className="livestat header-main-status"><span className="dot on" aria-hidden="true" /><span>Main 정상</span></div>
+          ) : (
+            <button type="button" className="livestat err header-status-action" onClick={() => navigate("/admin/system")} title="Main 연결 오류 · 시스템 진단 열기">
+              <span className="dot off" aria-hidden="true" /><span>Main 연결 대기 · 시스템 보기</span>
+            </button>
+          )}
           <div className="badges">
             <button
               type="button"
@@ -119,16 +122,14 @@ export function Layout() {
               <span className="badge-icon" aria-hidden="true">{probeCamera.isPending ? "↻" : cameraIcon}</span>카메라 {probeCamera.isPending ? "확인 중…" : cameraLabel}
             </button>
           </div>
-          <div
-            className={`livestat${liveOk ? (robots.length > 0 && onlineCount === 0 ? " warn" : "") : " err"}`}
-            title={liveOk ? robotTitle : "서버 응답 없음"}
-          >
-            <span className={`dot ${liveOk ? (onlineCount > 0 ? "on" : "warn") : "off"}`} aria-hidden="true" />
-            <span>{liveOk ? `로봇 ${onlineCount}/${robots.length}` : "연결 대기"}</span>
-          </div>
+          {!operateShell ? (
+            <div className={`livestat${liveOk ? (robots.length > 0 && onlineCount === 0 ? " warn" : "") : " err"}`} title={liveOk ? robotTitle : "서버 응답 없음"}>
+              <span className={`dot ${liveOk ? (onlineCount > 0 ? "on" : "warn") : "off"}`} aria-hidden="true" />
+              <span>{liveOk ? `로봇 ${onlineCount}/${robots.length}` : "연결 대기"}</span>
+            </div>
+          ) : null}
           <div className="livestat"><Clock /></div>
           <ThemeToggle />
-          {isEmergency ? <span className="badge err emergency-badge"><span className="badge-icon" aria-hidden="true">⛔</span>비상 정지</span> : null}
           <EstopControls />
         </div>
       </header>

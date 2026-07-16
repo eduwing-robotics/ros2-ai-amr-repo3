@@ -1,9 +1,12 @@
 /* Dense content chrome: preserve safety signals while returning space to live work surfaces. */
-.operator-kpi-strip{flex-basis:38px;border-radius:7px}
+.operator-kpi-strip{grid-template-columns:repeat(3,minmax(0,1fr));flex-basis:38px;border-radius:7px}
 .operator-kpi-strip .kpi-tile{min-height:36px;display:grid;grid-template-columns:auto auto;grid-template-rows:1fr;align-items:center;justify-content:space-between;column-gap:6px;padding:4px 9px}
 .operator-kpi-strip .kpi-label{font-size:9px}
 .operator-kpi-strip .kpi-value{font-size:14px}
 .operator-kpi-strip .kpi-hint{display:none}
+.header-main-status{opacity:.78}
+.header-status-action{border:1px solid var(--err-border);font:inherit;cursor:pointer}
+.header-status-action:hover{filter:brightness(.96);box-shadow:0 0 0 2px color-mix(in srgb,var(--err-border) 18%,transparent)}
 
 .operator-global-camera-head{flex-basis:34px;padding:0 9px}
 .operator-global-camera-head h2{font-size:12px}

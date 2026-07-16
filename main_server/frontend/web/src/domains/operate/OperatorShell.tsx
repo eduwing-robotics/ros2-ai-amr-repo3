@@ -30,7 +30,6 @@ import { taskLifecycleOf } from "./taskLifecycle";
 function OperatorKpiStrip({
   robotsTotal,
   onlineCount,
-  emergencyCount,
   activeTaskCount,
   queuedTaskCount,
   runningTaskCount,
@@ -40,7 +39,6 @@ function OperatorKpiStrip({
 }: {
   robotsTotal: number;
   onlineCount: number;
-  emergencyCount: number;
   activeTaskCount: number;
   queuedTaskCount: number;
   runningTaskCount: number;
@@ -76,11 +74,6 @@ function OperatorKpiStrip({
         <span className="kpi-label">미확인 알람</span>
         <span className="kpi-value">{alarmCount}</span>
         <span className="kpi-hint">{alarmCount ? `위험 ${errCount} · 주의 ${warnCount}` : "이상 없음"}</span>
-      </div>
-      <div className={`kpi-tile${emergencyCount ? " err" : ""}`}>
-        <span className="kpi-label">E-STOP</span>
-        <span className="kpi-value">{emergencyCount ? `${emergencyCount}대` : "정상"}</span>
-        <span className="kpi-hint">{emergencyCount ? "비상 정지 발동" : "비상 정지 없음"}</span>
       </div>
     </div>
   );
@@ -442,7 +435,6 @@ export function OperatorShell() {
             <OperatorKpiStrip
               robotsTotal={robots.length}
               onlineCount={onlineCount}
-              emergencyCount={emergencyRobots.length}
               activeTaskCount={activeTaskCount}
               queuedTaskCount={queuedTaskCount}
               runningTaskCount={runningTaskCount}
