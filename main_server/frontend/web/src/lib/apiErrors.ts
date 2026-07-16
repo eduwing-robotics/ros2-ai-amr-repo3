@@ -22,6 +22,7 @@ export const API_ERROR_MESSAGES: Record<string, string> = {
   robot_offline: "로봇 또는 Movement 서버에 연결할 수 없습니다.",
   robot_not_localized: "로봇이 localized 상태가 아닙니다(초기 위치 설정 필요).",
   robot_not_accepting: "로봇이 명령을 받을 수 없습니다(E-stop 등).",
+  robot_battery_low: "로봇 배터리가 20% 미만이어서 새 작업을 배정할 수 없습니다.",
   robot_disabled: "관리자에서 운용 사용이 꺼진 로봇입니다.",
   robot_has_active_task: "진행 중이거나 배정된 작업을 먼저 안전하게 종료하세요.",
   recovery_movement_unreachable: "Movement 서버에 연결할 수 없어 복구를 실행할 수 없습니다.",

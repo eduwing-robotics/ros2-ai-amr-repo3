@@ -91,9 +91,17 @@ def robot_assignment_block_reason(robot_id: str) -> str | None:
     snap = localization_snapshot(robot_id)
     health = snap.get("health") or {}
     reason, _ = movement_reason(health, snap)
-    if reason == "ok":
-        return None
-    return _ASSIGN_READINESS_DETAIL.get(reason, reason)
+    if reason != "ok":
+        return _ASSIGN_READINESS_DETAIL.get(reason, reason)
+
+    # Main의 기존 정수 퍼센트 계약을 그대로 사용한다. 미수신(null)은 저전력으로
+    # 오판하지 않고, 20% 미만만 신규 작업 배정에서 제외한다.
+    from app.domains.movement.health import battery_from_health
+
+    battery = battery_from_health(health)
+    if battery is not None and battery < 20:
+        return "robot_battery_low"
+    return None
 
 
 def _assert_robot_ready_for_assignment(robot_id: str) -> None:

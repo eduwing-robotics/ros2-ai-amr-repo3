@@ -183,7 +183,7 @@ GET /robot-commands/{command_id}
 
 `GET …/nav-state` — Main이 쓰는 필드: `robot_online`, `command_accepting`, `is_emergency`, `localized`, `current_command_id`, `reason`.
 
-`GET …/health`의 `battery`(정수 0–100). 없거나 `null`이면 마지막 값 유지. 소수 비율(0.0–1.0) 금지.
+`GET …/health`의 `battery`(정수 0–100). 없거나 `null`이면 DB의 마지막 값은 보존하되 운영 응답은 미수신으로 표시한다. 소수 비율(0.0–1.0) 금지. 신규 작업 배정에서는 20% 미만을 `robot_battery_low`로 제외하고, 20%와 `null`은 배터리 사유로 차단하지 않는다.
 
 `GET …/map-state` — UI map 비교: `active_map_id`, `frame_id`, `resolution`, `origin`, `width`, `height`.
 

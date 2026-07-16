@@ -80,6 +80,30 @@ class AutoAssignAndStartTest(unittest.TestCase):
         self.assertEqual(result["started"], [2])
         self.assertEqual(result["start_failed"], [{"task_id": 1, "detail": "step dispatch rejected"}])
 
+    def test_auto_assign_excludes_low_battery_robot(self) -> None:
+        postgres_tasks = MagicMock()
+        postgres_tasks.list_assignable.return_value = [_queued(1)]
+        postgres_robots = MagicMock()
+        postgres_robots.list_idle.return_value = [
+            {"robot_id": "tb3_low"},
+            {"robot_id": "tb3_ready"},
+        ]
+
+        def block_reason(robot_id: str) -> str | None:
+            return "robot_battery_low" if robot_id == "tb3_low" else None
+
+        with (
+            patch.object(tasks, "tasks", postgres_tasks),
+            patch.object(tasks, "robots", postgres_robots),
+            patch.object(tasks, "operational_events", MagicMock()),
+            patch.object(tasks, "robot_assignment_block_reason", side_effect=block_reason),
+        ):
+            result = tasks.auto_assign(MagicMock())
+
+        self.assertEqual(result["assigned"], [{"task_id": 1, "robot_id": "tb3_ready"}])
+        self.assertEqual(result["not_ready"], 1)
+        self.assertEqual(result["idle_remaining"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
