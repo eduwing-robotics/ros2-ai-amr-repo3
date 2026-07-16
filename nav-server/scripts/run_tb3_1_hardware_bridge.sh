@@ -46,6 +46,9 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_STATIC_PEERS="$ROBOT_PEER"
 export SMARTFACTORY_DDS_ROUTE_PROBE="$ROBOT_PEER"
 export SMARTFACTORY_DDS_PEER_MODE=lan
+# The TB1 SBC uses subnet discovery. Keep multicast scoped to this bridge's
+# field-LAN participant; local Nav/API participants remain self-only.
+export SMARTFACTORY_DDS_ALLOW_MULTICAST=true
 
 # Include both robot1 and this PC. Domain 2 reaches the SBC; domain 42 reaches
 # local Nav/API/RViz participants without multicast discovery.

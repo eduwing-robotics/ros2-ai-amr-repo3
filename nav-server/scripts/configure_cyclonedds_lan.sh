@@ -48,9 +48,19 @@ case "$peer_mode" in
     ;;
 esac
 
+allow_multicast="${SMARTFACTORY_DDS_ALLOW_MULTICAST:-false}"
+case "$allow_multicast" in
+  true) multicast_value="true"; discovery_range="SUBNET" ;;
+  false) multicast_value="false"; discovery_range="${SMARTFACTORY_ROS_DISCOVERY_RANGE:-LOCALHOST}" ;;
+  *)
+    echo "[cyclonedds_lan] SMARTFACTORY_DDS_ALLOW_MULTICAST must be true or false" >&2
+    return 1 2>/dev/null || exit 1
+    ;;
+esac
+
 profile_dir="${XDG_RUNTIME_DIR:-/tmp}/smartfactory-cyclonedds"
 mkdir -p "$profile_dir"
-profile_file="${profile_dir}/lan-${UID}-${lan_interface}-${peer_mode}.xml"
+profile_file="${profile_dir}/lan-${UID}-${lan_interface}-${peer_mode}-multicast-${allow_multicast}.xml"
 
 peer_xml=""
 IFS=';,' read -r -a peers <<<"$peer_list"
@@ -72,9 +82,9 @@ cat >"$profile_file" <<EOF
   <Domain Id="any">
     <General>
       <Interfaces>
-        <NetworkInterface name="${lan_interface}" priority="default" multicast="false"/>
+        <NetworkInterface name="${lan_interface}" priority="default" multicast="${multicast_value}"/>
       </Interfaces>
-      <AllowMulticast>false</AllowMulticast>
+      <AllowMulticast>${multicast_value}</AllowMulticast>
       <DontRoute>true</DontRoute>
     </General>
     <Discovery>
@@ -86,10 +96,10 @@ ${peer_xml}      </Peers>
 EOF
 
 export CYCLONEDDS_URI="file://${profile_file}"
-export ROS_AUTOMATIC_DISCOVERY_RANGE="${SMARTFACTORY_ROS_DISCOVERY_RANGE:-LOCALHOST}"
+export ROS_AUTOMATIC_DISCOVERY_RANGE="$discovery_range"
 export ROS_STATIC_PEERS="$peer_list"
 export SMARTFACTORY_DDS_LAN_INTERFACE="$lan_interface"
 export SMARTFACTORY_DDS_LAN_ADDRESS="$lan_address"
 unset FASTRTPS_DEFAULT_PROFILES_FILE FASTDDS_DEFAULT_PROFILES_FILE
 
-echo "[cyclonedds_lan] mode=${peer_mode} peer=${route_probe} interface=${lan_interface} address=${lan_address}" >&2
+echo "[cyclonedds_lan] mode=${peer_mode} multicast=${allow_multicast} peer=${route_probe} interface=${lan_interface} address=${lan_address}" >&2

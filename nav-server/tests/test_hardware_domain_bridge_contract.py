@@ -35,6 +35,7 @@ def test_robot1_hardware_bridge_is_topic_allowlisted_and_robot2_free() -> None:
     assert "smartfactory-robot2" not in runner
     assert "tb3_2" not in runner
     assert 'flock -n 9' in runner
+    assert "SMARTFACTORY_DDS_ALLOW_MULTICAST=true" in runner
 
 
 def test_local_domain_profile_uses_same_pc_peer_only() -> None:
@@ -43,4 +44,5 @@ def test_local_domain_profile_uses_same_pc_peer_only() -> None:
 
     assert "SMARTFACTORY_DDS_PEER_MODE=self" in wrapper
     assert 'peer_list="$lan_address"' in lan
-    assert 'profile_file="${profile_dir}/lan-${UID}-${lan_interface}-${peer_mode}.xml"' in lan
+    assert 'profile_file="${profile_dir}/lan-${UID}-${lan_interface}-${peer_mode}-multicast-${allow_multicast}.xml"' in lan
+    assert 'SMARTFACTORY_DDS_ALLOW_MULTICAST:-false' in lan
