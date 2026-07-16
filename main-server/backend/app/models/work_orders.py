@@ -25,6 +25,23 @@ class WorkOrderTask(BaseModel):
     business_completed: bool = False
     return_status: str | None = None
     parking_error: dict[str, Any] | None = None
+    progress: "WorkOrderTaskProgress | None" = None
+
+
+class WorkOrderTaskProgressStep(BaseModel):
+    step_index: int = Field(ge=0)
+    kind: str
+    label: str | None = None
+    status: str
+    command_id: str | None = None
+    transfer_action: str | None = None
+    failure_reason: str | None = None
+
+
+class WorkOrderTaskProgress(BaseModel):
+    phase: str
+    current_step_index: int = Field(ge=0)
+    steps: list[WorkOrderTaskProgressStep] = Field(default_factory=list)
 
 
 class WorkOrder(BaseModel):

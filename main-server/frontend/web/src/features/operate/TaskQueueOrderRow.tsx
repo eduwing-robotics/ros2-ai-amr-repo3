@@ -3,6 +3,7 @@ import { Pill } from "../../components/Pill";
 import { operationLabel, formatPlanSummaryLine, taskStatusLabel } from "../../lib/workOrderLabels";
 import type { Robot, WorkOrder } from "../../types";
 import { OrderReorderControls } from "./WorkOrderQueueControls";
+import { TaskProgressTimeline } from "./TaskProgressTimeline";
 import {
   canCancelOrder,
   canCancelTask,
@@ -184,6 +185,7 @@ export function TaskQueueOrderRow({
                         <button type="button" className="rowbtn danger" onClick={() => onCancelTask(t.task_id)}>취소</button>
                       ) : null}
                     </span>
+                    <TaskProgressTimeline task={t} />
                   </div>
                 );
               })}

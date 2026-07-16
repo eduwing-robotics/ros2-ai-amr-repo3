@@ -667,6 +667,33 @@ def _active_command_id(conn, task_id: int) -> str | None:
     return None
 
 
+def _task_progress(orch: dict[str, Any]) -> dict[str, Any] | None:
+    from app.services import orchestration_state as orch_state
+
+    steps = orch_state.get_steps(orch)
+    if not steps:
+        return None
+    current = orch_state.get_step_index(orch)
+    projected = []
+    for index, step in enumerate(steps):
+        projected.append(
+            {
+                "step_index": index,
+                "kind": str(step.get("kind") or "unknown"),
+                "label": step.get("label"),
+                "status": str(step.get("status") or "pending").upper(),
+                "command_id": step.get("command_id"),
+                "transfer_action": step.get("transfer_action"),
+                "failure_reason": step.get("failure_reason") or step.get("error") or step.get("reason"),
+            }
+        )
+    return {
+        "phase": str(orch.get("phase") or "RUNNING").upper(),
+        "current_step_index": max(0, min(current, len(projected) - 1)),
+        "steps": projected,
+    }
+
+
 def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     task = MvpTaskRepository(conn).get(order_id)
     if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
@@ -699,6 +726,7 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
         "business_completed": business_completed,
         "return_status": return_status,
         "parking_error": parking_error,
+        "progress": _task_progress(orch),
     }
     order = {
         "order_id": order_id,

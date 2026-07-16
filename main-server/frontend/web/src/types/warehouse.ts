@@ -94,6 +94,22 @@ export interface ItemChangeLogRecord {
 // --- 입출고 work order ---
 export type Operation = "inbound" | "outbound";
 
+export interface WorkOrderTaskProgressStep {
+  step_index: number;
+  kind: string;
+  label?: string | null;
+  status: string;
+  command_id?: string | null;
+  transfer_action?: string | null;
+  failure_reason?: string | null;
+}
+
+export interface WorkOrderTaskProgress {
+  phase: string;
+  current_step_index: number;
+  steps: WorkOrderTaskProgressStep[];
+}
+
 export interface WorkOrderTask {
   order_id: number;
   task_id: number;
@@ -112,6 +128,7 @@ export interface WorkOrderTask {
   business_completed?: boolean;
   return_status?: "RETURNING_HOME" | "PARKING" | "PARKED" | "PARK_FAILED" | null;
   parking_error?: JsonObject | null;
+  progress?: WorkOrderTaskProgress | null;
 }
 
 export interface WorkOrder {
