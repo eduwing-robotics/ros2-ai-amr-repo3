@@ -382,7 +382,10 @@ export function OperatorShell() {
                   onZoneFocus={setFocusedZoneId}
                   disabled={allRobotsEmergency}
                   emergencyRobots={emergencyRobots}
-                  onSubmitted={() => refetch()}
+                  onSubmitted={(order, autoStart) => {
+                            void refetch();
+                            if (!autoStart) navigate(`/operate/tasks?order=${order.order_id}`);
+                  }}
                 />
               ) : null}
               {drawer === "control" ? (
@@ -450,7 +453,10 @@ export function OperatorShell() {
                           onZoneFocus={setFocusedZoneId}
                           disabled={allRobotsEmergency}
                           emergencyRobots={emergencyRobots}
-                          onSubmitted={() => refetch()}
+                          onSubmitted={(order, autoStart) => {
+                          void refetch();
+                          if (!autoStart) navigate(`/operate/tasks?order=${order.order_id}`);
+                        }}
                         />
                       </div>
                       <div className="work-order-reference-map" role="region" aria-label="입출고 위치 확인 맵">

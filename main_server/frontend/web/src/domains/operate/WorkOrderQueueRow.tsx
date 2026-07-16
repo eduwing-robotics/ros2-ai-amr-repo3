@@ -18,6 +18,7 @@ import {
 
 export function WorkOrderQueueRow({
   order,
+  highlighted,
   itemName,
   open,
   showReorder,
@@ -43,6 +44,7 @@ export function WorkOrderQueueRow({
   onKeyReorder,
 }: {
   order: WorkOrder;
+  highlighted?: boolean;
   itemName?: string;
   open: boolean;
   showReorder: boolean;
@@ -74,7 +76,7 @@ export function WorkOrderQueueRow({
 
   return (
     <>
-      <tr>
+      <tr className={highlighted ? "work-order-highlight" : undefined}>
         <td><button type="button" className="rowbtn task-expand-btn" aria-label={open ? "접기" : "펼치기"} onClick={onToggle}>{open ? "▾" : "▸"}</button></td>
         {showReorder ? (
           <td>

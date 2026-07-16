@@ -56,6 +56,37 @@ test("WEB-01 자동 시작 실패는 생성 성공과 실행 실패를 구분한
   await expect(page.getByText(/task #103: robot_not_accepting/)).toBeVisible();
 });
 
+test("WEB-01 자동 시작 OFF는 예약을 생성하고 해당 작업 큐로 연결한다", async ({ page }) => {
+  const reservedOrder = {
+    order_id: 101,
+    operation: "inbound",
+    item_code: item.item_code,
+    quantity: 1,
+    status: "QUEUED",
+    tasks: [{ task_id: 101, status: "QUEUED", assigned_robot_id: null, slot_id: slot.slot_id }],
+  };
+  await mockMainApi(page, { workOrders: [reservedOrder] });
+  await page.route("**/api/v1/work-orders", (route) => {
+    if (route.request().method() === "POST") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(reservedOrder) });
+    }
+    return route.fallback();
+  });
+
+  await page.goto("/operate/control?drawer=inout");
+  await page.getByLabel("품목").selectOption(item.item_code);
+  await page.getByLabel("생성 후 자동 시작").uncheck();
+
+  await expect(page.getByText("예약만 생성하며 로봇은 출발하지 않습니다.")).toBeVisible();
+  await page.getByRole("button", { name: "입고 예약", exact: true }).click();
+
+  await expect(page).toHaveURL(/\/operate\/tasks\?order=101$/);
+  await expect(page.getByText(/작업 #101 예약 완료 · 작업 큐에서 배정 후 시작하세요/)).toBeVisible();
+  await expect(page.getByRole("tab", { name: /^예약/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("row", { name: /#101/ })).toHaveClass(/work-order-highlight/);
+  await expect(page.getByText(/task 101/)).toBeVisible();
+});
+
 test("WEB-02 재고 부족 오류는 입력과 재고 보기 동작을 유지한다", async ({ page }) => {
   await mockMainApi(page, { inventory: [{ slot_id: slot.slot_id, item_code: item.item_code, quantity: 1, floor: 1 }] });
   await page.route("**/api/v1/work-orders", (route) => route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: { error: "insufficient_inventory" } }) }));

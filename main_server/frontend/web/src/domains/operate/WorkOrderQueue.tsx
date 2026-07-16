@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Panel } from "../../components/Panel";
 import { Button } from "../../components/Button";
 import { useCancelWorkOrder, useSetWorkOrderPriority, useStopWorkOrder, useWorkOrders } from "./useWorkOrders";
@@ -92,6 +93,8 @@ export function WorkOrderQueueToolbar({
 
 
 export function WorkOrderQueue() {
+  const [searchParams] = useSearchParams();
+  const requestedOrderId = Number(searchParams.get("order"));
   const { data: orders = [] } = useWorkOrders(50);
   const { data: items = [] } = useItems();
   const { data: robots = [] } = useRobots();
@@ -102,6 +105,13 @@ export function WorkOrderQueue() {
   const [segment, setSegment] = useState<Segment>("all");
   const [expanded, setExpanded] = useState<number | null>(null);
   const [robotPick, setRobotPick] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    if (Number.isInteger(requestedOrderId) && requestedOrderId > 0) {
+      setSegment("queued");
+      setExpanded(requestedOrderId);
+    }
+  }, [requestedOrderId]);
 
   // 유휴 로봇 목록. 배정 준비도(offline/E-stop/localized 등)는 배정 API가 판정하며,
   // 준비 안 된 로봇을 골라 배정하면 409 detail이 매핑된 토스트로 사유를 안내한다.
@@ -199,6 +209,7 @@ export function WorkOrderQueue() {
                 <WorkOrderQueueRow
                   key={o.order_id}
                   order={o}
+                  highlighted={o.order_id === requestedOrderId}
                   itemName={items.find((it) => it.item_code === o.item_code)?.item_name}
                   open={expanded === o.order_id}
                   showReorder={showReorder}

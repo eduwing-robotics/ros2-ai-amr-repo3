@@ -215,6 +215,7 @@
     .clean-table th { background: var(--surface-3); color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
     .clean-table tbody tr:nth-child(even) { background: transparent; }
     .clean-table tbody tr:hover { background: var(--surface-2); }
+    .clean-table tbody tr.work-order-highlight { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
     .action-cell { min-width: 180px; white-space: nowrap; }
     .rowbtn.primary { background: var(--run-bg); color: var(--run-fg); }
     .rowbtn.primary:hover { background: var(--run-bg); filter: brightness(1.08); }

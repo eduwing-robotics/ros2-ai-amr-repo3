@@ -26,7 +26,11 @@ function createResultMessage(order: WorkOrder, request: WorkOrderCreate): { mess
   if (request.auto_start) {
     return { message: `작업 #${order.order_id} 접수됨 · 로봇 배정 대기 (5초마다 자동 재시도)`, kind: "info" };
   }
-  return { message: `작업 #${order.order_id} 접수됨 · 자동 시작 꺼짐`, kind: "info" };
+  const assigned = order.tasks.some((task) => Boolean(task.assigned_robot_id));
+  return {
+    message: `작업 #${order.order_id} 예약 완료 · ${assigned ? "배정된 로봇에서 시작 대기" : "작업 큐에서 배정 후 시작하세요"}`,
+    kind: "ok",
+  };
 }
 
 // --- 조회 ---

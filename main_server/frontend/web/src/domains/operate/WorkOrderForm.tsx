@@ -110,7 +110,7 @@ export function WorkOrderResultNotice({
       ? "작업 실행 시작됨"
       : autoStart
         ? "작업 접수됨 · 로봇 배정 대기"
-        : "작업 접수됨 · 자동 시작 꺼짐";
+        : "작업 예약 완료 · 시작 대기";
 
   return (
     <div className={`inline-alert ${startFailed.length ? "warn" : started ? "ok" : ""}`} role="status" aria-live="polite">
@@ -203,8 +203,8 @@ export function WorkOrderForm({
   onZoneFocus?: (waypointId: string | null) => void;
   disabled?: boolean;
   emergencyRobots?: string[];
-  /** 생성 성공 시 호출 — 셸이 작업 큐 탭을 열어 피드백 루프를 잇는다. */
-  onSubmitted?: (order: WorkOrder) => void;
+  /** 생성 성공 시 호출 — 예약이면 셸이 작업 큐를 열어 다음 행동을 잇는다. */
+  onSubmitted?: (order: WorkOrder, autoStart: boolean) => void;
 }) {
   const { data: items = [], isLoading: itemsLoading, isError: itemsError } = useItems();
   const { data: inventory = [] } = useInventory();
@@ -282,6 +282,10 @@ export function WorkOrderForm({
 
   const manualSlotReady = assignMode === "manual" && manualSlotId.length > 0;
   const selectedZoneMissingScan = !!zoneId && !linkedDockPairs.some((p) => p.dock_waypoint_id === zoneId && p.dock_mode === "aruco");
+
+  useEffect(() => {
+    if (selectedZoneMissingScan) setAutoStart(false);
+  }, [selectedZoneMissingScan]);
   const needsZone = zoneOptions.length > 0 && !zoneId;
   const manualSlotMissing = assignMode === "manual" && !manualSlotReady;
 
@@ -344,7 +348,7 @@ export function WorkOrderForm({
         robotId,
       }));
       setResult(order);
-      onSubmitted?.(order);
+      onSubmitted?.(order, autoStart);
     } catch (e) {
       if (e instanceof ApiError) {
         const detail = parseApiDetail(e.message);
@@ -510,6 +514,9 @@ export function WorkOrderForm({
             />
             생성 후 자동 시작
           </label>
+          {!autoStart ? (
+            <span className="muted">예약만 생성하며 로봇은 출발하지 않습니다.</span>
+          ) : null}
           {selectedZoneMissingScan ? (
             <span className="muted">스캔 페어 없음 — 자동 시작 불가, 생성만 가능</span>
           ) : null}
@@ -520,7 +527,9 @@ export function WorkOrderForm({
             onClick={submit}
             disabled={submitDisabled}
           >
-            {create.isPending ? "요청 중" : operationLabel(operation) + " 요청 실행"}
+            {create.isPending
+              ? (autoStart ? "요청 중" : "예약 중")
+              : `${operationLabel(operation)} ${autoStart ? "요청 실행" : "예약"}`}
           </Button>
         </div>
       </div>
