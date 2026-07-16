@@ -265,3 +265,20 @@ test("맵 Goto 목표는 창을 닫아도 이동 중 임시 마커로 유지되�
   state.navMissionStatus = "SUCCEEDED";
   await expect(page.locator("[data-goto-target]")).toHaveCount(0, { timeout: 7000 });
 });
+
+
+test("슬롯별 재고는 선택 슬롯을 참조 맵에서 강조하고 품목 탭에서 맵을 정리한다", async ({ page }) => {
+  await mockMainApi(page, { inventory: [{ slot_id: "S01", item_code: "bolt", item_name: "볼트", quantity: 3, floor: 1 }] });
+  await page.goto("/operate/inventory");
+
+  const workspace = page.getByRole("region", { name: "재고 워크스페이스" });
+  await workspace.getByRole("tab", { name: "슬롯별" }).click();
+  const referenceMap = page.getByRole("region", { name: "슬롯 위치 확인 맵" });
+  await expect(referenceMap).toBeVisible();
+  await workspace.getByRole("row", { name: /슬롯 1 1층/ }).click();
+  await expect(referenceMap.locator(".zone-marker.work-order-focused")).toHaveCount(1);
+  await expect(workspace.getByRole("row", { name: /슬롯 1 1층/ })).toHaveAttribute("aria-selected", "true");
+
+  await workspace.getByRole("tab", { name: "품목별" }).click();
+  await expect(referenceMap).toHaveCount(0);
+});

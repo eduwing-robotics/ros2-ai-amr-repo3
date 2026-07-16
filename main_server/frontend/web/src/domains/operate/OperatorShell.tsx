@@ -175,6 +175,8 @@ export function OperatorShell() {
   const [cameraRobotId, setCameraRobotId] = useState<string | null>(null);
   const [focusedWaypointId, setFocusedWaypointId] = useState<string | null>(null);
   const [focusedZoneId, setFocusedZoneId] = useState<string | null>(null);
+  const [inventorySubview, setInventorySubview] = useState<"item" | "slot">("item");
+  const [inventorySlotWaypointId, setInventorySlotWaypointId] = useState<string | null>(null);
   const cameraRobot = robots.find((robot) => robot.robot_id === cameraRobotId) ?? null;
   const cameraRobotSources = cameraRobotId ? cameras.filter((camera) => camera.robot_id === cameraRobotId) : [];
   const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks]);
@@ -479,8 +481,15 @@ export function OperatorShell() {
                       <WorkOrderQueue />
                     </section>
                   ) : trayPanel === "inventory" ? (
-                    <section className="operator-workspace" id="operator-workspace-main" aria-label="재고 워크스페이스">
-                      <InventoryView />
+                    <section className={`inventory-map-workspace${inventorySubview === "slot" ? " is-slot-view" : ""}`} id="operator-workspace-main" aria-label="재고 워크스페이스">
+                      <div className="inventory-workspace-list">
+                        <InventoryView onSlotFocus={setInventorySlotWaypointId} onSubviewChange={setInventorySubview} />
+                      </div>
+                      {inventorySubview === "slot" ? (
+                        <div className="inventory-reference-map" role="region" aria-label="슬롯 위치 확인 맵">
+                          <DashboardMap focusedWaypointId={inventorySlotWaypointId} compact />
+                        </div>
+                      ) : null}
                     </section>
                   ) : trayPanel === "records" ? (
                     <section className="operator-workspace" id="operator-workspace-main" aria-label="이벤트 워크스페이스">

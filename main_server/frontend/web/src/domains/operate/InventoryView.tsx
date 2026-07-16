@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Panel } from "../../components/Panel";
 import { Button } from "../../components/Button";
@@ -6,8 +6,16 @@ import { useInventory, useItems, useStorageSlots } from "../warehouse/useWarehou
 import type { InventoryRecord } from "../../types/warehouse";
 
 /** 운영용 읽기전용 재고 뷰. 편집은 관리 ▸ 슬롯·재고·품목에 유지.
- *  compact=관제 코크핏 밴드용(품목별 + 요약만, 슬롯 상세·푸터 생략). */
-export function InventoryView({ compact = false }: { compact?: boolean } = {}) {
+ *  compact=관제 코크핏 밴드용(편집 푸터 생략). */
+export function InventoryView({
+  compact = false,
+  onSlotFocus,
+  onSubviewChange,
+}: {
+  compact?: boolean;
+  onSlotFocus?: (waypointId: string | null) => void;
+  onSubviewChange?: (subview: "item" | "slot") => void;
+} = {}) {
   const [floorFilter, setFloorFilter] = useState<0 | 1 | 2>(0); // 0=전체
   const { data: inventory = [], isLoading, isError, refetch, isFetching } = useInventory(
     floorFilter ? { floor: floorFilter } : undefined,
@@ -15,7 +23,20 @@ export function InventoryView({ compact = false }: { compact?: boolean } = {}) {
   const { data: slots = [] } = useStorageSlots();
   const { data: items = [] } = useItems();
   const [q, setQ] = useState("");
-  const [subview, setSubview] = useState<"item" | "slot">("item"); // compact 밴드 전용 품목/슬롯 전환
+  const [subview, setSubview] = useState<"item" | "slot">("item");
+  const [selectedCellKey, setSelectedSlotId] = useState<string | null>(null);
+
+  useEffect(() => { onSubviewChange?.(subview); }, [subview, onSubviewChange]);
+  useEffect(() => () => onSlotFocus?.(null), [onSlotFocus]);
+  const changeSubview = (next: "item" | "slot") => {
+    setSubview(next);
+    if (next === "item") { setSelectedSlotId(null); onSlotFocus?.(null); }
+  };
+  const selectSlot = (cellKey: string, waypointId: string) => {
+    const next = selectedCellKey === cellKey ? null : cellKey;
+    setSelectedSlotId(next);
+    onSlotFocus?.(next ? waypointId : null);
+  };
   const floors = useMemo(() => (floorFilter ? [floorFilter] : [1, 2]), [floorFilter]);
 
   const itemTotals = useMemo(() => {
@@ -90,7 +111,7 @@ export function InventoryView({ compact = false }: { compact?: boolean } = {}) {
             {slotRows.length === 0 ? (
               <tr><td colSpan={5} className="empty">등록된 슬롯 없음</td></tr>
             ) : slotRows.map(({ slot, floor, recs, used }) => (
-              <tr key={`${slot.slot_id}:${floor}`}>
+              <tr key={`${slot.slot_id}:${floor}`} className={selectedCellKey === `${slot.slot_id}:${floor}` ? "selected" : ""} tabIndex={0} aria-selected={selectedCellKey === `${slot.slot_id}:${floor}`} onClick={() => selectSlot(`${slot.slot_id}:${floor}`, slot.waypoint_id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectSlot(`${slot.slot_id}:${floor}`, slot.waypoint_id); } }}>
                 <td>{slot.label || slot.slot_id}</td>
                 <td>{floor}층</td>
                 <td className="num">{slot.capacity}</td>
@@ -128,15 +149,13 @@ export function InventoryView({ compact = false }: { compact?: boolean } = {}) {
       {isError ? <div className="inline-alert warn">재고를 불러오지 못했습니다.</div> : null}
       {isLoading ? <p className="muted">재고 불러오는 중…</p> : null}
 
-      {compact ? (
-        <div className="segmented inv-subview" role="tablist" aria-label="재고 보기">
-          <button type="button" role="tab" aria-selected={subview === "item"} className={subview === "item" ? "active" : ""} onClick={() => setSubview("item")}>품목별</button>
-          <button type="button" role="tab" aria-selected={subview === "slot"} className={subview === "slot" ? "active" : ""} onClick={() => setSubview("slot")}>슬롯별</button>
-        </div>
-      ) : null}
+      <div className="segmented inv-subview" role="tablist" aria-label="재고 보기">
+          <button type="button" role="tab" aria-selected={subview === "item"} className={subview === "item" ? "active" : ""} onClick={() => changeSubview("item")}>품목별</button>
+          <button type="button" role="tab" aria-selected={subview === "slot"} className={subview === "slot" ? "active" : ""} onClick={() => changeSubview("slot")}>슬롯별</button>
+      </div>
 
-      {!compact || subview === "item" ? itemSection : null}
-      {!compact || subview === "slot" ? slotSection : null}
+      {subview === "item" ? itemSection : null}
+      {subview === "slot" ? slotSection : null}
 
       {compact ? null : (
         <div className="action-row inv-footer">
