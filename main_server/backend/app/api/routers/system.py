@@ -23,19 +23,31 @@ from app.models.tasks import RobotTask
 router = APIRouter(tags=["system"])
 
 
-def _estop_summary(robots: list[Robot], health: dict) -> dict:
+def _estop_summary(robots: list[Robot], health: dict, persisted: dict[str, str] | None = None) -> dict:
     enabled_ids = [robot.robot_id for robot in robots if robot.enabled]
     active: list[str] = []
     unknown: list[str] = []
+    robot_states: dict[str, str] = {}
+    persisted = persisted or {}
     for robot_id in enabled_ids:
         snapshot = health.get(robot_id) or {}
         online = bool(snapshot.get("ok")) and snapshot.get("robot_online") is not False
-        if not online:
+        lifecycle = persisted.get(robot_id)
+        if snapshot.get("is_emergency"):
+            if online:
+                state = "stop_confirmed"
+                active.append(robot_id)
+            else:
+                state = lifecycle or "stop_unconfirmed"
+                unknown.append(robot_id)
+        elif lifecycle in {"stop_requested", "stop_unconfirmed", "clear_requested", "clear_unconfirmed"}:
+            state = lifecycle
             unknown.append(robot_id)
-        elif snapshot.get("is_emergency"):
-            active.append(robot_id)
+        else:
+            state = "clear_confirmed" if lifecycle == "clear_confirmed" else "clear"
+        robot_states[robot_id] = state
     state = "active" if active else "unknown" if unknown else "clear"
-    return {"state": state, "active_robots": active, "unknown_robots": unknown}
+    return {"state": state, "active_robots": active, "unknown_robots": unknown, "robot_states": robot_states}
 
 
 def _sync_battery_from_health(robots: list[Robot], health: dict) -> None:
@@ -111,6 +123,7 @@ def status() -> ControlSystemStatusSnapshot:
         commands = [RobotCommandRecord(**c) for c in movement_commands.list_movement_command_records(conn, limit=20)]
         events = operational_events.list_operational_events(conn, limit=30)
         tasks = [RobotTask(**t) for t in postgres_tasks.list_tasks(conn, limit=30)]
+        estop_states = operational_events.latest_estop_states(conn, [robot.robot_id for robot in robots])
 
     movement_health = get_movement_health([robot.robot_id for robot in robots])
     _sync_battery_from_health(robots, movement_health)
@@ -118,7 +131,7 @@ def status() -> ControlSystemStatusSnapshot:
     return ControlSystemStatusSnapshot(
         system={
             "mode": "MANUAL",
-            "estop_summary": _estop_summary(robots, movement_health),
+            "estop_summary": _estop_summary(robots, movement_health, estop_states),
             "movement_mode": movement_client.mode,
             "camera_mode": "configured",
             "camera": camera_system_config(),

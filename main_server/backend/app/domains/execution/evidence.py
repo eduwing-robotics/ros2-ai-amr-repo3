@@ -16,6 +16,28 @@ logger = logging.getLogger(__name__)
 
 CRITICAL_SEVERITIES = {"CRITICAL", "HIGH"}
 
+MOVEMENT_SECTION_IDS = {
+    "INBOUND_01": "inbound_slot_1",
+    "INBOUND_02": "inbound_slot_2",
+    "OUTBOUND_01": "outbound_slot_1",
+    "OUTBOUND_02": "outbound_slot_2",
+    "STORAGE_01": "warehouse_section_b",
+    "STORAGE_02": "warehouse_section_a",
+    "STORAGE_03": "warehouse_section_d",
+    "STORAGE_04": "warehouse_section_c",
+    "STORAGE_S1": "warehouse_section_a",
+    "STORAGE_S2": "warehouse_section_b",
+    "STORAGE_S3": "warehouse_section_c",
+    "STORAGE_S4": "warehouse_section_d",
+}
+
+MOVEMENT_STORAGE_ROUTE_ITEMS = {
+    "warehouse_section_a": "bolt",
+    "warehouse_section_b": "nut",
+    "warehouse_section_c": "wire",
+    "warehouse_section_d": "rubber_packing",
+}
+
 
 def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: str) -> list[dict[str, Any]]:
     map_id = scenario.get("map_id")
@@ -35,6 +57,18 @@ def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: s
                     "seq": idx,
                     "kind": "scenario",
                     "label": step.get("name") or "movement-owned-scenario",
+                    "params": dict(step.get("params") or {}),
+                    "status": "pending",
+                    "command_id": None,
+                }
+            )
+            continue
+        if action_type == "route":
+            steps.append(
+                {
+                    "seq": idx,
+                    "kind": "route",
+                    "label": step.get("name") or "movement-owned-route",
                     "params": dict(step.get("params") or {}),
                     "status": "pending",
                     "command_id": None,
@@ -313,6 +347,41 @@ def _build_inbound2_storage_b_contract() -> dict[str, Any]:
     }
 
 
+def _build_inout_route_contract(task: dict[str, Any]) -> dict[str, Any]:
+    task_type = str(task.get("task_type") or "").upper()
+    floor_value = task.get("to_floor") if task_type == "INBOUND" else task.get("from_floor")
+    floor = int(floor_value or 1)
+    if floor != 1:
+        raise HTTPException(status_code=409, detail="movement_route_floor_not_supported")
+    source = MOVEMENT_SECTION_IDS.get(str(task.get("from_location_id") or "").upper())
+    target = MOVEMENT_SECTION_IDS.get(str(task.get("to_location_id") or "").upper())
+    if not source or not target:
+        raise HTTPException(status_code=409, detail="movement_route_section_not_mapped")
+    item_id = str(task.get("item_id") or "").strip()
+    if not item_id:
+        raise HTTPException(status_code=409, detail="movement_route_item_missing")
+    storage_section = target if task_type == "INBOUND" else source
+    item_name = MOVEMENT_STORAGE_ROUTE_ITEMS.get(storage_section)
+    if not item_name:
+        raise HTTPException(status_code=409, detail="movement_route_storage_profile_missing")
+    robot_id = str(task.get("assigned_robot_id") or "")
+    return {
+        "map_id": settings.movement_active_map_id,
+        "steps": [{
+            "action_type": "route",
+            "name": f"{task_type.lower()}-route",
+            "params": {
+                "route_type": task_type.lower(),
+                "item_name": item_name,
+                "count": int(task.get("quantity") or 1),
+                "source_section_id": source,
+                "target_section_id": target,
+                "return_waypoint": "vehicle_2_approach" if movement_robot_key(robot_id) == "tb3_2" else "vehicle_1_approach",
+            },
+        }],
+    }
+
+
 def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
     snap = task.get("preset_snapshot") or {}
     if snap.get("steps") or snap.get("map_id"):
@@ -323,6 +392,8 @@ def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
 
     task_type = str(task.get("task_type") or "").upper()
     if task_type in {"INBOUND", "OUTBOUND"}:
+        if task.get("item_id"):
+            return _build_inout_route_contract(task)
         return _build_inout_scenario(conn, task)
 
     map_id = settings.movement_active_map_id

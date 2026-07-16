@@ -78,6 +78,71 @@ def _update_scenario_progress(
     return progress
 
 
+def _route_timeline_label(action: str, payload: dict[str, Any]) -> str:
+    stage = str(payload.get("stage") or "")
+    labels = {
+        "go_to_pickup_approach": "픽업 위치 접근",
+        "pickup_dock_lift_up_reverse": "화물 적재",
+        "go_to_dropoff_approach": "목적 위치 이동",
+        "dropoff_dock_lift_down_reverse": "화물 하역",
+        "return_to_standby": "대기 위치 복귀",
+    }
+    if stage in labels:
+        return labels[stage]
+    transfer = str(payload.get("action") or "")
+    if action == "dock_transfer" and transfer == "load":
+        return "화물 적재"
+    if action == "dock_transfer" and transfer == "unload":
+        return "화물 하역"
+    if action == "wait":
+        return "완료 확인"
+    return stage or action
+
+
+def _route_timeline_from_preview(preview: dict[str, Any], command_id: str) -> list[dict[str, Any]]:
+    timeline: list[dict[str, Any]] = []
+    for index, raw in enumerate(preview.get("steps") or []):
+        action = str(raw.get("action") or "unknown")
+        payload = raw.get("payload") if isinstance(raw.get("payload"), dict) else {}
+        timeline.append(
+            {
+                "step_index": index,
+                "kind": action,
+                "label": _route_timeline_label(action, payload),
+                "status": "PENDING",
+                "command_id": command_id,
+                "transfer_action": payload.get("action") if action == "dock_transfer" else None,
+                "stage": payload.get("stage"),
+            }
+        )
+    return timeline
+
+
+def _update_route_timeline(step: dict[str, Any], event: dict[str, Any], event_name: str) -> None:
+    timeline = step.get("route_timeline")
+    if not isinstance(timeline, list) or not timeline:
+        return
+    try:
+        current = int(event.get("current_step_index"))
+    except (TypeError, ValueError):
+        current = -1
+    if event_name == "DONE":
+        current = len(timeline) - 1
+    if current < 0:
+        return
+    current = min(current, len(timeline) - 1)
+    step["route_timeline_current_index"] = current
+    terminal_failure = event_name in {"FAILED", "ABORTED", "REJECTED", "CANCELLED"}
+    for index, item in enumerate(timeline):
+        if index < current or event_name == "DONE":
+            item["status"] = "DONE"
+        elif index == current:
+            item["status"] = event_name if terminal_failure else "RUNNING"
+            if terminal_failure:
+                item["failure_reason"] = event.get("message") or event.get("reason")
+    step["route_timeline"] = timeline
+
+
 def _scenario_business_milestone(progress: dict[str, Any]) -> bool:
     try:
         last_completed = int(progress.get("last_completed_step_index"))
@@ -298,6 +363,11 @@ def dispatch_current_step(conn, task_id: int) -> str:
         step["scenario_version"] = result.response.get("scenario_version")
         step["plan_hash"] = result.response.get("plan_hash")
         step["authority_owner"] = result.response.get("authority_owner")
+    if str(step.get("kind")) == "route":
+        preview = result.response.get("preview")
+        if isinstance(preview, dict):
+            step["route_timeline"] = _route_timeline_from_preview(preview, result.command_id)
+            step["route_timeline_current_index"] = 0
     orch_state.set_steps(orch, steps)
     evidence.save_orchestration(conn, task_id, orch)
     evidence.record_movement_evidence(
@@ -404,8 +474,19 @@ def advance_on_command_event(
         step["last_event_sequence"] = sequence
 
     scenario_progress: dict[str, Any] = {}
-    if str(step.get("kind")) == "scenario":
+    if str(step.get("kind")) in {"scenario", "route"}:
         scenario_progress = _update_scenario_progress(orch, step, event)
+    if str(step.get("kind")) == "route":
+        _update_route_timeline(step, event, event_name)
+
+    if (
+        str(step.get("kind")) in {"scenario", "route"}
+        and event.get("_callback_channel") == "legacy_result"
+        and event_name in TERMINAL_STEP_STATES
+    ):
+        execution.steps = steps
+        evidence.save_orchestration(conn, task_id, orch)
+        return None
 
     if orch_state.normalize_phase(orch.get("phase")) == orch_state.PHASE_CANCEL_REQUESTED:
         stop_request = orch.get("stop_request") or {}
@@ -489,7 +570,7 @@ def advance_on_command_event(
     if event_name in {"FAILED", "ABORTED", "REJECTED", "CANCELLED"}:
         step["status"] = event_name
         execution.steps = steps
-        if execution.business_completed and str(step.get("kind")) in {"move_to_point", "aruco_align", "scenario"}:
+        if execution.business_completed and str(step.get("kind")) in {"move_to_point", "aruco_align", "scenario", "route"}:
             execution.return_status = "PARK_FAILED"
             orch["parking_error"] = {
                 "state": event_name,
@@ -578,11 +659,15 @@ def advance_on_command_event(
                 payload={"missing_or_invalid": gate_errors, "scenario_progress": scenario_progress},
             )
             return None
+
+    if event_name == "DONE" and str(step.get("kind")) == "route" and not execution.business_completed:
+        inventory_ops.settle_inventory_for_completed_task(conn, task_id)
+        execution.mark_business_completed(at_step=step_index)
         step.pop("completion_gate_errors", None)
 
 
     if event_name not in _step_done_events(str(step.get("kind") or "move_to_point")):
-        if sequence is not None or str(step.get("kind")) == "scenario":
+        if sequence is not None or str(step.get("kind")) in {"scenario", "route"}:
             execution.steps = steps
             evidence.save_orchestration(conn, task_id, orch)
         return None
@@ -735,7 +820,7 @@ def poll_running_tasks(conn) -> int:
         if not robot_id:
             continue
         try:
-            if str(step.get("kind")) == "scenario":
+            if str(step.get("kind")) in {"scenario", "route"}:
                 status = movement_client.scenario_command_status(robot_id, str(step["command_id"]))
             else:
                 status = movement_client.command_status(robot_id, str(step["command_id"]))

@@ -70,7 +70,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
       business_completed: false,
     }, 202);
     if (path.startsWith("/work-orders")) return json(route, state.workOrders ?? []);
-    if (path === "/robot/estop" || path === "/robot/clear_estop") return json(route, { ok: true, succeeded: ["tb3_1"], failed: [] });
+    if (["/robot/estop", "/robot/clear_estop", "/robots/estop-all", "/robots/clear-estop-all"].includes(path)) return json(route, { ok: true, state: "clear", robots: [{ robot_id: "tb3_1", ok: true }] });
     if (path.includes("/priority") || path.includes("/cancel")) return json(route, { ok: true });
     if (path.startsWith("/maps")) return json(route, [map]);
     if (path.startsWith("/robot-poses")) return json(route, []);

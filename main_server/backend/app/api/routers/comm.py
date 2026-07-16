@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 
 from app.core.api_logs import list_logs as list_api_logs
+from app.core.api_logs import list_poll_metrics
 from app.db.connection import transaction
 from app.db.postgres import cameras
 from app.db.postgres import robots as postgres_robots
@@ -36,8 +37,10 @@ def comm_logs(
             )
         ]
     logs = list_api_logs(service=service, limit=limit)
+    poll_metrics = list_poll_metrics(service=service)
     return {
         "logs": logs,
+        "poll_metrics": poll_metrics,
         "movement_commands": movement_command_rows,
         "counts": {
             "logs": len(logs),

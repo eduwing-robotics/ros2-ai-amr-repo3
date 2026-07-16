@@ -1,8 +1,12 @@
 # Operations
 
 상태: Active
+주 독자: 배포·운영 담당자
+보조 독자: 현장 관리자·Backend 개발자
+난이도: 운영
 소유: Ops
-최종 갱신: 2026-07-14 17:30 KST
+최종 갱신: 2026-07-16 16:00 KST
+구현 기준: scripts/run_main.sh·check.sh·db.sh와 현재 Main 상태 API
 목적: 실서버 실행·검증·ESTOP 복구와 추가 개발 정책의 단일 정본.
 
 Main은 PostgreSQL과 실제 Movement·Vision 서버만 사용한다. fake/mock 서버 실행 경로는 제공하지 않는다.
@@ -111,14 +115,34 @@ FAIL 또는 `UNVERIFIED`가 하나라도 있으면 종료 코드 1을 반환한�
 
 ## 3. ESTOP 복구
 
-ESTOP은 전 로봇을 선점 중단하며 해제 후에도 task를 자동 재개하지 않는다.
+```mermaid
+stateDiagram-v2
+  [*] --> Clear
+  Clear --> StopRequested: ESTOP 즉시 전송
+  StopRequested --> StopConfirmed: 응답/상태 확인
+  StopRequested --> StopUnconfirmed: 응답 유실·실패
+  StopConfirmed --> ClearRequested: 운영자 해제 승인
+  StopUnconfirmed --> ClearRequested: 운영자 재시도
+  ClearRequested --> ClearConfirmed: 해제 확인
+  ClearRequested --> ClearUnconfirmed: 응답 유실·실패
+  ClearConfirmed --> Clear: 신규 작업만 허용
+  ClearUnconfirmed --> ClearRequested: 연결 복구 후 재시도
+```
+
+ESTOP은 전 로봇을 선점 중단하며 해제 후에도 task를 자동 재개하지 않는다. 단순 Movement 오프라인과
+ESTOP 미확인은 별개다. 정지/해제 요청 이력이 있는 미확인 로봇만 개별 격리하고 다른 로봇은 계속 운영한다.
 
 1. 사람·장애물 등 현장 위험을 제거한다.
 2. 관제 복구 패널 또는 `GET /tasks/recovery/awaiting-operator`에서 대상 task를 확인한다.
 3. Movement health, active map, localization, cargo 상태를 확인한다.
-4. ESTOP을 해제하고 cargo 상태와 복구 전략을 선택한다.
-5. preview 후 execute한다.
-6. `RECOVERY_RUNNING` 이후 결과와 재고·로봇 후처리 상태를 확인한다.
+4. 헤더에서 ESTOP 해제를 확인한다. Main은 stale health와 무관하게 모든 enabled 로봇에 해제를 시도한다.
+5. `해제 미확인` 로봇은 현장 상태와 Movement 연결을 확인한 뒤 해당 표시에서 재시도한다.
+6. cargo 상태와 복구 전략을 선택하고 preview 후 execute한다.
+7. `RECOVERY_RUNNING` 이후 결과와 재고·로봇 후처리 상태를 확인한다.
+
+`GET /api/v1/status`의 `system.estop_summary.robot_states`에서 로봇별 상태를 확인한다. Main 재시작은
+`evidence_events`의 마지막 ESTOP 수명주기 이벤트로 latch를 복원한다. 소프트웨어 상태를 임의로 초기화하는
+관리 API는 현재 제공하지 않으며, 실제 `is_emergency=false` 콜백 또는 해제 성공 응답으로만 clear한다.
 
 운영 UI가 제공하는 복구 방식은 `safe_move`(설정된 `LMS_RECOVERY_SAFE_LOCATION_ID` HOME으로 이동)과
 `manual_abort`(정지 확인 후 작업 종료·수동 회수) 두 가지다. 안전 위치 이동은 자동 하역이나 기존 작업 재개를

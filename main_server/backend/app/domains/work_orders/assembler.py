@@ -18,6 +18,25 @@ def _progress_snapshot(execution: RobotTaskExecutionState) -> RobotTaskProgress 
     steps = execution.steps
     if not steps:
         return None
+    if len(steps) == 1 and str(steps[0].get("kind")) == "route":
+        route_steps = steps[0].get("route_timeline")
+        if isinstance(route_steps, list) and route_steps:
+            return RobotTaskProgress(
+                phase=execution.phase,
+                current_step_index=int(steps[0].get("route_timeline_current_index") or 0),
+                steps=[
+                    RobotTaskProgressStep(
+                        step_index=index,
+                        kind=str(step.get("kind") or "unknown"),
+                        label=_optional_str(step.get("label")),
+                        status=str(step.get("status") or "PENDING").upper(),
+                        command_id=_optional_str(step.get("command_id")),
+                        transfer_action=_optional_str(step.get("transfer_action")),
+                        failure_reason=_optional_str(step.get("failure_reason")),
+                    )
+                    for index, step in enumerate(route_steps)
+                ],
+            )
     return RobotTaskProgress(
         phase=execution.phase,
         current_step_index=execution.step_index,

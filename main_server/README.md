@@ -1,9 +1,18 @@
 # Main_Control
 
+상태: Active
+주 독자: 신규 참여자·기술 평가자
+보조 독자: 전체 프로젝트 구성원
+난이도: 입문
+소유: Main
+최종 갱신: 2026-07-16 16:00 KST
+구현 기준: main-server 브랜치의 현재 실행·검증 진입점
+목적: 프로젝트 목적과 빠른 실행, 다음 문서 진입점을 제공한다.
+
 물류 작업을 계획하고 AMR·카메라·재고 상태를 한 화면에서 운영하는 웹 관제 서버다. Main_Control은
 PostgreSQL과 업무 상태를 소유하고, Movement·Vision 서버는 HTTP 계약으로 연동한다.
 
-![운영 관제 화면](docs/assets/screens/operate-control.png)
+![운영 관제 화면](docs/assets/screens/current/operate-control.png)
 
 ## 핵심 기능
 
@@ -23,6 +32,15 @@ PostgreSQL과 업무 상태를 소유하고, Movement·Vision 서버는 HTTP 계
 - 개발 환경은 로컬 PostgreSQL을 사용하며 Docker 배포는 팀 통합 후 별도 릴리스 범위다.
 
 ## 문서
+
+```mermaid
+flowchart LR
+  Start[프로젝트 이해] --> Index[문서 목차]
+  Index --> Operate[운영자·운영 문서]
+  Index --> Develop[아키텍처·API·DB]
+  Index --> Integrate[Movement·Vision 연동]
+  Index --> Verify[QA·실장비 인수]
+```
 
 공식 업무 용어는 [Glossary](docs/GLOSSARY.md), 시스템·도메인 책임은
 [Architecture](docs/ARCHITECTURE.md), 로컬 실행과 장애 대응은 [Operations](docs/OPERATIONS.md), 검증 범위는

@@ -71,6 +71,8 @@ def dispatch_robot_command(conn, payload: RobotCommandRequest, request: Request 
         return _dispatch_leave_dock(payload, command_id, callback_url)
     if payload.kind == "scenario":
         return _dispatch_scenario(payload, command_id, callback_url)
+    if payload.kind == "route":
+        return _dispatch_route(payload, command_id, callback_url)
 
     raise HTTPException(status_code=400, detail=f"unsupported kind={payload.kind}")
 
@@ -483,6 +485,73 @@ def _dispatch_scenario(
         kind="scenario",
         dry_run=False,
         accepted=True,
+        response={**response, "preview": preview},
+    )
+
+
+def _dispatch_route(payload: RobotCommandRequest, command_id: str, callback_url: str) -> RobotCommandResponse:
+    """Preview로 두 리프트 전이를 확인한 뒤 입출고 route 전체를 한 번 실행한다."""
+    params = dict(payload.params)
+    route_type = str(params.get("route_type") or "").lower()
+    if route_type not in {"inbound", "outbound"}:
+        raise HTTPException(status_code=400, detail="route.params.route_type must be inbound or outbound")
+    body = {
+        "command_id": command_id,
+        "task_id": payload.task_id,
+        "robot_name": movement_robot_key(payload.robot_id),
+        "route_type": route_type,
+        "item_name": str(params.get("item_name") or ""),
+        "count": int(params.get("count") or 1),
+        "source_section_id": params.get("source_section_id"),
+        "target_section_id": params.get("target_section_id"),
+        "return_waypoint": params.get("return_waypoint"),
+        "callback_url": callback_url,
+    }
+    try:
+        preview = movement_client.route_preview(payload.robot_id, body)
+    except (NotImplementedError, MovementClientError) as exc:
+        if isinstance(exc, MovementClientError):
+            raise _map_movement_client_error(exc, kind="route") from exc
+        raise HTTPException(status_code=501, detail="movement_route_api_missing") from exc
+
+    transfers = [
+        step.get("payload") or {}
+        for step in preview.get("steps") or []
+        if step.get("action") == "dock_transfer"
+    ]
+    actions = [str(item.get("action") or "") for item in transfers]
+    levels = [int(item.get("level") or 0) for item in transfers]
+    if actions != ["load", "unload"] or levels != [1, 1]:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "route_lift_contract_mismatch", "actions": actions, "levels": levels},
+        )
+    if preview.get("source_section_id") != body["source_section_id"] or preview.get("target_section_id") != body["target_section_id"]:
+        raise HTTPException(status_code=409, detail={"code": "route_section_contract_mismatch"})
+    if payload.dry_run:
+        return RobotCommandResponse(
+            command_id=command_id,
+            robot_id=payload.robot_id,
+            kind="route",
+            dry_run=True,
+            accepted=True,
+            response={"validated": True, "preview": preview, "request_body": body},
+        )
+    try:
+        response = movement_client.route_command(payload.robot_id, body)
+    except (NotImplementedError, MovementClientError) as exc:
+        if isinstance(exc, MovementClientError):
+            raise _map_movement_client_error(exc, kind="route") from exc
+        raise HTTPException(status_code=501, detail="movement_route_api_missing") from exc
+    response_command_id = str(response.get("command_id") or "")
+    if response_command_id and response_command_id != command_id:
+        raise HTTPException(status_code=502, detail={"code": "route_acceptance_contract_mismatch", "field": "command_id"})
+    return RobotCommandResponse(
+        command_id=command_id,
+        robot_id=payload.robot_id,
+        kind="route",
+        dry_run=False,
+        accepted=response.get("accepted") is not False,
         response={**response, "preview": preview},
     )
 

@@ -157,7 +157,7 @@ class Settings:
     )
     inbound2_storage_b_plan_hash: str = os.getenv(
         "LMS_INBOUND2_STORAGE_B_PLAN_HASH",
-        "67062080a11d960c689fc72baee28b60b6906a4ca4737193490eae7d1fce9305",
+        "9ed3212541519c8b7ea345105f50e3a52df3c49ed6de65f8f4a017d908c03a3a",
     ).strip()
     # 실물 검증의 skip_lift=true와 달리 운영 계약은 리프트를 수행한다.
     inbound2_storage_b_skip_lift: bool = os.getenv(

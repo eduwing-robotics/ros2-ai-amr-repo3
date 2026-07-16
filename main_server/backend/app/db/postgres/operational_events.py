@@ -54,6 +54,41 @@ def callback_event_exists(conn, event_id: str) -> bool:
     return row is not None
 
 
+def latest_estop_states(conn, robot_ids: list[str]) -> dict[str, str]:
+    """Return the latest persisted ESTOP lifecycle state for each robot."""
+    if not robot_ids:
+        return {}
+    rows = conn.execute(
+        """
+            SELECT DISTINCT ON (data_json ->> 'robot_id')
+                   data_json ->> 'robot_id' AS robot_id, event_type
+            FROM evidence_events
+            WHERE source = 'runtime'
+              AND data_json ->> 'robot_id' = ANY(%s)
+              AND event_type IN (
+                  'ROBOT_ESTOP_REQUESTED', 'ROBOT_ESTOP_CONFIRMED', 'ROBOT_ESTOP_UNCONFIRMED',
+                  'ROBOT_CLEAR_ESTOP_REQUESTED', 'ROBOT_CLEAR_ESTOP_CONFIRMED',
+                  'ROBOT_CLEAR_ESTOP_UNCONFIRMED'
+              )
+            ORDER BY data_json ->> 'robot_id', observed_at DESC, id DESC
+        """,
+        (robot_ids,),
+    ).fetchall()
+    event_to_state = {
+        "ROBOT_ESTOP_REQUESTED": "stop_requested",
+        "ROBOT_ESTOP_CONFIRMED": "stop_confirmed",
+        "ROBOT_ESTOP_UNCONFIRMED": "stop_unconfirmed",
+        "ROBOT_CLEAR_ESTOP_REQUESTED": "clear_requested",
+        "ROBOT_CLEAR_ESTOP_CONFIRMED": "clear_confirmed",
+        "ROBOT_CLEAR_ESTOP_UNCONFIRMED": "clear_unconfirmed",
+    }
+    return {
+        str(row["robot_id"]): event_to_state[str(row["event_type"])]
+        for row in rows
+        if row.get("robot_id") and row.get("event_type") in event_to_state
+    }
+
+
 def list_operational_events(conn, limit: int = 50) -> list[dict[str, Any]]:
 
     rows = conn.execute(

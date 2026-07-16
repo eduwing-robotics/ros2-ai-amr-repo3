@@ -3,8 +3,12 @@
 맵 API는 파일 기반 단일 맵만 제공한다. `GET /maps`는 호환상 길이 0 또는 1인 배열이며, `POST /maps/import-folder`는 저장이 아니라 파일 재검증이다.
 
 상태: Active
+주 독자: Main·Movement·Vision 연동 개발자
+보조 독자: 배포 담당자·QA
+난이도: 연동
 소유: Integration
-최종 갱신: 2026-07-14 20:23 KST
+최종 갱신: 2026-07-16 16:00 KST
+구현 기준: Main outbound client·callback route·현재 환경변수
 목적: **Main 서버 기준** 외부 HTTP 계약 — Movement/Vision 경계, robot-commands, 콜백, lift-load evidence.
 
 Main 서버와 다른 서버(Movement·Vision) 사이의 HTTP 계약을 정의한다. Main이 호출하는 API, 수신하는 콜백,
@@ -41,6 +45,19 @@ Base URL: http://smartfactory-main.local:8088/api/v1
 ```
 
 외부 서버가 콜백할 base URL과 Main이 바라보는 upstream 주소는 `GET /api/v1/system/external-config`로 조회할 수 있다.
+
+Vision은 hostname-first가 기본이다.
+
+```env
+LMS_VISION_API_BASE_URL=http://smartfactory-vision.local:8100
+LMS_VISION_STREAM_BASE_URL=http://smartfactory-vision.local:8090
+LMS_VISION_API_FALLBACK_BASE_URL=http://192.168.30.3:8100
+LMS_VISION_STREAM_FALLBACK_BASE_URL=http://192.168.30.3:8090
+```
+
+`smartfactory-vision.local`은 배포 환경의 hosts/DNS에서 현장 Vision 주소로 해석되어야 한다. 실행 스크립트는
+hostname 경로가 준비되지 않은 복구 상황을 위해 별도 fallback URL을 유지하지만 Browser에 upstream 주소를
+직접 노출해 호출시키지는 않는다.
 
 Movement·Vision base URL과 callback URL은 `http`/`https`와 명시적 host가 필요하며 userinfo·query·fragment를 허용하지 않는다. Main proxy는 JSON/binary/오류 응답에 크기 상한을 적용하고 upstream 오류 본문을 브라우저 응답에 노출하지 않는다. `external-config`는 내부 endpoint topology를 포함하므로 신뢰된 운영망에서만 노출한다.
 
@@ -235,11 +252,26 @@ Main은 callback 누락을 가정하고 `GET /robot-commands/{id}`로 보정한�
 
 추가 inbound: `POST /api/v1/movement/results` · `/movement/robots/{name}/status` · canonical pose report (`/robots/{id}/pose`).
 
+Robot status callback이 `is_emergency`를 명시하면 Main은 해당 로봇의 ESTOP latch를 실제 보고값으로 정합화하고
+`ROBOT_ESTOP_CONFIRMED` 또는 `ROBOT_CLEAR_ESTOP_CONFIRMED` 이벤트를 남긴다. 같은 확인 상태의 반복 보고는
+추가 이벤트를 만들지 않는다. 현재 fleet ESTOP outbound는 로봇별 HTTP 응답까지 확인하며 request ID를
+Movement body에 전달하지는 않으므로, 물리 실행과의 강한 상관관계가 필요하면 Movement 계약 확장이 필요하다.
+
 ### 7.7 이동 전 확인
 
 `robot_online` · `command_accepting` · not emergency · `localized` · pose 존재. 불충족 시 명령을 보내지 않거나 Movement `4xx`를 표면화.
 
 Main 진단 API: `GET /api/v1/movement/map-state` · `/sync-status` · `/robots/{id}/localization` · `/movement/commands/{id}/trace`.
+
+### 7.8 Fleet ESTOP 상태 계약
+
+- 정지는 등록 로봇 전체에 즉시 fan-out하고 실행 중 task를 `AWAITING_OPERATOR`로 전환한다.
+- Main은 전송 전에 로컬 latch를 세우므로 요청 응답이 유실돼도 해당 로봇의 신규 명령·자동 배정을 차단한다.
+- 해제는 stale health로 대상을 제외하지 않고 모든 enabled 로봇에 전송한다.
+- 로봇별 상태는 `stop_requested|stop_confirmed|stop_unconfirmed|clear_requested|clear_confirmed|clear_unconfirmed|clear`이다.
+- 단순 `robot_online=false`는 ESTOP unknown이 아니다. ESTOP 요청 이력이 있는 미확인 로봇만 격리한다.
+- 마지막 수명주기 이벤트는 `evidence_events`에 저장하며 Main 재시작 시 latch 복원에 사용한다.
+- 해제 후 task는 자동 재개하지 않는다.
 
 ---
 
@@ -265,6 +297,7 @@ Main_Control의 `POST /api/v1/robot-commands`는 Robot Command 외부 계약이�
 | `dock_transfer` | Movement 지원 여부 반영 | 미지원 응답 → Main `501` | marker/action/level |
 | `aruco_align` | Movement 지원 여부 반영 | 미지원 응답 → Main `501` | marker/final/tolerance |
 | `scenario` | ✅ (내부 실행 kind) | `/scenarios/{id}/*` | 한 command로 Movement가 내부 전체 단계를 소유 |
+| `route` | ✅ (내부 실행 kind) | `/routes/preview`, `/routes/commands` | 입출고 이동·적재·하역·복귀를 한 command로 소유 |
 
 ```jsonc
 {
@@ -278,8 +311,19 @@ Main_Control의 `POST /api/v1/robot-commands`는 Robot Command 외부 계약이�
 }
 ```
 
-일반 `robot-commands`의 preview는 kind가 아니라 `dry_run` 플래그이고 시퀀스는 Main 오케스트레이터가
-step으로 펼친다. 단, `INBOUND_02 → STORAGE_01`, `to_floor=2`, `tb3_2` 작업은 검증된
+1층 일반 입출고는 Main에 단일 `route` step만 두고 다음 순서를 지킨다.
+
+1. `POST /movement-api/v1/routes/preview`
+2. source/target section 일치와 `dock_transfer(load, level=1) → dock_transfer(unload, level=1)` 확인
+3. 같은 body와 command ID로 `POST /movement-api/v1/routes/commands`
+4. callback 유실 시 `GET /movement-api/v1/commands/{command_id}`로 보정
+5. 운영자 중단 시 `POST .../commands/{command_id}/safe-stop`
+
+Movement의 현재 route builder는 창고 section override보다 `item_name`의 route catalog를 우선한다. Main은 실제
+재고 품목을 task에 그대로 유지하고, Movement 요청의 `item_name`에는 선택된 창고 section에 대응하는 경로
+profile 키(`bolt`=A, `nut`=B, `wire`=C, `rubber_packing`=D)를 사용한다. preview section 검증이 다르면 실행하지 않는다.
+
+`INBOUND_02 → STORAGE_01`, `to_floor=2`, `tb3_2` 작업은 검증된
 `inbound2-storage-b` 예외 계약을 사용한다. Main에는 단일 `scenario` step만 있고 Movement가 내부 9단계를 소유한다.
 
 이 예외 흐름은 다음 순서를 지킨다.
@@ -313,32 +357,29 @@ API 없으면 Main `movement_initial_pose_api_missing`.
 
 ---
 
-## 10. Precision waypoint 실행 (확정 결정 요약)
+## 10. 입출고 Route Scenario 실행
 
 **Active 결정:**
 
-- 자동 입출고의 슬롯 이동은 `params.waypoint_id`만 사용한다.
-- `move_to_point`의 최종 `ARRIVED`가 정밀 접근과 20cm 직선 삽입 완료 증거다.
-- Main은 load/unload 의미를 step metadata로 보유하며 Movement params에는 누출하지 않는다.
-- 자동 시나리오는 별도 `dock_transfer`를 생성하지 않아 동일 삽입의 이중 실행을 막는다.
-- 실제 리프트 전용 API가 별도 합의되기 전까지 generic/manual `dock_transfer` 호환만 유지한다.
-- 복귀는 `vehicle_2_approach` 뒤 `aruco_align(marker=4, final=park)` 순서다.
+- Main은 위치 ID를 Movement semantic section ID로 변환해 route preview에 전달한다.
+- preview에 load와 unload 두 리프트 단계가 정확히 없으면 실행하지 않는다.
+- route 전체는 하나의 command ID로 실행하므로 Main이 중간 `dock_transfer`를 중복 전송하지 않는다.
+- 현재 범용 route는 1층만 허용한다. 검증된 2층 고정 시나리오 외 조합은 차단한다.
+- 최종 DONE 전에는 재고를 반영하지 않는다.
 
 ```mermaid
 sequenceDiagram
   participant Main
   participant MV as Movement
-  Main->>MV: move_to_point(inbound waypoint_id)
-  MV-->>Main: ARRIVED (precision load position)
-  Main->>MV: move_to_point(storage waypoint_id)
-  MV-->>Main: ARRIVED (precision unload position)
+  Main->>MV: POST routes/preview (source·target·item)
+  MV-->>Main: steps 포함 load(level 1)·unload(level 1)
+  Main->>MV: POST routes/commands (동일 body·command ID)
+  MV-->>Main: 단계 callback
+  MV-->>Main: DONE
   Main->>Main: 재고 1회 반영
-  Main->>MV: move_to_point(vehicle_2_approach)
-  MV-->>Main: ARRIVED
-  Main->>MV: aruco_align(marker 4, park)
 ```
 
-입고 예: `inbound_slot_2_approach → warehouse_d_approach → vehicle_2_approach → park`. 각 move는 고유 command ID를 사용하며 `ARRIVED` 전에는 다음 명령을 보내지 않는다.
+입고 예: `inbound_slot_1 → warehouse_section_d → vehicle_2_approach`. Movement가 접근·정밀 정렬·load·이동·정밀 정렬·unload·복귀를 한 명령 안에서 수행한다.
 
 적재 후 `FAILED/ABORTED/CANCELLED` 또는 다음 dispatch 실패가 발생하면 Main은 task와 robot 할당을 유지한 채 `AWAITING_OPERATOR(cargo_state=LOADED)`로 전환한다. unload `ARRIVED` 이후 복귀·주차 실패는 이미 완료된 물류를 되돌리지 않고 `PARK_FAILED`로 기록한다.
 

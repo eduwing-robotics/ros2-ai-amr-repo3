@@ -10,7 +10,7 @@ from unittest.mock import patch
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.core.api_logs import clear_logs, list_logs, record_heartbeat
+from app.core.api_logs import begin_call, clear_logs, finish_call, list_logs, list_poll_metrics, record_heartbeat
 from app.core.health_cache import clear_cache
 from app.domains.vision.client import fetch_camera_health
 
@@ -40,6 +40,32 @@ class CameraHealthTest(unittest.TestCase):
         result = fetch_camera_health(["tb3_1_picam"])
         self.assertFalse(result["ok"])
         self.assertEqual(result["source"], "none")
+
+    def test_polling_is_suppressed_and_auth_failures_are_coalesced(self) -> None:
+        image = begin_call("vision", "image", "GET", "http://vision/image", source="cam-1")
+        finish_call(image, True, 200, "image/jpeg")
+        self.assertEqual(list_logs(service="vision"), [])
+        metrics = list_poll_metrics(service="vision")
+        self.assertEqual(len(metrics), 1)
+        self.assertEqual(metrics[0]["request_count"], 1)
+        self.assertEqual(metrics[0]["success_rate"], 100.0)
+
+        first = begin_call("vision", "webrtc_offer", "POST", "http://vision/offer", source="cam-1")
+        finish_call(first, False, 401, "unauthorized")
+        second = begin_call("vision", "webrtc_offer", "POST", "http://vision/offer", source="cam-1")
+        finish_call(second, False, 401, "unauthorized")
+        rows = list_logs(service="vision")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "auth_error")
+        self.assertEqual(rows[0]["http_status"], 401)
+        self.assertEqual(rows[0]["repeat_count"], 2)
+
+        recovered = begin_call("vision", "webrtc_offer", "POST", "http://vision/offer", source="cam-1")
+        finish_call(recovered, True, 200, "application/json")
+        rows = list_logs(service="vision")
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["status"], "auth_recovered")
+        self.assertEqual(rows[0]["recovered_after_count"], 2)
 
     def test_vision_heartbeat_records_transitions_only(self) -> None:
         record_heartbeat("vision", "camera", False, detail="brief drop")

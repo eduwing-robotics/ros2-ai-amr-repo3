@@ -276,6 +276,9 @@ def movement_robot_status(robot_name: str, payload: MovementRobotStatusCallback,
         raise HTTPException(status_code=404, detail="robot not registered") from exc
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"invalid pose: {exc}") from exc
+    if "is_emergency" in body:
+        with transaction() as conn:
+            callbacks.ingest_estop_status(conn, robot_name, body)
     if callbacks.robot_status_requires_event(body):
         with transaction() as conn:
             callbacks.ingest_robot_status(conn, robot_name, body)
@@ -299,10 +302,10 @@ def robot_clear_estop_all() -> dict:
     with transaction() as conn:
         results = clear_estop_all_robots(conn)
     attempted = [r for r in results if r.get("attempted", True)]
-    unknown = [r["robot_id"] for r in results if r.get("state") == "unknown"]
+    unknown = [r["robot_id"] for r in results if r.get("state") == "clear_unconfirmed"]
     failed = [r["robot_id"] for r in attempted if not r.get("ok")]
     ok = bool(attempted) and not failed
-    state = "failed" if failed else "partial" if unknown else "clear" if ok else "unknown"
+    state = "partial" if unknown else "failed" if failed else "clear" if ok else "unknown"
     return {"ok": ok, "state": state, "partial": bool(unknown), "unknown_robots": unknown, "robots": results}
 
 
@@ -368,60 +371,107 @@ def estop_all_robots(conn) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for robot_id in robot_ids:
         set_robot_emergency(robot_id, True)
+        request_id = secrets.token_hex(12)
+        operational_events.append(
+            conn,
+            event_type="ROBOT_ESTOP_REQUESTED",
+            robot_id=robot_id,
+            message=f"estop requested: {robot_id}",
+            payload={"request_id": request_id},
+        )
         try:
             payload = movement_client.estop(robot_id)
-            results.append({"robot_id": robot_id, "ok": True, "response": payload})
+            results.append(
+                {
+                    "robot_id": robot_id,
+                    "ok": True,
+                    "state": "stop_confirmed",
+                    "request_id": request_id,
+                    "response": payload,
+                }
+            )
             operational_events.append(
                 conn,
-                event_type="ROBOT_ESTOP",
+                event_type="ROBOT_ESTOP_CONFIRMED",
                 robot_id=robot_id,
                 message=f"estop: {robot_id}",
-                payload=payload,
+                payload={**payload, "request_id": request_id},
             )
         except MovementClientError as exc:
-            results.append({"robot_id": robot_id, "ok": False, "error": str(exc)})
+            results.append(
+                {
+                    "robot_id": robot_id,
+                    "ok": False,
+                    "state": "stop_unconfirmed",
+                    "request_id": request_id,
+                    "error": str(exc),
+                }
+            )
+            operational_events.append(
+                conn,
+                event_type="ROBOT_ESTOP_UNCONFIRMED",
+                robot_id=robot_id,
+                message=f"estop unconfirmed: {robot_id}",
+                payload={"request_id": request_id, "error": str(exc)},
+            )
     clear_cache()
     return results
 
 
 def clear_estop_all_robots(conn) -> list[dict[str, Any]]:
-    """Clear enabled online robots; keep offline robots explicitly unconfirmed."""
+    """Attempt clear for every enabled robot; never skip solely on stale health."""
     robot_rows = postgres_robots.list_robots(conn)
-    enabled_ids = [r["robot_id"] for r in robot_rows if r.get("enabled", True)]
-    health = get_movement_health(enabled_ids, force=True)
     results: list[dict[str, Any]] = []
     for robot in robot_rows:
         robot_id = robot["robot_id"]
         if not robot.get("enabled", True):
             results.append({"robot_id": robot_id, "ok": True, "attempted": False, "state": "disabled"})
             continue
-        snapshot = health.get(robot_id) or {}
-        online = bool(snapshot.get("ok")) and snapshot.get("robot_online") is not False
-        if not online:
-            results.append(
-                {
-                    "robot_id": robot_id,
-                    "ok": False,
-                    "attempted": False,
-                    "state": "unknown",
-                    "error": "robot offline; estop clear unconfirmed",
-                }
-            )
-            continue
+        request_id = secrets.token_hex(12)
+        operational_events.append(
+            conn,
+            event_type="ROBOT_CLEAR_ESTOP_REQUESTED",
+            robot_id=robot_id,
+            message=f"clear estop requested: {robot_id}",
+            payload={"request_id": request_id},
+        )
         try:
             payload = movement_client.clear_estop(robot_id)
             set_robot_emergency(robot_id, False)
             results.append(
-                {"robot_id": robot_id, "ok": True, "attempted": True, "state": "cleared", "response": payload}
+                {
+                    "robot_id": robot_id,
+                    "ok": True,
+                    "attempted": True,
+                    "state": "clear_confirmed",
+                    "request_id": request_id,
+                    "response": payload,
+                }
             )
             operational_events.append(
                 conn,
-                event_type="ROBOT_CLEAR_ESTOP",
+                event_type="ROBOT_CLEAR_ESTOP_CONFIRMED",
                 robot_id=robot_id,
                 message=f"clear estop: {robot_id}",
-                payload=payload,
+                payload={**payload, "request_id": request_id},
             )
         except MovementClientError as exc:
-            results.append({"robot_id": robot_id, "ok": False, "attempted": True, "state": "failed", "error": str(exc)})
+            results.append(
+                {
+                    "robot_id": robot_id,
+                    "ok": False,
+                    "attempted": True,
+                    "state": "clear_unconfirmed",
+                    "request_id": request_id,
+                    "error": str(exc),
+                }
+            )
+            operational_events.append(
+                conn,
+                event_type="ROBOT_CLEAR_ESTOP_UNCONFIRMED",
+                robot_id=robot_id,
+                message=f"clear estop unconfirmed: {robot_id}",
+                payload={"request_id": request_id, "error": str(exc)},
+            )
     clear_cache()
     return results

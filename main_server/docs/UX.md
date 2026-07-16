@@ -3,13 +3,20 @@
 맵 화면은 `maps/`의 유일한 YAML·PGM을 자동 사용한다. 사용자가 맵을 선택·생성·삭제하지 않으며 관리 동작은 **맵 불러오기** 하나뿐이다.
 
 상태: Active
+주 독자: 제품 기획자·Frontend 개발자·QA
+보조 독자: 현장 관리자
+난이도: 운영
 소유: Frontend
-최종 갱신: 2026-07-14 18:54 KST
+최종 갱신: 2026-07-16 16:00 KST
+구현 기준: 현재 React route registry·OperatorShell·AdminShell과 screens/current 캡처
 목적: 운영/관리 2계층 UX 원칙·정보 구조·라우트·상태 표현을 설명한다.
 
 웹 UI는 운영자와 관리자를 분리해 설계했다. **운영자**는 좌표나 DB를 다루지 않고 품목·수량으로 입출고를 지시하고 진행을 확인한다. **관리자**는 맵·슬롯·품목·디바이스를 정의한다. 이 문서는 두 역할의 화면 구조와 노출 원칙을 설명한다.
 
 API: [API](API.md). 아키텍처: [ARCHITECTURE](ARCHITECTURE.md). 인수 기준: [TEST_CASES](TEST_CASES.md). 화면별 상세 명세·와이어프레임은 팀 내부 자료로 관리한다.
+
+스크린샷 중심의 페이지별 기능·디자인 설명과 Confluence/PPT 재사용 형식은
+[UI/UX Design](UI_UX_DESIGN.md)을 따른다.
 
 ## 1. 컨텍스트
 
@@ -24,13 +31,26 @@ API: [API](API.md). 아키텍처: [ARCHITECTURE](ARCHITECTURE.md). 인수 기준
 
 | 운영 — 관제 셸 | 운영 — 입출고 |
 | --- | --- |
-| ![관제 화면](assets/screens/operate-control.png) | ![입출고 화면](assets/screens/operate-inout.png) |
+| ![관제 화면](assets/screens/current/operate-control.png) | ![입출고 화면](assets/screens/current/operate-inout.png) |
 
 | 관리 — 맵·구역 | 관리 — 창고(품목·슬롯·재고) |
 | --- | --- |
-| ![맵 편집 화면](assets/screens/admin-map.png) | ![창고 관리 화면](assets/screens/admin-warehouse.png) |
+| ![맵 편집 화면](assets/screens/current/admin-map.png) | ![창고 관리 화면](assets/screens/current/admin-warehouse.png) |
 
-나머지 화면 캡처는 [`screens/`](assets/screens/)에 있다. 캡처 기준은 현재 Main 서버, Chrome, 1920×1080, 라이트 테마다. 외부 서버가 꺼져 있으면 연결 경고도 그대로 표시된다.
+| 운영 — 작업 | 운영 — 재고 |
+| --- | --- |
+| ![작업 화면](assets/screens/current/operate-tasks.png) | ![재고 화면](assets/screens/current/operate-inventory.png) |
+
+| 운영 — 이벤트 | 관리 — 전체 기록 |
+| --- | --- |
+| ![운영 이벤트 화면](assets/screens/current/operate-records.png) | ![전체 기록 화면](assets/screens/current/records-events.png) |
+
+| 관리 — 로봇·카메라 | 관리 — 시스템 |
+| --- | --- |
+| ![장치 관리 화면](assets/screens/current/admin-devices.png) | ![시스템 관리 화면](assets/screens/current/admin-system.png) |
+
+캡처 기준은 2026-07-16 17:37 KST에 최신 production build를 서빙한 Main 서버의 데스크톱 라이트 테마다.
+외부 서버의 연결·데이터 상태는 촬영 시점의 실제 상태를 그대로 표시한다.
 
 ## 2. 계층 구분
 
@@ -63,7 +83,9 @@ API: [API](API.md). 아키텍처: [ARCHITECTURE](ARCHITECTURE.md). 인수 기준
 
 ### F3 수동 개입
 
-맵에서 지점 클릭 이동(Goto)이나 Teleop 조작을 하면 Main이 Movement로 라우팅한다. ESTOP 중에는 teleop·입출고·goto가 모두 비활성화된다.
+맵에서 지점 클릭 이동(Goto)이나 Teleop 조작을 하면 Main이 Movement로 라우팅한다. ESTOP 로봇은 teleop·goto·
+신규 배정에서 제외된다. 모든 운용 로봇이 ESTOP이면 입출고 폼 전체를 차단하고, 일부 로봇만 ESTOP이면 정상
+로봇은 계속 운영한다.
 
 ### F4 관리자 창고 셋업
 
@@ -74,10 +96,11 @@ API: [API](API.md). 아키텍처: [ARCHITECTURE](ARCHITECTURE.md). 인수 기준
 ```mermaid
 flowchart TB
   subgraph Op [Operate]
-    C[control_shell]
-    IO[inout_drawer]
-    T[tasks_band]
-    Inv[inventory_drawer]
+    C[control_workspace]
+    IO[inout_map_workspace]
+    T[tasks_workspace]
+    Inv[inventory_workspace]
+    Ev[events_workspace]
   end
   subgraph Ad [Admin]
     Map[map_zones]
@@ -94,21 +117,25 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-  Nav[slim_nav] --> Drawer[left_drawer]
-  Map[center_map] --- Rail[right_rail_cam_robot]
-  Header[ESTOP_header] --- Map
+  Activity[activity_rail] --> Context[admin_context_pane]
+  Context --> Workspace[center_workspace]
+  Workspace --- Camera[camera_grid]
+  Workspace --- Dock[bottom_queue_history]
+  Camera --- Robots[right_robot_rail]
+  Header[global_header_EST0P] --- Workspace
 ```
 
-- 맵·카메라·로봇 레일 고정; 입출고·재고·기록은 좌측 드로어, 작업·수동 조작은 맵 아래 통합 트레이(탭 2개)로 접는다.
+- 운영은 활동 레일과 중앙 문맥·작업면을 사용하고, 관리 셸은 활동 레일 + 문맥 패널을 사용한다. 관제는 맵·카메라·로봇 레일을 유지하고, 작업·재고·이벤트는 중앙 작업면을 교체한다.
+- 입출고는 데스크톱에서 요청 폼과 참조 맵을 같은 작업면 안에 세로로 배치한다. 폼이 맵을 덮지 않으며 존·슬롯 선택은 맵 마커 강조와 동기화한다. 좁은 화면에서는 모달 드로어와 스크롤 구조로 전환한다.
+- 재고는 품목별·슬롯별 탭으로 나뉜다. 품목별에는 저장 장소를 표시하고, 슬롯별 행 선택 시 참조 맵의 슬롯 마커를 강조한다.
 - 카메라는 WebRTC 첫 프레임 확인 후 전환하고, 연결 실패·손실 시 MJPEG를 유지한다. MJPEG 사용 중에는 5·15·30·60초 간격으로 WebRTC를 다시 확인해 정상화되면 자동 복귀한다.
 - ESTOP은 헤더 상시(모드 무관). 누름=즉시, 해제=확인. 복구 패널은 관제 셸에 상시.
-- 1200px 초과에서는 드로어를 맵과 동시에 조작 가능한 비모달 영역으로, 이하에서는 스크림·focus 순환·배경 차단을 갖춘 모달로 전환한다.
+- 수동 조작·맵 이동은 선택 로봇 문맥을 보존하는 보조 드로어다. 좁은 화면의 드로어는 스크림·focus 순환·배경 차단을 갖춘 모달이다.
 - 좌측 메뉴는 아이콘과 문자를 함께 표시하고 현재 항목을 명시한다. 작업 배지는 진행 중 건수만 표시하며 미확인 계약이 없는 기록에는 배지를 표시하지 않는다.
-- 하단 트레이는 기본 48px 바로 접고, `작업 큐`·`수동 조작 · 맵 이동` 두 탭 중 하나를 누르면 저장된 높이로 펼친다. 같은 탭을 다시 누르면 접힌다. 높이는 탭별로 기억하며 수동 조작 탭은 조작 버튼이 잘리지 않게 더 큰 기본 높이로 연다. 접힌 바에도 작업 카운트(활성/예약/진행/복구)는 상시 표시한다.
-- 탭 상태는 URL로 표현한다: 작업 `?panel=tasks`(canonical) · 수동 조작 `?panel=control`.
-- 작업 버튼과 각 탭은 `aria-controls`·`aria-expanded`로 패널 상태를 알리고, 작업 탭을 펼친 뒤 탭 버튼으로 focus를 이동한다. 재고는 좌측 읽기 전용 드로어만 유지한다.
+- 하단에는 관제 화면의 실시간 작업 큐와 작업 기록 타임라인을 유지한다. 상세 작업 편집은 `/operate/tasks` 중앙 작업면에서 수행한다.
+- 이전 `?panel=tasks|inventory|records` URL은 각각 `/operate/tasks|inventory|events`로 정규화하고, `?panel=control`은 수동 조작 드로어로 정규화한다.
 - 알람 KPI는 미확인 위험·주의 event만 집계한다. 패널에서 현재 snapshot의 알람을 모두 확인할 수 있으며 확인 키는 브라우저 `localStorage`에 저장한다. 이는 화면 강조를 해제하는 로컬 확인 상태이며 서버 event를 변경하거나 위험 경보 정책을 억제하지 않는다.
-- 기존 `/operate/tasks`는 호환 경로이며 canonical `/operate/control?panel=tasks`로 교체한다.
+- `/operate/tasks`·`/operate/inventory`·`/operate/events`가 현재 canonical 목적지다.
 
 ## 7. 라우트
 
@@ -116,7 +143,9 @@ flowchart LR
 flowchart TD
   OC["/operate/control"] --> Shell[OperatorShell]
   OI["/operate/control?drawer=inout"] --> Shell
-  OT["/operate/control?panel=tasks"] --> Shell
+  OT["/operate/tasks"] --> Shell
+  OV["/operate/inventory"] --> Shell
+  OE["/operate/events"] --> Shell
   AM["/admin/map"]
   AW["/admin/warehouse"]
   AD["/admin/devices"]
@@ -127,16 +156,16 @@ flowchart TD
 | Route | 컴포넌트 | 메뉴 |
 | --- | --- | --- |
 | `/operate/control` | `OperatorShell` 관제 | 운영 |
-| `/operate/control?drawer=inout` | 입출고 드로어 | 운영 |
-| `/operate/control?panel=tasks` | 하단 트레이 — 작업 탭 | 운영 |
-| `/operate/control?panel=control` | 하단 트레이 — 수동 조작·맵 이동 탭 | 운영 |
-| `/operate/control?drawer=records` | 기록 2탭 | 운영 |
-| `/operate/control?drawer=inventory` | 재고 읽기 전용 | 운영 |
+| `/operate/control?drawer=inout` | 입출고 폼 + 참조 맵(좁은 화면은 드로어) | 운영 |
+| `/operate/tasks` | 예약·진행·복구 작업 중앙 작업면 | 운영 |
+| `/operate/inventory` | 품목별·슬롯별 재고 중앙 작업면 | 운영 |
+| `/operate/events` | 운영 이벤트·작업 이력 중앙 작업면 | 운영 |
+| `/operate/control?drawer=control` | 수동 조작·맵 이동 보조 드로어 | 운영 |
 | `/admin/map` | `MapEditor` 맵&구역 | 관리 |
 | `/admin/warehouse` | `WarehouseAdmin` 품목·슬롯·재고 | 관리 |
 | `/admin/devices` | 로봇·카메라·통신 상태 | 관리 |
 | `/admin/system` | 서버 연결 + DB 탐색 | 관리 |
-| `/records/events` | Records 4탭(관리)/2탭(운영) | 공유 |
+| `/records/events` | 운영 이벤트·작업 이력·재고 이력·시스템 상태 4탭 | 관리 |
 
 `admin/scenario`·`admin/actions`는 메뉴에 없으며 미등록 URL은 기본 운영 화면으로 이동한다.
 
@@ -148,8 +177,9 @@ flowchart TD
 | --- | --- | --- |
 | `/operate/control` | 운영 | 관제 · ESTOP 복구 패널 |
 | `/operate/control?drawer=inout` | 운영 | work order — 검증·에러·결과 완료 |
-| `/operate/control?panel=tasks` | 운영 | 예약/진행/완료 grouping · 우선순위 영속화 |
-| `?drawer=records` / `inventory` | 운영 | 기록 2탭 · 재고 읽기 전용 |
+| `/operate/tasks` | 운영 | 예약/진행/복구 grouping · 우선순위 영속화 |
+| `/operate/inventory` | 운영 | 품목별 저장 장소 · 슬롯별 맵 연동 |
+| `/operate/events` | 운영 | 운영 이벤트 · 작업 이력 |
 | `/admin/map` | 관리 | waypoint CRUD·스캔 연결 |
 | `/admin/warehouse` | 관리 | 품목/슬롯/재고 — **구현됨** |
 | `/admin/devices` | 관리 | 디바이스·통신 상태 |
@@ -158,11 +188,27 @@ flowchart TD
 
 메뉴에는 운영·관리 업무 화면만 노출한다. DB 원본과 연결 probe는 관리 화면 내부 진단 기능으로 둔다.
 
+기록의 `작업 이력`은 내부 전환으로 작업 결과와 이동 명령을 나눈다. `시스템 상태`는 Movement·Vision·
+Camera 필터, 연결 최초 상태·끊김·복구 사건, 인증 오류 반복 횟수와 고빈도 폴링 성공률·평균 응답 시간을
+보여준다. HTTP 숫자는 원본 title로만 보존하고 표에는 운영자가 이해할 수 있는 평문 결과를 표시한다.
+
 ## 9. 상태 표현 원칙
+
+```mermaid
+flowchart LR
+  Select[목적지 선택] --> Workspace[중앙 작업면 전환]
+  Workspace -->|입출고| Form[요청 폼]
+  Form --> Map[참조 맵·존/슬롯 강조]
+  Workspace -->|작업·재고·이벤트| Table[목록·타임라인]
+  Header[공통 헤더] --> Safety[ESTOP·연결 상태]
+  Safety --> Robot[로봇별 차단·복구]
+```
 
 - 정상 상태는 저채도, 즉시 조치가 필요한 위험만 빨강, 확인이 필요한 상태는 노랑으로 표시한다.
 - 색상만으로 상태를 구분하지 않고 문구·아이콘·비활성화 이유를 함께 제공한다.
 - ESTOP은 모든 화면의 헤더에 고정하고, 해제는 확인 절차를 거친다.
+- ESTOP 상태는 로봇별 `stop_requested|stop_confirmed|stop_unconfirmed|clear_requested|clear_confirmed|clear_unconfirmed|clear`로 유지한다. 단순 통신 끊김은 ESTOP 미확인으로 표시하지 않는다.
+- 정지/해제 미확인 로봇만 격리하고 다른 로봇의 운영은 계속한다. 해제 미확인 표시는 확인 후 재시도 동작을 제공한다.
 - 삭제·안전 중단·ESTOP은 영향이 다르므로 같은 버튼 표현을 사용하지 않는다.
 - 작업 생성은 접수·배정 대기·Movement 실행 시작·시작 실패를 구분하고, 안전 중단은 전송 중·전달됨·정지 확인 후 복구 전환·실패를 즉시 표시한다. 요청 접수와 물리 동작 완료를 같은 성공 문구로 표현하지 않는다.
 - Movement 오프라인과 맵 불일치처럼 조작할 수 없는 이유를 해당 조작 영역에서 한 번만 설명한다.
@@ -178,7 +224,7 @@ flowchart TD
 | 키보드 | 기본 HTML 조작 순서와 focus 표시를 유지하고 좁은 화면 모달은 focus를 내부에 순환시킨다 | 드로어 focus·ESC·복원은 Playwright, 전체 화면 keyboard-only는 수동 확인 |
 | 이름·설명 | 아이콘 단독 조작은 접근 가능한 이름, 입력은 label, 오류는 다음 행동을 제공 | 스크린리더 인수는 아직 미검증 |
 | 대비·확대 | 위험색 남용을 피하고 본문·버튼 가독성을 유지 | WCAG 대비 측정과 200% 확대 시험은 릴리스 전 수동 확인 |
-| 화면 크기 | 관제 데스크톱을 우선하며 캡처 기준은 1920×1080 | 태블릿·모바일 운영은 현재 릴리스 범위 밖 |
+| 화면 환경 | 관제 데스크톱을 우선하고 좁은 화면에서는 적층·모달로 전환 | 모바일 전체 운영은 제한적 |
 
 안전 조작은 접근성 편의와 별개로 즉시성·오조작 방지를 함께 만족해야 한다. ESTOP 활성은 즉시 실행하고,
 해제·복구·삭제처럼 되돌리기 어렵거나 현장 확인이 필요한 동작은 명시적 확인과 결과 피드백을 제공한다.

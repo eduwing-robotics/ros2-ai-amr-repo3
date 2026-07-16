@@ -14,6 +14,7 @@ class RobotCommandKind(StrEnum):
     ARUCO_ALIGN = "aruco_align"
     LEAVE_DOCK = "leave_dock"
     SCENARIO = "scenario"
+    ROUTE = "route"
 
 
 class RobotCommandState(StrEnum):

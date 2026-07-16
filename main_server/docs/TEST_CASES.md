@@ -1,8 +1,12 @@
 # UX Test Cases
 
 상태: Active
+주 독자: QA·인수 검수자
+보조 독자: Frontend·Backend 개발자
+난이도: 운영
 소유: Frontend · Operations
-최종 갱신: 2026-07-14 20:23 KST
+최종 갱신: 2026-07-16 16:00 KST
+구현 기준: Playwright·Backend tests·robot acceptance 절차
 목적: 현재 AMR 입출고 UX의 인수 조건과 실행 가능한 브라우저 검증을 정의한다.
 
 기준 UX는 [UX](UX.md), API 계약은 [API](API.md), 실서버 실행은
@@ -10,14 +14,24 @@
 
 ## 자동화 구성
 
+```mermaid
+flowchart LR
+  Change[코드·문서 변경] --> Local[정적 검사·단위 테스트]
+  Local --> Browser[Playwright UX]
+  Browser --> DB[PostgreSQL 통합]
+  DB --> Preflight[실서버 사전점검]
+  Preflight --> Hardware[현장 HW 인수]
+  Hardware --> Evidence[스크린샷·API snapshot·운영 기록]
+```
+
 - Runner: Playwright
 - Browser: 설치된 Chrome
-- Test: `frontend/web/tests/e2e/ux-critical.spec.ts`
+- Test: `frontend/web/tests/e2e/*.spec.ts`
 - API test support: `frontend/web/tests/support/mainApi.ts`
 - 실행: `bash ./scripts/check.sh ux`
 - 방식: 실제 React 화면과 API client를 사용하고 `/api/v1/*` 응답만 통제한다.
-- 건수: WEB-01 생성 결과 3종, WEB-04 중단 결과 3종, WEB-07 오류 4종을 각각 실행해
-  WEB-01~17을 총 24건으로 검증한다.
+- 현재 E2E는 WEB-01~22 핵심 흐름과 운영 레이아웃·ESTOP 미확인·작업 타임라인을 여러 spec으로 검증한다.
+  테스트 수는 기능 추가에 따라 변하므로 문서에 고정하지 않고 `rg -n '^test\\(' frontend/web/tests/e2e/*.spec.ts`로 확인한다.
 
 ## 자동화 경계
 
@@ -32,7 +46,8 @@ PostgreSQL transaction과 재고 멱등성은 DB 통합 테스트가 담당한�
 | 정상 | 허용 | 허용 | 허용 | 대상 task만 |
 | Movement 오프라인 | 차단 | 차단 | 생성 가능·시작 거부 | `safe_move` 차단 |
 | Vision 오프라인 | 허용 | 허용 | 허용, evidence 오류 기록 | cargo 확인 필요 |
-| ESTOP | 차단 | 차단 | 차단 | 해제 후 운영자 결정 |
+| 해당 로봇 ESTOP | 차단 | 차단 | 해당 로봇 배정·시작 차단 | 해제 후 운영자 결정 |
+| 전체 운용 로봇 ESTOP | 차단 | 차단 | 생성 폼 차단 | 해제 후 운영자 결정 |
 | 미로컬라이즈 | 허용 | 차단 | 생성 가능·시작 거부 | 이동 복구 차단 |
 | cargo 상태 미확인 | — | — | — | 실행 차단 |
 
@@ -69,14 +84,18 @@ PostgreSQL transaction과 재고 멱등성은 DB 통합 테스트가 담당한�
 ## WEB-03 ESTOP
 
 1. Movement health가 로봇의 emergency 상태를 보고한다.
-2. 입출고 실행이 비활성화되고 비상 정지 설명이 표시되는지 확인한다.
+2. 전체 운용 로봇이 emergency이면 입출고 실행이 비활성화되고 비상 정지 설명이 표시되는지 확인한다.
 3. `ESTOP 활성`을 눌렀을 때 해제 확인 dialog가 나타나는지 확인한다.
+4. 단순 오프라인 로봇은 ESTOP 미확인으로 표시되지 않는지 확인한다.
+5. 정지 전송 실패는 `정지 미확인`, 해제 실패는 `해제 미확인`으로 구분되는지 확인한다.
+6. 한 로봇이 미확인이어도 다른 정상 로봇의 상태와 운영 화면을 전역 unknown으로 덮지 않는지 확인한다.
+7. 해제 미확인 표시에서 확인 dialog 후 재시도할 수 있고, 해제 뒤 기존 작업이 자동 재개되지 않는지 확인한다.
 
 검증 대상: 전역 emergency 상태, 운영 명령 차단, 명시적 해제 확인.
 
 ## WEB-04 안전 중단
 
-1. `/operate/control?panel=tasks`에 실행 중 work order를 표시한다.
+1. `/operate/tasks`와 관제 하단 실시간 작업 큐에 실행 중 work order를 표시한다.
 2. 안전 중단을 누른다.
 3. browser confirm에 안전 중단과 화물 복구 안내가 포함되는지 확인한다.
 4. 응답 전 버튼이 `중단 요청 중…`으로 바뀌고 중복 조작이 차단되는지 확인한다.
@@ -125,14 +144,15 @@ Movement가 응답하지 않으면 수동 조작과 맵 이동을 차단하고, 
 화물 상태를 확인하기 전에는 복구를 차단한다. 운영 UI에는 `safe_move`와 `manual_abort` 두 방식만 제공한다.
 
 
-## WEB-12 데스크톱 드로어·작업 배지
+## WEB-12 데스크톱 작업면·작업 배지
 
 데스크톱에서 입출고는 맵과 공존하는 비모달 영역으로 열리고 활성 메뉴에 현재 항목을 표시한다.
 진행 중 작업이 있으면 작업 메뉴에 건수와 접근 가능한 이름을 함께 제공한다.
 
 ## WEB-13 좁은 화면 모달
 
-1200px 이하에서는 입출고 드로어가 모달로 전환되고 배경 관제 영역을 조작할 수 없어야 한다.
+데스크톱에서는 입출고 폼과 참조 맵이 같은 작업면에 세로 분할로 표시되고 맵 하단이 잘리지 않아야 한다.
+좁은 화면에서는 입출고가 모달 드로어로 전환되고 배경 관제 영역을 조작할 수 없어야 한다.
 초기 focus, Tab 순환, 스크림 닫기와 원래 메뉴로의 focus 복원을 확인한다.
 
 ## WEB-14 legacy 입출고 URL
@@ -140,9 +160,9 @@ Movement가 응답하지 않으면 수동 조작과 맵 이동을 차단하고, 
 기존 `/operate/inout` 접근은 상태를 잃지 않고 canonical `/operate/control?drawer=inout`으로 교체한다.
 ## WEB-15 작업 워크스페이스 disclosure
 
-기본 관제에서 작업 내용은 접히고 활성·예약·진행·복구 건수 요약만 유지한다.
-좌측 작업 메뉴를 누르면 canonical `?panel=tasks` URL, focus, `aria-expanded`와 전체 작업 표가 함께 열려야 한다.
-요약 바를 누르면 접히고 같은 메뉴로 다시 펼칠 수 있어야 한다.
+기본 관제 하단에는 `진행·예약`과 `작업 기록` 탭을 유지한다. 좌측 작업 메뉴를 누르면 canonical
+`/operate/tasks` URL과 전체 작업 표가 중앙 작업면에 열려야 한다. 하단 대기 작업은 일반 취소, 실행 중
+작업은 안전 중지를 제공하고 두 행동을 같은 의미로 표현하지 않는다.
 
 ## WEB-16 WebRTC 영상 표시
 
@@ -177,13 +197,13 @@ KPI는 읽기 전용이며 현재 우선 경고의 `이벤트 보기` 명령으�
 
 | 화면 | 대표 환경 | 필수 검증 |
 | --- | --- | --- |
-| 1920×1080 | 관제실 FHD | 맵·카메라·로봇 레일·작업 바 동시 표시 |
-| 1440×900 | 일반 데스크톱 | 복합 작업면과 하단 작업 바 유지 |
-| 1366×768 | 저높이 노트북 | 56px 헤더, 축소 작업 바, 세로 접근 가능 |
-| 1280×720 | 최소 데스크톱 | 입출고 폼·참조 맵 생략 금지, 패널 내부 스크롤 |
-| 1024×768 | 태블릿 가로/소형 모니터 | 설명 패널 접기, 입출고 폼·맵 재배치, 문서 가로 넘침 없음 |
+| 데스크톱 | 관제실·일반 모니터 | 맵·카메라·로봇 레일·작업 바 동시 표시 |
+| 좁은 화면 | 노트북·태블릿 | 복합 작업면과 하단 작업 바 유지 |
+| 모바일 | 세로 화면 | 헤더 재배치·축소 작업 바·세로 접근 가능 |
+| 저높이 화면 | 최소 데스크톱 | 입출고 폼·참조 맵 생략 금지, 패널 내부 스크롤 |
+| 반응형 | 다양한 화면 | 설명 패널 접기, 입출고 폼·맵 재배치, 문서 가로 넘침 없음 |
 
-공통 합격 기준은 공통 헤더의 운영·관리 탭 1세트, 좌측 중복 전환 0건, 문서 scrollWidth가 clientWidth 이하, 중앙 맵의 유효 크기, 입출고 폼과 참조 맵의 렌더 유지다. 760px 이하에서는 헤더를 2행으로 재배치하고 상태·안전 명령은 가로 스크롤로 접근 가능해야 한다.
+공통 합격 기준은 공통 헤더의 운영·관리 탭 1세트, 좌측 중복 전환 0건, 문서 scrollWidth가 clientWidth 이하, 중앙 맵의 유효 크기, 입출고 폼과 참조 맵의 렌더 유지다. 모바일에서는 헤더를 2행으로 재배치하고 상태·안전 명령은 가로 스크롤로 접근 가능해야 한다.
 
 ## 실장비 인수 파이프라인
 
@@ -216,14 +236,14 @@ work order ID·task ID·command ID·최종 task 상태·재고 전후 값·판�
 | HW-02 | 2층 정상 입고 | 도킹 완료 후 재고가 한 번만 증가 | 미검증 |
 | HW-03 | 1층 정상 출고 | 하역 완료 후 재고가 한 번만 감소 | 미검증 |
 | HW-04 | 2층 정상 출고 | 하역 완료 후 재고가 한 번만 감소 | 미검증 |
-| HW-05 | Precision waypoint | params에는 waypoint_id만 존재하고 조회 결과 step_actions가 nav2_pose→aruco_align→wait→aruco_align | 미검증 |
+| HW-05 | Route preview | 선택 section 일치, dock_transfer load→unload와 요청 층 level 확인 | 미검증 |
 | HW-06 | Movement 단절 | 이동 조작 차단, 진행 task 원인 보존 | 미검증 |
 | HW-07 | 물리 ESTOP | 실제 로봇 정지, UI 조작 차단, 자동 재개 없음 | 미검증 |
 | HW-08 | Callback 정합성 | token·command·robot·event ID/sequence 일치, 중복 업무 반영 없음 | 미검증 |
 | HW-09 | 적재 중 복구 | cargo 확인 후 안전 위치 이동 또는 수동 종료 | 미검증 |
 | HW-10 | Main 재시작 | 진행 task와 명령 상태 재동기화 | 미검증 |
 | HW-11 | Vision stale | 영상 상태 표시, evidence 오류 기록 | 미검증 |
-| HW-12 | 중복 삽입 방지 | 자동 입출고 단계에 dock_transfer가 없고 ARRIVED 전 다음 command가 전송되지 않음 | 미검증 |
+| HW-12 | 단일 route 실행 | preview와 execute body·command ID가 같고 Main이 별도 dock_transfer를 전송하지 않음 | 미검증 |
 
 실서버 결과에는 work order ID, robot ID, Movement command ID, 최종 task 상태와 재고 전후 값을 남긴다.
 

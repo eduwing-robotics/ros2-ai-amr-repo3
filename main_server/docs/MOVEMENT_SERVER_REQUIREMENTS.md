@@ -1,8 +1,12 @@
 # Movement Callback API Integration Requirements
 
 상태: Active
+주 독자: Movement 서버 개발자
+보조 독자: Main 개발자·통합 QA
+난이도: 연동
 소유: Main·Movement Integration
-최종 갱신: 2026-07-14 20:23 KST
+최종 갱신: 2026-07-16 16:00 KST
+구현 기준: Main의 Movement callback schema·router·orchestrator
 목적: 현재 Main 구현을 기준으로 Movement 서버의 명령 callback·상태 보고·재전송 계약을 맞추기 위한 전달 명세.
 
 이 문서는 현재 구현된 callback API의 정본이다. 전체 서버 간 계약은 [INTERFACES](INTERFACES.md), Main의
@@ -35,6 +39,21 @@ http://smartfactory-main.local:8088/api/v1/movement/command-events
 Main은 callback URL에 `http` 또는 `https` scheme과 명시적 host를 요구하며 userinfo·query·fragment는 허용하지 않는다.
 
 ## 2. Main → Movement command 연결
+
+```mermaid
+sequenceDiagram
+  participant M as Main
+  participant V as Movement
+  M->>V: POST robot-commands (command_id)
+  V-->>M: accepted + command state
+  V->>M: command-events callback
+  alt callback 수신
+    M-->>V: 200 ACK
+  else callback 유실
+    M->>V: GET robot-commands/{command_id}
+    V-->>M: current state
+  end
+```
 
 Main은 다음 두 값을 동일하게 전송한다.
 
@@ -179,6 +198,16 @@ ACK 형식과 인증·재전송 규칙은 canonical callback과 동일하다.
 
 ## 5. Robot status callback
 
+```mermaid
+stateDiagram-v2
+  [*] --> Clear
+  Clear --> StopConfirmed: is_emergency=true
+  StopConfirmed --> ClearConfirmed: is_emergency=false
+  ClearConfirmed --> Clear
+  StopConfirmed --> StopConfirmed: 동일 상태 반복은 이벤트 억제
+  Clear --> Clear: 일반 heartbeat는 안전 상태 변경 없음
+```
+
 ```http
 POST /api/v1/movement/robots/{robot_name}/status HTTP/1.1
 Content-Type: application/json
@@ -192,11 +221,12 @@ Robot identity는 URL의 `{robot_name}`에서 결정한다.
 | `state` | string | 조건부 | idle·navigating·error 등 |
 | `current_command_id` | string 또는 null | 조건부 | 현재 실행 command |
 | `localized` | boolean | 조건부 | localization 유효 여부 |
+| `is_emergency` | boolean | 조건부 | 실제 로봇 ESTOP 상태. Main 안전 latch 정합화 입력 |
 | `pose` | object | 조건부 | `frame_id`, `x`, `y`, `yaw`, 선택 `source`·`reported_at` |
 | `reported_at` | RFC 3339 datetime | 아니요 | status 발생 시각 |
 | 그 외 필드 | JSON | 허용 | 원본 status event에 보존 |
 
-`state`, `current_command_id`, `localized`, `pose` 중 하나 이상이 있어야 한다. `pose`가 있고 `localized`가
+`state`, `current_command_id`, `localized`, `pose`, `is_emergency` 중 하나 이상이 있어야 한다. `pose`가 있고 `localized`가
 명시적으로 `false`가 아니면 Main의 최신 robot pose에 반영한다.
 
 요청 예시:
@@ -206,6 +236,7 @@ Robot identity는 URL의 `{robot_name}`에서 결정한다.
   "state": "navigating",
   "current_command_id": "task-42-tb3_1-move_to_point-001",
   "localized": true,
+  "is_emergency": false,
   "pose": {
     "frame_id": "map",
     "x": 1.15,
@@ -226,8 +257,12 @@ Robot identity는 URL의 `{robot_name}`에서 결정한다.
 }
 ```
 
-현재 status callback에는 `event_id` 중복 ACK가 없다. 상태 변화 즉시 전송하고 주기 보고가 필요하면 1초 이내를
-권장한다. `current_command_id`는 실제 실행 command와 일치시키고 terminal 이후 비운다.
+현재 status callback에는 `event_id` 중복 ACK가 없다. 다만 같은 `is_emergency` 확인 상태는 Main이 이벤트
+중복 저장을 억제한다. 상태 변화 즉시 전송하고 주기 보고가 필요하면 1초 이내를 권장한다.
+`current_command_id`는 실제 실행 command와 일치시키고 terminal 이후 비운다.
+
+`is_emergency=true`는 정지 확인, `false`는 해제 확인으로 사용한다. 해제 확인은 작업 재개 지시가 아니며
+Movement와 Main 모두 기존 command를 자동 재개해서는 안 된다.
 
 ## 6. 인증 설정
 
@@ -286,6 +321,7 @@ Movement의 상태 조회 응답은 callback과 동일한 `command_id`와 상태
 - `event_id` 중복 확인은 애플리케이션 조회 방식이며 DB unique constraint는 아직 없다.
 - 완전히 동시에 도착한 동일 callback은 Task를 한 번만 전진시키지만 감사 event가 중복 저장될 가능성이 있다.
 - Robot status callback에는 별도 event ID·중복 ACK가 없다.
+- Main의 fleet ESTOP outbound request ID는 현재 Main 이벤트 상관관계용이며 Movement 요청 body에는 아직 포함되지 않는다.
 - `/movement/results`는 legacy 호환 API이며 신규 구현의 기준이 아니다.
 - Callback URL 등록 API는 없고 Main이 command body에 전달하는 `callback_url`을 사용한다.
 
@@ -306,7 +342,9 @@ Movement의 상태 조회 응답은 callback과 동일한 `command_id`와 상태
 | callback 차단 | 약 5초 poller가 terminal 상태 복구 |
 | cancel terminal callback | cargo 상태에 따라 `CANCELLED` 또는 `AWAITING_OPERATOR` |
 | Robot status callback | pose·status event 저장, `200` ACK |
+| Robot ESTOP status callback | `is_emergency=true/false`에 따라 Main latch와 확인 이벤트가 수렴 |
 | Main 재시작 | Movement command 조회로 실행 상태 수렴 |
+| Main 재시작(ESTOP) | 마지막 ESTOP 수명주기 이벤트로 로봇별 latch 복원, 작업 자동 재개 없음 |
 
 시험 결과에는 Main·Movement 시각, robot ID, task ID, command ID, event ID, sequence, HTTP status와 양쪽 최종
 상태를 함께 기록한다.

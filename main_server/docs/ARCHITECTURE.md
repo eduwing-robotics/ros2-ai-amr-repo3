@@ -3,8 +3,12 @@
 맵 메타데이터의 source of truth는 DB가 아니라 `maps/` 최상위의 단일 ROS YAML·PGM이다. `GET /maps`의 배열과 `map_id`는 기존 클라이언트·Movement 명령 호환을 위해 유지한다.
 
 상태: Active
+주 독자: Main 개발자
+보조 독자: 신규 개발자·기술 평가자
+난이도: 개발
 소유: Docs
-최종 갱신: 2026-07-14 20:23 KST
+최종 갱신: 2026-07-16 16:00 KST
+구현 기준: backend/app 도메인 구조와 현재 서버 경계
 목적: Main_Control의 시스템 경계, 주요 업무 흐름, 도메인 책임과 의존 방향을 정의한다.
 
 시스템은 Main_Control·Movement·Vision 세 서버로 나뉜다. **Main_Control**은 운영자 UI와 PostgreSQL을
@@ -127,13 +131,13 @@ flowchart TD
   end
 ```
 
-**게이트:** 관제는 슬롯별 canonical `waypoint_id`를 보내고, 이동 서버는 Nav2 이동·ArUco 40cm 접근·3초 대기·20cm 직선 삽입을 하나의 `move_to_point`로 수행한다. 관제는 최종 `ARRIVED`에서만 다음 step을 전송하며 자동 입출고에는 중복 `dock_transfer`를 만들지 않는다.
+**게이트:** 1층 자동 입출고는 Movement Route API가 이동·정밀 접근·리프트 적재·리프트 하역·복귀를 한 command로 소유한다. Main은 preview에서 source/target section과 `load → unload`, 각 `level=1`을 확인한 경우에만 실행하고 최종 `DONE`에서 재고를 반영한다. 검증되지 않은 2층 route는 실행 전에 차단한다.
 
 원칙:
 
 - 별도의 업무(WMS) 서버를 두지 않고, 입출고 계층을 관제 서버 안에 둔다.
 - 슬롯·존은 기본적으로 자동 계획하되, 운영자가 직접 지정하면 그 값을 우선한다.
-- 재고는 목적지 precision waypoint가 `ARRIVED`한 시점에 멱등하게 반영한다. 이후 `vehicle_2_approach` 복귀·주차 실패는 완료된 물류 결과를 되돌리지 않는다.
+- 재고는 리프트 하역과 복귀를 포함한 route가 최종 `DONE`인 시점에 멱등하게 반영한다.
 - load waypoint 완료 뒤 이동 실패는 `AWAITING_OPERATOR(cargo_state=LOADED)`로 보존하고 자동 재개하지 않는다.
 
 용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **robot task**와 이동/도킹 한 번 단위의 **robot task step**으로 분해된다(§6).
@@ -297,10 +301,10 @@ maps/            ROS map asset
 Movement client의 process-local emergency mirror는 외부 서버 상태를 중계하기 위한 캐시이고, 위험 판정과
 ESTOP·자동 재개 금지 정책의 소유자는 Safety다.
 
-예정 변경: fleet 일괄 ESTOP 성공 여부와 로봇별 해제를 분리한다. 관리자가 현장 안전을 확인한 경우 대상 로봇의
-Main 명령 차단 latch만 감사 기록과 함께 해제할 수 있게 하되, 기존 Task는 AWAITING_OPERATOR에 유지하고
-자동 재개하지 않는다. 물리 ESTOP 해제는 대상 로봇의 현장 리셋 또는 Movement ACK로 별도 확인하며, 다른 로봇·
-Camera·Vision 장애가 정상 로봇의 논리 해제를 막지 않게 한다.
+현행 구현: fleet ESTOP은 로봇별 요청 ID와 수명주기 이벤트를 저장하고 정지/해제 미확인 로봇만 격리한다.
+단순 오프라인은 ESTOP unknown으로 승격하지 않는다. 해제는 모든 enabled 로봇에 시도하고 성공 응답 또는
+Movement의 `is_emergency=false` status callback으로 latch를 해제한다. Main 재시작 시 마지막 이벤트에서
+latch를 복원하며 기존 Task는 `AWAITING_OPERATOR`에 유지하고 자동 재개하지 않는다.
 
 ### 10.2 코드 인터페이스 명명 규칙
 
@@ -333,6 +337,8 @@ Camera·Vision 장애가 정상 로봇의 논리 해제를 막지 않게 한다.
   record-only 보조 evidence에만 허용한다. Task 상태 전이, 재고 반영, ESTOP, command dispatch와 필수 저장에서는
   오류를 삼키지 않는다. domain의 기존 HTTP 오류를 typed domain error로 전환할 때는 endpoint 계약 회귀 테스트를
   먼저 고정하고 한 흐름씩 수행한다.
+- fleet ESTOP의 Main request ID는 아직 Movement body/callback 상관관계에 포함되지 않는다. 현재 확인은 HTTP
+  응답과 독립 `is_emergency` 상태 보고에 의존하며, 관리자 강제 latch 초기화 API는 제공하지 않는다.
 
 ## 관련
 

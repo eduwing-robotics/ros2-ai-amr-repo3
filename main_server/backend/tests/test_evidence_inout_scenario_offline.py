@@ -91,21 +91,19 @@ class InOutScenarioOfflineTest(unittest.TestCase):
             "to_location_id": "STORAGE_S1",
             "from_floor": 1,
             "to_floor": 1,
+            "item_id": "bolt_1",
+            "quantity": 1,
+            "assigned_robot_id": "tb3_2",
         }
         scenario = evidence.build_scenario_from_task(conn, task)
         steps = scenario["steps"]
-        self.assertEqual(len(steps), 5)
-        self.assertEqual(steps[0]["action_type"], "leave_dock")
-        self.assertEqual(steps[1]["action_type"], "move")
-        self.assertAlmostEqual(steps[1]["x"], 1.8)
-        self.assertEqual(steps[1]["transfer_action"], "load")
-        self.assertEqual(steps[2]["transfer_action"], "unload")
-        self.assertNotIn("dock_transfer", [step["action_type"] for step in steps])
-        # HOME approach 이동 뒤 무리프트 ArUco 정렬로 주차한다.
-        self.assertEqual(steps[3]["action_type"], "move")
-        self.assertEqual(steps[3]["name"], "scan:vehicle_2_approach")
-        self.assertEqual(steps[4]["action_type"], "aruco_align")
-        self.assertEqual(steps[4]["params"], {"aruco_marker_id": 4, "final": "park"})
+        self.assertEqual(len(steps), 1)
+        self.assertEqual(steps[0]["action_type"], "route")
+        self.assertEqual(steps[0]["params"]["route_type"], "inbound")
+        self.assertEqual(steps[0]["params"]["item_name"], "bolt")
+        self.assertEqual(steps[0]["params"]["source_section_id"], "inbound_slot_1")
+        self.assertEqual(steps[0]["params"]["target_section_id"], "warehouse_section_a")
+        self.assertEqual(steps[0]["params"]["return_waypoint"], "vehicle_2_approach")
 
     @patch("app.domains.execution.evidence.locations")
     def test_inbound1_uses_single_precision_waypoint_when_route_is_configured(self, location_repo_fn) -> None:
@@ -131,14 +129,13 @@ class InOutScenarioOfflineTest(unittest.TestCase):
                 "to_location_id": "STORAGE_S1",
                 "from_floor": 1,
                 "to_floor": 1,
+                "item_id": "bolt_1",
+                "assigned_robot_id": "tb3_2",
             },
         )
         steps = scenario["steps"]
-        self.assertEqual(len(steps), 5)
-        self.assertEqual(steps[1]["waypoint_id"], "scan_INBOUND_01")
-        self.assertEqual(steps[1]["transfer_action"], "load")
-        self.assertFalse(any(step.get("waypoint_id") == "inbound_slot_1_pre_approach" for step in steps))
-        self.assertFalse(any(step["action_type"] == "dock_transfer" for step in steps))
+        self.assertEqual(len(steps), 1)
+        self.assertEqual(steps[0]["action_type"], "route")
 
     @patch("app.domains.execution.evidence.locations")
     def test_outbound_builds_home_parking_steps(self, location_repo_fn) -> None:
@@ -155,14 +152,16 @@ class InOutScenarioOfflineTest(unittest.TestCase):
             "to_location_id": "OUTBOUND_01",
             "from_floor": 1,
             "to_floor": 1,
+            "item_id": "bolt_1",
+            "assigned_robot_id": "tb3_2",
         }
         scenario = evidence.build_scenario_from_task(conn, task)
         steps = scenario["steps"]
-        self.assertEqual(len(steps), 5)
-        self.assertEqual(steps[0]["action_type"], "leave_dock")
-        self.assertEqual(steps[1]["transfer_action"], "load")
-        self.assertEqual(steps[2]["transfer_action"], "unload")
-        self.assertEqual(steps[4]["action_type"], "aruco_align")
+        self.assertEqual(len(steps), 1)
+        self.assertEqual(steps[0]["action_type"], "route")
+        self.assertEqual(steps[0]["params"]["route_type"], "outbound")
+        self.assertEqual(steps[0]["params"]["source_section_id"], "warehouse_section_a")
+        self.assertEqual(steps[0]["params"]["target_section_id"], "outbound_slot_1")
 
     @patch("app.domains.execution.evidence.locations")
     def test_home_without_marker_falls_back_to_plain_move(self, location_repo_fn) -> None:
@@ -183,10 +182,23 @@ class InOutScenarioOfflineTest(unittest.TestCase):
                 "to_location_id": "STORAGE_S1",
                 "from_floor": 1,
                 "to_floor": 1,
+                "item_id": "bolt_1",
+                "assigned_robot_id": "tb3_2",
             },
         )
-        self.assertEqual(len(scenario["steps"]), 4)
-        self.assertEqual(scenario["steps"][-1]["name"], "home:HOME_01")
+        self.assertEqual(len(scenario["steps"]), 1)
+        self.assertEqual(scenario["steps"][0]["action_type"], "route")
+
+    def test_unverified_floor2_route_is_blocked(self) -> None:
+        with self.assertRaisesRegex(Exception, "movement_route_floor_not_supported"):
+            evidence._build_inout_route_contract({
+                "task_type": "OUTBOUND",
+                "from_location_id": "STORAGE_01",
+                "to_location_id": "OUTBOUND_01",
+                "from_floor": 2,
+                "item_id": "bolt_1",
+                "assigned_robot_id": "tb3_2",
+            })
 
     @patch("app.domains.execution.evidence.locations")
     def test_inbound2_storage_b_floor2_tb3_2_uses_one_movement_scenario(self, location_repo) -> None:

@@ -17,10 +17,26 @@ export interface CommLog {
   heartbeat?: boolean;
   repeat_count?: number;
   last_checked_at?: string;
+  http_status?: string | number;
+  recovered_after_count?: number;
+}
+
+export interface PollMetric {
+  service?: string;
+  target?: string;
+  source?: string;
+  request_count: number;
+  success_count: number;
+  failure_count: number;
+  success_rate: number;
+  average_elapsed_ms: number;
+  max_elapsed_ms: number;
+  last_checked_at?: string;
 }
 
 interface CommLogsResponse {
   logs: CommLog[];
+  poll_metrics: PollMetric[];
   movement_commands: RobotCommandRecord[];
 }
 

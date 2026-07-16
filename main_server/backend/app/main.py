@@ -13,7 +13,9 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.routes import router
 from app.core.config import settings
 from app.db.connection import init_db, transaction
+from app.db.postgres import operational_events
 from app.db.postgres import robots as postgres_robots
+from app.domains.movement.client import set_robot_emergency
 from app.domains.execution.poller import poll_task_progress_loop
 from app.domains.movement.pose_monitor import (
     pose_event_writer_loop,
@@ -51,6 +53,23 @@ def initialize_pose_runtime() -> None:
     )
 
 
+def initialize_estop_runtime() -> None:
+    """Restore safety latches from persisted lifecycle events after a restart."""
+    with transaction() as conn:
+        robot_rows = postgres_robots.list_robots(conn)
+        robot_ids = [row["robot_id"] for row in robot_rows if row.get("enabled", True)]
+        states = operational_events.latest_estop_states(conn, robot_ids)
+    latched_states = {
+        "stop_requested",
+        "stop_confirmed",
+        "stop_unconfirmed",
+        "clear_requested",
+        "clear_unconfirmed",
+    }
+    for robot_id in robot_ids:
+        set_robot_emergency(robot_id, states.get(robot_id) in latched_states)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """앱 시작 시 PostgreSQL DB를 초기화하고 task progress poller를 띄운다."""
@@ -59,6 +78,7 @@ async def lifespan(app: FastAPI):
     require_database_url()
     init_db()
     initialize_pose_runtime()
+    initialize_estop_runtime()
     sweep_task = asyncio.create_task(poll_task_progress_loop())
     hazard_task = asyncio.create_task(person_hazard_loop())
     pose_tasks = [

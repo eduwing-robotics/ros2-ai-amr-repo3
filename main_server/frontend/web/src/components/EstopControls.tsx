@@ -25,7 +25,7 @@ function failedRobotSummary(result: EstopResult) {
 }
 
 export function EstopControls() {
-  const { isEmergency, isEstopUnknown, unknownRobots, refetch } = useEmergency();
+  const { isEmergency, isEstopUnknown, unknownRobots, robotStates, refetch } = useEmergency();
   const queryClient = useQueryClient();
   const { confirm, toast } = useFeedback();
   const [busy, setBusy] = useState(false);
@@ -86,6 +86,16 @@ export function EstopControls() {
     }
   };
 
+  const clearUnconfirmed = unknownRobots.filter((robotId) =>
+    ["clear_requested", "clear_unconfirmed"].includes(robotStates[robotId] ?? ""),
+  );
+  const unknownLabel = clearUnconfirmed.length
+    ? `해제 미확인 ${clearUnconfirmed.length}`
+    : `정지 미확인 ${unknownRobots.length}`;
+  const unknownTitle = unknownRobots
+    .map((robotId) => `${robotId}: ${robotStates[robotId] ?? "unknown"}`)
+    .join(", ");
+
   return (
     <div className="estop-controls">
       {isEmergency ? (
@@ -93,24 +103,22 @@ export function EstopControls() {
           ESTOP 활성
         </button>
       ) : (
-        <>
-          <button type="button" className="estop-btn" disabled={busy} onClick={() => void triggerEstop()} title="전 로봇 즉시 정지">
-            ESTOP
-          </button>
-          {isEstopUnknown ? (
-            <button
-              type="button"
-              className="estop-unknown"
-              disabled={busy}
-              onClick={() => void refreshEstopState()}
-              title={"E-STOP 활성 여부를 확인할 수 없는 로봇: " + unknownRobots.join(", ") + " · 클릭하여 재조회"}
-              aria-label={"ESTOP 상태 미확인 " + unknownRobots.length + "대, 다시 조회"}
-            >
-              상태 미확인 {unknownRobots.length}
-            </button>
-          ) : null}
-        </>
+        <button type="button" className="estop-btn" disabled={busy} onClick={() => void triggerEstop()} title="전 로봇 즉시 정지">
+          ESTOP
+        </button>
       )}
+      {(isEstopUnknown || unknownRobots.length > 0) ? (
+        <button
+          type="button"
+          className="estop-unknown"
+          disabled={busy}
+          onClick={() => void (clearUnconfirmed.length ? clearEstop() : refreshEstopState())}
+          title={unknownTitle + (clearUnconfirmed.length ? " · 클릭하여 해제 재시도" : " · 클릭하여 재조회")}
+          aria-label={unknownLabel + (clearUnconfirmed.length ? ", 해제 재시도" : ", 다시 조회")}
+        >
+          {unknownLabel}
+        </button>
+      ) : null}
     </div>
   );
 }

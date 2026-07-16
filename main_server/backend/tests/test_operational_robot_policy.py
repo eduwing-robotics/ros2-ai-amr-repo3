@@ -10,7 +10,7 @@ from app.domains.movement import router
 from app.models.robots import Robot, RobotPoseUpdate, RobotUpsert
 
 
-def test_estop_summary_ignores_disabled_and_marks_enabled_offline_unknown() -> None:
+def test_estop_summary_separates_offline_from_unconfirmed_estop() -> None:
     robots = [
         Robot(robot_id="r1", display_name="r1", status="IDLE", enabled=True),
         Robot(robot_id="r2", display_name="r2", status="IDLE", enabled=True),
@@ -24,10 +24,29 @@ def test_estop_summary_ignores_disabled_and_marks_enabled_offline_unknown() -> N
             "r3": {"ok": False, "robot_online": False, "is_emergency": True},
         },
     )
-    assert summary == {"state": "unknown", "active_robots": [], "unknown_robots": ["r2"]}
+    assert summary == {
+        "state": "unknown",
+        "active_robots": [],
+        "unknown_robots": ["r2"],
+        "robot_states": {"r1": "clear", "r2": "stop_unconfirmed"},
+    }
+
+    offline_only = _estop_summary(
+        robots,
+        {
+            "r1": {"ok": True, "robot_online": True, "is_emergency": False},
+            "r2": {"ok": False, "robot_online": False, "is_emergency": False},
+        },
+    )
+    assert offline_only == {
+        "state": "clear",
+        "active_robots": [],
+        "unknown_robots": [],
+        "robot_states": {"r1": "clear", "r2": "clear"},
+    }
 
 
-def test_clear_estop_targets_only_enabled_online_robots() -> None:
+def test_clear_estop_attempts_all_enabled_robots_even_when_health_is_offline() -> None:
     conn = MagicMock()
     rows = [
         {"robot_id": "r1", "enabled": True},
@@ -48,8 +67,8 @@ def test_clear_estop_targets_only_enabled_online_robots() -> None:
     ):
         result = router.clear_estop_all_robots(conn)
 
-    assert [row["state"] for row in result] == ["cleared", "unknown", "disabled"]
-    clear.assert_called_once_with("r1")
+    assert [row["state"] for row in result] == ["clear_confirmed", "clear_confirmed", "disabled"]
+    assert [call.args[0] for call in clear.call_args_list] == ["r1", "r2"]
 
 
 def test_pose_report_updates_memory_without_transaction() -> None:

@@ -1,8 +1,12 @@
 # Main API
 
 상태: Active
+주 독자: Main·Frontend 개발자
+보조 독자: QA·연동 개발자
+난이도: 개발
 소유: Backend
-최종 갱신: 2026-07-14 20:23 KST
+최종 갱신: 2026-07-16 16:00 KST
+구현 기준: 실행 서버의 OpenAPI와 backend/app/api route
 목적: Main `/api/v1` **작성 규칙 + 엔드포인트 카탈로그**. 외부 계약: [INTERFACES](INTERFACES.md).
 
 브라우저가 사용하는 Main REST API의 경로와 역할을 정리한다. 요청·응답 필드는 실행 서버의 OpenAPI가 정본이다. Movement·Vision 서버 간 계약은 [INTERFACES](INTERFACES.md)에서 관리한다.
@@ -49,7 +53,7 @@ sequenceDiagram
 ## Quick examples
 
 ```bash
-curl -s "$BASE/status" | jq '.is_emergency, (.robots|length)'
+curl -s "$BASE/status" | jq '.system.estop_summary, (.robots|length)'
 curl -s -X POST "$BASE/work-orders/preview" -H 'Content-Type: application/json' \
   -d '{"operation":"inbound","item_code":"ITEM01","quantity":1}'
 curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
@@ -114,7 +118,7 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | --- | --- | --- | --- | --- |
 | Browser / Main | POST/GET | `/robot-commands` | `RobotCommandRequest → RobotCommandResponse` | 로봇 명령 envelope 생성·조회 |
 | Browser | POST | `/robot/estop` · `/robot/clear_estop` | `— → JSON · object` | 전 로봇 일괄 비상정지·해제 |
-| Browser | POST | `/robots/estop-all` · `/robots/clear-estop-all` | `— → JSON · object` | 명시적 전 로봇 비상정지·운용 로봇 해제 canonical alias |
+| Browser | POST | `/robots/estop-all` · `/robots/clear-estop-all` | `— → JSON · object` | 전 로봇 정지·enabled 로봇 해제 시도와 로봇별 확인 상태 |
 | Movement | POST | `/movement/command-events` | `RobotCommandEvent → MovementCallbackAck` | 검증·중복 제거 후 orchestrator |
 | Movement | POST | `/movement/results` · `/movement/robots/{name}/status` | typed result/status → ACK | 결과 상태 정규화·실시간 상태 수신 |
 | Browser / Main | GET | `/movement/map-state` · `/movement/runtime-map-context` | `— → JSON · object` | 활성 맵·runtime 컨텍스트 |
@@ -173,7 +177,7 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | Browser | GET | `/vision/bridge/status` | `— → JSON · object` | Vision 브리지 상태 |
 | Browser | GET/PUT | `/vision/monitors` · `/vision/monitors/person_drive/state` | `JSON · object → object` | 안전 모니터 조회·설정 |
 | Browser | GET | `/vision/hazards/person/latest` | `— → JSON · object` | 사람 감지 최신 이벤트 |
-| Browser | GET/POST | `/comm/logs` · `/comm/probe/*` | `— → JSON · object` | 통신 로그·연결 probe |
+| Browser | GET/POST | `/comm/logs` · `/comm/probe/*` | `— → JSON · object` | 통신 상태 사건·폴링 집계와 연결 probe |
 | Admin Browser | GET | `/db/tables…` | `— → JSON · object` | DB 탐색 (관리 화면) |
 | Browser | GET | `/events` · `/task-logs` · `/item-change-logs` · `/evidence-events` | `— → 각 OpenAPI record[]` | 감사·이벤트 조회 |
 
@@ -200,6 +204,7 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | `dock_transfer` | ⚠️ | marker/action/level(+lift override). dry_run OK; 실실행 404→501, 409→409 · [INTERFACES §10](INTERFACES.md) |
 | `aruco_align` | ⚠️ | marker/final/tolerance`{xy_m,yaw_deg}` · 동일 501/409 |
 | `scenario` | 내부 전용 | INBOUND_02→STORAGE_01 2층 tb3_2에서 Preview 검증 후 Movement 소유 9단계를 한 번에 실행 |
+| `route` | 내부 전용 | 1층 입·출고 preview에서 load/unload 리프트를 검증한 뒤 전체 경로를 한 번에 실행 |
 
 명령 상태는 `GET /robot-commands/{id}?robot_id=`로 조회한다. Movement의 진행 콜백은 `POST /movement/command-events`로 들어와 orchestrator에 전달된다.
 
@@ -208,7 +213,12 @@ Command callback은 `command_id`, robot, event/state가 필수이며 누락 시 
 `200 duplicate=true`이고, legacy result에 `event_id`가 없으면 command/result/reported_at 조합으로 멱등 키를 만든다.
 작은/equal `sequence`는 task 상태에 재적용하지 않는다. 상세 계약은 [Movement 요구서](MOVEMENT_SERVER_REQUIREMENTS.md)를 따른다.
 
-전용 `scenario`의 HTTP 경로, plan hash, timeout 멱등 복구와 최종 완료 게이트는 [INTERFACES §8](INTERFACES.md)를 따른다.
+ESTOP 일괄 요청은 로봇마다 `request_id`를 만들고 `stop_requested → stop_confirmed|stop_unconfirmed`을
+`evidence_events`에 저장한다. 해제는 health 사전 판정으로 건너뛰지 않고 모든 enabled 로봇에 시도하며
+`clear_requested → clear_confirmed|clear_unconfirmed`을 저장한다. `GET /status`의
+`system.estop_summary.robot_states`가 이 수명주기를 제공한다. Main 재시작 시 마지막 이벤트로 latch를 복원한다.
+
+전용 `scenario`와 범용 `route`의 HTTP 경로, preview 검증, 멱등 실행과 완료 게이트는 [INTERFACES §8](INTERFACES.md)를 따른다.
 
 ## Work orders · recovery · waypoints · maps
 
@@ -216,7 +226,7 @@ Command callback은 `command_id`, robot, event/state가 필수이며 누락 시 
 - **응답 호환:** 내부 Work Order 조회는 `RobotTaskSummary`의 `requested_quantity`·`allocated_quantity`·`robot_task_id`·`active_command_id`를 사용한다. `/api/v1` 응답은 adapter가 기존 `quantity`·`tasks[]`·`task_id`·`command_id`를 유지한다.
 - **취소·우선순위:** `POST /work-orders/{id}/cancel`은 예약 상태의 요청을 취소하고, `/priority`는 디스패치 순서를 `tasks.priority`에 영속화한다.
 - **실행 중 안전 중단:** `POST /work-orders/{id}/stop`은 현재 Movement command 취소를 즉시 요청한다. 빈 로봇은 취소 callback 후 `CANCELLED`, 적재 상태는 `AWAITING_OPERATOR`, 하역 완료 후 복귀·주차 중단은 물류 `DONE`을 유지하고 `PARK_FAILED`로 기록한다.
-- **완료·복귀:** 목적지 precision `move_to_point`가 `ARRIVED`이면 재고를 한 번만 반영하고 `business_completed=true`가 된다. 자동 입출고는 중복 삽입을 막기 위해 별도 `dock_transfer`를 만들지 않는다. 이후 `vehicle_2_approach` 복귀와 `aruco_align(park)`는 후처리이며 `return_status`는 `RETURNING_HOME | PARKING | PARKED | PARK_FAILED`다. 주차 실패는 완료된 입출고를 실패로 되돌리지 않고 `parking_error`에 기록한다.
+- **완료·복귀:** 1층 입출고는 `/routes/preview`에서 `dock_transfer(load, level=1)`과 `dock_transfer(unload, level=1)` 및 section을 확인한 뒤 `/routes/commands`로 한 번 실행한다. 최종 `DONE`에서 재고를 한 번만 반영한다. 검증된 2층 고정 조합은 전용 `scenario` 완료 게이트를 사용하며, 지원되지 않는 2층 조합은 실행 전에 `409 movement_route_floor_not_supported`로 차단한다.
 - **배정·복구:** `POST /tasks/auto-assign-and-start`는 로봇 배정과 mission 시작을 한 번에 처리한다. 비상정지 후 복구는 awaiting-operator 목록 → context 조회 → preview → execute 순서로 진행한다. 운영 UI는 명시된 HOME 안전 위치 이동과 정지 확인 후 수동 회수만 제공하며 자동 하역·자동 작업 재개는 지원하지 않는다. 운영 절차는 [OPERATIONS §3](OPERATIONS.md).
 - **waypoints:** `map_id`로 필터·저장한다. 다른 데이터가 참조 중이면 삭제가 `409 marker_in_use`로 거부되며, usage 확인 → disable 또는 force-delete로 처리한다. 도킹용 필드로 `scan_waypoint_id`·`aruco_marker_id`·`dock_mode`를 가진다.
 - **pose:** canonical push는 `POST /robots/{robot_id}/pose` 하나만 사용한다. Main은 최신 pose를 단일 worker 프로세스 메모리에 즉시 반영하고 `GET /robot-poses`는 DB·Movement 호출 없이 메모리 snapshot을 반환한다. 수신 지연, localization 상실, 맵 경계 이탈, 연결 단절의 발생/복구 전이만 운영 이벤트 DB에 기록한다. 재시작 시 이전 위치를 복원하지 않고 새 pose 수신 전까지 `수신 대기`로 표시한다.
@@ -227,6 +237,11 @@ Command callback은 `command_id`, robot, event/state가 필수이며 누락 시 
 Vision 프록시는 Main `cameras` registry에 등록된 `source_id`만 중계한다(`global_cam_01`은 부팅 시 기본 등록). `/vision/streams`는 스트림 목록 조회, `webrtc/offer`는 시그널링 전용이고 실제 미디어는 브라우저와 Vision이 직접 주고받는다. WebRTC를 쓸 수 없으면 MJPEG(`*/stream`)로 폴백한다. monitors/hazards는 사람 감지 시 주행을 멈추는 안전 모니터용이다.
 
 수동 조작은 `POST /teleop`(내부적으로 `manual_drive`와 동일)을 쓰고, 전 로봇 일괄 비상정지·해제는 `POST /robot/estop`·`/clear_estop`이다.
+
+`GET /comm/logs`는 반복 poll 원문을 모두 반환하지 않는다. Movement·Vision·Camera heartbeat는 최초 상태와
+연결 끊김/복구 전이를 기록하고, 연속 실패 3회·연속 성공 2회로 흔들림을 완화한다. 고빈도 health·pose·map·
+image·stream 요청은 `poll_metrics`의 요청 수·성공 수·평균 응답 시간으로 집계한다. 반복 401/403은
+`auth_error` 한 건의 `repeat_count`로 합치고 정상 응답 시 `auth_recovered`를 남긴다.
 
 ## 갱신
 

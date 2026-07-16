@@ -131,6 +131,21 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertEqual(self.event.append.call_args.kwargs["event_type"], "MOVEMENT_RESULT_SUCCESS")
         self.movement.record_result.assert_called_once_with(self.conn, "cmd-2", "SUCCESS", "done", payload)
 
+    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
+    @patch("app.domains.movement.callbacks.robot_command_records")
+    @patch("app.domains.movement.callbacks.operational_events")
+    def test_legacy_result_is_marked_for_canonical_terminal_policy(
+        self, operational_events, robot_command_records, handle_event
+    ) -> None:
+        operational_events.callback_event_exists.return_value = False
+        callbacks.ingest_result(
+            self.conn,
+            {"command_id": "route-1", "robot_name": "tb3_2", "result": "FAILED", "message": "legacy"},
+        )
+        forwarded = handle_event.call_args.args[1]
+        self.assertEqual(forwarded["event"], "FAILED")
+        self.assertEqual(forwarded["_callback_channel"], "legacy_result")
+
     @patch("app.domains.movement.callbacks.robot_command_records")
     @patch("app.domains.movement.callbacks.operational_events")
     def test_ingest_result_skips_record_without_command_id(self, operational_events, robot_command_records) -> None:
@@ -201,8 +216,17 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertEqual(len(results), 2)
         self.assertTrue(results[0]["ok"])
         self.assertFalse(results[1]["ok"])
-        self.assertEqual(self.event.append.call_count, 1)
-        self.assertEqual(self.event.append.call_args.kwargs["event_type"], "ROBOT_ESTOP")
+        self.assertEqual(self.event.append.call_count, 4)
+        event_types = [call.kwargs["event_type"] for call in self.event.append.call_args_list]
+        self.assertEqual(
+            event_types,
+            [
+                "ROBOT_ESTOP_REQUESTED",
+                "ROBOT_ESTOP_CONFIRMED",
+                "ROBOT_ESTOP_REQUESTED",
+                "ROBOT_ESTOP_UNCONFIRMED",
+            ],
+        )
         self.assertTrue(robot_is_emergency("r1"))
         self.assertTrue(robot_is_emergency("r2"))
 
@@ -224,7 +248,7 @@ class MovementCallbackServiceTest(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0]["ok"])
-        self.assertEqual(self.event.append.call_args.kwargs["event_type"], "ROBOT_CLEAR_ESTOP")
+        self.assertEqual(self.event.append.call_args.kwargs["event_type"], "ROBOT_CLEAR_ESTOP_CONFIRMED")
         self.assertFalse(robot_is_emergency("r1"))
 
     @patch("app.domains.movement.router.get_movement_health")

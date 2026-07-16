@@ -77,7 +77,7 @@ warn() { echo "[docs] WARN: $*" >&2; }
 while IFS= read -r file; do
   case "$file" in
     ./README.md|./AGENTS.md) ;;
-    ./docs/*|./worklog/*) ;;
+    ./docs/*|./worklog/*|./frontend/web/docs/*|./frontend/web/ADMIN_DATA_WORKSPACE.md) ;;
     *) err "Markdown file outside allowed roots: $file" ;;
   esac
 done < <(find . \
@@ -100,15 +100,15 @@ done < <(find . \
 # Public Markdown is intentionally flat under docs/.
 while IFS= read -r file; do
   case "$file" in
-    docs/README.md|docs/GLOSSARY.md|docs/ARCHITECTURE.md|docs/DATABASE.md|docs/INTERFACES.md|docs/API.md|docs/OPERATIONS.md|docs/UX.md|docs/TEST_CASES.md|docs/MOVEMENT_SERVER_REQUIREMENTS.md) ;;
+    docs/README.md|docs/GLOSSARY.md|docs/ARCHITECTURE.md|docs/DATABASE.md|docs/INTERFACES.md|docs/API.md|docs/OPERATIONS.md|docs/UX.md|docs/UI_UX_DESIGN.md|docs/TEST_CASES.md|docs/MOVEMENT_SERVER_REQUIREMENTS.md|docs/OPERATOR_BUTTON_GUIDE.md) ;;
     *) err "Unexpected public Markdown file: $file" ;;
   esac
 done < <(find docs -maxdepth 1 -name '*.md' -type f -print)
 
-required_meta=("상태:" "소유:" "최종 갱신:" "목적:")
+required_meta=("상태:" "주 독자:" "보조 독자:" "난이도:" "소유:" "최종 갱신:" "구현 기준:" "목적:")
 should_check_meta() {
   case "$1" in
-    ./docs/*.md) return 0 ;;
+    ./README.md|./docs/*.md|./frontend/web/docs/*.md|./frontend/web/ADMIN_DATA_WORKSPACE.md) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -121,23 +121,23 @@ allow_long_doc() {
 
 while IFS= read -r file; do
   case "$file" in
-    ./README.md|./AGENTS.md) continue ;;
+    ./AGENTS.md) continue ;;
   esac
   should_check_meta "$file" || continue
-  head -n 12 "$file" | grep -q '^# ' || err "Missing title heading: $file"
+  head -n 20 "$file" | grep -q '^# ' || err "Missing title heading: $file"
   for meta in "${required_meta[@]}"; do
-    head -n 12 "$file" | grep -q "$meta" || err "Missing metadata '$meta' in $file"
+    head -n 20 "$file" | grep -q "$meta" || err "Missing metadata '$meta' in $file"
   done
-  updated_line=$(head -n 12 "$file" | grep '^최종 갱신:' || true)
+  updated_line=$(head -n 20 "$file" | grep '^최종 갱신:' || true)
   if [[ -n "$updated_line" ]]; then
     if ! grep -Eq '^최종 갱신: ([0-9]{4})-([0-9]{2})-([0-9]{2}) ([0-9]{2}):([0-9]{2}) KST$|^최종 갱신: YYYY-MM-DD HH:MM KST$' <<< "$updated_line"; then
       err "Invalid updated timestamp format in $file: expected YYYY-MM-DD HH:MM KST"
     fi
   fi
-done < <(find docs \
-  -path 'docs/internal' -prune -o \
-  -path 'docs/archive' -prune -o \
-  -name '*.md' -type f -print 2>/dev/null | sed 's#^#./#')
+done < <(
+  find docs frontend/web/docs -name '*.md' -type f -print 2>/dev/null | sed 's#^#./#'
+  printf '%s\n' './README.md' './frontend/web/ADMIN_DATA_WORKSPACE.md'
+)
 
 while IFS= read -r file; do
   base="$(basename "$file")"

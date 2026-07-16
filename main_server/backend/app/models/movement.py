@@ -86,12 +86,13 @@ class MovementRobotStatusCallback(BaseModel):
     state: str | None = None
     current_command_id: str | None = None
     localized: bool | None = None
+    is_emergency: bool | None = None
     pose: dict[str, Any] | None = None
     reported_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_status_content(self) -> Self:
-        if self.state is None and self.current_command_id is None and self.localized is None and self.pose is None:
+        if self.state is None and self.current_command_id is None and self.localized is None and self.pose is None and self.is_emergency is None:
             raise ValueError("status callback has no state fields")
         return self
 

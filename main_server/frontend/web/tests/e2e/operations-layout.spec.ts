@@ -484,3 +484,28 @@ test("운영·관리 전환 전후 헤더 탭과 좌측 패널 치수를 동일�
   expect(Math.abs(operateContext!.width - adminContext!.width)).toBeLessThanOrEqual(1);
   expect(Math.abs(operateLeft!.width - adminLeftWidth)).toBeLessThanOrEqual(1);
 });
+
+
+test("관리 기록은 운영 이력 4개 영역과 공통 관리 사이드바를 사용한다", async ({ page }) => {
+  await page.goto("/records/events");
+  await expect(page.getByRole("button", { name: "운영 이벤트" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "작업 이력" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "재고 이력" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "시스템 상태" })).toBeVisible();
+  await expect(page.locator(".admin-context-pane")).toBeVisible();
+  const railBox = await page.locator(".admin-activity-rail").boundingBox();
+  const contextBox = await page.locator(".admin-context-pane").boundingBox();
+  const workbenchBox = await page.locator(".admin-workbench").boundingBox();
+  expect(railBox?.width).toBe(68);
+  expect(contextBox?.width).toBe(180);
+  expect(workbenchBox?.x).toBe(248);
+  expect(workbenchBox?.width).toBeGreaterThan(1600);
+
+  await page.getByRole("button", { name: "작업 이력" }).click();
+  await expect(page.getByRole("button", { name: "작업 결과" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "이동 명령" })).toBeVisible();
+
+  await page.getByRole("button", { name: "시스템 상태" }).click();
+  await expect(page.getByRole("combobox", { name: "서비스 필터" })).toBeVisible();
+  await expect(page.getByText("통신 기록", { exact: true })).toHaveCount(0);
+});

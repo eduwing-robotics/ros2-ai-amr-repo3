@@ -115,7 +115,11 @@ def ingest_result(conn, payload: dict[str, Any]) -> dict[str, Any]:
         payload.get("message") or str(result),
         payload,
     )
-    normalized = {**payload, "event": RESULT_EVENT_MAP.get(result, result)}
+    normalized = {
+        **payload,
+        "event": RESULT_EVENT_MAP.get(result, result),
+        "_callback_channel": "legacy_result",
+    }
     advanced = orchestrator.handle_command_event(conn, normalized) is not None
     return {"message": "movement result saved", "duplicate": False, "task_advanced": advanced}
 
@@ -175,3 +179,24 @@ def ingest_robot_status(conn, robot_name: str, payload: dict[str, Any]) -> None:
         message=message,
         payload=payload,
     )
+
+
+def ingest_estop_status(conn, robot_name: str, payload: dict[str, Any]) -> bool:
+    """Reconcile Main's safety latch from an explicit Movement status callback."""
+    if "is_emergency" not in payload:
+        return False
+    from app.domains.movement.client import set_robot_emergency
+
+    active = bool(payload["is_emergency"])
+    set_robot_emergency(robot_name, active)
+    expected = "stop_confirmed" if active else "clear_confirmed"
+    if operational_events.latest_estop_states(conn, [robot_name]).get(robot_name) == expected:
+        return False
+    operational_events.append(
+        conn,
+        event_type="ROBOT_ESTOP_CONFIRMED" if active else "ROBOT_CLEAR_ESTOP_CONFIRMED",
+        robot_id=robot_name,
+        message=("estop confirmed" if active else "estop clear confirmed") + f": {robot_name}",
+        payload=payload,
+    )
+    return True

@@ -1,8 +1,12 @@
 # Database
 
 상태: Active
+주 독자: Backend·DB 담당자
+보조 독자: QA·운영 담당자
+난이도: 개발
 소유: DB
-최종 갱신: 2026-07-14 20:23 KST
+최종 갱신: 2026-07-16 16:00 KST
+구현 기준: database/schema_pg*.sql·migration·PostgreSQL repository
 목적: PostgreSQL DB **한 문서** — ERD · 설계 요지 · 테이블 역할 · 파일/코드 매핑. DDL 본문은 복제하지 않는다.
 
 DB는 업무·infra 테이블 12개와 migration 이력 테이블 1개로 구성된다. 현재 상태와 영구 이력을 분리한다. `tasks`는 작업 큐, `commands`는 실행 레시피, `evidence_events`는 진행 근거를 저장한다. 완료 결과는 `task_logs`와 `item_change_logs`에 추가 전용으로 남는다.
@@ -142,6 +146,10 @@ erDiagram
 
 - **실시간 pose vs 영구 이력 분리:** 최신 pose는 단일 worker 프로세스 메모리, 품질 이슈/복구만 `evidence_events`에 기록한다. 재시작 시 pose를 DB에서 복구하지 않는다.
 - **현재 상태 vs 영구 이력 분리:** 큐=`tasks`, 레시피=`commands`(실행 로그 아님), 작업 중 버퍼=`evidence_events`, HOLD latch=`safety_stops`, 영구=`task_logs`·`item_change_logs`.
+- **ESTOP 영속화는 칼럼 추가 없이 event projection 사용:** 로봇별
+  `ROBOT_ESTOP_REQUESTED|CONFIRMED|UNCONFIRMED`과
+  `ROBOT_CLEAR_ESTOP_REQUESTED|CONFIRMED|UNCONFIRMED`을 `evidence_events`에 저장한다.
+  Main 부팅 시 로봇별 최신 이벤트로 메모리 latch를 복원한다.
 - **예약 테이블 없음** — active task가 로봇/슬롯/층 점유.
 - `locations`가 zone·scan·dock 흡수(`type` + `marker_id`). 맵은 `maps/`의 단일 YAML·PGM이 원본이며 DB 테이블을 두지 않는다. `cameras`는 업무 FK 없는 인프라.
 - 한 줄: tasks 큐 → commands 레시피 → evidence로 전진 → safety_stops로 HOLD → 완료 시 inventory + logs.

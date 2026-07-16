@@ -105,7 +105,7 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
         )
 
     try:
-        if str(step.get("kind")) == "scenario":
+        if str(step.get("kind")) in {"scenario", "route"}:
             movement_response = movement_client.scenario_safe_stop(str(robot_id), str(command_id))
         else:
             movement_response = movement_client.cancel_command(str(robot_id), str(command_id))

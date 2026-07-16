@@ -1,8 +1,12 @@
 # Glossary
 
 상태: Active — approved terminology baseline
+주 독자: 전체 개발자
+보조 독자: QA·기획자
+난이도: 개발
 소유: Docs · Architecture
-최종 갱신: 2026-07-14 15:14 KST
+최종 갱신: 2026-07-16 16:00 KST
+구현 기준: 공개 API·DB·UI에서 사용하는 현재 canonical 용어
 목적: Main_Control의 업무 개념, 코드·API·DB·UI 표현과 호환·폐기 용어를 한 곳에서 연결한다.
 
 이 문서는 현재 구현을 기준으로 승인된 공식 용어 정본이다. 세부 함수와 모든 필드를 나열하지 않고 업무 흐름,
@@ -230,6 +234,11 @@ Main이 Task의 현재 실행·취소·운영자 대기·복구 과정을 조율
 Main의 작업 중단·기록이 함께 필요하다. 해제 후 Task를 자동 재개하지 않는다.
 
 - 코드·API 대표 표현: `ESTOP`, `estop`
+- 로봇별 수명주기: `stop_requested`, `stop_confirmed`, `stop_unconfirmed`,
+  `clear_requested`, `clear_confirmed`, `clear_unconfirmed`, `clear`
+- `robot_online=false`는 연결 상태이지 ESTOP 상태가 아니다. 정지/해제 요청 이력이 있고 결과를 확인하지
+  못한 경우에만 ESTOP 미확인으로 분류한다.
+- 해제 성공은 기존 Task 자동 재개를 의미하지 않는다.
 - 소유: 실제 선점 정지는 Movement/로봇, fleet 조율과 운영 기록은 Main_Control safety
 - UI: 비상정지
 
