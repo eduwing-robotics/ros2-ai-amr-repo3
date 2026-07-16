@@ -267,11 +267,17 @@ test("맵 Goto 목표는 창을 닫아도 이동 중 임시 마커로 유지되�
 });
 
 
-test("슬롯별 재고는 선택 슬롯을 참조 맵에서 강조하고 품목 탭에서 맵을 정리한다", async ({ page }) => {
+test("품목별 재고는 저장 위치를 표시하고 슬롯별 재고는 선택 위치를 맵에서 강조한다", async ({ page }) => {
   await mockMainApi(page, { inventory: [{ slot_id: "S01", item_code: "bolt", item_name: "볼트", quantity: 3, floor: 1 }] });
   await page.goto("/operate/inventory");
 
   const workspace = page.getByRole("region", { name: "재고 워크스페이스" });
+  await expect(workspace.getByRole("columnheader", { name: "저장 위치" })).toBeVisible();
+  await expect(workspace.getByRole("row", { name: /볼트.*슬롯 1 · 1층.*3/ })).toBeVisible();
+  await workspace.getByPlaceholder("품목 검색").fill("슬롯 1");
+  await expect(workspace.getByRole("row", { name: /볼트.*슬롯 1 · 1층.*3/ })).toBeVisible();
+  await workspace.getByPlaceholder("품목 검색").fill("");
+
   await workspace.getByRole("tab", { name: "슬롯별" }).click();
   const referenceMap = page.getByRole("region", { name: "슬롯 위치 확인 맵" });
   await expect(referenceMap).toBeVisible();
