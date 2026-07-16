@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from nav_app.bootstrap import ensure_import_paths
 
@@ -24,6 +27,16 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     register_app(app)
+
+    @app.exception_handler(RequestValidationError)
+    async def scenario_validation_error(request: Request, exc: RequestValidationError):
+        if request.url.path.startswith("/movement-api/v1/scenario-commands"):
+            return JSONResponse(
+                status_code=422,
+                content={"detail": {"code": "schema_validation_failed", "message": "Scenario request schema validation failed.", "retryable": False}},
+            )
+        return await request_validation_exception_handler(request, exc)
+
     return app
 
 

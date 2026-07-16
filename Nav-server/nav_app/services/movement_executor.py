@@ -310,13 +310,13 @@ def execute_movement_command(req: MovementCommandRequest):
                 raise RuntimeError(f"step {index} {step.action} failed: {detail}")
             if business_index is not None and step.payload.get("business_step_complete", True):
                 command["last_completed_step_index"] = int(business_index)
-                if command.get("current_step_code") == "INBOUND_LOAD_COMPLETE":
+                if command.get("current_step_code") in ("LOAD", "INBOUND_LOAD_COMPLETE"):
                     command["cargo_state"] = "LOADED"
-                if command.get("current_step_code") == "STORAGE_UNLOAD_COMPLETE":
+                if command.get("current_step_code") in ("UNLOAD", "STORAGE_UNLOAD_COMPLETE"):
                     command["cargo_state"] = "EMPTY"
                     command["business_completed"] = True
                 _report_command_callback(command, "STEP_COMPLETED", command["current_step_code"])
-                if command.get("current_step_code") == "STORAGE_UNLOAD_COMPLETE":
+                if command.get("current_step_code") in ("UNLOAD", "STORAGE_UNLOAD_COMPLETE"):
                     _report_command_callback(command, "BUSINESS_COMPLETED", "storage unload complete")
                 _persist_command(command)
             if step.action == "nav2_pose" and index + 1 < len(req.steps):
@@ -365,7 +365,8 @@ def execute_movement_command(req: MovementCommandRequest):
         _persist_command(command)
         if terminal_state == "ARRIVED":
             _record_arrived_gate(command)
-        _report_movement_result(req.command_id, req.task_id, req.robot_name, terminal_state, terminal_message)
+        if not command.get("scenario_contract"):
+            _report_movement_result(req.command_id, req.task_id, req.robot_name, terminal_state, terminal_message)
         terminal_event = "COMMAND_DONE" if terminal_state == "DONE" else "COMMAND_ARRIVED"
         _report_command_callback(command, terminal_event, terminal_message)
         _report_movement_robot_status(req.robot_name, None, "idle")
@@ -399,7 +400,8 @@ def execute_movement_command(req: MovementCommandRequest):
         command["authority_owner"] = "MAIN"
         command["authority_released"] = True
         _persist_command(command)
-        _report_movement_result(req.command_id, req.task_id, req.robot_name, "ABORTED", str(exc))
+        if not command.get("scenario_contract"):
+            _report_movement_result(req.command_id, req.task_id, req.robot_name, "ABORTED", str(exc))
         _report_command_callback(command, "COMMAND_ABORTED", str(exc))
         _report_movement_robot_status(req.robot_name, None, "estop")
     except Exception as exc:
@@ -427,7 +429,7 @@ def execute_movement_command(req: MovementCommandRequest):
         command["stage"] = stage
         command["reason"] = reason
         command["message"] = reason
-        if command.get("business_completed") and command.get("current_step_code") == "PARK_COMPLETE":
+        if command.get("business_completed") and command.get("current_step_code") in ("PARK", "PARK_COMPLETE"):
             command["park_status"] = "PARK_FAILED"
         if stage == "aruco" and reason == "marker_not_found":
             diagnostics = _aruco_failure_diagnostics(command, req)
@@ -441,7 +443,8 @@ def execute_movement_command(req: MovementCommandRequest):
         _persist_command(command)
         if runtime.navigator:
             runtime.navigator.publish_stop_velocity()
-        _report_movement_result(req.command_id, req.task_id, req.robot_name, "FAILED", reason)
+        if not command.get("scenario_contract"):
+            _report_movement_result(req.command_id, req.task_id, req.robot_name, "FAILED", reason)
         _report_command_callback(command, "COMMAND_FAILED", reason)
         _report_movement_robot_status(req.robot_name, None, "error")
     finally:

@@ -67,7 +67,7 @@ def _inbound2_storage_b_preview(req: Inbound2StorageBScenarioRequest):
     navigator_status = getattr(runtime.navigator, "status", None) if runtime.navigator else None
     command_accepting = bool(runtime.navigator and runtime.mission_manager and robot_context.command_accepting(emergency))
     active = next(
-        (item.get("command_id") for item in runtime.movement_commands.values() if item.get("state") in ("ACCEPTED", "RUNNING", "STOPPING")),
+        (item.get("command_id") for item in runtime.movement_commands.values() if item.get("state") in ("ACCEPTED", "RUNNING", "STOPPING", "STOP_REQUESTED")),
         None,
     )
     blockers = []
@@ -217,7 +217,7 @@ def _accept_movement_command(
 
         active_command = next(
             (command for command in runtime.movement_commands.values()
-             if command.get("robot_name") == req.robot_name and command.get("state") in ("ACCEPTED", "RUNNING", "STOPPING")),
+             if command.get("robot_name") == req.robot_name and command.get("state") in ("ACCEPTED", "RUNNING", "STOPPING", "STOP_REQUESTED")),
             None,
         )
         if active_command:

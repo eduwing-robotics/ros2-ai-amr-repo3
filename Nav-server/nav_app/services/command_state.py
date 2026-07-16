@@ -52,6 +52,18 @@ def report_movement_result(command_id: str, task_id: Optional[int], robot_name: 
     )
 
 
+def _reason_code(command: Dict[str, Any], event: str):
+    if command.get("reason_code"):
+        return command["reason_code"]
+    if event not in ("COMMAND_FAILED", "COMMAND_ABORTED", "COMMAND_STOPPED", "COMMAND_CANCELLED"):
+        return None
+    if command.get("reason") == "estop":
+        return "ESTOP"
+    if command.get("reason") == "safe_stop":
+        return "OPERATOR_REQUESTED"
+    return {"nav": "NAVIGATION_FAILED", "aruco": "ALIGNMENT_FAILED", "lift": "LIFT_FAILED"}.get(command.get("stage"), "EXECUTION_FAILED")
+
+
 def command_callback_payload(command: Dict[str, Any], event: str, message: Optional[str] = None):
     pose = runtime.navigator.get_current_pose() if runtime.navigator else None
     state = command.get("state")
@@ -60,6 +72,7 @@ def command_callback_payload(command: Dict[str, Any], event: str, message: Optio
         command["callback_sequence"] = sequence
     event_id = f"{command.get('robot_name')}:{command.get('command_id')}:{sequence}"
     payload = {
+        "contract_version": command.get("contract_version"),
         "event": event,
         "command_id": command.get("command_id"),
         "task_id": command.get("task_id"),
@@ -75,6 +88,7 @@ def command_callback_payload(command: Dict[str, Any], event: str, message: Optio
         "result": _movement_result_from_state(state) if state in ("DONE", "ARRIVED", "FAILED", "CANCELED", "CANCELLED", "ABORTED") else None,
         "stage": command.get("stage"),
         "reason": command.get("reason"),
+        "reason_code": _reason_code(command, event),
         "robot_at": command.get("robot_at"),
         "resumable": command.get("resumable"),
         "failure_diagnostics": command.get("failure_diagnostics"),
@@ -95,6 +109,8 @@ def command_callback_payload(command: Dict[str, Any], event: str, message: Optio
         "pose": pose,
         "localized": pose is not None,
         "simulation_mode": is_simulation_mode(),
+        "navigator_status": ("IDLE" if state in ("DONE", "FAILED", "ABORTED", "STOPPED", "CANCELLED") and command.get("authority_released") else getattr(runtime.navigator, "status", None)) if runtime.navigator else None,
+        "is_emergency": bool(runtime.navigator and runtime.navigator.safety.estop),
         "reported_at": _utc_now(),
         "event_id": event_id,
         "sequence": sequence,

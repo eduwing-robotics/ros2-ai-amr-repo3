@@ -59,7 +59,7 @@ def startup_runtime() -> None:
     runtime.state_store = MovementStateStore(MOVEMENT_STATE_PATH)
     runtime.movement_commands = runtime.state_store.load_commands()
     for command in runtime.movement_commands.values():
-        if command.get("state") in ("ACCEPTED", "RUNNING", "STOPPING"):
+        if command.get("state") in ("ACCEPTED", "RUNNING", "STOPPING", "STOP_REQUESTED"):
             command["state"] = "STOPPED"
             command["reason"] = "server_restart"
             command["resumable"] = True

@@ -1,0 +1,164 @@
+import copy
+
+import pytest
+from fastapi import BackgroundTasks
+
+from nav_app.models import ScenarioCommandRequest, ScenarioSafeStopRequest
+from nav_app.routers import scenario_api
+from nav_app.runtime import runtime
+from nav_app.services import command_state
+from nav_app.services.scenario_contract import ScenarioContractError, build_scenario_command
+
+
+def request_payload(scenario_type="inbound"):
+    inbound = scenario_type == "inbound"
+    return {
+        "contract_version": "1.0",
+        "command_id": f"task-355-tb3_2-{scenario_type}-001",
+        "task_id": 355,
+        "robot_name": "tb3_2",
+        "scenario_type": scenario_type,
+        "map": {"map_id": "robot2_map", "frame_id": "map"},
+        "pickup": {
+            "location_id": "INBOUND_02" if inbound else "STORAGE_02",
+            "floor": 1,
+            "approach": {
+                "waypoint_id": "inbound_slot_2_approach" if inbound else "warehouse_a_approach",
+                "x": 0.234 if inbound else 0.019,
+                "y": 0.006 if inbound else -0.618,
+                "yaw": 1.571 if inbound else 0.0,
+            },
+        },
+        "dropoff": {
+            "location_id": "STORAGE_02" if inbound else "OUTBOUND_02",
+            "floor": 1,
+            "approach": {
+                "waypoint_id": "warehouse_a_approach" if inbound else "outbound_slot_2_approach",
+                "x": 0.019 if inbound else 1.45,
+                "y": -0.618 if inbound else 0.006,
+                "yaw": 0.0 if inbound else 1.571,
+            },
+        },
+        "callback_url": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
+    }
+
+
+@pytest.mark.parametrize("scenario_type", ["inbound", "outbound"])
+def test_scenario_expands_to_validated_18_step_profile(scenario_type):
+    req = ScenarioCommandRequest(**request_payload(scenario_type))
+    steps, metadata = build_scenario_command(req)
+
+    assert len(steps) == 18
+    assert [step.action for step in steps] == [
+        "lift_move", "leave_dock", "nav2_waypoints", "aruco_align", "wait", "lift_move",
+        "aruco_align", "dock_transfer", "nav2_waypoints", "aruco_align", "wait", "lift_move",
+        "aruco_align", "dock_transfer", "nav2_waypoints", "aruco_align", "wait", "aruco_align",
+    ]
+    assert steps[1].payload["force"] is True
+    assert [steps[index].payload["target_height_mm"] for index in (0, 5, 11)] == ([0, 0, 6] if scenario_type == "outbound" else [0, 0, 6])
+    assert steps[1].payload["business_step_code"] == "LEAVE_HOME"
+    assert steps[2].payload["business_step_code"] == "PICKUP_APPROACH"
+    assert steps[3].payload["business_step_start"] is True
+    assert steps[6].payload["business_step_complete"] is True
+    assert steps[7].payload["business_step_code"] == "LOAD"
+    assert steps[13].payload["business_step_code"] == "UNLOAD"
+    assert steps[17].payload["business_step_code"] == "PARK"
+    assert metadata["scenario_contract"] is True
+    assert metadata["contract_version"] == "1.0"
+
+
+def test_scenario_rejects_location_waypoint_mismatch():
+    payload = request_payload()
+    payload["pickup"]["approach"]["waypoint_id"] = "inbound_slot_1_approach"
+    with pytest.raises(ScenarioContractError) as exc:
+        build_scenario_command(ScenarioCommandRequest(**payload))
+    assert exc.value.code == "waypoint_location_mismatch"
+
+
+def test_scenario_rejects_coordinate_mismatch():
+    payload = request_payload()
+    payload["dropoff"]["approach"]["x"] += 0.2
+    with pytest.raises(ScenarioContractError) as exc:
+        build_scenario_command(ScenarioCommandRequest(**payload))
+    assert exc.value.code == "coordinate_mismatch"
+
+
+def test_accept_scenario_uses_semantic_request_fingerprint(monkeypatch):
+    req = ScenarioCommandRequest(**request_payload())
+    captured = {}
+
+    def fake_accept(command_req, background_tasks, source_metadata=None):
+        captured["request"] = command_req
+        captured["metadata"] = source_metadata
+        runtime.movement_commands[req.command_id] = {**source_metadata, "command_id": req.command_id, "state": "ACCEPTED"}
+        return {"accepted": True, "command_id": req.command_id, "state": "ACCEPTED"}
+
+    from nav_app.routers import movement_api
+    monkeypatch.setattr(movement_api, "_accept_movement_command", fake_accept)
+    monkeypatch.setattr(scenario_api, "_check_execution_gate", lambda command_id: None)
+    try:
+        response = scenario_api.accept_scenario_command(req, BackgroundTasks(), idempotency_key=req.command_id)
+    finally:
+        runtime.movement_commands.pop(req.command_id, None)
+
+    assert response["accepted"] is True
+    assert response["execution_id"] == f"exec-{req.command_id}"
+    assert len(captured["request"].steps) == 18
+    assert "source_request_fingerprint" in captured["metadata"]
+
+
+def test_safe_stop_is_idempotent_and_uses_contract_state(monkeypatch):
+    command_id = "scenario-stop-1"
+    command = {"command_id": command_id, "scenario_contract": True, "state": "RUNNING"}
+    runtime.movement_commands[command_id] = command
+    monkeypatch.setattr(command_state, "persist_command", lambda value: None)
+    monkeypatch.setattr(runtime, "navigator", None)
+    req = ScenarioSafeStopRequest(request_id="stop-1", reason="OPERATOR_REQUESTED", requested_by="main-operator")
+    try:
+        first = scenario_api.safe_stop_scenario_command(command_id, req, idempotency_key="stop-1")
+        second = scenario_api.safe_stop_scenario_command(command_id, req, idempotency_key="stop-1")
+    finally:
+        runtime.movement_commands.pop(command_id, None)
+    assert first["state"] == "STOP_REQUESTED"
+    assert second["state"] == "STOP_REQUESTED"
+
+
+def test_terminal_callback_contains_v1_completion_gate(monkeypatch):
+    navigator = type("Navigator", (), {
+        "status": "BUSY",
+        "safety": type("Safety", (), {"estop": False})(),
+        "get_current_pose": lambda self: {"x": 0.0, "y": 0.0, "yaw": 0.0},
+    })()
+    monkeypatch.setattr(runtime, "navigator", navigator)
+    command = {
+        "contract_version": "1.0", "command_id": "done-1", "task_id": 1, "robot_name": "tb3_2",
+        "state": "DONE", "current_step_index": 8, "current_step_code": "PARK",
+        "last_completed_step_index": 8, "cargo_state": "EMPTY", "business_completed": True,
+        "authority_owner": "MAIN", "authority_released": True, "callback_sequence": -1,
+    }
+    payload = command_state.command_callback_payload(command, "COMMAND_DONE", "completed")
+    assert payload["contract_version"] == "1.0"
+    assert payload["navigator_status"] == "IDLE"
+    assert payload["is_emergency"] is False
+    assert payload["authority_released"] is True
+
+
+def test_app_exposes_v1_routes_and_schema_error_envelope():
+    from fastapi.testclient import TestClient
+    from nav_app.app import create_app
+
+    client = TestClient(create_app())
+    paths = {route.path for route in client.app.routes}
+    assert "/movement-api/v1/scenario-commands" in paths
+    assert "/movement-api/v1/scenario-commands/{command_id}" in paths
+    assert "/movement-api/v1/scenario-commands/{command_id}/safe-stop" in paths
+
+    response = client.post("/movement-api/v1/scenario-commands", json={"contract_version": "1.0"})
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": {
+            "code": "schema_validation_failed",
+            "message": "Scenario request schema validation failed.",
+            "retryable": False,
+        }
+    }

@@ -1,6 +1,6 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from route_builder import DEFAULT_RETURN_WAYPOINT
 
@@ -68,6 +68,52 @@ class Inbound2StorageBScenarioRequest(BaseModel):
     dry_run: bool = False
     skip_lift: bool = Field(default=False, description="이동/도킹 검증 시 리프트 명령을 완전히 생략")
     callback_url: Optional[str] = Field(default=None, description="명령 상태 이벤트를 받을 LMS callback URL")
+
+
+class ScenarioMapSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    map_id: str
+    frame_id: Literal["map"]
+
+
+class ScenarioApproachSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    waypoint_id: str
+    x: float
+    y: float
+    yaw: float = Field(ge=-3.141592653589793, le=3.141592653589793)
+
+
+class ScenarioLocationSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    location_id: str
+    floor: int = Field(ge=1, le=2)
+    approach: ScenarioApproachSnapshot
+
+
+class ScenarioCommandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: Literal["1.0"]
+    command_id: str
+    task_id: int
+    robot_name: str
+    scenario_type: Literal["inbound", "outbound"]
+    map: ScenarioMapSnapshot
+    pickup: ScenarioLocationSnapshot
+    dropoff: ScenarioLocationSnapshot
+    callback_url: str
+
+
+class ScenarioSafeStopRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    reason: str
+    requested_by: str
 
 
 class InitialPoseRequest(BaseModel):
