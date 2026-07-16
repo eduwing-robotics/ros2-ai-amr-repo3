@@ -193,12 +193,14 @@ function validationMessage({
 export function WorkOrderForm({
   onClose,
   onSlotFocus,
+  onZoneFocus,
   disabled,
   emergencyRobots = [],
   onSubmitted,
 }: {
   onClose?: () => void;
   onSlotFocus?: (waypointId: string | null) => void;
+  onZoneFocus?: (waypointId: string | null) => void;
   disabled?: boolean;
   emergencyRobots?: string[];
   /** 생성 성공 시 호출 — 셸이 작업 큐 탭을 열어 피드백 루프를 잇는다. */
@@ -308,6 +310,11 @@ export function WorkOrderForm({
     onSlotFocus?.(focusedSlot?.waypoint_id ?? null);
     return () => onSlotFocus?.(null);
   }, [focusedSlot?.waypoint_id, onSlotFocus]);
+
+  useEffect(() => {
+    onZoneFocus?.(zoneId || null);
+    return () => onZoneFocus?.(null);
+  }, [zoneId, onZoneFocus]);
   const submitValidation = validationMessage({
     disabled,
     itemCode,
@@ -439,6 +446,7 @@ export function WorkOrderForm({
                 <option key={z.waypoint_id} value={z.waypoint_id}>{z.name} ({z.waypoint_id})</option>
               ))}
             </select>
+            {zoneId ? <span className="work-order-map-reference"><span aria-hidden="true">⌖</span> 맵에서 {operationLabel(operation)} 존 위치 강조 중</span> : null}
           </Field>
         ) : (
           <p className="muted">

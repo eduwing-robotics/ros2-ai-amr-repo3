@@ -27,7 +27,7 @@ const runningOrder = {
   }],
 };
 
-test("입출고 좌측 메뉴는 좌측 요청 패널을 열고 전역 카메라·하단 작업 바를 유지한다", async ({ page }, testInfo) => {
+test("입출고 메뉴는 요청·참조 맵 복합 작업면으로 전환하고 카메라·하단 작업 바를 유지한다", async ({ page }, testInfo) => {
   await mockMainApi(page, {
     cameraOnline: true,
     cameraSources: [globalCamera],
@@ -50,19 +50,23 @@ test("입출고 좌측 메뉴는 좌측 요청 패널을 열고 전역 카메라
   expect(Math.abs(cameraBefore!.height - mapBefore!.height)).toBeLessThanOrEqual(1);
 
   await page.getByRole("navigation", { name: "운영 메뉴" }).getByRole("button", { name: "입출고", exact: true }).click();
-  const drawer = page.getByRole("region", { name: "입출고" });
-  const mapAfter = await map.boundingBox();
+  const workspace = page.getByRole("region", { name: "입출고 요청과 위치 확인 맵" });
+  const referenceMap = page.getByRole("region", { name: "입출고 위치 확인 맵" });
   const cameraAfter = await camera.boundingBox();
   const dockAfter = await missionDock.boundingBox();
-  const drawerBox = await drawer.boundingBox();
-  expect(mapAfter).not.toBeNull();
+  const workspaceBox = await workspace.boundingBox();
+  const referenceMapBox = await referenceMap.boundingBox();
+  expect(workspaceBox).not.toBeNull();
+  expect(referenceMapBox).not.toBeNull();
   expect(cameraAfter).not.toBeNull();
   expect(dockAfter).not.toBeNull();
-  expect(drawerBox).not.toBeNull();
-  expect(mapAfter!.x).toBeGreaterThanOrEqual(drawerBox!.x + drawerBox!.width);
+  expect(referenceMapBox!.x).toBeGreaterThanOrEqual(workspaceBox!.x);
+  expect(referenceMapBox!.y).toBeGreaterThan(workspaceBox!.y);
   expect(Math.abs(cameraAfter!.x - cameraBefore!.x)).toBeLessThanOrEqual(1);
   expect(Math.abs(dockAfter!.y - dockBefore!.y)).toBeLessThanOrEqual(1);
-  expect(drawerBox!.x).toBeLessThan(mapAfter!.x);
+  await expect(workspace.locator(".zone-marker.work-order-focused")).toHaveCount(1);
+  await workspace.getByLabel("품목").selectOption("bolt");
+  await expect(workspace.locator(".zone-marker.work-order-focused")).toHaveCount(2);
   await page.screenshot({ path: testInfo.outputPath("operations-spatial-v4.png"), fullPage: true });
 });
 

@@ -25,11 +25,13 @@ export function DashboardMap({
   selectedRobotId,
   onRobotSelect,
   focusedWaypointId,
+  focusedZoneId,
 }: {
   gotoMode?: boolean;
   selectedRobotId?: string;
   onRobotSelect?: (robotId: string) => void;
   focusedWaypointId?: string | null;
+  focusedZoneId?: string | null;
 }) {
   const { data: maps = [] } = useMaps();
   const { data: robots = [] } = useRobots();
@@ -303,11 +305,12 @@ export function DashboardMap({
                 const hy = -ZONE_YAW_LEN * Math.sin(yaw);
                 const stock = z.waypoint_type === "storage" ? inventoryBySlot.get(z.waypoint_id) : undefined;
                 const label = stock ? `${z.name} · ${stock}` : z.name;
-                const showMarkerLabel = layers.showLabels || Boolean(stock) || z.waypoint_id === focusedWaypointId;
+                const workOrderFocused = z.waypoint_id === focusedWaypointId || z.waypoint_id === focusedZoneId;
+                const showMarkerLabel = layers.showLabels || Boolean(stock) || workOrderFocused;
                 return (
                   <g
                     key={z.waypoint_id}
-                    className={`zone-marker zone-${z.waypoint_type}${z.waypoint_id === focusedWaypointId ? " work-order-focused" : ""}`}
+                    className={`zone-marker zone-${z.waypoint_type}${workOrderFocused ? " work-order-focused" : ""}`}
                     transform={`translate(${pt.x} ${pt.y}) scale(${u})`}
                   >
                     {showYaw ? <line className="zone-yaw" x1={0} y1={0} x2={hx} y2={hy} /> : null}

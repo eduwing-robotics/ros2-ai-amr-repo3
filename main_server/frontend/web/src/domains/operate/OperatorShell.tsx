@@ -174,6 +174,7 @@ export function OperatorShell() {
   const selectedRobotId = selectedRobot?.robot_id ?? "";
   const [cameraRobotId, setCameraRobotId] = useState<string | null>(null);
   const [focusedWaypointId, setFocusedWaypointId] = useState<string | null>(null);
+  const [focusedZoneId, setFocusedZoneId] = useState<string | null>(null);
   const cameraRobot = robots.find((robot) => robot.robot_id === cameraRobotId) ?? null;
   const cameraRobotSources = cameraRobotId ? cameras.filter((camera) => camera.robot_id === cameraRobotId) : [];
   const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks]);
@@ -375,7 +376,7 @@ export function OperatorShell() {
           {drawer && isNarrowLayout ? (
             <div className="drawer-scrim" aria-hidden="true" onClick={closeDrawer} />
           ) : null}
-          {drawer ? (
+          {drawer && (drawer !== "inout" || isNarrowLayout) ? (
             <Drawer
               id="operator-context-drawer"
               title={drawerTitle}
@@ -387,6 +388,7 @@ export function OperatorShell() {
                 <WorkOrderForm
                   onClose={closeDrawer}
                   onSlotFocus={setFocusedWaypointId}
+                  onZoneFocus={setFocusedZoneId}
                   disabled={allRobotsEmergency}
                   emergencyRobots={emergencyRobots}
                   onSubmitted={() => refetch()}
@@ -449,7 +451,28 @@ export function OperatorShell() {
             <div className="operator-main-workbench" ref={workbenchRef}>
               <div className="operator-live-split" ref={liveSplitRef}>
                 <div className="operator-primary-workspace">
-                  {trayPanel === "tasks" ? (
+                  {drawer === "inout" && !isNarrowLayout ? (
+                    <section className="work-order-map-workspace" id="operator-workspace-main" aria-label="입출고 요청과 위치 확인 맵">
+                      <div className="work-order-map-form">
+                        <WorkOrderForm
+                          onClose={closeDrawer}
+                          onSlotFocus={setFocusedWaypointId}
+                          onZoneFocus={setFocusedZoneId}
+                          disabled={allRobotsEmergency}
+                          emergencyRobots={emergencyRobots}
+                          onSubmitted={() => refetch()}
+                        />
+                      </div>
+                      <div className="work-order-reference-map" role="region" aria-label="입출고 위치 확인 맵">
+                        <DashboardMap
+                          selectedRobotId={selectedRobotId}
+                          onRobotSelect={selectRobot}
+                          focusedWaypointId={focusedWaypointId}
+                          focusedZoneId={focusedZoneId}
+                        />
+                      </div>
+                    </section>
+                  ) : trayPanel === "tasks" ? (
                     <section className="operator-workspace" id="operator-workspace-main" aria-label="작업 워크스페이스">
                       <TaskRecoveryBanner />
                       <WorkOrderQueue />
@@ -470,6 +493,7 @@ export function OperatorShell() {
                           selectedRobotId={selectedRobotId}
                           onRobotSelect={selectRobot}
                           focusedWaypointId={focusedWaypointId}
+                          focusedZoneId={focusedZoneId}
                         />
                       </div>
                     </div>

@@ -7,6 +7,7 @@ export const item = { item_code: "bolt", item_name: "볼트", active: true };
 export const slot = { slot_id: "S01", label: "슬롯 1", waypoint_id: "dock_1", capacity: 10, sort_order: 1, approach_group: "A", enabled: true };
 export const inbound = { waypoint_id: "in_1", map_id: "map", name: "입고", x: 1, y: 1, yaw: 0, waypoint_type: "inbound", scan_waypoint_id: "scan_1" };
 export const outbound = { ...inbound, waypoint_id: "out_1", name: "출고", waypoint_type: "outbound" };
+export const storage = { ...inbound, waypoint_id: "dock_1", name: "슬롯 1", waypoint_type: "storage", scan_waypoint_id: null };
 export const map = { map_id: "map", name: "테스트 맵", width: 1000, height: 800, resolution: 0.05, origin_x: 0, origin_y: 0, image_url: "" };
 
 type State = {
@@ -54,7 +55,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
     if (path === "/items") return json(route, [item]);
     if (path === "/storage-slots") return json(route, [slot]);
     if (path.startsWith("/inventory")) return json(route, state.inventory ?? []);
-    if (path.startsWith("/waypoints")) return json(route, [inbound, outbound]);
+    if (path.startsWith("/waypoints")) return json(route, [inbound, outbound, storage]);
     if (path.startsWith("/work-orders/preview")) return json(route, { operation: "inbound", item_code: item.item_code, quantity: 1, slots: [{ slot_id: "S01", floor: 1, slot_label: "슬롯 1" }], zone: inbound });
     if (path === "/work-orders" && req.method() === "POST") return json(route, { order_id: 101, operation: "inbound", item_code: item.item_code, quantity: 1, status: "QUEUED", tasks: [] });
     if (/^\/work-orders\/\d+\/stop$/.test(path) && req.method() === "POST") return json(route, {

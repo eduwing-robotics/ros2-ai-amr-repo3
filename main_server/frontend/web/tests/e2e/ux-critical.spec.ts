@@ -232,7 +232,7 @@ test("WEB-11 복구는 적재 확인 전 차단하고 두 가지 방식만 제�
   await expect(page.getByText(/자동 하역 및 기존 작업 재개/)).toBeVisible();
 });
 
-test("WEB-12 좌측 입출고 메뉴는 좌측 요청 문맥을 열고 작업 수를 유지한다", async ({ page }) => {
+test("WEB-12 좌측 입출고 메뉴는 요청·위치 확인 작업면을 열고 작업 수를 유지한다", async ({ page }) => {
   await mockMainApi(page, { tasks: [{ task_id: 9, task_type: "INBOUND", priority: 10, status: "RUNNING" }] });
   await page.goto("/operate/control");
   const inoutNav = page.getByRole("navigation", { name: "운영 메뉴" }).getByRole("button", { name: "입출고", exact: true });
@@ -242,10 +242,10 @@ test("WEB-12 좌측 입출고 메뉴는 좌측 요청 문맥을 열고 작업 �
   await inoutNav.click();
   await expect(page).toHaveURL(new RegExp("/operate/control\\?robot=tb3_1&drawer=inout$"));
   await expect(inoutNav).toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("region", { name: "입출고" })).toBeVisible();
-  await expect(page.locator(".operator-map-stage-wrap")).toBeVisible();
+  await expect(page.getByRole("region", { name: "입출고 요청과 위치 확인 맵" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "입출고 위치 확인 맵" })).toBeVisible();
   await expect(page.getByRole("region", { name: "전역 카메라" })).toBeVisible();
-  await page.getByRole("button", { name: "닫기" }).click();
+  await page.getByRole("button", { name: "취소" }).click();
   await expect(page).toHaveURL(new RegExp("/operate/control\\?robot=tb3_1$"));
 });
 
