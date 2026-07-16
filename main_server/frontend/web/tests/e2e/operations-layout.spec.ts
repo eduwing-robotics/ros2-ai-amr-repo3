@@ -326,3 +326,45 @@ for (const viewport of responsiveViewports) {
     await expect(page.locator("header").getByRole("button", { name: "운영", exact: true })).toBeVisible();
   });
 }
+
+
+test("운영·관리 전환 전후 헤더 탭과 좌측 패널 치수를 동일하게 유지한다", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockMainApi(page);
+  await page.goto("/operate/control");
+
+  const headerTabs = page.locator("header .mode-tab");
+  const operateTabs = await headerTabs.evaluateAll((tabs) => tabs.map((tab) => {
+    const rect = tab.getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  }));
+  const operateActivity = await page.locator(".operator-activity-rail").boundingBox();
+  const operateContext = await page.locator(".operator-primary-pane").boundingBox();
+  const operateLeft = await page.locator(".slim-nav").boundingBox();
+
+  await page.locator("header").getByRole("button", { name: "관리", exact: true }).click();
+  const adminTabs = await headerTabs.evaluateAll((tabs) => tabs.map((tab) => {
+    const rect = tab.getBoundingClientRect();
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  }));
+  const adminActivity = await page.locator(".admin-activity-rail").boundingBox();
+  const adminContext = await page.locator(".admin-context-pane").boundingBox();
+  const adminLeftWidth = (adminActivity?.width ?? 0) + (adminContext?.width ?? 0);
+
+  expect(operateTabs).toHaveLength(2);
+  expect(adminTabs).toHaveLength(2);
+  for (let index = 0; index < operateTabs.length; index += 1) {
+    expect(Math.abs(operateTabs[index].x - adminTabs[index].x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(operateTabs[index].y - adminTabs[index].y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(operateTabs[index].width - adminTabs[index].width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(operateTabs[index].height - adminTabs[index].height)).toBeLessThanOrEqual(1);
+  }
+  expect(operateActivity).not.toBeNull();
+  expect(operateContext).not.toBeNull();
+  expect(operateLeft).not.toBeNull();
+  expect(adminActivity).not.toBeNull();
+  expect(adminContext).not.toBeNull();
+  expect(Math.abs(operateActivity!.width - adminActivity!.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(operateContext!.width - adminContext!.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(operateLeft!.width - adminLeftWidth)).toBeLessThanOrEqual(1);
+});
