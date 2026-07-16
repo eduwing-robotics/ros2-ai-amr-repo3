@@ -18,7 +18,7 @@ ROS 2 TF/odom
 ## 준비
 
 - [운영 네트워크와 호스트명](../../../docs/operations/network-hostnames.md)의 공통 매핑이 적용돼 있어야 한다.
-- Main은 [Server Run Commands](SERVER_RUN_COMMANDS.md)에 따라 `main-server/scripts/real.sh`로 시작한다.
+- Main은 [Server Run Commands](SERVER_RUN_COMMANDS.md)에 따라 `scripts/sf_stack.sh`의 host profile로 시작한다.
 - Main과 Nav launcher/preflight가 같은 repository-level `.secrets/service-hmac.env` credential-set ID를 보고해야 한다.
 - Bridge shell은 ROS 2 환경과 공통 credential loader를 사용한다. Secret을 CLI나 로그에 넣지 않는다.
 
@@ -28,7 +28,7 @@ ROS 2 TF/odom
 
 ```bash
 cd <repository-root>
-main-server/scripts/real.sh
+scripts/sf_stack.sh --profile main-field foreground
 ```
 
 터미널 2 — ROS 환경과 Nav env를 로드한 뒤 TB1 bridge 시작:

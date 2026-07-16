@@ -167,7 +167,10 @@ def test_dev_launcher_owns_and_reaps_vite_and_api_children() -> None:
     assert 'kill -TERM "$pid"' in source
     assert 'wait "$pid"' in source
     assert "exec ./node_modules/.bin/vite" in source
-    assert 'VITE_API_PROXY_TARGET="http://smartfactory-main.local:$PORT"' in source
+    assert 'VITE_API_PROXY_TARGET="http://$SITE_MAIN_HOST:$PORT"' in source
+    assert '--port "$VITE_PORT" --strictPort' in source
+    assert "fuser -k" not in source
+    assert "--stop does not kill by port" in source
     assert 'http://127.0.0.1:${PORT}' not in source
     assert re.search(
         r'if \[\[ "\$DEV" -eq 1 \]\]; then'

@@ -1,4 +1,5 @@
 # Canonical SmartFactory hostname-first bindings for the production 192.168.30.0/24 LAN.
+192.168.30.5 smartfactory-integration.local smartfactory-integration
 192.168.30.9 smartfactory-main.local smartfactory-main
 192.168.30.12 smartfactory-nav.local smartfactory-nav
 192.168.30.3 smartfactory-vision.local smartfactory-vision

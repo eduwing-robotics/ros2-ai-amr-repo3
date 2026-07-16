@@ -2,10 +2,10 @@
 
 상태: Active
 소유: Ops
-최종 갱신: 2026-07-15 KST
+최종 갱신: 2026-07-16 KST
 목적: 현재 테스트 기준 서버 실행과 재실행 명령을 설명한다.
 
-현재 테스트 기준 서버 실행/재실행 명령어다. production Main의 canonical 진입점은 저장소 루트의 `main-server/scripts/real.sh`다. Service URL에는 공통 hostname을 사용하고 IP fallback을 두지 않는다. Hostname 매핑과 bind 정책은 [운영 네트워크와 호스트명](../../../docs/operations/network-hostnames.md)이 소유한다.
+현재 테스트 기준 Main 실행/재실행 명령어다. 전체 운용의 canonical 진입점은 저장소 루트의 `scripts/sf_stack.sh`이며 `main-server/scripts/real.sh`는 그 안에서 실행되는 Main component launcher다. Service URL에는 공통 hostname을 사용하고 IP fallback을 두지 않는다. Hostname 매핑과 bind 정책은 [운영 네트워크와 호스트명](../../../docs/operations/network-hostnames.md)이 소유한다.
 
 ## 1. 환경 파일
 
@@ -49,23 +49,27 @@ curl http://smartfactory-main.local:8088/api/v1/maps
 LMS_MOVEMENT_BASE_URLS=tb3_1=http://smartfactory-nav.local:8001/movement-api/v1,tb3_2=http://smartfactory-nav.local:8002/movement-api/v1
 ```
 
-## 2. Main 서버 (real)
+## 2. Main 서버 표준 실행
 
 저장소 루트에서 실행한다.
 
 ```bash
 cd <repository-root>
-main-server/scripts/real.sh # real FastAPI + PostgreSQL (기본 :8088)
-main-server/scripts/real.sh --dev # real + Vite dev (:5173)
-main-server/scripts/real.sh --reload # uvicorn auto-reload
-main-server/scripts/real.sh --build # frontend build 후 Main으로 서빙
+scripts/sf_stack.sh profiles
+scripts/sf_stack.sh --profile main-field check       # .9
+scripts/sf_stack.sh --profile main-field foreground
+# .5 통합시험: --profile tb1-local-e2e
+# .5 TB1 가상 lift 시험: --profile tb1-synthetic-e2e (명시 선택만 허용)
 ```
 
-`real.sh`는 `config/network/smartfactory-hosts`를 검증하고 `smartfactory-main.local`이 이 PC에 할당된 `192.168.30.x` interface로 해석될 때만 bind한다. 해석 실패, 다른 subnet, 전체 interface로 fallback하지 않는다. production에서 uvicorn을 직접 실행하지 않는다.
+stack은 Main을 시작하기 전 선택 profile의 hostname, dependency, 8088/5173 점유를 확인한다. 기존 listener를 종료하거나 다른 Vite port로 이동하지 않는다. 내부 `real.sh`도 `main-field`에서는 `smartfactory-main.local`, `tb1-local-e2e`에서는 `smartfactory-integration.local`이 이 PC에 할당된 `192.168.30.x` interface로 해석될 때만 bind한다. 해석 실패, 다른 subnet, 전체 interface로 fallback하지 않는다. production에서 uvicorn을 직접 실행하지 않는다.
+
+Main component만 격리 진단할 때는 `main-server/scripts/real.sh --check` 후
+`--dev`를 사용할 수 있다. 정상 Main·Nav 운용은 stack을 사용한다.
 
 Main 실행은 DB snapshot을 자동 복원하지 않는다. schema/migration과 명시적 DB 복구는 [DB 실행/변경 절차](DB_MIGRATION.md)를 따로 수행한다.
 
-화면 확인용 fake 환경은 **기본 경로가 아니다**. 실제 연동은 이 절의 `main-server/scripts/real.sh`만 사용한다.
+화면 확인용 fake 환경은 **기본 경로가 아니다**. 실제 연동은 이 절의 stack profile을 사용한다.
 
 확인:
 
@@ -97,23 +101,27 @@ cd <repository-root>/main-server/frontend/web
 npm run build
 ```
 
-그 다음 Main 서버를 실행하면 FastAPI가 `frontend/web/dist`를 서빙한다.
+그 다음 Main component를 실행하면 FastAPI가 `frontend/web/dist`를 서빙한다.
 
 ```bash
 cd <repository-root>
+main-server/scripts/real.sh --check
 main-server/scripts/real.sh
 ```
 
 ## 5. 실행 중 서버 종료/재실행
 
-터미널에서 실행 중이면 `Ctrl+C`로 종료한다. 어느 터미널인지 모르면 포트를 확인한다.
+stack foreground 터미널에서는 `Ctrl+C`, 다른 터미널에서는 소유권이 기록된
+stack profile의 `down`을 사용한다.
 
 ```bash
-ss -ltnp | grep ':8088'
-ss -ltnp | grep ':5173'
+scripts/sf_stack.sh --profile main-field status
+scripts/sf_stack.sh --profile main-field down
 ```
 
-필요하면 해당 PID를 종료한 뒤 다시 실행한다.
+Main component만 직접 실행했다면 그 foreground terminal에서 `Ctrl+C`로 종료한다.
+`main-server/scripts/real.sh --stop`은 알 수 없는 포트 점유 프로세스를 죽이지 않기
+위해 종료를 거부한다.
 
 ## 6. 로컬 UI 확인
 
@@ -141,4 +149,4 @@ curl http://127.0.0.1:18089/health
 curl http://127.0.0.1:18089/api/v1/status
 ```
 
-실제 연동은 저장소 루트의 `main-server/scripts/real.sh`를 사용한다.
+실제 연동은 저장소 루트의 `scripts/sf_stack.sh`를 사용한다.

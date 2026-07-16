@@ -75,7 +75,7 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 - [ ] TB1을 실제 맵의 알려진 시작 위치에 놓고 물리 정지 수단과 짧은 주행 공간만 확인한다.
 - [ ] `./scripts/install-smartfactory-hosts.sh --check`가 모든 server의 hostname-first `192.168.30.x` 설정을 통과한다.
-- [ ] `smartfactory-main.local`이 이 PC의 canonical `192.168.30.x` interface로 해석되고 `main-server/scripts/real.sh`의 bind 검사를 통과한다.
+- [ ] `.5` 통합 시험이면 `smartfactory-integration.local`, `.9` Main 운용이면 `smartfactory-main.local`이 해당 PC의 canonical `192.168.30.x` interface로 해석되고 선택 stack profile의 bind 검사를 통과한다.
 - [ ] 각 host의 preflight credential-set ID가 같고, 선택한 표준 launcher가 `.secrets/service-hmac.env`의 Movement, Vision, frame gateway credential을 내부 로드한다. 운영자 명령마다 token이나 secret을 붙이지 않는다.
 - [ ] 주행 구역의 사람·장애물을 통제하고 정지 담당자를 정한다.
 - [ ] `robot2_map` field dispatch가 아직 차단된 상태임을 확인한다. 이 단계에서 boolean을 임의로 해제하지 않는다.
@@ -86,26 +86,26 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 ## 1. 서비스 시작
 
-1. [Nav 전체 시작 runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)에 따라 robot base, bridge, Nav2를 각 terminal에서 시작한다.
-2. Nav PC에서 TB1 profile을 확인하고 Movement API를 시작한다.
-
-   ```bash
-   cd nav-server
-   scripts/sf_nav.sh --profile tb1-live print-config
-   scripts/sf_nav.sh --profile tb1-live check
-   scripts/sf_nav.sh --profile tb1-live foreground
-   ```
-
-3. 외부 AI laptop에서 AI와 `tb3_1_picam` source를 시작한다.
-4. Main server에서 PostgreSQL을 준비하고 저장소 루트의 canonical production launcher를 실행한다. `smartfactory-main.local`이 이 PC의 로컬 `192.168.30.x` interface로 해석되지 않으면 우회하지 말고 hostname 설정을 고친다.
+1. [Nav 전체 시작 runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)에 따라 robot base와 Nav2를 시작한다.
+2. `.5`에서 Main과 TB1 Nav를 함께 시험하면 저장소 루트에서 통합 profile을 실행한다. bridge, Nav wrapper, Main/UI가 순서대로 시작된다.
 
    ```bash
    cd <repository-root>
-   main-server/scripts/real.sh
+   scripts/sf_stack.sh --profile tb1-local-e2e print-config
+   scripts/sf_stack.sh --profile tb1-local-e2e check
+   scripts/sf_stack.sh --profile tb1-local-e2e foreground
    ```
-5. [시작과 종료](startup-shutdown.md)에 따라 선택한 TB1 profile과 Main·AI health만 확인한다. 전체 robot inventory를 검사하는 `--hardware-checklist`는 TB1 단독 빠른 실행에 사용하지 않는다.
 
-`foreground`를 사용하면 `Ctrl+C`가 그 profile의 managed process group을 종료한다. base, bridge, Nav2처럼 `external` 소유인 terminal은 각각 `Ctrl+C`로 종료한다.
+   `.12` Nav와 `.9` Main을 분리 운용할 때는 각각 `nav-field-tb1`과
+   `main-field`를 같은 명령으로 실행한다.
+
+3. 외부 AI laptop에서 AI와 `tb3_1_picam` source를 시작한다.
+4. [시작과 종료](startup-shutdown.md)에 따라 `scripts/sf_stack.sh status`와
+   `scripts/sf_stack.sh smoke`로 선택한 TB1 profile과 Main·AI health만 확인한다.
+   전체 robot inventory를 검사하는 `--hardware-checklist`는 TB1 단독 빠른 실행에 사용하지 않는다.
+
+`foreground`의 `Ctrl+C`는 stack이 시작한 process group만 역순으로 종료한다.
+robot base와 Nav2처럼 먼저 외부에서 시작한 terminal은 각각 `Ctrl+C`로 종료한다.
 
 ## 2. 실제 localization
 
@@ -197,11 +197,14 @@ Main 시작 설정도 [Main lift-load evidence decision](../../main-server/docs/
 - [ ] Main 재시작 후 load 실패·stale·wrong marker가 다음 movement를 실제로 hold하는 negative case를 먼저 확인한다.
 
 ```bash
-cd nav-server
-scripts/sf_nav.sh --profile tb1-live down
-SF_NAV_ALLOW_SYNTHETIC_HIL=1 scripts/sf_nav.sh --profile tb1-synthetic-hil check
-SF_NAV_ALLOW_SYNTHETIC_HIL=1 scripts/sf_nav.sh --profile tb1-synthetic-hil foreground
+cd <repository-root>
+scripts/sf_stack.sh --profile tb1-local-e2e down
+scripts/sf_stack.sh --profile tb1-synthetic-e2e check
+scripts/sf_stack.sh --profile tb1-synthetic-e2e foreground
 ```
+
+이 명시 profile만 Nav의 synthetic HIL process gate와 Main의 nonphysical admission을
+함께 연다. 기본 `tb1-local-e2e`에는 두 허용값이 들어가지 않는다.
 
 - [ ] profile·health·로그에 `synthetic_hil`, `nonphysical`, `physical_lift_verified=false`가 남는다.
 - [ ] Main UI `/operate/inout`에서 preview 후 work order를 생성하고 `/operate/tasks`에서 배정·시작한다.

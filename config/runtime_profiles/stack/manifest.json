@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "default_profile": "tb1-local-e2e",
+  "host_defaults": {
+    "192.168.30.5": "tb1-local-e2e",
+    "192.168.30.9": "main-field",
+    "192.168.30.12": "nav-field-tb1"
+  },
+  "profiles": {
+    "tb1-local-e2e": "tb1-local-e2e.json",
+    "tb1-synthetic-e2e": "tb1-synthetic-e2e.json",
+    "main-field": "main-field.json",
+    "nav-field-tb1": "nav-field-tb1.json",
+    "nav-field-tb2": "nav-field-tb2.json",
+    "nav-field-all": "nav-field-all.json"
+  }
+}

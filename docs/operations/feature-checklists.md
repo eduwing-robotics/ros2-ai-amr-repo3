@@ -10,10 +10,10 @@
 
 ## 공통
 
-- [ ] 라이브 프로세스를 운영자가 볼 수 있는 terminal 또는 이름 있는 tmux window에서 시작하고 `scripts/sf_nav.sh --profile <profile> status`로 선택 profile을 확인한다.
+- [ ] 라이브 프로세스를 운영자가 볼 수 있는 terminal 또는 이름 있는 tmux window에서 `scripts/sf_stack.sh foreground`로 시작하고 `scripts/sf_stack.sh status`로 선택 profile과 소유 프로세스를 확인한다.
 - [ ] 첫 설치, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 `./scripts/operator-preflight.sh --software`를 실행한다.
 - [ ] `./scripts/operator-preflight.sh --hardware-checklist`는 config의 모든 enabled robot을 점검하므로 TB1 단독 운용이 아니라 전체 fleet 현장 점검 때만 실행한다.
-- [ ] `smartfactory-main.local`이 이 PC의 canonical `192.168.30.x` interface로 해석되고 `main-server/scripts/real.sh`의 bind 검사를 통과한다.
+- [ ] 선택 stack profile의 site hostname이 이 PC의 canonical `192.168.30.x` interface로 해석되고 bind 검사를 통과한다.
 - [ ] 각 service host의 preflight가 credential bundle PASS를 보고하고 같은 credential-set ID를 표시한다. 누락/불일치 때 shell export로 우회하지 않는다.
 - [ ] Main, Nav, AI health가 성공한다.
 - [ ] Nav health의 robot ID, ROS domain, capability, lift 값이 profile과 일치한다.

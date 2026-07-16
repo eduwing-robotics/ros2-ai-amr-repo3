@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "profile_id": "nav-field-tb2",
+  "execution_class": "live",
+  "site": {
+    "hostname": "smartfactory-nav.local",
+    "allowed_local_ips": ["192.168.30.12"]
+  },
+  "ports": [8002],
+  "components": {
+    "bridge": {"enabled": false},
+    "nav": {
+      "enabled": true,
+      "profile": "tb2-live",
+      "readiness_timeout_sec": 180
+    },
+    "main": {"enabled": false}
+  },
+  "health": {
+    "nav": ["http://smartfactory-nav.local:8002/movement-api/v1/health"],
+    "external": [
+      {
+        "label": "Main API",
+        "url": "http://smartfactory-main.local:8088/health",
+        "required": false
+      }
+    ]
+  },
+  "operator_urls": [
+    "TB2 Nav: http://smartfactory-nav.local:8002/movement-api/v1/health"
+  ]
+}

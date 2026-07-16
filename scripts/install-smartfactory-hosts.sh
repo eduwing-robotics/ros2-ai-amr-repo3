@@ -28,7 +28,7 @@ check_bindings() {
   while read -r ip name _; do
     [[ -n "${ip:-}" && "${ip:0:1}" != "#" ]] || continue
     if [[ "$HOSTS_FILE" == "/etc/hosts" ]]; then
-      resolved="$(getent ahostsv4 "$name" | awk 'NR == 1 {print $1}')"
+      resolved="$(getent ahostsv4 "$name" 2>/dev/null | awk 'NR == 1 {print $1}' || true)"
     else
       resolved="$(awk -v name="$name" '$0 !~ /^[[:space:]]*#/ {for (i = 2; i <= NF; i++) if ($i == name) {print $1; exit}}' "$HOSTS_FILE")"
     fi
@@ -50,7 +50,7 @@ apply_bindings() {
     $0 == begin {managed = 1; next}
     $0 == end {managed = 0; next}
     managed {next}
-    /(^|[[:space:]])smartfactory-(main|nav|vision|robot1|robot2)(\.local)?([[:space:]]|$)/ {next}
+    /(^|[[:space:]])smartfactory-(integration|main|nav|vision|robot1|robot2)(\.local)?([[:space:]]|$)/ {next}
     {print}
   ' "$HOSTS_FILE" > "$temp"
   [[ ! -s "$temp" ]] || [[ "$(tail -c 1 "$temp" | wc -l)" -gt 0 ]] || printf '\n' >> "$temp"

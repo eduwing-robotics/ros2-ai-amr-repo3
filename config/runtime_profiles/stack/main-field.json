@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "profile_id": "main-field",
+  "execution_class": "live",
+  "site": {
+    "hostname": "smartfactory-main.local",
+    "allowed_local_ips": ["192.168.30.9"]
+  },
+  "ports": [8088, 5173],
+  "components": {
+    "bridge": {"enabled": false},
+    "nav": {"enabled": false},
+    "main": {
+      "enabled": true,
+      "site_profile": "field",
+      "dev": true,
+      "readiness_timeout_sec": 60,
+      "env": {
+        "LMS_MOVEMENT_HOST": "smartfactory-nav.local",
+        "LMS_MOVEMENT_BASE_URLS": "tb3_1=http://smartfactory-nav.local:8001/movement-api/v1,tb3_2=http://smartfactory-nav.local:8002/movement-api/v1",
+        "LMS_MOVEMENT_ACTIVE_MAP_ID": "robot2_map",
+        "LMS_CAMERA_HOST": "smartfactory-nav.local",
+        "LMS_CAMERA_API_BASE_URL": "http://smartfactory-nav.local:8080",
+        "LMS_CAMERA_ROSBRIDGE_URL": "ws://smartfactory-nav.local:9090",
+        "LMS_CAMERA_STREAM_URL_TEMPLATE": "ws://smartfactory-nav.local:9090",
+        "LMS_VISION_API_BASE_URL": "http://smartfactory-vision.local:8100",
+        "LMS_VISION_STREAM_BASE_URL": "http://smartfactory-vision.local:8090",
+        "LMS_PUBLIC_BASE_URL": "http://smartfactory-main.local:8088",
+        "LMS_CALLBACK_BASE_URL": "http://smartfactory-main.local:8088",
+        "LMS_CALLBACK_ALLOWLIST": "http://smartfactory-main.local:8088",
+        "LMS_CALLBACK_ALLOW_HTTP": "true",
+        "LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED": "false"
+      }
+    }
+  },
+  "health": {
+    "main": [
+      "http://smartfactory-main.local:8088/health",
+      "http://smartfactory-main.local:5173/"
+    ],
+    "external": [
+      {
+        "label": "TB1 Nav",
+        "url": "http://smartfactory-nav.local:8001/movement-api/v1/health",
+        "required": false
+      },
+      {
+        "label": "Vision API",
+        "url": "http://smartfactory-vision.local:8100/api/v1/health",
+        "required": false
+      }
+    ]
+  },
+  "operator_urls": [
+    "Main UI: http://smartfactory-main.local:5173/operate/control",
+    "Main API: http://smartfactory-main.local:8088/health"
+  ]
+}

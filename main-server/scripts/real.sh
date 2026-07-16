@@ -6,9 +6,10 @@
 #   ./scripts/real.sh --dev        # Main + Vite dev (:5173)
 #   ./scripts/real.sh --reload     # uvicorn auto-reload
 #   ./scripts/real.sh --build      # 프론트 빌드 후 Main 실행
+#   ./scripts/real.sh --check      # hostname, credential, dependency, port 검사
 #
 # PostgreSQL: .env 의 LMS_DATABASE_URL 필수. 최초 1회 ./scripts/setup_pg.sh
-# 종료: ./scripts/real.sh --stop
+# 종료: Ctrl+C 또는 저장소 루트 scripts/sf_stack.sh down
 # UI mock(dry)는 ./scripts/fake.sh 또는 ./scripts/fake.sh — fake API + Vite.
 set -euo pipefail
 
@@ -19,25 +20,41 @@ FRONTEND="$ROOT/frontend/web"
 HOST=""
 PORT="${LMS_API_PORT:-8088}"
 VITE_PORT="${LMS_VITE_PORT:-5173}"
+SITE_PROFILE="${SF_MAIN_SITE_PROFILE:-field}"
 
-# Production service identities are fixed by config/network/smartfactory-hosts.
-# Operators may change ports, but not replace these names with direct IPs or aliases.
-SITE_MOVEMENT_HOST="smartfactory-nav.local"
-SITE_CAMERA_HOST="smartfactory-nav.local"
+# Service identities are fixed by config/network/smartfactory-hosts. The
+# integration profile is a versioned field-LAN identity, not a direct-IP bypass.
+case "$SITE_PROFILE" in
+  field)
+    SITE_MOVEMENT_HOST="smartfactory-nav.local"
+    SITE_CAMERA_HOST="smartfactory-nav.local"
+    SITE_MAIN_HOST="smartfactory-main.local"
+    ;;
+  integration)
+    SITE_MOVEMENT_HOST="smartfactory-integration.local"
+    SITE_CAMERA_HOST="smartfactory-integration.local"
+    SITE_MAIN_HOST="smartfactory-integration.local"
+    ;;
+  *)
+    echo "[real] unsupported SF_MAIN_SITE_PROFILE: $SITE_PROFILE" >&2
+    exit 1
+    ;;
+esac
 SITE_VISION_HOST="smartfactory-vision.local"
-SITE_MAIN_HOST="smartfactory-main.local"
 SITE_MOVEMENT_MAP_ID="${SITE_MOVEMENT_MAP_ID:-robot2_map}"
 
 BUILD=0
 DEV=0
 RELOAD=0
 STOP=0
+CHECK=0
 for arg in "$@"; do
   case "$arg" in
     --build) BUILD=1 ;;
     --dev) DEV=1 ;;
     --reload) RELOAD=1 ;;
     --stop) STOP=1 ;;
+    --check) CHECK=1 ;;
     -h|--help)
       sed -n '2,12p' "$0"
       exit 0
@@ -49,39 +66,18 @@ for arg in "$@"; do
   esac
 done
 
-kill_port() {
-  local port="$1" label="$2"
-  if command -v fuser >/dev/null 2>&1 && fuser -n tcp "$port" >/dev/null 2>&1; then
-    echo "[real] $label :$port 종료"
-    fuser -k "${port}/tcp" >/dev/null 2>&1 || true
-    return
-  fi
-  if command -v lsof >/dev/null 2>&1; then
-    local pids
-    pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
-    if [[ -n "$pids" ]]; then
-      echo "[real] $label :$port 종료 (pid $pids)"
-      kill $pids 2>/dev/null || true
-      return
-    fi
-  fi
-  echo "[real] $label :$port - 실행 중 프로세스 없음"
-}
-
 if [[ "$STOP" -eq 1 ]]; then
-  kill_port "$PORT" "Main API"
-  kill_port "$VITE_PORT" "Vite dev"
-  echo "[real] done"
-  exit 0
+  echo "[real] --stop does not kill by port. Use scripts/sf_stack.sh down, or Ctrl+C in this launcher terminal." >&2
+  exit 1
 fi
 
-# Production Main has one canonical site identity and must never widen its bind.
+# Main binds only the canonical hostname selected by the versioned site profile.
 CANONICAL_HOSTS="$REPO_ROOT/config/network/smartfactory-hosts"
 SMARTFACTORY_HOSTS_SOURCE="$CANONICAL_HOSTS" \
   "$REPO_ROOT/scripts/install-smartfactory-hosts.sh" --check
-HOST="$(getent ahostsv4 smartfactory-main.local | awk 'NR == 1 {print $1}')"
+HOST="$(getent ahostsv4 "$SITE_MAIN_HOST" | awk 'NR == 1 {print $1}')"
 if [[ ! "$HOST" =~ ^192\.168\.30\.[0-9]+$ ]]; then
-  echo "[real] smartfactory-main.local must resolve to 192.168.30.x, got: ${HOST:-<unresolved>}" >&2
+  echo "[real] $SITE_MAIN_HOST must resolve to 192.168.30.x, got: ${HOST:-<unresolved>}" >&2
   exit 1
 fi
 if ! ip -o -4 addr show | awk '{print $4}' | cut -d/ -f1 | grep -Fxq "$HOST"; then
@@ -176,20 +172,35 @@ resolve_host() {
 }
 
 guard_existing_api() {
-  local health
-  health="$(curl -sf -m 0.5 "http://smartfactory-main.local:${PORT}/health" 2>/dev/null || true)"
-  if [[ -z "$health" ]]; then
-    return
-  fi
+  local health listener=""
+  health="$(curl -sf -m 0.5 "http://${SITE_MAIN_HOST}:${PORT}/health" 2>/dev/null || true)"
   if [[ "$health" == *'"mode":"fake"'* ]] || [[ "$health" == *'"mode": "fake"'* ]]; then
     echo "[real] :$PORT 에 fake API가 이미 떠 있다. fake를 종료한 뒤 다시 실행하라."
     exit 1
   fi
-  echo "[real] :$PORT 에 API가 이미 떠 있다. 중복 실행을 중단한다."
-  exit 1
+  if command -v ss >/dev/null 2>&1; then
+    listener="$(ss -H -ltnp "sport = :$PORT" 2>/dev/null | head -n1 || true)"
+  fi
+  if [[ -n "$health" || -n "$listener" ]]; then
+    echo "[real] :$PORT 에 listener가 이미 있다. 종료하지 않고 시작을 중단한다. ${listener:-}" >&2
+    exit 1
+  fi
+}
+
+guard_existing_vite() {
+  local listener=""
+  [[ "$DEV" -eq 1 ]] || return
+  if command -v ss >/dev/null 2>&1; then
+    listener="$(ss -H -ltnp "sport = :$VITE_PORT" 2>/dev/null | head -n1 || true)"
+  fi
+  if [[ -n "$listener" ]]; then
+    echo "[real] :$VITE_PORT 에 listener가 이미 있다. 종료하지 않고 Vite 시작을 중단한다. $listener" >&2
+    exit 1
+  fi
 }
 
 guard_existing_api
+guard_existing_vite
 
 # --- 실제 외부 서버 연동 env (프로세스 env가 .env 보다 우선 — config.py 정책) ---
 # real.sh is the production/field path. Fake movement is only allowed via
@@ -240,6 +251,15 @@ export LMS_PUBLIC_BASE_URL="$PUBLIC_BASE"
 export LMS_CALLBACK_BASE_URL="$CALLBACK_BASE"
 [[ -n "$MOVEMENT_BASE_URLS" ]] && export LMS_MOVEMENT_BASE_URLS="$MOVEMENT_BASE_URLS"
 [[ -n "$CALLBACK_ALLOWLIST" ]] && export LMS_CALLBACK_ALLOWLIST="$CALLBACK_ALLOWLIST"
+
+if [[ "$CHECK" -eq 1 ]]; then
+  if [[ "$DEV" -eq 1 && ! -x "$FRONTEND/node_modules/.bin/vite" ]]; then
+    echo "[real] frontend dependency is missing: $FRONTEND/node_modules/.bin/vite" >&2
+    exit 1
+  fi
+  echo "[real] check OK site_profile=$SITE_PROFILE bind=$HOST api_port=$PORT vite_port=$VITE_PORT"
+  exit 0
+fi
 
 # shellcheck source=/dev/null
 source "$ROOT/scripts/lib/pg_bootstrap.sh"
@@ -297,16 +317,16 @@ if [[ "$DEV" -eq 1 ]]; then
     echo "[real] frontend 의존성이 없다: cd $FRONTEND && npm install"
     exit 1
   fi
-  echo "[real] Vite dev http://smartfactory-main.local:$VITE_PORT  (프록시 → :$PORT)"
+  echo "[real] Vite dev http://$SITE_MAIN_HOST:$VITE_PORT  (프록시 → :$PORT)"
   (
     cd "$FRONTEND"
-    export VITE_API_PROXY_TARGET="http://smartfactory-main.local:$PORT"
+    export VITE_API_PROXY_TARGET="http://$SITE_MAIN_HOST:$PORT"
     export VITE_VISION_WEBRTC_ENABLED="${VITE_VISION_WEBRTC_ENABLED:-true}"
-    exec ./node_modules/.bin/vite --host "$HOST" --port "$VITE_PORT"
+    exec ./node_modules/.bin/vite --host "$HOST" --port "$VITE_PORT" --strictPort
   ) &
   VITE_PID=$!
 
-  echo "[real] Main 서버 http://smartfactory-main.local:$PORT"
+  echo "[real] Main 서버 http://$SITE_MAIN_HOST:$PORT"
   (
     cd "$BACKEND"
     exec ./.venv/bin/python -m uvicorn "${UVICORN_ARGS[@]}"
@@ -314,7 +334,7 @@ if [[ "$DEV" -eq 1 ]]; then
   API_PID=$!
   wait "$API_PID"
 else
-  echo "[real] Main 서버 http://smartfactory-main.local:$PORT"
+  echo "[real] Main 서버 http://$SITE_MAIN_HOST:$PORT"
   cd "$BACKEND"
   exec ./.venv/bin/python -m uvicorn "${UVICORN_ARGS[@]}"
 fi

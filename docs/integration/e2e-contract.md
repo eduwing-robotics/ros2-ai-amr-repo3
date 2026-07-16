@@ -14,7 +14,7 @@ AI evidence/advisory는 `trusted=false`다. Main이 trusted gate와 safety decis
 
 이 절이 Main·Nav·AI 사이 인증 경계의 단일 정본이다.
 
-- 현장 운영 UI와 사람이 직접 호출하는 Main write API는 application Bearer 없이 사용한다. 이 정책은 `main-server/scripts/real.sh`가 `smartfactory-main.local`의 로컬 `192.168.30.x` interface에만 Main을 bind한 신뢰 site-LAN에 한정한다. 운영자는 요청마다 token이나 secret을 붙이지 않는다.
+- 현장 운영 UI와 사람이 직접 호출하는 Main write API는 application Bearer 없이 사용한다. 이 정책은 `scripts/sf_stack.sh`가 선택한 고정 site profile에 따라 `smartfactory-main.local` 또는 `smartfactory-integration.local`의 로컬 `192.168.30.x` interface에만 Main을 bind한 신뢰 site-LAN에 한정한다. 운영자는 요청마다 token이나 secret을 붙이지 않는다.
 - 위 human/UI 경계는 다른 interface, 현장 LAN 밖, service 간 machine ingress에 적용하지 않는다.
 - Main↔Nav mutation/callback은 `LMS_MOVEMENT_HMAC_SECRET`/`NAV_MAIN_HMAC_SECRET`을 공유한다.
 - Main↔AI mutation은 `LMS_VISION_HMAC_SECRET`/`MAIN_HMAC_SECRET`을 공유하고, frame gateway ingress는 `VISION_GATEWAY_HMAC_SECRET`을 사용한다.
@@ -30,7 +30,7 @@ Traffic/zone lock의 diagnostic GET은 read-only다. lock acquire/release mutati
 
 ## Callback SSRF 경계
 
-Main callback URL은 server-configured `LMS_CALLBACK_BASE_URL`과 `LMS_CALLBACK_ALLOWLIST`로만 결정한다. request host, request body, caller override로 destination을 바꾸지 않는다. production origin은 canonical `smartfactory-main.local`이고 DNS 결과 전체가 `192.168.30.x`에 속해야 한다. HTTP는 `LMS_CALLBACK_ALLOW_HTTP=true`로 명시한 경우에만 허용한다.
+Main callback URL은 server-configured `LMS_CALLBACK_BASE_URL`과 `LMS_CALLBACK_ALLOWLIST`로만 결정한다. request host, request body, caller override로 destination을 바꾸지 않는다. field origin은 canonical `smartfactory-main.local`, `.5` 통합시험 origin은 `smartfactory-integration.local`이며 DNS 결과 전체가 `192.168.30.x`에 속해야 한다. HTTP는 `LMS_CALLBACK_ALLOW_HTTP=true`로 명시한 경우에만 허용한다.
 
 Loopback callback은 `LMS_NOHARDWARE=true`이고 해당 origin이 `LMS_NOHARDWARE_CALLBACK_ALLOWLIST`에 명시된 nohardware 실행에서만 허용한다.
 

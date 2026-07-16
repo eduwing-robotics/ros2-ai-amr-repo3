@@ -17,42 +17,41 @@
    ./scripts/operator-preflight.sh --software
    ```
 
-3. hardware/ROS base와 Nav2를 시작한다. 상세 명령은 [LMS Full Startup Runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)을 따른다.
-4. Nav runtime profile과 preflight를 확인한 뒤 시작한다. 선택하지 않으면
-   `tb1-live`가 사용되며 TB2/all/synthetic-HIL은 명시적으로 선택해야 한다.
+3. hardware/ROS base와 Nav2를 시작한다. 상세 명령은 [LMS Full Startup Runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)을 따른다. 이 외부 프로세스는 stack 실행기가 임의로 종료하지 않는다.
+4. 각 host에서 공통 stack profile을 확인하고 실행한다. 프로파일을 생략하면
+   로컬 `192.168.30.x` 주소에 따라 `.5=tb1-local-e2e`, `.9=main-field`,
+   `.12=nav-field-tb1`이 선택된다. TB2 또는 두 로봇 Nav는 `.12`에서 각각
+   `nav-field-tb2`, `nav-field-all`을 명시한다. TB1 실제 base에 lift만 가상화하는
+   시험은 `.5`에서 `tb1-synthetic-e2e`를 명시하며 기본 선택되지 않는다.
 
    ```bash
-   cd nav-server
-   scripts/sf_nav.sh profiles
-   scripts/sf_nav.sh print-config
-   scripts/sf_nav.sh check
-   scripts/sf_nav.sh up
+   cd <repository-root>
+   scripts/sf_stack.sh profiles
+   scripts/sf_stack.sh print-config
+   scripts/sf_stack.sh check
+   scripts/sf_stack.sh foreground
    ```
 
-   붙여서 관찰하는 운용은 `scripts/sf_nav.sh foreground`를 사용한다.
-   이 모드의 `Ctrl+C`는 선택 profile의 managed process group만 종료한다.
+   `foreground`의 `Ctrl+C`는 stack이 시작한 Main, Nav wrapper, bridge만 역순으로
+   종료한다. robot base와 Nav2처럼 외부에서 이미 실행 중인 프로세스는 건드리지
+   않는다. 백그라운드가 필요하면 `up`, 확인은 `status`와 `logs`, 종료는 `down`을
+   사용한다. 점유 포트의 기존 프로세스는 자동 종료하지 않고 시작을 거부한다.
 
 5. 외부 AI host의 운영자가 AI service와 camera source를 시작하고 health URL을 전달한다. Nav/Main host에서는 AI service를 로컬로 시작하지 않는다. Main의 `LMS_VISION_API_BASE_URL`과 `LMS_VISION_STREAM_BASE_URL`은 해당 외부 host를 가리켜야 한다.
 
-6. Main service와 PostgreSQL을 시작한다.
-
-   ```bash
-   cd main-server
-   ./scripts/real.sh --dev
-   ```
+6. `.5`의 `tb1-local-e2e`와 `.9`의 `main-field`는 Main service, PostgreSQL,
+   UI를 profile 안에서 시작한다. `.12`의 Nav profile은 Main을 시작하지 않는다.
 
    Person safety가 활성화된 Main은 시작 시 남아 있는 physical·cancel·recovery·callback
    전이 상태를 poller보다 먼저 확인한다. 중단된 이동 상태는 E-stop과
    `AWAITING_OPERATOR`로 고정되므로 재시작만으로 clear하거나 자동 재개하지 말고
    [ESTOP 복구 절차](../../main-server/docs/operations/ESTOP_RECOVERY_PLAYBOOK.md)를 따른다.
 
-7. 선택 profile과 Main·AI health를 확인한 뒤 [TB1 우선 실물 E2E 실행 체크리스트](physical-e2e-checklist.md)의 빠른 순서로 진행한다.
+7. 선택 profile과 Main·AI health를 확인한 뒤 [TB1 우선 실물 E2E 실행 체크리스트](physical-e2e-checklist.md)의 빠른 순서로 진행한다. `smoke`는 통신과 소유권만 확인하며 로봇을 움직이지 않는다.
 
    ```bash
-   curl http://smartfactory-vision.local:8100/api/v1/health
-   curl http://smartfactory-main.local:8088/health
-   curl http://smartfactory-nav.local:8001/movement-api/v1/health
-   cd nav-server && scripts/sf_nav.sh --profile tb1-live smoke
+   scripts/sf_stack.sh status
+   scripts/sf_stack.sh smoke
    ```
 
 `./scripts/operator-preflight.sh --hardware-checklist`는 `robots.json`의 모든 enabled robot을 확인한다. TB2를 끈 TB1 단독 반복 운용에서는 실행하지 않고, 전체 fleet 현장 점검 때만 사용한다.
@@ -72,9 +71,11 @@ Profile과 evidence 경계는 [Nav runtime profile contract](../../nav-server/do
 
 1. 새 task와 manual command dispatch를 중지한다.
 2. active robot이 안전한 정지 상태인지 확인한다. person safety stop 또는 E-stop이 있으면 clear/recovery 절차를 먼저 완료한다.
-3. Main을 종료한다.
+3. 실행한 host에서 `scripts/sf_stack.sh down`을 실행한다. stack이 소유한 Main,
+   Nav wrapper, bridge만 역순으로 종료된다.
 4. 외부 AI service 종료가 필요한 경우 AI 운영자에게 요청한다. Nav/Main host에서 임의로 AI process를 종료하지 않는다.
-5. `cd nav-server && scripts/sf_nav.sh down`으로 선택한 profile의 managed child만 종료한다.
-6. Nav2와 robot base bringup을 해당 terminal에서 종료한다.
+5. Nav2와 robot base bringup을 해당 terminal에서 종료한다.
 
-상태 확인은 `cd nav-server && scripts/sf_nav.sh status`를 사용한다. 장애로 종료하는 경우 [장애 격리와 복구](troubleshooting.md)를 따른다.
+상태 확인은 `scripts/sf_stack.sh status`를 사용한다. Nav component만 따로 진단할
+때는 `cd nav-server && scripts/sf_nav.sh --profile <nav-profile> status`를 사용한다.
+장애로 종료하는 경우 [장애 격리와 복구](troubleshooting.md)를 따른다.

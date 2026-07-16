@@ -11,6 +11,7 @@ Main, Nav, AI 및 로봇 호스트명의 단일 기준이다.
 
 | 역할 | 호스트명 | 운영 IP |
 | --- | --- | --- |
+| 통합 시험 | `smartfactory-integration.local` | `192.168.30.5` |
 | Main | `smartfactory-main.local` | `192.168.30.9` |
 | Nav | `smartfactory-nav.local` | `192.168.30.12` |
 | Vision/AI | `smartfactory-vision.local` | `192.168.30.3` |
@@ -31,11 +32,12 @@ Commissioning을 포함해 runtime IP fallback을 두지 않는다. `192.168.30.
 
 ## Main 바인딩
 
-Production Main의 canonical launcher는 저장소 루트의
-`main-server/scripts/real.sh`다. 이 스크립트는 공통 hosts 매핑을 확인한 뒤
-`smartfactory-main.local`이 이 PC에 할당된 `192.168.30.x` interface로 해석될 때만
-Main과 production UI를 bind한다. 이름 해석 실패, 다른 subnet, 다른 PC 주소에서는
-시작을 거부하며 `0.0.0.0`이나 직접 IP로 우회하지 않는다.
+표준 운영 진입점은 저장소 루트의 `scripts/sf_stack.sh`다. `.9`의
+`main-field`는 `smartfactory-main.local`, `.5`의 `tb1-local-e2e`는
+`smartfactory-integration.local`에만 Main과 UI를 bind한다. 내부
+`main-server/scripts/real.sh`도 선택된 고정 site profile의 이름이 이 PC의
+`192.168.30.x` interface로 해석될 때만 시작한다. 이름 해석 실패, 다른 subnet,
+다른 PC 주소에서는 시작을 거부하며 `0.0.0.0`이나 직접 IP로 우회하지 않는다.
 
 ## AI와 WebRTC
 
@@ -51,10 +53,12 @@ AI 런타임은 `SMARTFACTORY_LAN_IPV4_PREFIX=192.168.30.`을 기본 정책으�
 
 ```bash
 ./scripts/install-smartfactory-hosts.sh --check
+getent hosts smartfactory-integration.local
 getent hosts smartfactory-main.local
 getent hosts smartfactory-nav.local
 getent hosts smartfactory-vision.local
 ```
 
-세 결과가 각각 `192.168.30.9`, `192.168.30.12`, `192.168.30.3`이 아니면
+네 결과가 각각 `192.168.30.5`, `192.168.30.9`, `192.168.30.12`,
+`192.168.30.3`이 아니면
 서비스를 시작하지 않는다.

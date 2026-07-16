@@ -18,6 +18,7 @@ def test_canonical_site_hosts_are_hostname_first_on_192_168_30_subnet() -> None:
     }
 
     assert entries == {
+        "smartfactory-integration.local": "192.168.30.5",
         "smartfactory-main.local": "192.168.30.9",
         "smartfactory-nav.local": "192.168.30.12",
         "smartfactory-vision.local": "192.168.30.3",
@@ -52,6 +53,24 @@ def test_hosts_installer_replaces_only_its_managed_block(tmp_path: Path) -> None
     assert updated.count("# BEGIN SMARTFACTORY HOSTS") == 1
     assert "192.168.30.3 smartfactory-vision.local smartfactory-vision" in updated
     assert "203.0.113.1 unrelated.example" in updated
+
+
+def test_hosts_check_reports_an_unresolved_name_instead_of_exiting_silently(tmp_path: Path) -> None:
+    source = tmp_path / "hosts-source"
+    source.write_text("192.0.2.1 definitely-unresolved.invalid\n", encoding="utf-8")
+    result = subprocess.run(
+        [str(INSTALLER), "--check"],
+        cwd=ROOT,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "SMARTFACTORY_HOSTS_SOURCE": str(source),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "resolves to <unresolved>, expected 192.0.2.1" in result.stderr
 
 
 def test_active_server_defaults_do_not_embed_192_168_10_addresses() -> None:

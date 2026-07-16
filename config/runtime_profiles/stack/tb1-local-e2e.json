@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "profile_id": "tb1-local-e2e",
+  "execution_class": "live",
+  "site": {
+    "hostname": "smartfactory-integration.local",
+    "allowed_local_ips": ["192.168.30.5"]
+  },
+  "ports": [8001, 8088, 5173],
+  "components": {
+    "bridge": {
+      "enabled": true,
+      "runner": "nav-server/scripts/run_tb3_1_hardware_bridge.sh",
+      "readiness_timeout_sec": 20
+    },
+    "nav": {
+      "enabled": true,
+      "profile": "tb1-live",
+      "readiness_timeout_sec": 240
+    },
+    "main": {
+      "enabled": true,
+      "site_profile": "integration",
+      "dev": true,
+      "readiness_timeout_sec": 60,
+      "env": {
+        "LMS_MOVEMENT_HOST": "smartfactory-integration.local",
+        "LMS_MOVEMENT_BASE_URLS": "tb3_1=http://smartfactory-integration.local:8001/movement-api/v1",
+        "LMS_MOVEMENT_ACTIVE_MAP_ID": "robot2_map",
+        "LMS_CAMERA_HOST": "smartfactory-integration.local",
+        "LMS_CAMERA_API_BASE_URL": "http://smartfactory-integration.local:8080",
+        "LMS_CAMERA_ROSBRIDGE_URL": "ws://smartfactory-integration.local:9090",
+        "LMS_CAMERA_STREAM_URL_TEMPLATE": "ws://smartfactory-integration.local:9090",
+        "LMS_VISION_API_BASE_URL": "http://smartfactory-vision.local:8100",
+        "LMS_VISION_STREAM_BASE_URL": "http://smartfactory-vision.local:8090",
+        "LMS_PUBLIC_BASE_URL": "http://smartfactory-integration.local:8088",
+        "LMS_CALLBACK_BASE_URL": "http://smartfactory-integration.local:8088",
+        "LMS_CALLBACK_ALLOWLIST": "http://smartfactory-integration.local:8088",
+        "LMS_CALLBACK_ALLOW_HTTP": "true",
+        "LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED": "false"
+      }
+    }
+  },
+  "health": {
+    "nav": ["http://smartfactory-integration.local:8001/movement-api/v1/health"],
+    "main": [
+      "http://smartfactory-integration.local:8088/health",
+      "http://smartfactory-integration.local:5173/"
+    ],
+    "external": [
+      {
+        "label": "Vision API",
+        "url": "http://smartfactory-vision.local:8100/api/v1/health",
+        "required": false
+      }
+    ]
+  },
+  "operator_urls": [
+    "Main UI: http://smartfactory-integration.local:5173/operate/control",
+    "Main API: http://smartfactory-integration.local:8088/health",
+    "TB1 Nav: http://smartfactory-integration.local:8001/movement-api/v1/health"
+  ]
+}
