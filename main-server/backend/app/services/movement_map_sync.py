@@ -13,6 +13,12 @@ from app.services.map_assets import _pgm_size, import_map_assets
 
 
 def _write_map_yaml(asset_dir, map_id: str, state: dict[str, Any]) -> None:
+    target = asset_dir / f"{map_id}.yaml"
+    # An existing ROS map YAML is part of the map identity contract. Rewriting
+    # equivalent numeric values changes its SHA-256 and makes Main reject the
+    # same Nav map. Only synthesize metadata when the asset is genuinely absent.
+    if target.exists():
+        return
     origin = state.get("origin") or [0.0, 0.0, 0.0]
     origin = (list(origin) + [0.0, 0.0, 0.0])[:3]
     yaml_text = (
@@ -24,7 +30,7 @@ def _write_map_yaml(asset_dir, map_id: str, state: dict[str, Any]) -> None:
         "occupied_thresh: 0.65\n"
         "free_thresh: 0.25\n"
     )
-    (asset_dir / f"{map_id}.yaml").write_text(yaml_text, encoding="utf-8")
+    target.write_text(yaml_text, encoding="utf-8")
 
 
 def _ensure_map_pgm(asset_dir, map_id: str, width: int, height: int) -> str | None:

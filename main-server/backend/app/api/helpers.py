@@ -89,7 +89,13 @@ def _configured_callback_base() -> str:
     base = urlunsplit((parsed.scheme, parsed.netloc, expected_path, "", ""))
     origin = _origin(base)
     nohardware_allowed = settings.nohardware_mode and origin in _nohardware_origins()
-    if not nohardware_allowed:
+    field_lan_allowed = (
+        parsed.scheme == "http"
+        and settings.callback_allow_http
+        and bool(settings.callback_allowlist)
+        and origin in _allowed_origins()
+    )
+    if not nohardware_allowed and not field_lan_allowed:
         if origin not in _allowed_origins():
             _fail("callback base is not allowlisted")
         _validate_public_host(parsed.hostname or "", parsed.port or (443 if parsed.scheme == "https" else 80))

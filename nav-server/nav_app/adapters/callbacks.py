@@ -67,12 +67,18 @@ def _configured_callback_url(url: str) -> str | None:
         for item in os.getenv("NAV_NOHARDWARE_CALLBACK_ALLOWLIST", "").split(",")
         if _canonical_url(item)
     }
+    field_lan_origins = {
+        _canonical_url(item).rstrip("/")
+        for item in os.getenv("NAV_MAIN_CALLBACK_ALLOWLIST", "").split(",")
+        if _canonical_url(item)
+    }
     base_origin = urlunsplit((parsed_base.scheme, parsed_base.netloc, "", "", ""))
     nohardware_allowed = (
         os.getenv("NAV_NOHARDWARE", "").strip().lower() in {"1", "true", "yes", "on"}
         and base_origin in nohardware_origins
     )
-    if parsed_base.scheme != "https" and not (nohardware_allowed and parsed_base.scheme == "http"):
+    field_lan_allowed = base_origin in field_lan_origins
+    if parsed_base.scheme != "https" and not ((nohardware_allowed or field_lan_allowed) and parsed_base.scheme == "http"):
         return None
     expected_base = f"{base.rstrip('/')}/movement"
     # The candidate has to be a configured Main endpoint, not merely an allowed host.
@@ -86,7 +92,7 @@ def _configured_callback_url(url: str) -> str | None:
     parsed = urlsplit(candidate)
     if parsed.scheme != parsed_base.scheme or parsed.netloc != parsed_base.netloc:
         return None
-    if not nohardware_allowed and not _is_public_host(
+    if not nohardware_allowed and not field_lan_allowed and not _is_public_host(
         parsed.hostname or "", parsed.port or (443 if parsed.scheme == "https" else 80)
     ):
         return None

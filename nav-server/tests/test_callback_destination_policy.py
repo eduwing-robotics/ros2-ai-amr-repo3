@@ -73,3 +73,21 @@ def test_nohardware_explicit_localhost_allowlist_allows_only_configured_main_end
         build_opener.return_value.open.return_value = response
         assert callbacks.post_main_callback("/movement/command-events", {})
         assert not callbacks.post_json_callback("http://localhost:8088/api/v1/other", {})
+
+
+def test_physical_field_lan_callback_requires_exact_explicit_allowlist(monkeypatch):
+    monkeypatch.delenv("NAV_NOHARDWARE", raising=False)
+    monkeypatch.setenv("NAV_MAIN_CALLBACK_ALLOWLIST", "http://192.168.30.5:8088")
+    response = MagicMock(status=204)
+    response.__enter__.return_value = response
+    with patch.object(callbacks, "MAIN_API_BASE", "http://192.168.30.5:8088/api/v1"), patch.object(
+        callbacks, "MAIN_CALLBACK_HMAC_SECRET", "secret"
+    ), patch("nav_app.adapters.callbacks.request.build_opener") as build_opener:
+        build_opener.return_value.open.return_value = response
+        assert callbacks.post_main_callback("/movement/command-events", {})
+
+    monkeypatch.delenv("NAV_MAIN_CALLBACK_ALLOWLIST")
+    with patch.object(callbacks, "MAIN_API_BASE", "http://192.168.30.5:8088/api/v1"), patch.object(
+        callbacks, "MAIN_CALLBACK_HMAC_SECRET", "secret"
+    ):
+        assert not callbacks.post_main_callback("/movement/command-events", {})

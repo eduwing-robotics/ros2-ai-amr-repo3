@@ -104,6 +104,21 @@ def test_nohardware_explicit_localhost_allowlist_is_the_only_private_exception()
         assert helpers.command_events_callback_url() == "http://localhost:8088/api/v1/movement/command-events"
 
 
+def test_physical_field_lan_callback_requires_exact_explicit_allowlist():
+    configured = _settings(
+        callback_base_url="http://192.168.30.5:8088",
+        callback_allowlist=("http://192.168.30.5:8088",),
+        callback_allow_http=True,
+        nohardware_mode=False,
+    )
+    with patch.object(helpers, "settings", configured):
+        assert helpers.command_events_callback_url() == "http://192.168.30.5:8088/api/v1/movement/command-events"
+
+    with patch.object(helpers, "settings", replace(configured, callback_allowlist=())):
+        with pytest.raises(HTTPException):
+            helpers.command_events_callback_url()
+
+
 def test_orchestrator_ignores_supplied_callback_base_url():
     from app.services import orchestrator
 
