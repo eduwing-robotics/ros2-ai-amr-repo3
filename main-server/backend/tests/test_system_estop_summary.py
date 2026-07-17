@@ -71,3 +71,27 @@ def test_summary_requires_explicit_clear_state() -> None:
 
     assert summary["state"] == "unknown"
     assert summary["robots"] == [{"robot_id": "r1", "state": "unknown"}]
+
+
+def test_unconfigured_robot_does_not_turn_tb1_only_profile_into_estop_unknown() -> None:
+    summary = _estop_summary(
+        [_robot("r1", enabled=True), _robot("r2", enabled=True)],
+        {
+            "r1": {"ok": True, "robot_online": True, "is_emergency": False, "estop_state": "clear"},
+            "r2": {
+                "ok": False,
+                "configured": False,
+                "robot_online": False,
+                "is_emergency": False,
+                "estop_state": "disabled",
+                "error": "movement_endpoint_not_configured",
+            },
+        },
+    )
+
+    assert summary["state"] == "clear"
+    assert summary["partial"] is False
+    assert summary["robots"] == [
+        {"robot_id": "r1", "state": "clear"},
+        {"robot_id": "r2", "state": "disabled"},
+    ]

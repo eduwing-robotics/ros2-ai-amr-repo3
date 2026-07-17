@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from app.db.mvp_repositories import (
     DEFAULT_FLOOR,
+    MvpCommandRepository,
     MvpEventRepository,
     MvpEvidenceRepository,
     MvpItemRepository,
@@ -667,11 +668,15 @@ def _active_command_id(conn, task_id: int) -> str | None:
     return None
 
 
-def _task_progress(orch: dict[str, Any]) -> dict[str, Any] | None:
+def _task_progress(
+    orch: dict[str, Any],
+    recipe_steps: list[dict[str, Any]] | None = None,
+    task_phase: str | None = None,
+) -> dict[str, Any] | None:
     from app.services import orchestration_state as orch_state
 
     steps = orch_state.get_steps(orch)
-    if not steps:
+    if not steps and not recipe_steps:
         return None
     current = orch_state.get_step_index(orch)
     projected = []
@@ -687,10 +692,41 @@ def _task_progress(orch: dict[str, Any]) -> dict[str, Any] | None:
                 "failure_reason": step.get("failure_reason") or step.get("error") or step.get("reason"),
             }
         )
+    logical_steps = [
+        {
+            "step_index": index,
+            "kind": str(row.get("command_type") or "unknown"),
+            "label": None,
+            "status": str(row.get("status") or "PENDING").upper(),
+            "command_id": row.get("runtime_command_id"),
+            "failure_reason": None,
+            "command_def_id": row.get("command_def_id") or row.get("command_id"),
+            "sequence_no": row.get("sequence_no"),
+            "command_type": row.get("command_type"),
+            "target_system": row.get("target_system"),
+            "required_evidence_type": row.get("required_evidence_type"),
+            "evidence_count": int(row.get("evidence_count") or 0),
+            "runtime_command_id": row.get("runtime_command_id"),
+            "target": row.get("target"),
+            "transfer_action": row.get("transfer_action"),
+            "human_hazard_monitor": bool(row.get("human_hazard_monitor")),
+            "last_observed_at": row.get("last_observed_at"),
+        }
+        for index, row in enumerate(recipe_steps or [])
+    ]
+    current_recipe_index = next(
+        (index for index, step in enumerate(logical_steps) if str(step.get("status") or "").upper() != "DONE"),
+        max(0, len(logical_steps) - 1),
+    )
+    recovery = orch.get("recovery") if isinstance(orch.get("recovery"), dict) else {}
     return {
-        "phase": str(orch.get("phase") or "RUNNING").upper(),
-        "current_step_index": max(0, min(current, len(projected) - 1)),
+        "phase": str(orch.get("phase") or task_phase or "QUEUED").upper(),
+        "current_step_index": max(0, min(current, len(projected) - 1)) if projected else 0,
         "steps": projected,
+        "current_recipe_index": current_recipe_index,
+        "recipe_steps": logical_steps,
+        "recovery_reason": recovery.get("reason"),
+        "cargo_state": recovery.get("cargo_state"),
     }
 
 
@@ -728,7 +764,11 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
         "business_completed": business_completed,
         "return_status": return_status,
         "parking_error": parking_error,
-        "progress": _task_progress(orch),
+        "progress": _task_progress(
+            orch,
+            MvpCommandRepository(conn).progress_for_task(order_id, str(task["task_type"])),
+            task_phase=str(task.get("status") or "QUEUED"),
+        ),
     }
     order = {
         "order_id": order_id,

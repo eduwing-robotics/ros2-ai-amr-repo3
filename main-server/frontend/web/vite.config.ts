@@ -5,6 +5,10 @@ import react from "@vitejs/plugin-react";
 // VITE_* 는 레포 루트 .env 에서 읽는다(backend LMS_* 와 동일 파일).
 const repoRoot = path.resolve(__dirname, "../..");
 const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || "http://localhost:8088";
+const allowedHosts = (process.env.VITE_ALLOWED_HOSTS || "")
+  .split(",")
+  .map((host) => host.trim())
+  .filter(Boolean);
 
 export default defineConfig({
   envDir: repoRoot,
@@ -17,6 +21,7 @@ export default defineConfig({
   // 유지해 백엔드의 동일-origin 쓰기 검사를 통과시킨다.
   server: {
     port: 5173,
+    allowedHosts,
     proxy: {
       "/api": { target: apiProxyTarget, changeOrigin: false },
       "/health": { target: apiProxyTarget, changeOrigin: false },

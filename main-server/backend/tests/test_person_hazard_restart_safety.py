@@ -182,6 +182,164 @@ def test_restart_active_operator_hold_reestops_without_replacing_recovery(
     assert task["preset_snapshot"]["_orchestration"]["recovery"] == recovery
 
 
+def test_restart_operator_hold_does_not_reestop_a_terminal_nav_command() -> None:
+    task = _task(
+        phase="AWAITING_OPERATOR",
+        step_status="RUNNING",
+        command_id="cmd-terminal",
+    )
+    task["preset_snapshot"]["_orchestration"]["recovery"] = {
+        "reason": "person_monitor_outage",
+        "robot_id": "tb3_1",
+        "command_id": "cmd-terminal",
+    }
+
+    with (
+        patch.object(ph.movement_client, "command_status", return_value={"state": "DONE"}) as command_status,
+        patch.object(ph.movement_client, "nav_state") as nav_state,
+    ):
+        result, repo, stop_repo, estop, rearm, dispatch = _reconcile(task)
+
+    assert result == 0
+    command_status.assert_called_once_with("tb3_1", "cmd-terminal")
+    nav_state.assert_not_called()
+    estop.assert_not_called()
+    rearm.assert_not_called()
+    dispatch.assert_not_called()
+    repo.append.assert_not_called()
+    repo.save_orchestration.assert_not_called()
+    stop_repo.open_from_evidence.assert_not_called()
+
+
+def test_restart_operator_hold_does_not_reestop_after_nav_restart_proves_idle() -> None:
+    task = _task(
+        phase="AWAITING_OPERATOR",
+        step_status="RUNNING",
+        command_id="cmd-from-old-nav-process",
+    )
+    task["preset_snapshot"]["_orchestration"]["recovery"] = {
+        "reason": "person_monitor_outage",
+        "robot_id": "tb3_1",
+        "command_id": "cmd-from-old-nav-process",
+    }
+
+    with (
+        patch.object(
+            ph.movement_client,
+            "command_status",
+            side_effect=MovementClientError("missing", status_code=404),
+        ) as command_status,
+        patch.object(
+            ph.movement_client,
+            "nav_state",
+            return_value={
+                "robot_name": "tb3_1",
+                "robot_online": True,
+                "nav2_ready": True,
+                "navigator_status": "IDLE",
+                "mission_status": "IDLE",
+                "active_commands": [],
+            },
+        ) as nav_state,
+    ):
+        result, repo, stop_repo, estop, rearm, dispatch = _reconcile(task)
+
+    assert result == 0
+    command_status.assert_called_once_with("tb3_1", "cmd-from-old-nav-process")
+    nav_state.assert_called_once_with("tb3_1")
+    estop.assert_not_called()
+    rearm.assert_not_called()
+    dispatch.assert_not_called()
+    repo.append.assert_not_called()
+    repo.save_orchestration.assert_not_called()
+    stop_repo.open_from_evidence.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "nav_state",
+    [
+        {
+            "robot_name": "tb3_2",
+            "robot_online": True,
+            "nav2_ready": True,
+            "navigator_status": "IDLE",
+            "mission_status": "IDLE",
+            "active_commands": [],
+        },
+        {
+            "robot_name": "tb3_1",
+            "robot_online": False,
+            "nav2_ready": True,
+            "navigator_status": "IDLE",
+            "mission_status": "IDLE",
+            "active_commands": [],
+        },
+        {
+            "robot_name": "tb3_1",
+            "robot_online": True,
+            "nav2_ready": False,
+            "navigator_status": "IDLE",
+            "mission_status": "IDLE",
+            "active_commands": [],
+        },
+        {
+            "robot_name": "tb3_1",
+            "robot_online": True,
+            "nav2_ready": True,
+            "navigator_status": "RUNNING",
+            "mission_status": "IDLE",
+            "active_commands": [],
+        },
+        {
+            "robot_name": "tb3_1",
+            "robot_online": True,
+            "nav2_ready": True,
+            "navigator_status": "IDLE",
+            "mission_status": "RUNNING",
+            "active_commands": [],
+        },
+        {
+            "robot_name": "tb3_1",
+            "robot_online": True,
+            "nav2_ready": True,
+            "navigator_status": "IDLE",
+            "mission_status": "IDLE",
+            "active_commands": ["cmd-other"],
+        },
+    ],
+)
+def test_restart_operator_hold_remains_fail_closed_without_complete_idle_proof(
+    nav_state: dict,
+) -> None:
+    task = _task(
+        phase="AWAITING_OPERATOR",
+        step_status="RUNNING",
+        command_id="cmd-ambiguous",
+    )
+    task["preset_snapshot"]["_orchestration"]["recovery"] = {
+        "reason": "person_monitor_outage",
+        "robot_id": "tb3_1",
+        "command_id": "cmd-ambiguous",
+    }
+
+    with (
+        patch.object(
+            ph.movement_client,
+            "command_status",
+            side_effect=MovementClientError("missing", status_code=404),
+        ),
+        patch.object(ph.movement_client, "nav_state", return_value=nav_state),
+    ):
+        result, repo, stop_repo, estop, rearm, dispatch = _reconcile(task)
+
+    assert result == 1
+    estop.assert_called_once_with("tb3_1")
+    rearm.assert_not_called()
+    dispatch.assert_not_called()
+    repo.save_orchestration.assert_not_called()
+    stop_repo.open_from_evidence.assert_called_once_with(22)
+
+
 def test_restart_cancel_requested_motion_still_fails_closed() -> None:
     task = _task(phase="CANCEL_REQUESTED")
     task["preset_snapshot"]["_orchestration"]["stop_request"] = {

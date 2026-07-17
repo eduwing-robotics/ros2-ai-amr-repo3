@@ -109,11 +109,12 @@ def test_work_order_safe_stop_has_route_and_single_service_entrypoint() -> None:
     assert "CANCEL_REQUESTED" in service
 
 
-def test_recovery_exposes_only_safe_move_and_manual_abort() -> None:
+def test_recovery_exposes_bounded_resume_safe_move_and_manual_abort() -> None:
     recovery = _source("services/task_recovery.py")
     task_router = _source("api/routers/tasks.py")
 
-    assert 'RecoveryStrategy = Literal["safe_move", "manual_abort"]' in recovery
+    assert 'RecoveryStrategy = Literal["resume_task", "safe_move", "manual_abort"]' in recovery
+    assert "RESUMABLE_STEP_KINDS" in recovery
     assert "safe_replan" not in recovery
     assert '"restart"' not in recovery
     assert 'body.get("strategy", "safe_move")' in task_router

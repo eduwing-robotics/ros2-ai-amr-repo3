@@ -52,6 +52,66 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertEqual(kwargs["command_id"], "cmd-1")
         handle_event.assert_not_called()
 
+    @patch("app.services.movement_callbacks.orchestrator_service.handle_command_event")
+    @patch("app.services.movement_callbacks.event_repo")
+    def test_duplicate_callback_event_id_is_ignored(self, event_repo, handle_event) -> None:
+        event_repo.return_value = self.event
+        self.event.callback_event_exists.return_value = True
+
+        result = callbacks.ingest_command_event(
+            self.conn,
+            {"event_id": "evt-1", "command_id": "cmd-1", "robot_name": "r1", "event": "DONE"},
+        )
+
+        self.assertTrue(result["duplicate"])
+        self.event.append.assert_not_called()
+        handle_event.assert_not_called()
+
+    @patch("app.services.movement_callbacks._matches_active_orchestration", return_value=False)
+    @patch("app.services.movement_callbacks.event_repo")
+    def test_callback_event_id_is_locked_linked_and_persisted(self, event_repo, _matches) -> None:
+        conn = MagicMock()
+        conn.is_postgres = True
+        event_repo.return_value = self.event
+        self.event.callback_event_exists.return_value = False
+        payload = {
+            "event_id": "evt-2",
+            "task_id": 42,
+            "command_id": "cmd-2",
+            "robot_name": "r1",
+            "event": "DONE",
+        }
+
+        result = callbacks.ingest_command_event(conn, payload)
+
+        self.assertFalse(result["duplicate"])
+        lock_sql, lock_params = conn.execute.call_args_list[0].args
+        self.assertIn("pg_advisory_xact_lock", lock_sql)
+        self.assertEqual(lock_params, ("movement-callback:evt-2",))
+        kwargs = self.event.append.call_args.kwargs
+        self.assertEqual(kwargs["task_id"], 42)
+        self.assertEqual(kwargs["payload"]["callback_event_id"], "evt-2")
+
+    @patch("app.services.movement_callbacks._matches_active_orchestration", return_value=False)
+    @patch("app.services.movement_callbacks.event_repo")
+    def test_callback_id_is_derived_for_retransmitted_body(self, event_repo, _matches) -> None:
+        event_repo.return_value = self.event
+        self.event.callback_event_exists.return_value = False
+
+        callbacks.ingest_command_event(
+            self.conn,
+            {
+                "command_id": "cmd-3",
+                "robot_name": "r1",
+                "event": "RUNNING",
+                "reported_at": "2026-07-17T01:02:03Z",
+            },
+        )
+
+        expected = "movement:event:cmd-3:RUNNING:2026-07-17T01:02:03Z"
+        self.event.callback_event_exists.assert_called_once_with(expected)
+        self.assertEqual(self.event.append.call_args.kwargs["payload"]["callback_event_id"], expected)
+
     @patch("app.services.movement_callbacks.movement_repo")
     @patch("app.services.movement_callbacks.event_repo")
     def test_ingest_result_records_when_command_id_present(self, event_repo, movement_repo) -> None:
@@ -441,6 +501,45 @@ class MovementCallbackServiceTest(unittest.TestCase):
         self.assertEqual(results[0]["state"], "unknown")
         self.assertIsNone(robot_emergency_state("r1"))
 
+    @patch("app.services.movement_callbacks.get_movement_health")
+    @patch("app.services.movement_callbacks.movement_client")
+    @patch("app.services.movement_callbacks.safety_stop_repo")
+    @patch("app.services.movement_callbacks.event_repo")
+    @patch("app.services.movement_callbacks.robot_repo")
+    def test_clear_estop_robot_only_clears_target_and_its_safety_stops(
+        self,
+        robot_repo,
+        event_repo,
+        safety_stop_repo,
+        movement_client,
+        get_movement_health,
+    ) -> None:
+        safety = MagicMock()
+        robot_repo.return_value = self.robot
+        event_repo.return_value = self.event
+        safety_stop_repo.return_value = safety
+        self.robot.exists.return_value = True
+        get_movement_health.return_value = {
+            "r1": {
+                "ok": True,
+                "robot_online": True,
+                "is_emergency": True,
+                "estop_state": "active",
+            }
+        }
+        movement_client.clear_estop.return_value = {"cleared": True}
+        safety.close_for_robot.return_value = [10]
+
+        result = callbacks.clear_estop_robot(self.conn, "r1")
+
+        get_movement_health.assert_called_once_with(["r1"], force=True)
+        movement_client.clear_estop.assert_called_once_with("r1")
+        safety.close_for_robot.assert_called_once_with("r1")
+        self.assertEqual(result["state"], "cleared")
+        self.assertFalse(robot_is_emergency("r1"))
+        event_types = [call.kwargs["event_type"] for call in self.event.append.call_args_list]
+        self.assertEqual(event_types, ["ROBOT_CLEAR_ESTOP", "SAFETY_STOPS_CLOSED"])
+
 
     @patch("app.services.movement_callbacks.get_movement_health")
     @patch("app.services.movement_callbacks.movement_client")
@@ -639,6 +738,65 @@ class MovementCallbackRouteTest(unittest.TestCase):
         self.assertTrue(body["partial"])
         self.assertEqual(body["unknown_robots"], ["r1"])
         self.assertEqual(body["robots"][0]["error"], "unreachable")
+
+    @patch("app.api.routers.movement.transaction")
+    @patch("app.api.routers.movement.callbacks.clear_estop_robot")
+    def test_clear_single_robot_estop_route_shape(self, clear_robot, transaction_ctx) -> None:
+        conn = MagicMock()
+        transaction_ctx.return_value.__enter__.return_value = conn
+        clear_robot.return_value = {
+            "robot_id": "r1",
+            "ok": True,
+            "attempted": True,
+            "state": "cleared",
+            "response": {"cleared": True},
+        }
+
+        res = self.client.post(
+            "/api/v1/robots/r1/clear-estop",
+            headers={"Authorization": "Bearer test-operator-token"},
+        )
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["state"], "clear")
+        self.assertEqual(res.json()["robots"][0]["robot_id"], "r1")
+        clear_robot.assert_called_once_with(conn, "r1")
+
+    @patch("app.api.routers.movement.evidence_runtime.record_movement_evidence")
+    @patch("app.api.routers.movement.command_repo")
+    @patch("app.api.routers.movement.transaction")
+    @patch("app.api.routers.movement.movement_client.restart_localization")
+    def test_restart_localization_route_is_observe_only_command(
+        self,
+        restart,
+        transaction_ctx,
+        command_repo,
+        record_evidence,
+    ) -> None:
+        conn = MagicMock()
+        transaction_ctx.return_value.__enter__.return_value = conn
+        command_repo.return_value.resolve_for_leg.return_value = 77
+        restart.return_value = {
+            "accepted": True,
+            "search": {"strategy": "observe_only", "motion_started": False},
+        }
+
+        res = self.client.post(
+            "/api/v1/robots/tb3_1/localization/restart",
+            headers={"Authorization": "Bearer test-operator-token"},
+        )
+
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.json()["ok"])
+        self.assertTrue(res.json()["command_id"].startswith("localization-restart-tb3_1-"))
+        self.assertEqual(res.json()["command_def_id"], 77)
+        self.assertEqual(res.json()["state"], "ACCEPTED")
+        self.assertFalse(res.json()["response"]["search"]["motion_started"])
+        restart.assert_called_once_with("tb3_1")
+        self.assertEqual(
+            [call.kwargs["event_type"] for call in record_evidence.call_args_list],
+            ["LOCALIZATION_RESTART_REQUESTED", "LOCALIZATION_RESTART_ACCEPTED"],
+        )
 
 
 if __name__ == "__main__":

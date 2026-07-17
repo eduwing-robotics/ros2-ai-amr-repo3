@@ -60,15 +60,17 @@ TB2에서 실물 완료된 최소 경로는 `HOME_02(#4) → INBOUND_02(#1) → 
 - INBOUND reservation은 slot/floor, OUTBOUND reservation은 item/location/floor 자원을 PostgreSQL advisory transaction lock으로 직렬화한다.
 - Task별 advisory lock은 step dispatch, terminal transition, recovery terminal claim이 같은 stale orchestration snapshot을 소비하지 못하게 한다.
 - Outgoing command identity와 orchestration phase를 DB에 기록한 뒤 Movement HTTP를 호출한다.
-- Callback과 poller가 같은 terminal state를 관찰해도 한 atomic claim만 상태 전이를 적용한다. Recovery terminal은 `AWAITING_OPERATOR`로 돌아가며 중단된 business step을 재개하지 않는다.
+- Callback과 poller가 같은 terminal state를 관찰해도 한 atomic claim만 상태 전이를 적용한다. 안전지점 이동 recovery terminal은 `AWAITING_OPERATOR`로 돌아가며, 원래 Task 재개는 별도의 운영자 `resume_task` 결정으로만 수행한다.
 
 ## Evidence와 recovery
 
-Load 완료 뒤 Main stage `POST_PICK_UP`이 AI wire operation `PICK_UP` evidence를 요청하고, unload 직전에는 `PRE_DROP_OFF` evidence를 평가한다. request binding과 freshness를 통과한 `PASS`, `command_satisfying=true`만 다음 command를 허용한다.
+`commands.id`는 task type별 정적 레시피 단계이며 Nav·AI runtime command ID가 아니다. Main은 실행·재시도마다 별도 runtime ID를 만들고, `evidence_events.command_id`에는 정적 레시피 FK를, `data_json.runtime_command_id`에는 실제 송신 ID를 기록한다. Load 완료 뒤 Main stage `POST_PICK_UP`이 AI wire operation `PICK_UP` evidence를 요청하고, unload 직전에는 `PRE_DROP_OFF` evidence를 평가한다. request binding과 freshness를 통과한 `PASS`, `command_satisfying=true`만 다음 command를 허용한다.
 
 TB2의 보정 카메라 경로는 `move_to_point`가 마커 법선의 약 0.40m 실제 map pose를 `ARRIVED` gate에 저장하고, `dock_transfer`가 같은 marker를 다시 확인한 뒤 0.18~0.20m까지 조향 없이 진입한다. lift/load 또는 drop을 끝내면 저장한 pose로 직선 후진한다. 이 경로는 구현·nohardware 검증이 끝난 후보지만 robot-scoped `metric_docking.live_enabled=false`가 기본이며, camera-to-base offset 측정과 실물 commissioning 전에는 활성화되지 않는다. TB1은 TB2 intrinsics를 빌리지 않으며 `tb1-synthetic-hil`에서 실제 base/Nav 경로와 별개의 virtual-lift backend만 사용한다. 해당 실행은 항상 `nonphysical`이다.
 
-Person advisory 또는 monitor outage는 Main trusted safety stop과 `AWAITING_OPERATOR`를 만든다. E-stop clear만으로 재개하지 않는다. 운영자는 화물 상태와 현장 안전 확인 뒤 `safe_move` 또는 `manual_abort`만 선택한다. `safe_move`는 configured safe location으로 이동하는 동안 `RECOVERY_RUNNING`이며 terminal 결과 뒤 다시 `AWAITING_OPERATOR`가 된다. 중단된 business step을 자동 재개하지 않는다. `manual_abort`는 로봇 정지를 확인한 뒤 task를 종료한다.
+AI 사람 monitor는 `POST_PICK_UP` 승인 뒤 `PRE_DROP_OFF` 평가 전까지의 적재 운송 NAV에만 붙는다. Person advisory 또는 그 구간의 monitor outage는 Main trusted safety stop과 `AWAITING_OPERATOR`를 만든다. E-stop clear나 단순 timeout만으로 재개하지 않는다. 운영자가 현장·pose·화물 상태를 확인하고 Main safety stop이 닫혔으며 live Movement health와 이전 명령의 terminal 상태가 확인된 경우, `resume_task`는 같은 Task의 현재 `move_to_point`·`aruco_align`·`leave_dock` step을 새 retry command ID로 다시 dispatch한다. 원래 step이 적재 운송 구간일 때만 person monitor를 재활성화한다. 부분 완료 가능성이 있는 `dock_transfer`는 자동 재시도하지 않는다. `safe_move`는 cargo가 `LOADED`일 때만 person monitor를 붙여 configured safe location으로 이동한 뒤 다시 `AWAITING_OPERATOR`가 되며, `manual_abort`는 로봇 정지를 확인한 뒤 task를 종료한다.
+
+로봇을 들어 옮겼거나 pose가 불확실한 경우 Main UI의 `위치 다시 찾기`는 정적 `LOCALIZATION_RECOVERY` command를 실행한다. 이 명령은 `observe_only`, `allow_motion=false`이며 task를 자동 재개하지 않는다. 이후 `localized=true`, fresh scan/TF, `nav2_ready=true`가 확인된 뒤에만 기존 task를 재개한다.
 
 ## 검증 경계
 

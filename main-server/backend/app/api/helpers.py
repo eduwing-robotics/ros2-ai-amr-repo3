@@ -11,7 +11,10 @@ from fastapi import HTTPException, Request
 from app.core.config import settings
 
 _COMMAND_EVENTS_PATH = "/movement/command-events"
-_CANONICAL_MAIN_HOST = "smartfactory-main.local"
+_CANONICAL_MAIN_HOSTS = frozenset({
+    "smartfactory-main.local",
+    "smartfactory-integration.local",
+})
 _SITE_NETWORK = ipaddress.ip_network("192.168.30.0/24")
 
 
@@ -52,8 +55,8 @@ def _origin(url: str) -> str:
 
 
 def _validate_site_host(host: str, port: int) -> None:
-    if host != _CANONICAL_MAIN_HOST:
-        _fail(f"callback must use {_CANONICAL_MAIN_HOST}")
+    if host not in _CANONICAL_MAIN_HOSTS:
+        _fail("callback must use a canonical Main hostname")
     try:
         addresses = {
             ipaddress.ip_address(item[4][0])

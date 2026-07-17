@@ -23,6 +23,7 @@ import { BatteryIndicator } from "../../components/BatteryIndicator";
 import { Pill } from "../../components/Pill";
 import type { CameraHealth, MovementHealth } from "../../types";
 import { taskLifecycleOf } from "./taskLifecycle";
+import { useWorkOrders } from "../../hooks/useWorkOrders";
 
 
 /* 상단 KPI 글랜스 스트립 (ISA-101 L1: 2초 스캔) — 평상시 무채색, 이상 시에만 좌보더+배경 강조.
@@ -157,6 +158,10 @@ export function OperatorShell() {
   const { data, isLoading, isError, error, refetch } = useStatus();
   const { emergencyRobots, isRobotEmergency } = useEmergency();
   const { data: recoveryTasks = [] } = useRecoveryAttentionTasks();
+  // FleetMissionDock uses the same React Query key, so this projection does
+  // not create another request. It only exposes the selected robot's active
+  // task endpoints to the map.
+  const { data: workOrders = [] } = useWorkOrders(50);
   const liveSplitRef = useRef<HTMLDivElement>(null);
   const workbenchRef = useRef<HTMLDivElement>(null);
 
@@ -261,6 +266,27 @@ export function OperatorShell() {
   const queuedTaskCount = taskLifecycleCounts.queued;
   const runningTaskCount = taskLifecycleCounts.running;
   const activeTaskCount = queuedTaskCount + runningTaskCount + taskLifecycleCounts.recovery;
+  const activeTaskMapFocus = useMemo(() => {
+    const priority = new Map([
+      ["RUNNING", 0], ["IN_PROGRESS", 0], ["RECOVERY_RUNNING", 1],
+      ["AWAITING_OPERATOR", 1], ["RECOVERY_REQUIRED", 1], ["ASSIGNED", 2],
+      ["QUEUED", 3], ["PENDING", 3],
+    ]);
+    const candidates = workOrders.flatMap((order) => order.tasks)
+      .filter((task) => task.assigned_robot_id === selectedRobotId && priority.has(String(task.status ?? "").toUpperCase()))
+      .sort((a, b) => {
+        const aStatus = String(a.status ?? "").toUpperCase();
+        const bStatus = String(b.status ?? "").toUpperCase();
+        return (priority.get(aStatus) ?? 99) - (priority.get(bStatus) ?? 99)
+          || Number(b.priority ?? 0) - Number(a.priority ?? 0)
+          || b.task_id - a.task_id;
+      });
+    const task = candidates[0];
+    return {
+      source: task?.source_zone ?? null,
+      target: task?.target_zone ?? null,
+    };
+  }, [selectedRobotId, workOrders]);
 
   // 알람(err/warn) 이벤트 — 최신순. 확인(ack)된 알람은 카운트·강조색에서 제외한다.
   const [ackedAlarmKeys, setAckedAlarmKeys] = useState<Set<string>>(loadAckedAlarmKeys);
@@ -498,8 +524,8 @@ export function OperatorShell() {
                           gotoMode={drawer === "control" && !allRobotsEmergency}
                           selectedRobotId={selectedRobotId}
                           onRobotSelect={selectRobot}
-                          focusedWaypointId={focusedWaypointId}
-                          focusedZoneId={focusedZoneId}
+                          focusedWaypointId={focusedWaypointId ?? activeTaskMapFocus.source}
+                          focusedZoneId={focusedZoneId ?? activeTaskMapFocus.target}
                         />
                       </div>
                     </div>

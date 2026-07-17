@@ -11,12 +11,14 @@ interface DockPairOverlayProps {
   zoneMode?: boolean;
   linkMode?: boolean;
   linkScanId?: string | null;
+  focusedWaypointIds?: ReadonlySet<string>;
   onScanClick?: (scanWaypointId: string) => void;
 }
 
-/** scan↔helper 연결 흐름. 접근점은 작은 dot, 실제 helper는 #N으로 구분한다. */
+/** scan→helper 연결 흐름. ArUco #N은 실제 Nav2 도착점인 scan에 표시한다. */
 export function DockPairOverlay({
   map, zones, pairs, scale, zoneMode = false, linkMode = false, linkScanId = null,
+  focusedWaypointIds,
   onScanClick,
 }: DockPairOverlayProps) {
   const u = scale;
@@ -36,10 +38,12 @@ export function DockPairOverlay({
         const scanPx = worldToPixel(map, scanPt.x, scanPt.y);
         const dockPx = worldToPixel(map, dock.x, dock.y);
         const selected = linkMode && scanId != null && linkScanId === scanId;
+        const focused = focusedWaypointIds?.has(pair.dock_waypoint_id)
+          || Boolean(scanId && focusedWaypointIds?.has(scanId));
         const showScanGlyph = !zoneMode;
 
         return (
-          <g key={pair.dock_waypoint_id} className="dock-pair-overlay">
+          <g key={pair.dock_waypoint_id} className={`dock-pair-overlay${focused ? " work-order-focused" : ""}`}>
             <line
               className="dock-scan-line"
               x1={scanPx.x}
@@ -61,14 +65,6 @@ export function DockPairOverlay({
               >
                 <circle className="scan-hit" cx={0} cy={0} r={SCAN_HIT_R} fill="transparent" />
                 <circle className="dock-scan-dot" cx={0} cy={0} r={SCAN_DOT_R} />
-              </g>
-            ) : null}
-            {showScanGlyph ? (
-              <g
-                className="dock-physical-marker"
-                transform={`translate(${dockPx.x} ${dockPx.y}) scale(${u})`}
-                style={{ pointerEvents: "none" }}
-              >
                 <text className="dock-scan-badge" x={SCAN_BADGE_OFFSET} y={2}>#{pair.aruco_marker_id}</text>
               </g>
             ) : null}

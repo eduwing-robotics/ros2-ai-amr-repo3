@@ -11,7 +11,7 @@
 ## 공통
 
 - [ ] 라이브 프로세스를 운영자가 볼 수 있는 terminal 또는 이름 있는 tmux window에서 `scripts/sf_stack.sh foreground`로 시작하고 `scripts/sf_stack.sh status`로 선택 profile과 소유 프로세스를 확인한다.
-- [ ] stack과 다른 pane에서 `TURTLEBOT3_SETUP="$HOME/turtlebot3_ws/install/setup.bash" nav-server/scripts/nav_ops.sh nav2-1` 또는 `nav2-2`를 실행하고 `navigation-ready`까지 기다린다. stack이 Movement API를 소유하므로 `nav_ops.sh start`를 중복 호출하지 않는다.
+- [ ] 선택한 Nav profile이 Movement API 뒤에 해당 로봇 Nav2와 `observe_only` localization을 함께 시작하는지 본다. stack은 Movement API와 Main UI가 열리면 시작 완료되고, 실제 주행 전에는 UI/health에서 `localized=true`, `nav2_ready=true`를 별도로 확인한다. 별도 `nav_ops.sh start`나 `nav2-1`/`nav2-2`를 중복 실행하지 않는다.
 - [ ] 첫 설치, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 `./scripts/operator-preflight.sh --software`를 실행한다.
 - [ ] `./scripts/operator-preflight.sh --hardware-checklist`는 config의 모든 enabled robot을 점검하므로 TB1 단독 운용이 아니라 전체 fleet 현장 점검 때만 실행한다.
 - [ ] 선택 stack profile의 site hostname이 이 PC의 canonical `192.168.30.x` interface로 해석되고 bind 검사를 통과한다.
@@ -37,6 +37,7 @@
 
 - [ ] 시작 후 `/lifecycle_manager_navigation/is_active`만 foreground에서 감시하고 `manage_nodes` activation/retry를 호출하지 않는다.
 - [ ] 시작 pose가 불확실하면 고정 seed 대신 signed global-search의 `observe_only`를 먼저 사용한다.
+- [ ] 로봇을 들어 크게 옮긴 경우 Main `/operate/control`의 **위치 다시 찾기**가 같은 `observe_only` 요청을 보내고 Nav/Main 프로세스를 재기동하지 않는지 확인한다.
 - [ ] `observe_only`가 bounded timeout 동안 `/request_nomotion_update`를 반복하고 `/cmd_vel`을 publish하지 않아 commanded motion이 0임을 확인한다.
 - [ ] global-search accepted 응답을 localization 성공으로 해석하지 않고 `GET .../localization`을 반복 조회한다.
 - [ ] RViz에서 외곽 벽과 고정 구조물이 겹치고, 전역 후보가 최신 scan 3/5회 확인된 뒤 적용되는지 확인한다.
@@ -78,7 +79,7 @@
 - [ ] person advisory는 Main trusted decision 전에는 motion state를 바꾸지 않는다.
 - [ ] person advisory 또는 monitor outage가 발생하면 Main safety stop과 `AWAITING_OPERATOR` 상태를 확인한다.
 - [ ] E-stop clear만으로 task가 재개되지 않고 `AWAITING_OPERATOR`를 유지하는지 확인한다.
-- [ ] 화물 상태와 안전 조건을 확인한 뒤 `safe_move` 또는 `manual_abort`만 선택한다. `safe_move` 완료 뒤에도 `AWAITING_OPERATOR`이며 interrupted step은 자동 재개되지 않는다.
+- [ ] 화물 상태와 안전 조건을 확인한 뒤 retry-safe 이동 step은 `resume_task`로 같은 Task를 계속한다. `dock_transfer`는 자동 재시도하지 않으며, 원래 Task를 계속하지 않을 때 `safe_move` 또는 `manual_abort`를 선택한다.
 
 중지: camera/source stale, monitor enable/poll failure, live health unavailable/unsafe, E-stop active.
 

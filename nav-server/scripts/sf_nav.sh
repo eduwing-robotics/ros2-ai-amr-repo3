@@ -84,7 +84,7 @@ cfg=json.load(open(config_path,encoding='utf-8'))
 components={}
 for name,spec in cfg['components'].items():
     item={"ownership":spec['ownership'],"required":spec['required'],"readiness_probe":spec['readiness_probe'],"status":"external-observe-only" if spec['ownership']=='external' else "starting"}
-    if name=='movement_api' and spec['ownership']=='managed-script':
+    if spec['ownership']=='managed-script':
         item.update(pid=int(pid),process_group=int(pgid),process_start_ticks=ticks,identity="run_nav_servers.sh",status="starting")
     components[name]=item
 data={"schema_version":1,"run_id":run_id,"profile_id":cfg['profile_id'],"ownership_token":token,"status":"starting","started_at":started,"boot_id":open('/proc/sys/kernel/random/boot_id').read().strip(),"selected_resources":cfg['selected_resources'],"components":components}
@@ -130,7 +130,11 @@ import json,sys,os,tempfile
 state_path,service_path,child_path=sys.argv[1:]
 data=json.load(open(state_path,encoding='utf-8'))
 data['components']['movement_api']['service_identities']=json.load(open(service_path,encoding='utf-8'))['services']
-if os.path.isfile(child_path): data['components']['movement_api']['managed_children']=json.load(open(child_path,encoding='utf-8'))['children']
+if os.path.isfile(child_path):
+    children=json.load(open(child_path,encoding='utf-8'))['children']
+    for name,component in data['components'].items():
+        selected=[child for child in children if child.get('component')==name]
+        if selected: component['managed_children']=selected
 fd,tmp=tempfile.mkstemp(prefix='.runtime-state.',dir=os.path.dirname(state_path))
 with os.fdopen(fd,'w',encoding='utf-8') as stream:
     json.dump(data,stream,indent=2,sort_keys=True); stream.write('\n'); stream.flush(); os.fsync(stream.fileno())
@@ -221,15 +225,24 @@ PY
   done
 }
 wait_readiness() {
-  local config="$1" pid="$2" pgid="$3" identities="$4" timeout="${SF_NAV_READINESS_TIMEOUT_SEC:-20}" mode="${SF_NAV_READINESS_MODE:-full}"
+  local config="$1" pid="$2" pgid="$3" identities="$4" timeout="${SF_NAV_READINESS_TIMEOUT_SEC:-720}" mode="${SF_NAV_READINESS_MODE:-full}"
   local health_probe_timeout="${SF_NAV_HEALTH_PROBE_TIMEOUT_SEC:-1.0}"
   [[ "$mode" == process-only ]] && { process_alive "$pid"; return; }
   if [[ "$mode" != external-only ]]; then
-    "$PYTHON_BIN" - "$config" "$timeout" "$pgid" "$identities" "$health_probe_timeout" <<'PY' || return 1
+    "$PYTHON_BIN" - "$config" "$timeout" "$pid" "$pgid" "$identities" "$health_probe_timeout" "$mode" <<'PY' || return 1
 import json,os,sys,tempfile,time,urllib.request
 from pathlib import Path
-cfg=json.load(open(sys.argv[1],encoding='utf-8')); deadline=time.monotonic()+float(sys.argv[2]); expected_pgid=int(sys.argv[3]); output=Path(sys.argv[4]); probe_timeout=float(sys.argv[5]); pending=list(cfg['robots']); services={}
+cfg=json.load(open(sys.argv[1],encoding='utf-8')); deadline=time.monotonic()+float(sys.argv[2]); supervisor_pid=int(sys.argv[3]); expected_pgid=int(sys.argv[4]); output=Path(sys.argv[5]); probe_timeout=float(sys.argv[6]); readiness_mode=sys.argv[7]; pending=list(cfg['robots']); services={}
+nav2=cfg.get('components',{}).get('nav2') or {}
+require_nav2=(readiness_mode=='full' and nav2.get('enabled') is True and nav2.get('required') is True and nav2.get('ownership')=='managed-script')
 if probe_timeout <= 0: raise SystemExit('SF_NAV_HEALTH_PROBE_TIMEOUT_SEC must be positive')
+
+def supervisor_alive():
+    try:
+        with open(f'/proc/{supervisor_pid}/stat',encoding='utf-8') as stream:
+            return stream.read().split()[2] != 'Z'
+    except (FileNotFoundError,ProcessLookupError,OSError):
+        return False
 
 def owners(port):
     inodes=set()
@@ -251,6 +264,7 @@ def owners(port):
     return sorted(set(result))
 
 while pending and time.monotonic()<deadline:
+    if not supervisor_alive(): raise SystemExit('managed Nav supervisor exited before readiness')
     rest=[]
     for robot in pending:
         try:
@@ -258,12 +272,15 @@ while pending and time.monotonic()<deadline:
                 body=json.load(r)
                 active=body.get('active_robot_id',body.get('robot_id'))
                 owned=owners(int(robot['api_port']))
-                if r.status != 200 or active != robot['robot_id'] or not owned: rest.append(robot)
+                nav2_ready=(body.get('nav2_ready') is True and body.get('localized') is True) if require_nav2 else True
+                if r.status != 200 or active != robot['robot_id'] or not owned or not nav2_ready: rest.append(robot)
                 else: services[robot['robot_id']]={'api_port':int(robot['api_port']),'pids':owned,'process_group':expected_pgid}
         except Exception: rest.append(robot)
     pending=rest
     if pending: time.sleep(.1)
-if pending: raise SystemExit('required movement_api readiness failed: '+','.join(r['robot_id'] for r in pending))
+if pending:
+    label='Nav2/localization' if require_nav2 else 'movement_api'
+    raise SystemExit(f'required {label} readiness failed: '+','.join(r['robot_id'] for r in pending))
 output.parent.mkdir(parents=True,exist_ok=True)
 fd,tmp=tempfile.mkstemp(prefix=f'.{output.name}.',dir=output.parent)
 with os.fdopen(fd,'w',encoding='utf-8') as stream:

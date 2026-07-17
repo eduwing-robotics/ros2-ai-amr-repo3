@@ -11,6 +11,7 @@ RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 ROBOTS_CONFIG_PATH="${ROBOTS_CONFIG_PATH:-$ROOT/config/robots.json}"
 VALIDATOR="${VALIDATOR:-$SCRIPT_DIR/validate_robot_domains.py}"
 PLAN_HELPER="${PLAN_HELPER:-$SCRIPT_DIR/nav_bringup_plan.py}"
+NAV2_RUNNER="${NAV2_RUNNER:-$SCRIPT_DIR/run_nav2_with_initial_pose.sh}"
 RESOLVED_PROFILE_PATH="${SF_NAV_RESOLVED_PROFILE_PATH:-}"
 CHILD_STATE_PATH="${SF_NAV_CHILD_STATE_PATH:-}"
 HOST="${HOST:-0.0.0.0}"
@@ -104,7 +105,7 @@ build_plan() {
       "$PYTHON_BIN" - "$RESOLVED_PROFILE_PATH" <<'PY'
 import json, sys
 for robot in json.load(open(sys.argv[1], encoding="utf-8"))["robots"]:
-    print("\t".join(str(robot[key]) for key in ("robot_id", "ros_domain_id", "nav_local_domain_id", "api_port", "active_map_yaml")))
+    print("\t".join(str(robot[key]) for key in ("robot_id", "bridge_robot_id", "ros_domain_id", "nav_local_domain_id", "api_port", "active_map_yaml")))
 PY
     else
       cat "$RESOLVED_PROFILE_PATH"
@@ -147,11 +148,67 @@ preflight() {
     exit 1
   fi
 
-  if ! "$PYTHON_BIN" -c 'import uvicorn; import nav_app.app' >/dev/null 2>&1; then
+  if ! (cd "$ROOT" && "$PYTHON_BIN" -c 'import uvicorn; import nav_app.app') >/dev/null 2>&1; then
     echo "[nav_servers] Python import failed: uvicorn and/or nav_app.app" >&2
     echo "[nav_servers] expected Python: $PYTHON_BIN" >&2
     exit 1
   fi
+
+  if managed_nav2_enabled; then
+    require_executable "$NAV2_RUNNER" "managed Nav2 runner"
+    require_file "${TURTLEBOT3_SETUP:-$HOME/turtlebot3_ws/install/setup.bash}" "TurtleBot3 setup"
+  fi
+}
+
+managed_nav2_enabled() {
+  [[ -n "$RESOLVED_PROFILE_PATH" ]] || return 1
+  "$PYTHON_BIN" - "$RESOLVED_PROFILE_PATH" <<'PY'
+import json, sys
+component = (json.load(open(sys.argv[1], encoding="utf-8")).get("components") or {}).get("nav2") or {}
+raise SystemExit(0 if component.get("enabled") is True and component.get("ownership") == "managed-script" else 1)
+PY
+}
+
+record_child() {
+  local component="$1"
+  local robot_id="$2"
+  local port="$3"
+  local child_pid="$4"
+  [[ -n "$CHILD_STATE_PATH" ]] || return 0
+  "$PYTHON_BIN" - "$CHILD_STATE_PATH" "$component" "$robot_id" "$port" "$child_pid" <<'PY'
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+path = Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+data = {"schema_version": 1, "children": []}
+if path.is_file():
+    data = json.loads(path.read_text(encoding="utf-8"))
+data["children"].append(
+    {
+        "component": sys.argv[2],
+        "robot_id": sys.argv[3],
+        "api_port": int(sys.argv[4]),
+        "pid": int(sys.argv[5]),
+    }
+)
+fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        json.dump(data, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, path)
+finally:
+    try:
+        os.unlink(temporary)
+    except FileNotFoundError:
+        pass
+PY
 }
 
 start_nav_server() {
@@ -197,35 +254,62 @@ start_nav_server() {
   ) &
   child_pid=$!
   pids+=("$child_pid")
-  if [[ -n "$CHILD_STATE_PATH" ]]; then
-    "$PYTHON_BIN" - "$CHILD_STATE_PATH" "$robot_id" "$port" "$child_pid" <<'PY'
-import json
-import os
-import sys
-import tempfile
-from pathlib import Path
+  record_child movement_api "$robot_id" "$port" "$child_pid"
+}
 
-path = Path(sys.argv[1])
-path.parent.mkdir(parents=True, exist_ok=True)
-data = {"schema_version": 1, "children": []}
-if path.is_file():
-    data = json.loads(path.read_text(encoding="utf-8"))
-data["children"].append({"robot_id": sys.argv[2], "api_port": int(sys.argv[3]), "pid": int(sys.argv[4])})
-fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-try:
-    with os.fdopen(fd, "w", encoding="utf-8") as stream:
-        json.dump(data, stream, indent=2, sort_keys=True)
-        stream.write("\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    os.replace(temporary, path)
-finally:
-    try:
-        os.unlink(temporary)
-    except FileNotFoundError:
-        pass
+wait_for_movement_api_start() {
+  local timeout="${SF_NAV_API_BEFORE_NAV2_TIMEOUT_SEC:-60}"
+  "$PYTHON_BIN" - "$RESOLVED_PROFILE_PATH" "$timeout" <<'PY'
+import json
+import sys
+import time
+import urllib.request
+
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+deadline = time.monotonic() + float(sys.argv[2])
+pending = list(config["robots"])
+while pending and time.monotonic() < deadline:
+    retry = []
+    for robot in pending:
+        try:
+            url = f"http://127.0.0.1:{robot['api_port']}/movement-api/v1/health"
+            with urllib.request.urlopen(url, timeout=1.0) as response:
+                body = json.load(response)
+            identity = body.get("active_robot_id", body.get("robot_id"))
+            if response.status != 200 or identity != robot["robot_id"]:
+                retry.append(robot)
+        except Exception:
+            retry.append(robot)
+    pending = retry
+    if pending:
+        time.sleep(0.1)
+if pending:
+    raise SystemExit("Movement API did not become ready before Nav2: " + ",".join(r["robot_id"] for r in pending))
 PY
-  fi
+}
+
+start_nav2() {
+  local robot_id="$1"
+  local bridge_robot_id="$2"
+  local hardware_domain_id="$3"
+  local local_domain_id="$4"
+  local port="$5"
+  local child_pid
+
+  echo "[nav_servers] starting managed Nav2 ${robot_id}: robot=${bridge_robot_id}, hardware_domain=${hardware_domain_id}, local_domain=${local_domain_id}"
+  (
+    cd "$ROOT"
+    export TURTLEBOT3_SETUP="${TURTLEBOT3_SETUP:-$HOME/turtlebot3_ws/install/setup.bash}"
+    export MOVEMENT_API_URL="http://127.0.0.1:${port}/movement-api/v1"
+    export ROBOTS_CONFIG_PATH
+    exec "$NAV2_RUNNER" \
+      --robot "$bridge_robot_id" \
+      --domain "$hardware_domain_id" \
+      --local-domain "$local_domain_id"
+  ) &
+  child_pid=$!
+  pids+=("$child_pid")
+  record_child nav2 "$robot_id" "$port" "$child_pid"
 }
 
 sf_nav_supervise() {
@@ -233,17 +317,32 @@ sf_nav_supervise() {
     echo "[nav_servers] sf_nav supervisor context is incomplete" >&2
     return 2
   }
-  trap cleanup EXIT INT TERM
+  trap cleanup EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   plan_file="$(mktemp)"
   plan_tsv="$(mktemp)"
   preflight
   build_plan --tsv >"$plan_tsv"
-  while IFS=$'\t' read -r robot_id hardware_domain_id local_domain_id port map_yaml; do
+  while IFS=$'\t' read -r robot_id bridge_robot_id hardware_domain_id local_domain_id port map_yaml; do
     [[ -z "$robot_id" ]] && continue
     start_nav_server "$robot_id" "$hardware_domain_id" "$local_domain_id" "$port" "$map_yaml"
   done <"$plan_tsv"
+  wait_for_movement_api_start
+  if managed_nav2_enabled; then
+    while IFS=$'\t' read -r robot_id bridge_robot_id hardware_domain_id local_domain_id port _map_yaml; do
+      [[ -z "$robot_id" ]] && continue
+      start_nav2 "$robot_id" "$bridge_robot_id" "$hardware_domain_id" "$local_domain_id" "$port"
+    done <"$plan_tsv"
+  fi
   echo "[nav_servers] up from $ROBOTS_CONFIG_PATH."
-  wait
+  set +e
+  wait -n "${pids[@]}"
+  local child_rc=$?
+  set -e
+  echo "[nav_servers] required managed child exited unexpectedly (status=${child_rc})" >&2
+  (( child_rc != 0 )) || child_rc=1
+  return "$child_rc"
 }
 
 main() {

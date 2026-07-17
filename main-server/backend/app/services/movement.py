@@ -112,6 +112,10 @@ class MovementClient:
         """Movement 서버에 초기 pose 설정을 요청한다."""
         raise NotImplementedError
 
+    def restart_localization(self, robot_id: str) -> dict[str, Any]:
+        """Discard the prior pose belief and restart observe-only localization."""
+        raise NotImplementedError
+
     def nav_state(self, robot_id: str) -> dict[str, Any]:
         """Movement 서버에서 Nav2/command 상태를 조회한다."""
         raise NotImplementedError
@@ -242,6 +246,15 @@ class FakeMovementClient(MovementClient):
 
     def initial_pose(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._accepted(robot_id, body, endpoint="robots/initial-pose", accepted=True, message="fake initial pose accepted")
+
+    def restart_localization(self, robot_id: str) -> dict[str, Any]:
+        return self._accepted(
+            robot_id,
+            {},
+            endpoint="robots/localization/global-search",
+            accepted=True,
+            search={"strategy": "observe_only", "motion_started": False},
+        )
 
     def nav_state(self, robot_id: str) -> dict[str, Any]:
         emergency_state = robot_emergency_state(robot_id)
@@ -389,6 +402,19 @@ class HttpMovementClient(MovementClient):
 
     def initial_pose(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._post_json_for_robot(robot_id, f"/robots/{robot_id}/initial-pose", body, kind="initial_pose")
+
+    def restart_localization(self, robot_id: str) -> dict[str, Any]:
+        return self._post_json_for_robot(
+            robot_id,
+            f"/robots/{robot_id}/localization/global-search",
+            {
+                "strategy": "observe_only",
+                "allow_motion": False,
+                "restart_existing": True,
+                "source": "main_ui_relocalize",
+            },
+            kind="restart_localization",
+        )
 
     def nav_state(self, robot_id: str) -> dict[str, Any]:
         return self._get_json_for_robot(robot_id, f"/robots/{robot_id}/nav-state", kind="nav_state")

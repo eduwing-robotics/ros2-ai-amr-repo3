@@ -31,8 +31,8 @@
     "nav2": {
       "enabled": true,
       "required": true,
-      "ownership": "external",
-      "start_script": "",
+      "ownership": "managed-script",
+      "start_script": "scripts/run_nav2_with_initial_pose.sh",
       "readiness_probe": "lifecycle-active"
     },
     "camera": {

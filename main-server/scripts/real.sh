@@ -189,7 +189,7 @@ guard_existing_api() {
 
 guard_existing_vite() {
   local listener=""
-  [[ "$DEV" -eq 1 ]] || return
+  [[ "$DEV" -eq 1 ]] || return 0
   if command -v ss >/dev/null 2>&1; then
     listener="$(ss -H -ltnp "sport = :$VITE_PORT" 2>/dev/null | head -n1 || true)"
   fi
@@ -321,6 +321,7 @@ if [[ "$DEV" -eq 1 ]]; then
   (
     cd "$FRONTEND"
     export VITE_API_PROXY_TARGET="http://$SITE_MAIN_HOST:$PORT"
+    export VITE_ALLOWED_HOSTS="${VITE_ALLOWED_HOSTS:-$SITE_MAIN_HOST}"
     export VITE_VISION_WEBRTC_ENABLED="${VITE_VISION_WEBRTC_ENABLED:-true}"
     exec ./node_modules/.bin/vite --host "$HOST" --port "$VITE_PORT" --strictPort
   ) &

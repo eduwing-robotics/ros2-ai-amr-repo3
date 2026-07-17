@@ -15,6 +15,19 @@ expect_failure() {
 
 expect_failure env -u LMS_DATABASE_URL -u DATABASE_URL -u LMS_POSTGRES_PASSWORD LMS_DISABLE_DOTENV=1 ROOT="$ROOT" BACKEND="$ROOT/backend" bash -c 'source "$1"; pg_ensure_url' _ "$LIB"
 
+missing_env_root="$(mktemp -d)"
+trap 'rm -rf "$missing_env_root"' EXIT
+: >"$missing_env_root/.env"
+if missing_output="$(
+  env -u LMS_DATABASE_URL -u DATABASE_URL -u LMS_POSTGRES_PASSWORD \
+    ROOT="$missing_env_root" BACKEND="$ROOT/backend" \
+    bash -c 'set -euo pipefail; source "$1"; pg_ensure_url' _ "$LIB" 2>&1
+)"; then
+  echo "expected missing PostgreSQL configuration to fail" >&2
+  exit 1
+fi
+grep -q '\[pg\] ERROR: set LMS_DATABASE_URL or LMS_POSTGRES_PASSWORD' <<<"$missing_output"
+
 [[ "$(ROOT="$ROOT" BACKEND="$ROOT/backend" bash -c 'source "$1"; declare -F pg_ensure_url' _ "$WRAPPER")" == "pg_ensure_url" ]]
 
 derived="$(env -u LMS_DATABASE_URL -u DATABASE_URL LMS_DISABLE_DOTENV=1 LMS_POSTGRES_PASSWORD='space / secret' ROOT="$ROOT" BACKEND="$ROOT/backend" bash -c 'source "$1"; pg_ensure_url; printf %s "$LMS_DATABASE_URL"' _ "$LIB")"
@@ -33,5 +46,6 @@ done
 grep -q 'exec "\$ROOT/scripts/setup_pg.sh"' "$ROOT/scripts/db/setup_pg.sh"
 grep -q 'bootstrap.sh --local-dev' "$ROOT/scripts/launch_real_terminal.sh"
 grep -q 'pg_redact_url "\$LMS_DATABASE_URL"' "$ROOT/scripts/real.sh"
+grep -Fq '[[ "$DEV" -eq 1 ]] || return 0' "$ROOT/scripts/real.sh"
 
 echo '[deployment_fail_closed] PASS'

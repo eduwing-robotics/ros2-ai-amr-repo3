@@ -36,12 +36,26 @@ class WorkOrderTaskProgressStep(BaseModel):
     command_id: str | None = None
     transfer_action: str | None = None
     failure_reason: str | None = None
+    command_def_id: int | None = None
+    sequence_no: int | None = None
+    command_type: str | None = None
+    target_system: str | None = None
+    required_evidence_type: str | None = None
+    evidence_count: int = 0
+    runtime_command_id: str | None = None
+    target: str | None = None
+    human_hazard_monitor: bool = False
+    last_observed_at: str | None = None
 
 
 class WorkOrderTaskProgress(BaseModel):
     phase: str
     current_step_index: int = Field(ge=0)
     steps: list[WorkOrderTaskProgressStep] = Field(default_factory=list)
+    current_recipe_index: int = Field(default=0, ge=0)
+    recipe_steps: list[WorkOrderTaskProgressStep] = Field(default_factory=list)
+    recovery_reason: str | None = None
+    cargo_state: str | None = None
 
 
 class WorkOrder(BaseModel):

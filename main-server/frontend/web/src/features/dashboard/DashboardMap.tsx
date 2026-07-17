@@ -212,6 +212,10 @@ export function DashboardMap({
     return map;
   }, [inventory]);
   const mapDockPairs = useMemo(() => pairsFromWaypoints(zones), [zones]);
+  const focusedWaypointIds = useMemo(
+    () => new Set([focusedWaypointId, focusedZoneId].filter((id): id is string => Boolean(id))),
+    [focusedWaypointId, focusedZoneId],
+  );
   const pairedScanIds = useMemo(() => pairedScanWaypointIds(zones), [zones]);
   const visibleZones = useMemo(
     () => zones.filter((z) => {
@@ -283,7 +287,7 @@ export function DashboardMap({
       >
         {renderMap ? <>
               {overlayReady && layers.showArrows ? <ApproachRouteOverlay map={renderMap} zones={zones} /> : null}
-              {overlayReady && layers.showArrows ? <DockPairOverlay map={renderMap} zones={zones} pairs={mapDockPairs} scale={u} /> : null}
+              {overlayReady && layers.showArrows ? <DockPairOverlay map={renderMap} zones={zones} pairs={mapDockPairs} scale={u} focusedWaypointIds={focusedWaypointIds} /> : null}
               {plannedPaths.map((path) => {
                 const pts = path.points
                   .map((pt) => worldToPixel(renderMap, pt.x, pt.y))

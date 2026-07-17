@@ -52,6 +52,13 @@ topics:
       depth: 1
       reliability: reliable
       durability: volatile
+  mission/tb3_1/aruco/detections:
+    type: std_msgs/msg/String
+    qos:
+      history: keep_last
+      depth: 5
+      reliability: best_effort
+      durability: volatile
   cmd_vel:
     type: geometry_msgs/msg/TwistStamped
     reversed: true

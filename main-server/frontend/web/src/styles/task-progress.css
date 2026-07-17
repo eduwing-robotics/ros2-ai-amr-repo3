@@ -114,6 +114,7 @@
 .task-progress-index,
 .task-progress-state,
 .task-progress-error { color: var(--text-dim); font-size: 10px; }
+.task-progress-contract { color: var(--text-muted); font-size: 9px; font-weight: 650; letter-spacing: .02em; }
 .task-progress-step.is-active .task-progress-state { color: var(--accent); font-weight: 700; }
 .task-progress-step.is-failed .task-progress-state,
 .task-progress-error { color: var(--err-fg); font-weight: 700; }

@@ -14,6 +14,9 @@ import {
   type RecoveryContext,
   type RecoveryStrategy,
 } from "../../lib/recovery";
+import { robotClearEstop } from "../../lib/safety";
+import { restartRobotLocalization } from "../../lib/missions";
+import { shortId } from "../../lib/format";
 import { useFeedback } from "../../components/FeedbackProvider";
 
 const CARGO_OPTIONS: { id: CargoState; label: string }[] = [
@@ -22,15 +25,44 @@ const CARGO_OPTIONS: { id: CargoState; label: string }[] = [
   { id: "UNKNOWN", label: "확인 필요" },
 ];
 const STRATEGY_OPTIONS: { id: RecoveryStrategy; label: string }[] = [
+  { id: "resume_task", label: "원래 작업 계속" },
   { id: "safe_move", label: "안전지점으로 이동" },
   { id: "manual_abort", label: "로봇 정지 후 작업 중단" },
 ];
+
+function resumeUnavailableLabel(reason?: string | null) {
+  if (reason === "resume_step_kind_requires_manual_recovery") return "현재 도킹·리프트 단계는 상태를 확인한 뒤 수동 복구해야 합니다.";
+  if (reason === "resume_step_state_not_retryable") return "현재 단계 상태는 자동 재시도할 수 없습니다.";
+  if (reason === "resume_interrupted_command_id_missing") return "중단된 이동 명령을 식별할 수 없어 자동 재시도를 차단했습니다.";
+  return "현재 단계는 원래 작업 자동 재개 대상이 아닙니다.";
+}
 
 function evidenceResultLabel(result?: string | null) {
   if (result === "PASS") return "통과";
   if (result === "FAIL") return "불일치";
   if (result === "UNCERTAIN" || result === "NO_DECISION") return "증거 부족";
   return "확인 필요";
+}
+
+const RECOVERY_ERROR_LABELS: Record<string, string> = {
+  recovery_blocked_active_safety_stop:
+    "이 작업의 안전정지 기록이 아직 열려 있습니다. 해당 로봇 E-stop을 해제한 뒤 다시 실행하세요.",
+  recovery_live_health_unsafe:
+    "Nav가 E-stop 해제 상태를 확인하지 못했습니다. 해당 로봇 상태를 재확인한 뒤 다시 실행하세요.",
+  recovery_live_health_unavailable:
+    "Nav 실시간 상태를 읽을 수 없습니다. 연결이 복구된 뒤 다시 실행하세요.",
+  resume_interrupted_command_state_unavailable:
+    "재기동 전 이동 명령의 종료 여부를 확인할 수 없어 복구를 차단했습니다.",
+  resume_interrupted_command_still_active:
+    "이전 이동 명령이 아직 활성 상태라 새 복구 명령을 보내지 않았습니다.",
+};
+
+function recoveryErrorDetail(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function recoveryErrorLabel(detail: string) {
+  return RECOVERY_ERROR_LABELS[detail] ?? detail;
 }
 
 function EvidenceOnlyRecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
@@ -93,29 +125,40 @@ function EvidenceOnlyRecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
 }
 
 function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
-  const { toast } = useFeedback();
+  const { confirm, toast } = useFeedback();
   const queryClient = useQueryClient();
   const [cargo, setCargo] = useState<CargoState>("UNKNOWN");
-  const [strategy, setStrategy] = useState<RecoveryStrategy>("safe_move");
+  const [strategy, setStrategy] = useState<RecoveryStrategy>(
+    ctx.resume_available ? "resume_task" : "safe_move",
+  );
   const [checks, setChecks] = useState({
     site_clear: false,
     pose_ok: false,
     cargo_ok: false,
   });
   const [busy, setBusy] = useState(false);
+  const [blockReason, setBlockReason] = useState<string | null>(null);
 
   const allChecks = checks.site_clear && checks.pose_ok && checks.cargo_ok;
   const hasKnownCargo = cargo !== "UNKNOWN";
   const isRecoveryRunning = ctx.orchestration_phase === "RECOVERY_RUNNING";
-  const canExecute = !isRecoveryRunning && allChecks && hasKnownCargo;
+  const canExecute =
+    !isRecoveryRunning
+    && allChecks
+    && hasKnownCargo
+    && (strategy !== "resume_task" || ctx.resume_available === true);
   const isEvidenceHold = ctx.hold_reason === "evidence_gate";
 
-  const executeLabel =
-    strategy === "safe_move" ? "안전지점 이동 실행" : "정지 확인 후 작업 중단";
+  const executeLabel = strategy === "resume_task"
+    ? "원래 작업 계속"
+    : strategy === "safe_move"
+      ? "안전지점 이동 실행"
+      : "정지 확인 후 작업 중단";
 
-  const strategyHint =
-    strategy === "safe_move"
-      ? "설정된 안전지점으로 이동합니다. 기존 작업은 자동으로 재개하지 않습니다."
+  const strategyHint = strategy === "resume_task"
+    ? "중단된 Task와 목적지는 유지하고 현재 이동 단계를 새 명령으로 다시 실행합니다."
+    : strategy === "safe_move"
+      ? "원래 작업을 재개하지 않고 설정된 안전지점으로 이동합니다."
       : "로봇 정지가 확인된 경우에만 작업을 중단합니다. 필요하면 새 입출고 요청을 생성하세요.";
 
   const onPreview = async () => {
@@ -131,11 +174,72 @@ function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
     setBusy(true);
     try {
       const result = await executeRecovery(ctx.task_id, { cargo_state: cargo, strategy, checks });
-      await queryClient.invalidateQueries({ queryKey: ["recovery-needs-attention"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["recovery-needs-attention"] }),
+        queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+      ]);
+      setBlockReason(null);
       const message = typeof result.message === "string" ? result.message : "복구 명령 전송됨";
       toast(message, "ok");
     } catch (e) {
-      toast(`복구 실행 실패: ${(e as Error).message}`, "err");
+      const detail = recoveryErrorDetail(e);
+      setBlockReason(detail);
+      toast(`복구 실행 실패: ${recoveryErrorLabel(detail)}`, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearRobotSafetyStop = async () => {
+    const robotId = ctx.assigned_robot_id;
+    if (!robotId) return;
+    const ok = await confirm({
+      title: `${robotId} E-stop 해제`,
+      message:
+        "해당 로봇의 E-stop과 연결된 안전정지 기록만 해제합니다. 작업은 자동 재개되지 않으며, 상태 확인 후 ‘원래 작업 계속’을 다시 눌러야 합니다.",
+      confirmLabel: "해제 및 재확인",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const result = await robotClearEstop(robotId);
+      if (!result.ok) throw new Error("Movement가 E-stop 해제를 확인하지 못했습니다.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["status"] }),
+        queryClient.invalidateQueries({ queryKey: ["recovery-needs-attention"] }),
+        queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+      ]);
+      setBlockReason(null);
+      toast(`${robotId} E-stop 해제 확인 — 작업은 아직 보류 중입니다`, "ok");
+    } catch (e) {
+      toast(`E-stop 해제 실패: ${recoveryErrorLabel(recoveryErrorDetail(e))}`, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restartLocalization = async () => {
+    const robotId = ctx.assigned_robot_id;
+    if (!robotId) return;
+    const ok = await confirm({
+      title: `${robotId} 위치 다시 찾기`,
+      message:
+        "로봇이 정지한 상태에서 들어 옮겼거나 현재 위치 추정이 잘못됐을 때 사용합니다. 로봇은 움직이지 않으며, 작업은 자동 재개되지 않습니다.",
+      confirmLabel: "위치 다시 찾기",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const result = await restartRobotLocalization(robotId);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["status"] }),
+        queryClient.invalidateQueries({ queryKey: ["robot-localization", robotId] }),
+        queryClient.invalidateQueries({ queryKey: ["recovery-needs-attention"] }),
+      ]);
+      toast(`위치 복구 명령 접수 (${shortId(result.command_id)}) · 작업은 계속 보류 중`, "ok");
+    } catch (e) {
+      toast(`위치 다시 찾기 실패: ${recoveryErrorLabel(recoveryErrorDetail(e))}`, "err");
     } finally {
       setBusy(false);
     }
@@ -224,6 +328,7 @@ function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
               type="radio"
               name={`strategy-${ctx.task_id}`}
               checked={strategy === opt.id}
+              disabled={opt.id === "resume_task" && ctx.resume_available !== true}
               onChange={() => setStrategy(opt.id)}
             />
             {opt.label}
@@ -231,6 +336,14 @@ function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
         ))}
       </div>
       <p className="muted recovery-strategy-hint">{strategyHint}</p>
+      {blockReason ? (
+        <p className="muted recovery-strategy-hint" role="alert">
+          {recoveryErrorLabel(blockReason)}
+        </p>
+      ) : null}
+      {!ctx.resume_available ? (
+        <p className="muted recovery-strategy-hint">{resumeUnavailableLabel(ctx.resume_block_reason)}</p>
+      ) : null}
       {isEvidenceHold ? (
         <p className="muted recovery-strategy-hint">증거 불일치로 보류되었습니다. 현장·자세·적재 상태를 확인한 뒤 같은 증거 단계를 다시 판정할 수 있습니다.</p>
       ) : null}
@@ -238,6 +351,19 @@ function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
         <p className="muted recovery-strategy-hint">적재 상태를 확인해야 복구 단계를 실행할 수 있습니다.</p>
       )}
       <div className="recovery-actions">
+        {ctx.assigned_robot_id ? (
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => void restartLocalization()}>
+            위치 다시 찾기
+          </Button>
+        ) : null}
+        {ctx.assigned_robot_id && (
+          blockReason === "recovery_blocked_active_safety_stop"
+          || blockReason === "recovery_live_health_unsafe"
+        ) ? (
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => void clearRobotSafetyStop()}>
+            {ctx.assigned_robot_id} E-stop 해제·상태 재확인
+          </Button>
+        ) : null}
         {isEvidenceHold ? (
           <Button type="button" disabled={!allChecks || busy} onClick={() => void onRetryEvidence()}>
             증거 다시 확인

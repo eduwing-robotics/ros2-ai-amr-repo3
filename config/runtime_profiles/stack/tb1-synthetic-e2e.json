@@ -17,7 +17,7 @@
       "enabled": true,
       "profile": "tb1-synthetic-hil",
       "readiness_mode": "http",
-      "readiness_timeout_sec": 240
+      "readiness_timeout_sec": 60
     },
     "main": {
       "enabled": true,

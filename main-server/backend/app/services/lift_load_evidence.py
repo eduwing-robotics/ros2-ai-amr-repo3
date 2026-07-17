@@ -90,7 +90,7 @@ def _operation_and_zone(task: dict[str, Any], leg: dict[str, Any]) -> tuple[str,
     return operation, zone
 
 
-def build_request(conn, task: dict[str, Any], leg: dict[str, Any], command_def_id: int | str | None) -> dict[str, object]:
+def build_request(conn, task: dict[str, Any], leg: dict[str, Any], runtime_command_id: int | str | None) -> dict[str, object]:
     """Build the Main-facing AI Server request from task + dock_transfer leg context."""
 
     robot_id = task.get("assigned_robot_id")
@@ -111,7 +111,7 @@ def build_request(conn, task: dict[str, Any], leg: dict[str, Any], command_def_i
         "source": settings.lift_load_evidence_source or "global_cam_01",
         "robot_id": str(robot_id),
         "task_id": task.get("task_id"),
-        "command_id": command_def_id,
+        "command_id": runtime_command_id,
         "operation": operation,
         "expected_item_id": item_id,
         "expected_marker_id": str(marker_id),
@@ -166,6 +166,13 @@ def _same_identity(left: object, right: object) -> bool:
     """Compare echoed trace identifiers without allowing omitted values."""
 
     return left is not None and right is not None and str(left) == str(right)
+
+
+def _command_def_id_value(value: object) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _marker_id(value: object) -> str | None:
@@ -382,7 +389,14 @@ def _gate_result(
     }
 
 
-def evaluate_and_record(conn, task: dict[str, Any], leg: dict[str, Any], command_def_id: int | str | None) -> int | dict[str, Any] | None:
+def evaluate_and_record(
+    conn,
+    task: dict[str, Any],
+    leg: dict[str, Any],
+    command_def_id: int | str | None,
+    *,
+    runtime_command_id: int | str | None = None,
+) -> int | dict[str, Any] | None:
     """Call AI lift-load evidence and record the advisory result.
 
     In ``record`` mode this preserves the historical contract: return the
@@ -399,7 +413,12 @@ def evaluate_and_record(conn, task: dict[str, Any], leg: dict[str, Any], command
         return _gate_result(evidence_id=None, result=None, reason_code="NOT_DOCK_TRANSFER", command_satisfying=False, status="skip") if gate else None
 
     try:
-        request_payload = build_request(conn, task, leg, command_def_id)
+        request_payload = build_request(
+            conn,
+            task,
+            leg,
+            command_def_id if runtime_command_id is None else runtime_command_id,
+        )
     except LiftLoadEvidenceSkip as exc:
         ev_id = record_skip(conn, task=task, command_def_id=command_def_id, reason=str(exc))
         return _gate_result(
@@ -463,6 +482,8 @@ def evaluate_and_record(conn, task: dict[str, Any], leg: dict[str, Any], command
         event_type=event_type,
         confidence=float(confidence) if confidence is not None else None,
         data_json=_response_data(response, request_payload, task) | {
+            "command_def_id": _command_def_id_value(command_def_id),
+            "runtime_command_id": request_payload.get("command_id"),
             "ai_event_result": event.get("result"),
             "ai_event_reason_code": event.get("reason_code"),
             "ai_event_data_json": {

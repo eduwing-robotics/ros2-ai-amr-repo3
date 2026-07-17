@@ -50,3 +50,17 @@ export const setRobotInitialPose = (robotId: string, body: InitialPoseRequest) =
     "POST",
     body,
   );
+
+export const restartRobotLocalization = (robotId: string) =>
+  apiSend<{
+    ok: boolean;
+    robot_id: string;
+    command_id: string;
+    command_def_id: number;
+    state: "ACCEPTED";
+    response: Record<string, unknown>;
+  }>(
+    `/robots/${encodeURIComponent(robotId)}/localization/restart`,
+    "POST",
+    {},
+  );

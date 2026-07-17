@@ -5,9 +5,11 @@ from __future__ import annotations
 import os
 import unittest
 
+from app.core.config import settings
 from app.db.connection import init_db, transaction
 from app.db.repo_bridge import command_repo, evidence_repo, safety_stop_repo, task_repo
 from app.services import evidence_runtime
+from tests.pg_fixture import apply_demo_fixture
 
 SKIP = not os.environ.get("LMS_DATABASE_URL")
 
@@ -20,6 +22,8 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             return
         try:
             init_db()
+            if "_test" in settings.database_url or "LMS_ALLOW_MUTABLE_DB_TESTS" in os.environ:
+                apply_demo_fixture()
         except Exception as exc:
             raise unittest.SkipTest(f"PostgreSQL unavailable: {exc}") from exc
 
@@ -129,22 +133,35 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             task = task_repo(conn).get(task_id) or {}
             scenario = evidence_runtime.build_scenario_from_task(conn, task)
             steps = scenario.get("steps") or []
-            self.assertEqual(len(steps), 7)
-            self.assertEqual(
-                [step.get("action_type") for step in steps],
-                ["leave_dock", "move", "dock_transfer", "move", "dock_transfer", "move", "aruco_align"],
+            load_index = next(
+                index
+                for index, step in enumerate(steps)
+                if step.get("action_type") == "dock_transfer"
+                and step.get("params", {}).get("action") == "load"
             )
-            self.assertIn("inbound_slot_1_approach", steps[1].get("name", ""))
-            self.assertEqual(steps[2].get("action_type"), "dock_transfer")
-            self.assertEqual(steps[2]["params"]["action"], "load")
-            self.assertEqual(steps[2]["params"]["pre_insert_lift_mm"], 0)
-            self.assertEqual(steps[3].get("action_type"), "move")
-            self.assertEqual(steps[4].get("action_type"), "dock_transfer")
-            self.assertEqual(steps[4]["params"]["action"], "unload")
-            self.assertEqual(steps[5].get("action_type"), "move")
-            self.assertIn("vehicle_1_approach", steps[5].get("name", ""))
-            self.assertEqual(steps[6].get("action_type"), "aruco_align")
-            self.assertEqual(steps[6]["params"]["final"], "park")
+            unload_index = next(
+                index
+                for index, step in enumerate(steps)
+                if step.get("action_type") == "dock_transfer"
+                and step.get("params", {}).get("action") == "unload"
+            )
+            self.assertEqual(steps[0].get("action_type"), "leave_dock")
+            self.assertTrue(all(step.get("action_type") == "move" for step in steps[1:load_index]))
+            self.assertIn("inbound_slot_1_approach", steps[load_index - 1].get("name", ""))
+            self.assertTrue(all(step.get("command_sequence_no") == 1 for step in steps[1:load_index]))
+            self.assertEqual(steps[load_index]["command_sequence_no"], 2)
+            self.assertEqual(steps[load_index]["evidence_sequence_no"], 3)
+            self.assertEqual(steps[load_index]["params"]["pre_insert_lift_mm"], 0)
+            self.assertTrue(
+                all(step.get("human_hazard_monitor") is True for step in steps[load_index + 1:unload_index])
+            )
+            self.assertEqual(steps[unload_index]["command_sequence_no"], 6)
+            self.assertEqual(steps[unload_index]["evidence_sequence_no"], 5)
+            self.assertEqual(steps[-2].get("waypoint_id"), "vehicle_1_approach")
+            self.assertEqual(steps[-2].get("command_sequence_no"), 7)
+            self.assertEqual(steps[-1].get("action_type"), "aruco_align")
+            self.assertEqual(steps[-1]["params"]["final"], "park")
+            self.assertEqual(steps[-1].get("command_sequence_no"), 7)
 
     def test_outbound_scenario_leg_order(self) -> None:
         with transaction() as conn:

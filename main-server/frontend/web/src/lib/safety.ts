@@ -11,3 +11,5 @@ export interface EstopResult {
 
 export const robotEstopAll = () => apiSend<EstopResult>("/robots/estop-all", "POST");
 export const robotClearEstopAll = () => apiSend<EstopResult>("/robots/clear-estop-all", "POST");
+export const robotClearEstop = (robotId: string) =>
+  apiSend<EstopResult>(`/robots/${encodeURIComponent(robotId)}/clear-estop`, "POST");

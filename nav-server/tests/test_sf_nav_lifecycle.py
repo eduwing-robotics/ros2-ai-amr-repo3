@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "sf_nav.sh"
 
@@ -57,11 +56,11 @@ def _health_server_script(path: Path, *, response_delay: float = 0.0) -> Path:
         "from http.server import BaseHTTPRequestHandler,HTTPServer\n"
         "import json,sys,time\n"
         "import os\n"
-        "cfg=json.load(open(sys.argv[1])); robot=cfg['robots'][0]; lift_ready=os.getenv('FAKE_LIFT_READY','0')=='1'\n"
+        "cfg=json.load(open(sys.argv[1])); robot=cfg['robots'][0]; lift_ready=os.getenv('FAKE_LIFT_READY','0')=='1'; nav2_ready=os.getenv('FAKE_NAV2_READY','1')=='1'\n"
         "class H(BaseHTTPRequestHandler):\n"
         " def do_GET(self):\n"
         f"  time.sleep({response_delay!r})\n"
-        "  if self.path=='/movement-api/v1/health': body={'ok':True,'active_robot_id':robot['robot_id'],'ros_domain_id':robot['ros_domain_id'],'process_ros_domain_id':robot['nav_local_domain_id'],'lift':{'ready':lift_ready}}\n"
+        "  if self.path=='/movement-api/v1/health': body={'ok':True,'active_robot_id':robot['robot_id'],'ros_domain_id':robot['ros_domain_id'],'process_ros_domain_id':robot['nav_local_domain_id'],'nav2_ready':nav2_ready,'localized':nav2_ready,'lift':{'ready':lift_ready}}\n"
         "  elif self.path=='/movement-api/v1/endpoints': body={'nav_api_url':'http://smartfactory-nav.local:8001'}\n"
         "  else: self.send_response(404); self.end_headers(); return\n"
         "  payload=json.dumps(body).encode(); self.send_response(200); self.send_header('Content-Length',str(len(payload))); self.end_headers(); self.wfile.write(payload)\n"
@@ -297,6 +296,75 @@ def test_required_readiness_failure_rolls_back_managed_process(tmp_path):
     assert state["stop_result"]["exited"] is True
     with pytest.raises(ProcessLookupError):
         os.kill(state["components"]["movement_api"]["pid"], 0)
+
+
+def test_full_readiness_requires_managed_nav2_localization(tmp_path):
+    port = _free_port()
+    robots = json.loads((ROOT / "config/robots.json").read_text())
+    robots["robots"] = [robots["robots"][0]]
+    robots["robots"][0]["api_port"] = port
+    robots_path = tmp_path / "robots.json"
+    robots_path.write_text(json.dumps(robots))
+    fake_run = _health_server_script(tmp_path / "fake-run.sh")
+    env = {
+        **os.environ,
+        "ROBOTS_CONFIG_PATH": str(robots_path),
+        "SF_NAV_STATE_DIR": str(tmp_path / "state"),
+        "SF_NAV_RUN_SCRIPT": str(fake_run),
+        "SF_NAV_START_SETTLE_SEC": "0.02",
+        "SF_NAV_READINESS_MODE": "full",
+        "SF_NAV_READINESS_TIMEOUT_SEC": "0.3",
+        "FAKE_NAV2_READY": "0",
+    }
+
+    result = subprocess.run(
+        [str(SCRIPT), "--profile", "tb1-live", "up"], cwd=ROOT, env=env, capture_output=True, text=True
+    )
+
+    assert result.returncode != 0
+    latest = Path((tmp_path / "state" / "tb1-live" / "latest").read_text().strip())
+    state = json.loads((latest / "runtime-state.json").read_text())
+    assert state["status"] == "failed"
+    assert state["stop_result"]["exited"] is True
+
+
+def test_http_readiness_exposes_service_before_localization(tmp_path):
+    port = _free_port()
+    robots = json.loads((ROOT / "config/robots.json").read_text())
+    robots["robots"] = [robots["robots"][0]]
+    robots["robots"][0]["api_port"] = port
+    robots_path = tmp_path / "robots.json"
+    robots_path.write_text(json.dumps(robots))
+    fake_run = _health_server_script(tmp_path / "fake-run.sh")
+    env = {
+        **os.environ,
+        "ROBOTS_CONFIG_PATH": str(robots_path),
+        "SF_NAV_STATE_DIR": str(tmp_path / "state"),
+        "SF_NAV_RUN_SCRIPT": str(fake_run),
+        "SF_NAV_START_SETTLE_SEC": "0.02",
+        "SF_NAV_READINESS_MODE": "http",
+        "SF_NAV_READINESS_TIMEOUT_SEC": "1",
+        "FAKE_NAV2_READY": "0",
+    }
+
+    result = subprocess.run(
+        [str(SCRIPT), "--profile", "tb1-live", "up"], cwd=ROOT, env=env, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    try:
+        latest = Path((tmp_path / "state" / "tb1-live" / "latest").read_text().strip())
+        state = json.loads((latest / "runtime-state.json").read_text())
+        assert state["status"] == "running"
+    finally:
+        subprocess.run(
+            [str(SCRIPT), "--profile", "tb1-live", "down"],
+            cwd=ROOT,
+            env=env,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
 
 def test_cross_profile_resource_overlap_is_rejected(tmp_path):

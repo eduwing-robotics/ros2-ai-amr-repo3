@@ -64,7 +64,9 @@ def init_db() -> None:
     with transaction() as conn:
         # Existing installations need additive columns before canonical schema
         # indexes reference them. New databases receive the canonical schema first.
-        locations_exists = conn.execute("SELECT to_regclass('public.locations') AS name").fetchone()["name"]
+        # Keep initialization scoped to the connection's active search_path.
+        # A test/tenant schema must not inherit the existence of public.locations.
+        locations_exists = conn.execute("SELECT to_regclass('locations') AS name").fetchone()["name"]
         if locations_exists:
             apply_migrations(conn)
         conn._conn.execute(schema)

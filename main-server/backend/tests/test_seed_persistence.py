@@ -66,20 +66,33 @@ class SeedPersistenceTest(unittest.TestCase):
 
     def test_init_db_preserves_modified_waypoint_coordinates(self) -> None:
         apply_demo_fixture()
-        with write_transaction() as conn:
-            conn.execute(
-                "UPDATE locations SET x = %s, y = %s WHERE id = %s",
-                (99.5, 88.5, "INBOUND_01"),
-            )
-        init_db()
         with transaction() as conn:
-            row = conn.execute(
+            original = conn.execute(
                 "SELECT x, y FROM locations WHERE id = %s",
                 ("INBOUND_01",),
             ).fetchone()
-        self.assertIsNotNone(row)
-        self.assertAlmostEqual(float(row["x"]), 99.5)
-        self.assertAlmostEqual(float(row["y"]), 88.5)
+        self.assertIsNotNone(original)
+        try:
+            with write_transaction() as conn:
+                conn.execute(
+                    "UPDATE locations SET x = %s, y = %s WHERE id = %s",
+                    (99.5, 88.5, "INBOUND_01"),
+                )
+            init_db()
+            with transaction() as conn:
+                row = conn.execute(
+                    "SELECT x, y FROM locations WHERE id = %s",
+                    ("INBOUND_01",),
+                ).fetchone()
+            self.assertIsNotNone(row)
+            self.assertAlmostEqual(float(row["x"]), 99.5)
+            self.assertAlmostEqual(float(row["y"]), 88.5)
+        finally:
+            with write_transaction() as conn:
+                conn.execute(
+                    "UPDATE locations SET x = %s, y = %s WHERE id = %s",
+                    (original["x"], original["y"], "INBOUND_01"),
+                )
 
     def test_waypoints_filtered_by_map_id(self) -> None:
         with write_transaction() as conn:

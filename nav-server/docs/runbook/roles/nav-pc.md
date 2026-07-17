@@ -10,8 +10,7 @@ process.
 
 ```bash
 tmux new-session -Ad -s ros2-amr-hardware-test
-tmux new-window -t ros2-amr-hardware-test -n nav2-tb3-1
-tmux new-window -t ros2-amr-hardware-test -n movement-api
+tmux new-window -t ros2-amr-hardware-test -n nav-profile
 tmux attach -t ros2-amr-hardware-test
 ```
 
@@ -32,25 +31,23 @@ processes.
 
 ## Start navigation and the Movement API
 
-Start the Movement API first so the Nav2 helper can submit its signed
-localization request:
+Use one profile launcher. It starts the selected Movement API endpoint first,
+then the matching Nav2/RViz helper and signed observe-only localization:
 
 ```bash
-scripts/nav_ops.sh start
-scripts/nav_ops.sh status
+scripts/sf_nav.sh --profile tb1-live foreground
 ```
-
-`start` runs the API in the background. `status` reports each API endpoint and
-the `/cmd_vel` readiness for the configured robot domains.
 
 Confirm the trusted deployment placed the shared repository-level
 `.secrets/service-hmac.env` bundle, then use `scripts/sf_nav.sh`. The profile
 launcher loads `NAV_MAIN_HMAC_SECRET` internally; do not copy or export the
-secret in the operator shell. Start Nav2 in one terminal for each robot that
-will navigate:
+secret in the operator shell. Select `tb2-live` or `all-live` explicitly when
+needed; do not start separate `nav_ops.sh start`, `nav2-1`, or `nav2-2`
+processes for a profile-owned stack.
 
 ```bash
-scripts/nav_ops.sh nav2-1
+scripts/sf_nav.sh --profile tb2-live foreground
+scripts/sf_nav.sh --profile all-live foreground
 ```
 
 The helper waits for `/scan` and the `odom -> base_footprint` TF within a
@@ -63,7 +60,7 @@ below, verifies robot name/ID, ROS domain, active map, strategy, and
 lifecycle transitions. Any bounded readiness, localization, identity, or
 lifecycle timeout fails startup closed.
 
-Use `scripts/nav_ops.sh nav2-2` for the second robot. The automatic request is:
+The automatic TB1 request is:
 
 ```text
 POST /movement-api/v1/robots/tb3_1/localization/global-search
@@ -102,7 +99,7 @@ publish concurrently. Repeated health reads reuse the last accepted AMCL sample
 without counting it twice or revoking an already converged state; negative or
 non-finite freshness/covariance values remain fail-closed.
 
-For a field check, keep RViz in the owning Nav2 tmux window. Confirm that outer
+For a field check, keep RViz in the owning profile tmux window. Confirm that outer
 walls and fixed interior structures overlap before enabling movement. Stop
 Nav2/RViz after evidence capture when the robot is on limited battery.
 
@@ -112,7 +109,7 @@ the confirmed-map pose, and provide all three values together:
 ```bash
 NAV2_MANUAL_INITIAL_POSE=1 \
 NAV2_INITIAL_X=<x> NAV2_INITIAL_Y=<y> NAV2_INITIAL_YAW=<yaw> \
-scripts/nav_ops.sh nav2-1
+scripts/sf_nav.sh --profile tb1-live foreground
 ```
 
 Manual recovery still waits for the same identity-bound `LOCALIZED` gate before
@@ -143,9 +140,10 @@ Before real movement, also confirm localization reports `localized=true` and
 ## Stop
 
 ```bash
-scripts/nav_ops.sh stop
+scripts/sf_nav.sh --profile tb1-live down
 ```
 
-Stop foreground bridge and Nav2 processes with `Ctrl+C` after movement has been
-stopped. Stop the Movement API in its tmux window the same way; keep the
+Stop the profile-owned Movement API and Nav2/RViz with one `Ctrl+C` after
+movement has been stopped. Use `down` only for a profile started with `up`.
+Stop external bridge/base processes in their own owning windows; keep the
 `ros2-amr-hardware-test` session until logs and evidence have been collected.

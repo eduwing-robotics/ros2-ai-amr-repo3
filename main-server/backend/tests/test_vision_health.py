@@ -10,8 +10,8 @@ from unittest.mock import patch
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.services.health_cache import clear_cache
 from app.services.api_logs import clear_logs, list_logs, record_heartbeat
+from app.services.health_cache import clear_cache
 from app.services.vision_proxy import fetch_camera_health
 
 

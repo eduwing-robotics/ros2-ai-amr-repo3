@@ -3,7 +3,7 @@
 
 robot2_map 중앙의 50cm 벽(실측 SLAM 54cm)을 검출해:
   - 서쪽 면: A(marker 7, 아래 25cm), B(marker 8, 위 25cm)  → 로봇이 +x를 보고 접근 (theta=0)
-  - 동쪽 면: D(marker 9, 아래 25cm), C(marker 10, 위 25cm) → 로봇이 -x를 보고 접근 (theta=pi)
+  - 동쪽 면: C(marker 10, 아래 25cm), D(marker 9, 위 25cm) → 로봇이 -x를 보고 접근 (theta=pi)
 각 25cm 슬롯 중앙(끝에서 12.5cm)에 마커가 부착돼 있다.
 
 zones.json의 warehouse_{a,b,c,d}_approach 를 갱신하고 미리보기 PNG를 그린다.
@@ -35,8 +35,8 @@ SLOT_LEN_M = 0.25  # 벽 한 면당 25cm x 2슬롯
 SLOTS = [
     ("warehouse_section_a", "warehouse_a_approach", 7, "west", 0),
     ("warehouse_section_b", "warehouse_b_approach", 8, "west", 1),
-    ("warehouse_section_d", "warehouse_d_approach", 9, "east", 0),
-    ("warehouse_section_c", "warehouse_c_approach", 10, "east", 1),
+    ("warehouse_section_c", "warehouse_c_approach", 10, "east", 0),
+    ("warehouse_section_d", "warehouse_d_approach", 9, "east", 1),
 ]
 
 

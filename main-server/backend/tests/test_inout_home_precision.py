@@ -66,7 +66,19 @@ class InOutHomePrecisionTest(unittest.TestCase):
             scenario = evidence_runtime.build_scenario_from_task(
                 MagicMock(), {"task_id": 2, "task_type": "MOVE", "to_location_id": "POINT_A"},
             )
-        self.assertEqual(scenario["steps"], [{"action_type": "move", "name": "to:POINT_A", "x": 1.0, "y": 2.0, "yaw": 0.0}])
+        self.assertEqual(
+            scenario["steps"],
+            [
+                {
+                    "action_type": "move",
+                    "name": "to:POINT_A",
+                    "x": 1.0,
+                    "y": 2.0,
+                    "yaw": 0.0,
+                    "human_hazard_monitor": False,
+                }
+            ],
+        )
 
     def test_valid_park_ends_with_final_aruco_alignment(self) -> None:
         scenario = self._build(_locations())

@@ -29,8 +29,6 @@ logger = logging.getLogger(__name__)
 
 TERMINAL_STEP_STATES = {"DONE", "FAILED", "ABORTED", "CANCELLED"}
 ORCHESTRATION_HOLD_PHASES = orch_state.HOLD_PHASES
-PHYSICAL_MOTION_KINDS = frozenset({"move_to_point", "aruco_align", "dock_transfer", "leave_dock"})
-
 # Backward-compatible aliases
 TERMINAL_LEG_STATES = TERMINAL_STEP_STATES
 
@@ -366,6 +364,9 @@ def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: s
                 "kind": "dock_transfer",
                 "label": step.get("name") or f"dock-{idx}",
                 "params": normalized,
+                "command_sequence_no": step.get("command_sequence_no"),
+                "evidence_sequence_no": step.get("evidence_sequence_no"),
+                "human_hazard_monitor": bool(step.get("human_hazard_monitor")),
                 "status": "pending",
                 "command_id": None,
             })
@@ -377,6 +378,8 @@ def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: s
                 "kind": action_type,
                 "label": step.get("name") or f"{action_type}-{idx}",
                 "params": dict(step.get("params") or {}),
+                "command_sequence_no": step.get("command_sequence_no"),
+                "human_hazard_monitor": bool(step.get("human_hazard_monitor")),
                 "status": "pending",
                 "command_id": None,
             })
@@ -406,6 +409,8 @@ def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: s
             "kind": "move_to_point",
             "label": label,
             "params": params,
+            "command_sequence_no": step.get("command_sequence_no"),
+            "human_hazard_monitor": bool(step.get("human_hazard_monitor")),
             "status": "pending",
             "command_id": None,
         })
@@ -424,8 +429,8 @@ def _orch(task: dict[str, Any]) -> dict[str, Any]:
     return orch
 
 
-# commands 시드는 move/dock 5-step만 정의하므로, leave_dock·aruco_align 같은
-# 시드 외 step를 건너뛴 위치로 step_index를 환산해야 seq 매핑이 어긋나지 않는다.
+# Legacy orchestration snapshots did not carry a recipe sequence number, so
+# leave_dock/aruco_align are skipped only for that compatibility fallback.
 _SEEDED_STEP_KINDS = {"move_to_point", "dock_transfer"}
 _SEEDED_LEG_KINDS = _SEEDED_STEP_KINDS
 
@@ -435,6 +440,42 @@ def _seed_step_index(steps: list[dict[str, Any]], step_index: int) -> int:
 
 
 _seed_cursor = _seed_step_index
+
+
+def _command_def_id_for_step(
+    conn,
+    task: dict[str, Any],
+    steps: list[dict[str, Any]],
+    step_index: int,
+) -> int | None:
+    step = steps[step_index]
+    sequence_no = step.get("command_sequence_no")
+    return evidence_runtime.resolve_command_def_id(
+        conn,
+        task,
+        _seed_step_index(steps, step_index),
+        str(step.get("kind") or "move_to_point"),
+        sequence_no=int(sequence_no) if sequence_no is not None else None,
+    )
+
+
+def _evidence_command_def_id_for_step(
+    conn,
+    task: dict[str, Any],
+    steps: list[dict[str, Any]],
+    step_index: int,
+) -> int | None:
+    step = steps[step_index]
+    sequence_no = step.get("evidence_sequence_no")
+    if sequence_no is None:
+        return _command_def_id_for_step(conn, task, steps, step_index)
+    return evidence_runtime.resolve_command_def_id(
+        conn,
+        task,
+        _seed_step_index(steps, step_index),
+        None,
+        sequence_no=int(sequence_no),
+    )
 
 
 def start_task_orchestration(
@@ -553,6 +594,9 @@ def _gate_approval_metadata(result: Any) -> dict[str, Any]:
             "expected_item_id": result.get("expected_item_id"),
             "expected_marker_id": result.get("expected_marker_id"),
             "binding_errors": list(result.get("binding_errors") or []),
+            "runtime_command_id": result.get("runtime_command_id"),
+            "command_def_id": result.get("command_def_id"),
+            "attempt": result.get("attempt"),
         }
     else:
         decision = {
@@ -565,6 +609,9 @@ def _gate_approval_metadata(result: Any) -> dict[str, Any]:
             "expected_item_id": None,
             "expected_marker_id": None,
             "binding_errors": [],
+            "runtime_command_id": None,
+            "command_def_id": None,
+            "attempt": None,
         }
     approved = (
         str(decision.get("status") or "recorded") == "recorded"
@@ -601,6 +648,9 @@ def _record_gate_decision(
         "expected_item_id": decision.get("expected_item_id"),
         "expected_marker_id": decision.get("expected_marker_id"),
         "binding_errors": list(decision.get("binding_errors") or []),
+        "runtime_command_id": decision.get("runtime_command_id"),
+        "command_def_id": decision.get("command_def_id"),
+        "attempt": decision.get("attempt"),
     }
     evidence_runtime.record_movement_evidence(
         conn,
@@ -672,12 +722,43 @@ def _evaluate_gate(
     command_def_id: int | None,
     operation_override: str | None = None,
 ) -> dict[str, Any]:
+    operation = operation_override or ("POST_PICK_UP" if _dock_action(step) == "load" else "PRE_DROP_OFF")
+    attempt = int(step.get("evidence_attempt") or 0) + 1
+    step["evidence_attempt"] = attempt
+    runtime_command_id = orch_state.deterministic_evidence_command_id(
+        int(task["task_id"]),
+        operation,
+        int(step.get("evidence_sequence_no") or 0),
+        attempt,
+    )
     try:
         evidence_step = _step_for_evidence(step, operation_override=operation_override)
-        return _gate_approval_metadata(lift_load_evidence.evaluate_and_record(conn, task, evidence_step, command_def_id))
+        result = lift_load_evidence.evaluate_and_record(
+            conn,
+            task,
+            evidence_step,
+            command_def_id,
+            runtime_command_id=runtime_command_id,
+        )
+        if isinstance(result, dict):
+            result = {
+                **result,
+                "runtime_command_id": runtime_command_id,
+                "command_def_id": command_def_id,
+                "attempt": attempt,
+            }
+        return _gate_approval_metadata(result)
     except Exception as exc:
         logger.exception("lift-load evidence gate failed")
-        return _gate_approval_metadata({"result": "ERROR", "reason_code": str(exc), "command_satisfying": False, "status": "error"})
+        return _gate_approval_metadata({
+            "result": "ERROR",
+            "reason_code": str(exc),
+            "command_satisfying": False,
+            "status": "error",
+            "runtime_command_id": runtime_command_id,
+            "command_def_id": command_def_id,
+            "attempt": attempt,
+        })
 
 def dispatch_current_step(conn, task_id: int) -> str:
     tasks = task_repo(conn)
@@ -698,19 +779,29 @@ def dispatch_current_step(conn, task_id: int) -> str:
 
     step = steps[step_index]
     task = _task(conn, task_id) or {}
-    command_def_id = evidence_runtime.resolve_command_def_id(
-        conn, task, _seed_step_index(steps, step_index), str(step.get("kind") or "move_to_point"),
-    )
+    command_def_id = _command_def_id_for_step(conn, task, steps, step_index)
     action = _dock_action(step)
+    monitor_required = person_hazard.step_requires_monitor(step)
+    if not monitor_required:
+        # Person monitoring is scoped to the loaded transport NAV segment.  End
+        # it before PRE_DROP_OFF observation, docking, or empty return travel.
+        person_hazard.disable_monitor(str(robot_id), conn=conn)
     if str(step.get("kind")) == "dock_transfer" and action == "unload":
+        evidence_command_def_id = _evidence_command_def_id_for_step(conn, task, steps, step_index)
         approval = step.get("approval") if isinstance(step.get("approval"), dict) else None
         if approval is None:
-            approval = _evaluate_gate(conn, task=task, step=step, command_def_id=command_def_id, operation_override="PRE_DROP_OFF")
+            approval = _evaluate_gate(
+                conn,
+                task=task,
+                step=step,
+                command_def_id=evidence_command_def_id,
+                operation_override="PRE_DROP_OFF",
+            )
             step["approval"] = approval
             _record_gate_decision(
                 conn,
                 task_id=task_id,
-                command_def_id=command_def_id,
+                command_def_id=evidence_command_def_id,
                 robot_id=robot_id,
                 step_index=step_index,
                 action="PRE_DROP_OFF",
@@ -735,11 +826,11 @@ def dispatch_current_step(conn, task_id: int) -> str:
                 conn.commit()
             raise HTTPException(status_code=409, detail="evidence_gate_hold")
 
-    # Arm before claiming a dispatch.  A monitor outage must not leave a step
-    # durably stuck in ``dispatching`` merely because motion was correctly
-    # blocked before the Movement HTTP call.
+    # Arm only the recipe-marked loaded-transport NAV segment. A monitor outage
+    # must not leave that step durably stuck in ``dispatching`` merely because
+    # motion was correctly blocked before the Movement HTTP call.
     intended_command_id = orch_state.deterministic_step_command_id(task_id, str(robot_id), step, step_index)
-    if step["kind"] in PHYSICAL_MOTION_KINDS and not person_hazard.arm_physical_motion_monitor(
+    if monitor_required and not person_hazard.arm_physical_motion_monitor(
         conn, robot_id, task_id, intended_command_id, str(step["kind"]),
     ):
         # Persist the trusted stop/hold before the surrounding request
@@ -811,7 +902,13 @@ def dispatch_current_step(conn, task_id: int) -> str:
         task_id=task_id,
         command_def_id=command_def_id,
         event_type="DISPATCHED",
-        data_json={"command_id": result.command_id, "robot_id": robot_id, "kind": step["kind"], "commands_id": command_def_id},
+        data_json={
+            "movement_command_id": result.command_id,
+            "command_def_id": command_def_id,
+            "robot_id": robot_id,
+            "kind": step["kind"],
+            "step_index": step_index,
+        },
     )
     if stop_after_dispatch:
         conn.commit()
@@ -849,9 +946,7 @@ def retry_held_evidence(conn, task_id: int, *, safety_checks: dict[str, object])
     step = steps[step_index]
     if str(step.get("kind")) != "dock_transfer":
         raise HTTPException(status_code=409, detail="evidence retry requires dock_transfer step")
-    command_def_id = evidence_runtime.resolve_command_def_id(
-        conn, task, _seed_step_index(steps, step_index), "dock_transfer"
-    )
+    command_def_id = _evidence_command_def_id_for_step(conn, task, steps, step_index)
     action = _dock_action(step)
     decision = _evaluate_gate(
         conn,
@@ -1114,15 +1209,18 @@ def _advance_on_command_event(conn, task_id: int, event: dict[str, Any], source:
             orch.pop("stop_request", None)
 
     task = _task(conn, task_id) or task
-    command_def_id = evidence_runtime.resolve_command_def_id(
-        conn, task, _seed_step_index(steps, step_index), str(step.get("kind") or "move_to_point"),
-    )
+    command_def_id = _command_def_id_for_step(conn, task, steps, step_index)
     evidence_runtime.record_movement_evidence(
         conn,
         task_id=task_id,
         command_def_id=command_def_id,
         event_type=event_name or "MOVEMENT_EVENT",
-        data_json={"command_id": event_command_id, "event": event, "commands_id": command_def_id},
+        data_json={
+            "movement_command_id": event_command_id,
+            "command_def_id": command_def_id,
+            "step_index": step_index,
+            "event": event,
+        },
     )
 
     if event_name in {"FAILED", "ABORTED", "REJECTED"}:
@@ -1187,6 +1285,7 @@ def _advance_on_command_event(conn, task_id: int, event: dict[str, Any], source:
     if str(step.get("kind")) == "dock_transfer":
         action = _dock_action(step)
         if action == "load":
+            evidence_command_def_id = _evidence_command_def_id_for_step(conn, task, steps, step_index)
             if (
                 str(task.get("task_type") or "").upper() in {"INBOUND", "OUTBOUND"}
                 and ("steps" not in orch or "step_index" not in orch)
@@ -1201,7 +1300,7 @@ def _advance_on_command_event(conn, task_id: int, event: dict[str, Any], source:
                 _record_gate_decision(
                     conn,
                     task_id=task_id,
-                    command_def_id=command_def_id,
+                    command_def_id=evidence_command_def_id,
                     robot_id=task.get("assigned_robot_id"),
                     step_index=step_index,
                     action="POST_PICK_UP",
@@ -1221,12 +1320,17 @@ def _advance_on_command_event(conn, task_id: int, event: dict[str, Any], source:
                 )
                 return _task(conn, task_id)
 
-            decision = _evaluate_gate(conn, task=task, step=step, command_def_id=command_def_id)
+            decision = _evaluate_gate(
+                conn,
+                task=task,
+                step=step,
+                command_def_id=evidence_command_def_id,
+            )
             step["approval"] = decision
             _record_gate_decision(
                 conn,
                 task_id=task_id,
-                command_def_id=command_def_id,
+                command_def_id=evidence_command_def_id,
                 robot_id=task.get("assigned_robot_id"),
                 step_index=step_index,
                 action="POST_PICK_UP",

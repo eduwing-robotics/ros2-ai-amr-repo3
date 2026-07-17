@@ -79,8 +79,14 @@ def _aruco_marker_for_dock(conn, dock_id: str, scan: dict[str, Any]) -> int:
         raise HTTPException(status_code=409, detail=f"dock {dock_id} invalid aruco_marker_id") from exc
 
 
-def _move_step(scan: dict[str, Any], *, name: str) -> dict[str, Any]:
-    return {
+def _move_step(
+    scan: dict[str, Any],
+    *,
+    name: str,
+    command_sequence_no: int | None = None,
+    human_hazard_monitor: bool = False,
+) -> dict[str, Any]:
+    step = {
         "action_type": "move",
         "name": name,
         "waypoint_id": scan.get("slot_id") or scan.get("location_id"),
@@ -88,6 +94,12 @@ def _move_step(scan: dict[str, Any], *, name: str) -> dict[str, Any]:
         "y": float(scan["y"]),
         "yaw": float(scan.get("yaw") or 0.0),
     }
+    if command_sequence_no is not None:
+        step["command_sequence_no"] = int(command_sequence_no)
+    # Persist an explicit false as well. A missing key is reserved for legacy
+    # orchestration snapshots and is handled conservatively on upgrade.
+    step["human_hazard_monitor"] = bool(human_hazard_monitor)
+    return step
 
 
 def _append_route_and_scan(
@@ -96,6 +108,8 @@ def _append_route_and_scan(
     scan: dict[str, Any],
     *,
     scan_name: str,
+    command_sequence_no: int | None = None,
+    human_hazard_monitor: bool = False,
 ) -> None:
     scan_id = str(scan.get("slot_id") or scan.get("location_id") or "")
     scan_map_id = scan.get("map_id")
@@ -110,12 +124,38 @@ def _append_route_and_scan(
             raise HTTPException(status_code=409, detail=f"scan route step missing coordinates: {waypoint_id}")
         if not scan_map_id or route_step.get("map_id") != scan_map_id:
             raise HTTPException(status_code=409, detail=f"scan route step map mismatch: {waypoint_id}")
-        steps.append(_move_step(route_step, name=f"route:{waypoint_id}"))
+        # Transit waypoints and the final scan pose are implementation details of
+        # one logical recipe command.  They therefore share commands.sequence_no
+        # instead of consuming extra command definitions as the route grows.
+        steps.append(
+            _move_step(
+                route_step,
+                name=f"route:{waypoint_id}",
+                command_sequence_no=command_sequence_no,
+                human_hazard_monitor=human_hazard_monitor,
+            )
+        )
         seen.add(waypoint_id)
-    steps.append(_move_step(scan, name=scan_name))
+    steps.append(
+        _move_step(
+            scan,
+            name=scan_name,
+            command_sequence_no=command_sequence_no,
+            human_hazard_monitor=human_hazard_monitor,
+        )
+    )
 
 
-def _dock_step(conn, dock_id: str, scan: dict[str, Any], action: str, floor: int) -> dict[str, Any]:
+def _dock_step(
+    conn,
+    dock_id: str,
+    scan: dict[str, Any],
+    action: str,
+    floor: int,
+    *,
+    command_sequence_no: int,
+    evidence_sequence_no: int,
+) -> dict[str, Any]:
     marker_id = _aruco_marker_for_dock(conn, dock_id, scan)
     params: dict[str, Any] = {
         "aruco_marker_id": marker_id,
@@ -131,6 +171,9 @@ def _dock_step(conn, dock_id: str, scan: dict[str, Any], action: str, floor: int
         "action_type": "dock_transfer",
         "name": f"dock:{dock_id}:{action}",
         "params": params,
+        "command_sequence_no": int(command_sequence_no),
+        "evidence_sequence_no": int(evidence_sequence_no),
+        "human_hazard_monitor": False,
     }
 
 
@@ -140,11 +183,33 @@ def _append_dock_gate(
     dock_id: str,
     action: str,
     floor: int,
+    *,
+    move_sequence_no: int,
+    dock_sequence_no: int,
+    evidence_sequence_no: int,
+    human_hazard_monitor: bool = False,
 ) -> None:
     scan = _resolve_scan_for_dock(conn, dock_id)
     _require_location(conn, dock_id, label="dock")
-    _append_route_and_scan(conn, steps, scan, scan_name=f"scan:{scan.get('slot_id') or dock_id}")
-    steps.append(_dock_step(conn, dock_id, scan, action, floor))
+    _append_route_and_scan(
+        conn,
+        steps,
+        scan,
+        scan_name=f"scan:{scan.get('slot_id') or dock_id}",
+        command_sequence_no=move_sequence_no,
+        human_hazard_monitor=human_hazard_monitor,
+    )
+    steps.append(
+        _dock_step(
+            conn,
+            dock_id,
+            scan,
+            action,
+            floor,
+            command_sequence_no=dock_sequence_no,
+            evidence_sequence_no=evidence_sequence_no,
+        )
+    )
 
 
 def _append_aruco_align_gate(
@@ -153,17 +218,30 @@ def _append_aruco_align_gate(
     location_id: str,
     *,
     label: str,
+    move_sequence_no: int,
+    align_sequence_no: int | None = None,
 ) -> None:
     """Append a scan move and its non-lift final ArUco alignment."""
     scan = _resolve_scan_for_dock(conn, location_id)
     _require_location(conn, location_id, label=label)
     marker = _aruco_marker_for_dock(conn, location_id, scan)
-    _append_route_and_scan(conn, steps, scan, scan_name=f"scan:{scan.get('slot_id') or location_id}")
-    steps.append({
+    _append_route_and_scan(
+        conn,
+        steps,
+        scan,
+        scan_name=f"scan:{scan.get('slot_id') or location_id}",
+        command_sequence_no=move_sequence_no,
+    )
+    align_step = {
         "action_type": "aruco_align",
         "name": f"{label}:{location_id}",
         "params": {"aruco_marker_id": marker, "final": label},
-    })
+        "human_hazard_monitor": False,
+    }
+    # For return-home the final alignment is part of the same logical movement
+    # recipe.  CHARGE has a dedicated alignment recipe step.
+    align_step["command_sequence_no"] = int(align_sequence_no or move_sequence_no)
+    steps.append(align_step)
 
 def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
     task_type = str(task.get("task_type") or "").upper()
@@ -178,6 +256,7 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
         "action_type": "leave_dock",
         "name": "leave_dock",
         "params": {"aruco_marker_id": int(home_scan["marker_id"])},
+        "human_hazard_monitor": False,
     })
 
     if task_type == "INBOUND":
@@ -186,16 +265,54 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
         if not inbound_id or not storage_id:
             raise HTTPException(status_code=409, detail="inbound task missing from/to locations")
         map_id = field_bindings.map_for_locations([str(inbound_id), str(storage_id), home_id])
-        _append_dock_gate(conn, steps, str(inbound_id), "load", floor)
-        _append_dock_gate(conn, steps, str(storage_id), "unload", floor)
+        _append_dock_gate(
+            conn,
+            steps,
+            str(inbound_id),
+            "load",
+            floor,
+            move_sequence_no=1,
+            dock_sequence_no=2,
+            evidence_sequence_no=3,
+        )
+        _append_dock_gate(
+            conn,
+            steps,
+            str(storage_id),
+            "unload",
+            floor,
+            move_sequence_no=4,
+            dock_sequence_no=6,
+            evidence_sequence_no=5,
+            human_hazard_monitor=True,
+        )
     elif task_type == "OUTBOUND":
         storage_id = task.get("from_location_id")
         outbound_id = task.get("to_location_id")
         if not storage_id or not outbound_id:
             raise HTTPException(status_code=409, detail="outbound task missing from/to locations")
         map_id = field_bindings.map_for_locations([str(storage_id), str(outbound_id), home_id])
-        _append_dock_gate(conn, steps, str(storage_id), "load", floor)
-        _append_dock_gate(conn, steps, str(outbound_id), "unload", floor)
+        _append_dock_gate(
+            conn,
+            steps,
+            str(storage_id),
+            "load",
+            floor,
+            move_sequence_no=1,
+            dock_sequence_no=2,
+            evidence_sequence_no=3,
+        )
+        _append_dock_gate(
+            conn,
+            steps,
+            str(outbound_id),
+            "unload",
+            floor,
+            move_sequence_no=4,
+            dock_sequence_no=6,
+            evidence_sequence_no=5,
+            human_hazard_monitor=True,
+        )
     else:
         raise HTTPException(status_code=409, detail=f"unsupported in/out task_type={task_type}")
 
@@ -203,7 +320,7 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
     # Lift work completes only after a configured scan approach and final ArUco park.
     # A missing or malformed home/park setup blocks scenario creation instead of
     # silently degrading a cargo-return task to an imprecise plain move.
-    _append_aruco_align_gate(conn, steps, home_id, label="park")
+    _append_aruco_align_gate(conn, steps, home_id, label="park", move_sequence_no=7)
 
     return {"map_id": map_id, "steps": steps}
 
@@ -221,8 +338,20 @@ def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
         if not charge_id:
             raise HTTPException(status_code=409, detail="charge task missing charge location")
         map_id = field_bindings.map_for_locations([str(charge_id)])
-        steps = [{"action_type": "leave_dock", "name": "leave_dock", "params": {}}]
-        _append_aruco_align_gate(conn, steps, str(charge_id), label="charge")
+        steps = [{
+            "action_type": "leave_dock",
+            "name": "leave_dock",
+            "params": {},
+            "human_hazard_monitor": False,
+        }]
+        _append_aruco_align_gate(
+            conn,
+            steps,
+            str(charge_id),
+            label="charge",
+            move_sequence_no=1,
+            align_sequence_no=2,
+        )
         return {"map_id": map_id, "steps": steps}
 
     map_id = settings.movement_active_map_id
@@ -242,6 +371,7 @@ def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
                 "x": float(loc["x"]),
                 "y": float(loc["y"]),
                 "yaw": float(loc.get("yaw") or 0.0),
+                "human_hazard_monitor": False,
             })
     if not steps and task.get("to_location_id"):
         loc = location_repo(conn).get(task["to_location_id"])
@@ -251,14 +381,32 @@ def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
                 "name": task["to_location_id"],
                 "x": float(loc.get("x") or 0),
                 "y": float(loc.get("y") or 0),
+                "human_hazard_monitor": False,
             })
     return {"map_id": map_id, "steps": steps}
 
 
-def resolve_command_def_id(conn, task: dict[str, Any], cursor: int, leg_kind: str) -> int | None:
-    """Map orchestration leg cursor to static commands.id (PHASE_65-C)."""
+def resolve_command_def_id(
+    conn,
+    task: dict[str, Any],
+    cursor: int,
+    leg_kind: str | None,
+    *,
+    sequence_no: int | None = None,
+) -> int | None:
+    """Map one logical recipe sequence to static ``commands.id``.
+
+    ``cursor`` remains as a legacy fallback for old orchestration snapshots.
+    New runtime steps carry ``command_sequence_no`` so extra transit waypoints do
+    not shift the DB recipe mapping.
+    """
     task_type = str(task.get("task_type") or "MOVE").upper()
-    return command_repo(conn).resolve_for_leg(task_type, cursor + 1, leg_kind)
+    resolved_sequence = int(sequence_no) if sequence_no is not None else cursor + 1
+    return command_repo(conn).resolve_for_leg(
+        task_type,
+        resolved_sequence,
+        None if sequence_no is not None else leg_kind,
+    )
 
 
 def record_movement_evidence(
@@ -317,7 +465,7 @@ def derived_movement_commands(conn, limit: int = 50) -> list[dict[str, Any]]:
             continue
         data = row.get("data_json") or {}
         out.append({
-            "command_id": str(data.get("command_id") or row["id"]),
+            "command_id": str(data.get("movement_command_id") or data.get("command_id") or row["id"]),
             "robot_id": data.get("robot_id"),
             "command_type": row["event_type"],
             "command": data.get("command") or row["event_type"],

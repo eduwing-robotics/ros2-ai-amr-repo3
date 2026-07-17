@@ -1,13 +1,13 @@
-from collections import deque
 import math
 import time
-from threading import Event, Lock, Thread as RealThread
+from collections import deque
+from threading import Event, Lock
+from threading import Thread as RealThread
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import pytest
-
 import logistics_navigator as navigator_module
+import pytest
 from logistics_navigator import LogisticsNavigator
 
 
@@ -313,6 +313,35 @@ def test_repeated_observe_only_request_keeps_the_active_search_running():
     assert navigator.global_localization_stop_event.is_set() is False
     previous.join.assert_not_called()
     navigator.global_localization_client.call_async.assert_not_called()
+
+
+def test_explicit_observe_only_restart_discards_active_search_and_starts_fresh():
+    navigator = navigator_stub()
+    previous = MagicMock()
+    previous.is_alive.side_effect = [True, False]
+    navigator.global_localization_thread = previous
+    navigator.global_localization_status = {
+        "accepted": True,
+        "strategy": "observe_only",
+        "motion_started": False,
+        "reason": "map_wide_candidate_pending",
+    }
+    navigator._reset_global_localization_observations = MagicMock()
+    navigator._observe_only_localization_search = MagicMock()
+
+    result = navigator.request_global_localization(
+        {
+            "strategy": "observe_only",
+            "restart_existing": True,
+        }
+    )
+    navigator.global_localization_thread.join(timeout=1.0)
+
+    assert result["accepted"] is True
+    assert result["reason"] == "amcl_global_search_started"
+    previous.join.assert_called_once_with(timeout=0.5)
+    navigator._reset_global_localization_observations.assert_called_once_with()
+    navigator.global_localization_client.call_async.assert_called_once()
 
 
 def test_concurrent_bounded_requests_never_create_two_motion_workers(monkeypatch):

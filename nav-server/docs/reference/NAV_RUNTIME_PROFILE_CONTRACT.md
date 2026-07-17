@@ -26,6 +26,11 @@ readiness requires an expected controller node on `/cmd_vel`, and physical lift
 readiness comes from the API's subscriber-and-fresh-telemetry `lift.ready` gate,
 not from topic names alone.
 
+Every live or synthetic-HIL Nav profile owns its selected robots' Nav2 helper as
+`managed-script`. The supervisor starts Movement API endpoints first, then
+Nav2 and observe-only localization, and reports the profile ready only when each
+selected endpoint reports both `localized=true` and `nav2_ready=true`.
+
 ## Evidence boundary
 
 `tb1-synthetic-hil` is test-only, has `execution_class=synthetic_hil` and

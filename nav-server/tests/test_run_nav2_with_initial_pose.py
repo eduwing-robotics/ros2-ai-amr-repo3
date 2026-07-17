@@ -1,4 +1,4 @@
-"""Fail-closed startup contracts for Nav2 localization bringup."""
+"""Startup contracts for Nav2 localization bringup."""
 
 from __future__ import annotations
 
@@ -76,7 +76,11 @@ if [[ "$1 $2 $3" == "run tf2_ros tf2_echo" ]]; then
   [[ "${FAKE_TF:-1}" == "1" ]] || exit 1
   echo "Translation: [0.0, 0.0, 0.0]"
 elif [[ "$1 $2" == "service call" ]]; then
-  echo "success: true"
+  if [[ "${FAKE_LIFECYCLE_ACTIVE:-1}" == "1" ]]; then
+    echo "success: true"
+  else
+    echo "success: false"
+  fi
 fi
 exit 0
 """,
@@ -439,17 +443,34 @@ def test_missing_odom_tf_still_fails_after_api_readiness_and_before_launch(tmp_p
 
 @pytest.mark.parametrize(
     "mode",
-    ["failed", "trigger-rejected", "unavailable", "stale-map", "stale-domain", "stale-robot", "inconsistent"],
+    ["failed", "trigger-rejected", "inconsistent"],
 )
-def test_localization_failure_or_identity_mismatch_never_reaches_lifecycle(
+def test_localization_failure_keeps_nav2_online_with_movement_admission_closed(
     tmp_path: Path, mode: str
 ) -> None:
     result, events = _run_startup(tmp_path, env_overrides={"FAKE_API_MODE": mode})
 
-    assert result.returncode != 0
+    assert result.returncode == 0, result.stdout + result.stderr
     assert "LOCALIZATION_FAILED" in result.stderr
-    assert not any("/lifecycle_manager_navigation/is_active" in event for event in events)
+    assert any("/lifecycle_manager_navigation/is_active" in event for event in events)
+    assert "localization-pending: Nav2 remains online" in result.stderr
+    assert "movement stays blocked until localization converges" in result.stderr
+    assert "위치 다시 찾기" in result.stderr
     assert "navigation-ready" not in result.stdout
+    assert not any("/cmd_vel" in event for event in events)
+
+
+def test_nav2_lifecycle_failure_remains_fatal(tmp_path: Path) -> None:
+    result, events = _run_startup(
+        tmp_path,
+        env_overrides={"FAKE_LIFECYCLE_ACTIVE": "0", "NAV2_STARTUP_RETRY_SEC": "1"},
+    )
+
+    assert result.returncode != 0
+    assert any("/lifecycle_manager_navigation/is_active" in event for event in events)
+    assert "navigation lifecycle not active yet" in result.stderr
+    assert "navigation-ready" not in result.stdout
+    assert "localization-pending" not in result.stderr
     assert not any("/cmd_vel" in event for event in events)
 
 

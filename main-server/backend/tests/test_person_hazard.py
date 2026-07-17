@@ -72,6 +72,30 @@ class PersonHazardPolicyTest(unittest.TestCase):
             self.assertFalse(ph.process_advisory(conn, runtime, _fresh_advisory(observed_at=old)))
             repo.append.assert_not_called()
 
+    def test_low_confidence_advisory_does_not_trigger_estop(self) -> None:
+        runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        conn = MagicMock()
+        repo = MagicMock()
+        payload = _fresh_advisory()
+        payload["event"]["confidence"] = 0.395
+        with (
+            patch("app.services.person_hazard.evidence_repo", return_value=repo),
+            patch("app.services.person_hazard.movement_client.estop") as estop,
+            patch.object(
+                ph,
+                "settings",
+                SimpleNamespace(
+                    person_hazard_min_confidence=0.5,
+                    person_hazard_cooldown_sec=2.0,
+                    person_hazard_stale_sec=2.0,
+                ),
+            ),
+        ):
+            self.assertFalse(ph.process_advisory(conn, runtime, payload))
+
+        repo.append.assert_not_called()
+        estop.assert_not_called()
+
     def test_fresh_advisory_creates_evidence_and_estop(self) -> None:
         runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
         conn = MagicMock()

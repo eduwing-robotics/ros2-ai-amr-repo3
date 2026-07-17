@@ -22,22 +22,9 @@ from collections import deque
 from pathlib import Path
 
 import rclpy
-from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
-from rcl_interfaces.srv import GetParameters, SetParameters
-from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
-from rclpy.duration import Duration
-from rclpy.time import Time
-from tf2_ros import Buffer, ConnectivityException, ExtrapolationException, LookupException, TransformListener
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TwistStamped
 from lifecycle_msgs.srv import GetState
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
-
-
-from sensor_msgs.msg import BatteryState, CompressedImage, LaserScan
-from std_msgs.msg import Bool, String
-from std_srvs.srv import Empty
-
 from nav_app.services.scan_map_alignment import (
     align_scan_to_map,
     alignment_config,
@@ -45,6 +32,16 @@ from nav_app.services.scan_map_alignment import (
     global_align_scan_to_map,
     select_temporal_global_hypothesis,
 )
+from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.srv import GetParameters, SetParameters
+from rclpy.duration import Duration
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+from rclpy.time import Time
+from sensor_msgs.msg import BatteryState, CompressedImage, LaserScan
+from std_msgs.msg import Bool, String
+from std_srvs.srv import Empty
+from tf2_ros import Buffer, ConnectivityException, ExtrapolationException, LookupException, TransformListener
 
 # --- 설정 및 경로 ---
 ROOT = Path(__file__).resolve().parents[1]
@@ -968,8 +965,45 @@ class LogisticsNavigator(Node):
             "y": float(translation.y),
             "yaw": float(yaw),
             "stamp": {"sec": int(stamp.sec), "nanosec": int(stamp.nanosec)},
-            "age_sec": round(age_sec, 3),
+            # AMCL may publish map->odom slightly in the future by its
+            # transform_tolerance. It is valid inside the window above, but a
+            # negative public age looks like a clock fault to Main. Expose it
+            # as a fresh sample while retaining the raw stamp for diagnostics.
+            "age_sec": round(max(0.0, age_sec), 3),
             "reported_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + "Z",
+        }
+
+    def _pose_at_scan_stamp(self, scan):
+        """Return map pose at the exact LiDAR sample time.
+
+        Scan/map matching must not combine a delayed scan with the latest TF;
+        that can look like a large position error while the robot is healthy.
+        This historical lookup is diagnostic-only and does not overwrite the
+        latest-TF liveness state used by movement safety checks.
+        """
+        header = getattr(scan, "header", None)
+        stamp = getattr(header, "stamp", None)
+        if stamp is None or self._header_stamp_sec(header) is None:
+            return None
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                "map",
+                "base_link",
+                Time.from_msg(stamp),
+                timeout=Duration(seconds=0.20),
+            )
+        except (LookupException, ConnectivityException, ExtrapolationException):
+            return None
+        translation = transform.transform.translation
+        q = transform.transform.rotation
+        yaw = math.atan2(
+            2.0 * (q.w * q.z + q.x * q.y),
+            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+        )
+        return {
+            "x": float(translation.x),
+            "y": float(translation.y),
+            "yaw": float(yaw),
         }
 
     def set_simulated_pose(self, x, y, yaw=0.0, frame_id="map"):
@@ -1088,12 +1122,12 @@ class LogisticsNavigator(Node):
         config = alignment_config(profile)
         if not config["enabled"]:
             return {"accepted": True, "refinement_required": False, "reason": "disabled", "attempts": 0}
-        pose = self._pose_from_transform()
         with self.scan_lock:
             scan = self.latest_scan
             scan_token = self.latest_scan_monotonic
-        if pose is None or scan is None:
-            return {"accepted": False, "refinement_required": False, "reason": "pose_or_scan_missing"}
+            scan_stamp = self.latest_scan_header_stamp_sec
+        if scan is None:
+            return {"accepted": False, "refinement_required": False, "reason": "scan_missing"}
         prior_token = self.scan_map_alignment_status.get("last_confirmation_scan_token")
         check_interval = max(0.0, float(config.get("continuous_check_interval_sec", 1.0)))
         if (
@@ -1101,6 +1135,33 @@ class LogisticsNavigator(Node):
             and scan_token - float(prior_token) < check_interval
         ):
             return dict(self.scan_map_alignment_status)
+        max_scan_age = float(profile.get("localization", {}).get("max_scan_age_sec", 1.0))
+        scan_source_age = time.time() - float(scan_stamp) if scan_stamp else None
+        pose = self._pose_at_scan_stamp(scan)
+        if (
+            pose is None
+            or scan_source_age is None
+            or scan_source_age < -float(os.getenv("SENSOR_FUTURE_TOLERANCE_SEC", "0.25"))
+            or scan_source_age > max_scan_age
+        ):
+            prior = dict(self.scan_map_alignment_status)
+            grace = max(2.0, 2.0 * check_interval)
+            if (
+                prior.get("accepted")
+                and prior_token is not None
+                and scan_token - float(prior_token) <= grace
+            ):
+                prior["temporal_pair_pending"] = True
+                prior["deferred_reason"] = "scan_transform_pair_unavailable"
+                return prior
+            return {
+                **prior,
+                "accepted": False,
+                "refinement_required": False,
+                "reason": "temporal_pair_pending",
+                "temporal_pair_pending": True,
+                "scan_source_age_sec": scan_source_age,
+            }
         mount = self._scan_mount(scan, config)
         map_yaml = Path(str(profile["active_map_yaml"]))
         if not map_yaml.is_absolute():
@@ -1196,6 +1257,7 @@ class LogisticsNavigator(Node):
         search = dict(search or {})
         strategy = str(search.get("strategy", "observe_only"))
         allow_motion = bool(search.get("allow_motion", False))
+        restart_existing = bool(search.get("restart_existing", False))
         if strategy not in ("observe_only", "bounded_linear_wiggle"):
             return self._set_global_localization_status(False, strategy, False, "unsupported_strategy")
         if strategy != "observe_only" and not allow_motion:
@@ -1208,6 +1270,7 @@ class LogisticsNavigator(Node):
                     strategy == "observe_only"
                     and current.get("strategy") == "observe_only"
                     and not current.get("motion_started", False)
+                    and not restart_existing
                 ):
                     return {
                         **current,
@@ -1222,9 +1285,10 @@ class LogisticsNavigator(Node):
                     return self._set_global_localization_status(
                         False, strategy, False, "previous_search_still_stopping"
                     )
-                return self._set_global_localization_status(
-                    False, strategy, False, "concurrent_search_already_active"
-                )
+                if not restart_existing:
+                    return self._set_global_localization_status(
+                        False, strategy, False, "concurrent_search_already_active"
+                    )
             self.global_localization_stop_event.set()
             map_wide_scan_matching = bool(
                 strategy == "observe_only" and search.get("map_wide_scan_matching", False)

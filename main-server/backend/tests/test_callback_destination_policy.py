@@ -47,6 +47,34 @@ def test_callback_uses_configured_base_and_ignores_user_override():
         )
 
 
+def test_integration_profile_callback_uses_its_canonical_hostname():
+    configured = _settings(
+        public_base_url="http://smartfactory-integration.local:8088",
+        callback_base_url="http://smartfactory-integration.local:8088",
+        callback_allowlist=("http://smartfactory-integration.local:8088",),
+    )
+    with patch.object(helpers, "settings", configured), patch(
+        "app.api.helpers.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("192.168.30.5", 8088))]
+    ):
+        assert helpers.command_events_callback_url() == (
+            "http://smartfactory-integration.local:8088/api/v1/movement/command-events"
+        )
+
+
+def test_callback_rejects_noncanonical_site_hostname_even_when_allowlisted():
+    configured = _settings(
+        public_base_url="http://other.local:8088",
+        callback_base_url="http://other.local:8088",
+        callback_allowlist=("http://other.local:8088",),
+    )
+    with patch.object(helpers, "settings", configured), patch(
+        "app.api.helpers.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("192.168.30.5", 8088))]
+    ):
+        with pytest.raises(HTTPException) as exc:
+            helpers.command_events_callback_url()
+    assert exc.value.status_code == 503
+
+
 def test_work_order_rejects_user_callback_base_url():
     with pytest.raises(ValidationError):
         WorkOrderCreate.model_validate({

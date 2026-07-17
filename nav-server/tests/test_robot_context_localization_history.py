@@ -5,12 +5,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
+from logistics_navigator import LogisticsNavigator
 from nav_app.runtime import runtime
 from nav_app.services import robot_context
 from nav_app.services.localization import LocalizationGate
-from logistics_navigator import LogisticsNavigator
-
 
 PROFILE = {
     "localization": {
@@ -123,6 +121,130 @@ def test_scan_alignment_confirmation_is_fail_closed_without_resetting_amcl_gate(
     assert health["state"] == "CONVERGING"
     assert health["reason"] == "scan_map_alignment_confirmation_pending"
     assert health["scan_map_alignment"]["confirmation_count"] == 1
+
+
+def test_missing_scan_timestamp_pair_waits_without_marking_location_lost(
+    localization_runtime, monkeypatch
+):
+    gate, navigator = localization_runtime
+    samples = [_sample(100.0 + index * 0.5) for index in range(10)]
+    navigator.localization_observation = lambda: _observation(samples)
+    navigator.scan_map_alignment_status = {
+        "accepted": False,
+        "refinement_required": False,
+        "reason": "not_checked",
+    }
+    navigator.localization_alignment_observation = lambda _profile: {
+        "accepted": False,
+        "refinement_required": False,
+        "reason": "temporal_pair_pending",
+    }
+    monkeypatch.setattr(robot_context, "alignment_config", lambda _profile: {"enabled": True})
+
+    health = robot_context.localization_health()
+
+    assert gate.state == "LOCALIZED"
+    assert health["localized"] is False
+    assert health["state"] == "CONVERGING"
+    assert health["reason"] == "scan_map_alignment_temporal_pair_pending"
+
+
+@pytest.mark.parametrize(
+    "loss_reason",
+    ["kidnapped_pose_jump", "scan_map_alignment_refinement_pass_limit"],
+)
+def test_confirmed_idle_location_loss_starts_one_motionless_global_recovery(
+    localization_runtime, monkeypatch, loss_reason
+):
+    gate, navigator = localization_runtime
+    gate.state = "LOST" if loss_reason == "kidnapped_pose_jump" else "DEGRADED"
+    gate.reason = loss_reason
+    navigator.status = "IDLE"
+    navigator.safety = SimpleNamespace(estop=False)
+    navigator.scan_map_alignment_status = {"accepted": False, "reason": loss_reason}
+    navigator.global_localization_search_active = lambda: False
+    navigator.request_global_localization = MagicMock(return_value={
+        "accepted": True,
+        "strategy": "observe_only",
+        "motion_started": False,
+        "reason": "map_wide_scan_search_started",
+    })
+    monkeypatch.setattr(runtime, "active_movement_command_id", None)
+    monkeypatch.setattr(runtime, "mission_manager", SimpleNamespace(mission_status="IDLE"))
+
+    health = robot_context.localization_health(refresh_alignment=False)
+
+    assert health["state"] == "GLOBAL_SEARCH"
+    assert health["localized"] is False
+    assert health["automatic_recovery"]["triggered"] is True
+    assert health["automatic_recovery"]["trigger_reason"] == loss_reason
+    request = navigator.request_global_localization.call_args.args[0]
+    assert request["strategy"] == "observe_only"
+    assert request["allow_motion"] is False
+    assert request["restart_existing"] is False
+
+
+@pytest.mark.parametrize(
+    "loss_reason",
+    ["tf_discontinuous", "scan_map_alignment_temporal_pair_pending", "global_match_ambiguous"],
+)
+def test_uncertain_localization_signals_never_auto_reset(
+    localization_runtime, monkeypatch, loss_reason
+):
+    gate, navigator = localization_runtime
+    gate.state = "DEGRADED"
+    gate.reason = loss_reason
+    navigator.status = "IDLE"
+    navigator.safety = SimpleNamespace(estop=False)
+    navigator.scan_map_alignment_status = {"accepted": False, "reason": loss_reason}
+    navigator.global_localization_search_active = lambda: False
+    navigator.request_global_localization = MagicMock()
+    monkeypatch.setattr(runtime, "active_movement_command_id", None)
+    monkeypatch.setattr(runtime, "mission_manager", SimpleNamespace(mission_status="IDLE"))
+
+    health = robot_context.localization_health(refresh_alignment=False)
+
+    assert "automatic_recovery" not in health
+    navigator.request_global_localization.assert_not_called()
+
+
+def test_confirmed_location_loss_waits_for_idle_before_auto_reset(localization_runtime, monkeypatch):
+    gate, navigator = localization_runtime
+    gate.state = "LOST"
+    gate.reason = "kidnapped_pose_jump"
+    navigator.status = "MOVING"
+    navigator.safety = SimpleNamespace(estop=False)
+    navigator.scan_map_alignment_status = {"accepted": False, "reason": "kidnapped_pose_jump"}
+    navigator.global_localization_search_active = lambda: False
+    navigator.request_global_localization = MagicMock()
+    monkeypatch.setattr(runtime, "active_movement_command_id", "active-command")
+    monkeypatch.setattr(runtime, "mission_manager", SimpleNamespace(mission_status="RUNNING"))
+
+    health = robot_context.localization_health(refresh_alignment=False)
+
+    assert health["state"] == "LOST"
+    assert "automatic_recovery" not in health
+    navigator.request_global_localization.assert_not_called()
+
+
+def test_lightweight_localization_refresh_reuses_cached_alignment(localization_runtime, monkeypatch):
+    gate, navigator = localization_runtime
+    samples = [_sample(100.0 + index * 0.5) for index in range(10)]
+    navigator.localization_observation = lambda: _observation(samples)
+    navigator.scan_map_alignment_status = {
+        "accepted": True,
+        "refinement_required": False,
+        "reason": "localized_recheck_ok",
+    }
+    navigator.localization_alignment_observation = MagicMock()
+    monkeypatch.setattr(robot_context, "alignment_config", lambda _profile: {"enabled": True})
+
+    health = robot_context.localization_health(refresh_alignment=False)
+
+    assert gate.state == "LOCALIZED"
+    assert health["localized"] is True
+    assert health["scan_map_alignment"]["reason"] == "localized_recheck_ok"
+    navigator.localization_alignment_observation.assert_not_called()
 
 
 @pytest.mark.parametrize(

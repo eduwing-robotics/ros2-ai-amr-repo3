@@ -23,6 +23,7 @@ def _recovery_orchestration(
     *,
     dispatch_state: str = "PENDING",
     command_id: str | None = "cmd-recovery",
+    human_hazard_monitor: bool = True,
 ) -> dict:
     return {
         "phase": "RECOVERY_RUNNING",
@@ -46,6 +47,7 @@ def _recovery_orchestration(
             "dispatch_state": dispatch_state,
             "strategy": "safe_move",
             "cargo_state": "LOADED",
+            "human_hazard_monitor": human_hazard_monitor,
         },
     }
 
@@ -94,6 +96,40 @@ def test_recovery_dispatch_arms_person_monitor_before_movement_request() -> None
     assert result.accepted is True
     assert order == ["arm", "dispatch"]
     assert state["recovery"]["dispatch_state"] == "SENT"
+
+
+def test_empty_recovery_move_does_not_arm_person_monitor() -> None:
+    conn = MagicMock()
+    state = _recovery_orchestration(human_hazard_monitor=False)
+    state["recovery"]["cargo_state"] = "EMPTY"
+    repo = MagicMock()
+    repo.get_orchestration.side_effect = lambda _task_id: copy.deepcopy(state)
+
+    def save(_conn, _task_id, orchestration):
+        state.clear()
+        state.update(copy.deepcopy(orchestration))
+
+    with (
+        patch.object(task_recovery, "evidence_repo", return_value=repo),
+        patch.object(task_recovery.evidence_runtime, "save_orchestration", side_effect=save),
+        patch.object(person_hazard, "arm_physical_motion_monitor") as arm,
+        patch.object(person_hazard, "disable_monitor") as disable,
+        patch.object(
+            task_recovery.command_service,
+            "dispatch_robot_command",
+            return_value=RobotCommandResponse(
+                command_id="cmd-recovery",
+                robot_id="tb3_1",
+                kind="move_to_point",
+                accepted=True,
+            ),
+        ),
+    ):
+        result = task_recovery._dispatch_persisted_recovery_command(conn, 101, state)
+
+    assert result.accepted is True
+    arm.assert_not_called()
+    disable.assert_called_once_with("tb3_1", conn=conn)
 
 
 def test_stop_requested_during_dispatch_is_enforced_before_response_returns() -> None:

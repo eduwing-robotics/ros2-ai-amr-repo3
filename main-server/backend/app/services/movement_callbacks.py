@@ -20,6 +20,54 @@ from app.services.movement_health import get_movement_health
 logger = logging.getLogger(__name__)
 
 
+def _callback_event_id(payload: dict[str, Any], channel: str) -> str:
+    explicit = str(payload.get("event_id") or "").strip()
+    if explicit:
+        return explicit
+    command_id = str(payload.get("command_id") or "").strip()
+    state = str(payload.get("result") or payload.get("event") or payload.get("state") or "").strip()
+    reported_at = str(payload.get("reported_at") or "").strip()
+    if command_id and state and reported_at:
+        return f"movement:{channel}:{command_id}:{state.upper()}:{reported_at}"
+    return ""
+
+
+def _prepare_callback(conn, payload: dict[str, Any], channel: str) -> tuple[dict[str, Any], bool]:
+    prepared = dict(payload)
+    event_id = _callback_event_id(prepared, channel)
+    if not event_id:
+        return prepared, False
+    prepared["event_id"] = event_id
+    if getattr(conn, "is_postgres", False) is True:
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (f"movement-callback:{event_id}",),
+        ).fetchone()
+    duplicate = event_repo(conn).callback_event_exists(event_id) is True
+    return prepared, duplicate
+
+
+def _event_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    stored = dict(payload)
+    if payload.get("event_id"):
+        stored["callback_event_id"] = payload["event_id"]
+    return stored
+
+
+def _resolved_task_id(conn, payload: dict[str, Any]) -> int | None:
+    value = payload.get("task_id")
+    command_id = payload.get("command_id")
+    if value is None and command_id:
+        value = evidence_repo(conn).find_task_id_by_leg_command(str(command_id))
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
 def _rollback_best_effort(conn) -> None:
     try:
         conn.rollback()
@@ -37,20 +85,27 @@ def _record_fleet_estop_result(conn, events, **event: Any) -> None:
         logger.exception("failed to record fleet E-stop result")
 
 
-def ingest_command_event(conn, payload: dict[str, Any]) -> None:
+def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist Movement command callback and advance orchestration when applicable."""
+    payload, duplicate = _prepare_callback(conn, payload, "event")
+    if duplicate:
+        return {"message": "duplicate movement callback ignored", "duplicate": True, "task_advanced": False}
     command_id = payload.get("command_id")
     robot_id = payload.get("robot_name") or payload.get("robot_id")
     event = payload.get("event") or payload.get("state") or "UNKNOWN"
+    task_id = _resolved_task_id(conn, payload)
     event_repo(conn).append(
         event_type=f"MOVEMENT_COMMAND_{event}",
+        task_id=task_id,
         robot_id=robot_id,
         command_id=command_id,
         message=payload.get("message") or str(event),
-        payload=payload,
+        payload=_event_payload(payload),
     )
+    advanced = False
     if _matches_active_orchestration(conn, payload):
-        orchestrator_service.handle_command_event(conn, payload)
+        advanced = orchestrator_service.handle_command_event(conn, payload) is not None
+    return {"message": "movement command event saved", "duplicate": False, "task_advanced": advanced}
 
 
 def _matches_active_orchestration(conn, payload: dict[str, Any]) -> bool:
@@ -62,17 +117,17 @@ def _matches_active_orchestration(conn, payload: dict[str, Any]) -> bool:
     command_id = payload.get("command_id")
     if not command_id:
         return False
-    task_id = payload.get("task_id") or evidence_repo(conn).find_task_id_by_leg_command(str(command_id))
+    task_id = _resolved_task_id(conn, payload)
     if task_id is None:
         return False
-    task = task_repo(conn).get(int(task_id))
+    task = task_repo(conn).get(task_id)
     if not task:
         return False
     expected_robot = str(task.get("assigned_robot_id") or task.get("robot_id") or "")
     reported_robot = str(payload.get("robot_name") or payload.get("robot_id") or "")
     if not expected_robot or reported_robot != expected_robot:
         return False
-    orch = (task.get("preset_snapshot") or {}).get("_orchestration") or evidence_repo(conn).get_orchestration(int(task_id)) or {}
+    orch = (task.get("preset_snapshot") or {}).get("_orchestration") or evidence_repo(conn).get_orchestration(task_id) or {}
     recovery = orch.get("recovery") or {}
     phase = orch_state.normalize_phase(orch.get("phase"))
     if (
@@ -100,17 +155,22 @@ def _matches_active_orchestration(conn, payload: dict[str, Any]) -> bool:
     return active is not None
 
 
-def ingest_result(conn, payload: dict[str, Any]) -> None:
+def ingest_result(conn, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist Movement result callback and update movement command record."""
+    payload, duplicate = _prepare_callback(conn, payload, "result")
+    if duplicate:
+        return {"message": "duplicate movement result ignored", "duplicate": True}
     command_id = payload.get("command_id")
     robot_id = payload.get("robot_name") or payload.get("robot_id")
     result = payload.get("result") or "UNKNOWN"
+    task_id = _resolved_task_id(conn, payload)
     event_repo(conn).append(
         event_type=f"MOVEMENT_RESULT_{result}",
+        task_id=task_id,
         robot_id=robot_id,
         command_id=command_id,
         message=payload.get("message") or str(result),
-        payload=payload,
+        payload=_event_payload(payload),
     )
     if command_id:
         movement_repo(conn).record_result(
@@ -119,6 +179,7 @@ def ingest_result(conn, payload: dict[str, Any]) -> None:
             payload.get("message") or str(result),
             payload,
         )
+    return {"message": "movement result saved", "duplicate": False}
 
 
 def robot_status_requires_event(payload: dict[str, Any]) -> bool:
@@ -271,3 +332,74 @@ def clear_estop_all_robots(conn) -> list[dict[str, Any]]:
             )
     clear_cache()
     return results
+
+
+def clear_estop_robot(conn, robot_id: str) -> dict[str, Any]:
+    """Clear one confirmed E-stop without touching unrelated unknown robots."""
+    if not robot_repo(conn).exists(robot_id):
+        return {
+            "robot_id": robot_id,
+            "ok": False,
+            "attempted": False,
+            "state": "unknown",
+            "error": "robot not found",
+        }
+
+    snapshot = get_movement_health([robot_id], force=True).get(robot_id) or {}
+    snapshot_state = str(snapshot.get("estop_state") or "").strip().lower()
+    if snapshot.get("is_emergency") is True or snapshot_state == "active":
+        set_robot_emergency(robot_id, True)
+    elif snapshot_state == "unknown" and robot_emergency_state(robot_id) is not True:
+        set_robot_emergency(robot_id, None)
+
+    online = bool(snapshot.get("ok")) and snapshot.get("robot_online") is not False
+    if not online:
+        if robot_emergency_state(robot_id) is not True:
+            set_robot_emergency(robot_id, None)
+        clear_cache()
+        return {
+            "robot_id": robot_id,
+            "ok": False,
+            "attempted": False,
+            "state": "unknown",
+            "error": "robot offline; estop clear unconfirmed",
+        }
+
+    events = event_repo(conn)
+    try:
+        payload = movement_client.clear_estop(robot_id)
+    except MovementClientError as exc:
+        if robot_emergency_state(robot_id) is not True:
+            set_robot_emergency(robot_id, None)
+        clear_cache()
+        return {
+            "robot_id": robot_id,
+            "ok": False,
+            "attempted": True,
+            "state": "unknown",
+            "error": str(exc),
+        }
+
+    set_robot_emergency(robot_id, False)
+    events.append(
+        event_type="ROBOT_CLEAR_ESTOP",
+        robot_id=robot_id,
+        message=f"clear estop: {robot_id}",
+        payload=payload,
+    )
+    stop_ids = safety_stop_repo(conn).close_for_robot(robot_id)
+    if stop_ids:
+        events.append(
+            event_type="SAFETY_STOPS_CLOSED",
+            robot_id=robot_id,
+            message=f"robot estop cleared; safety stops closed: {robot_id}",
+            payload={"robot_id": robot_id, "stop_ids": stop_ids},
+        )
+    clear_cache()
+    return {
+        "robot_id": robot_id,
+        "ok": True,
+        "attempted": True,
+        "state": "cleared",
+        "response": payload,
+    }

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -13,6 +15,7 @@ MANIFEST = MAIN_ROOT / "database" / "reference" / "robot2_map.json"
 FIELD_BINDINGS = BACKEND_ROOT / "config" / "field-bindings.json"
 NAV_ZONES = REPO_ROOT / "nav-server" / "map" / "zones.json"
 SCHEMA = MAIN_ROOT / "database" / "schema_pg.sql"
+DOCK_REALIGN_MIGRATION = MAIN_ROOT / "database" / "migrations" / "0007_realign_robot2_dock_locations.sql"
 SCENARIO_ROUTER = BACKEND_ROOT / "app" / "api" / "routers" / "scenario.py"
 
 
@@ -92,6 +95,64 @@ def test_main_field_bindings_mirror_nav_physical_zone_and_dock_authority() -> No
         assert zone["dock_waypoint"] == binding["nav_waypoint"], location_id
         assert zone["aruco_marker_id"] == scan["marker_id"], location_id
         assert binding["pose"] == {"x": dock["x"], "y": dock["y"], "yaw": dock["theta"]}, location_id
+
+
+def test_main_dock_helpers_follow_the_release_scan_normal() -> None:
+    bindings = json.loads(FIELD_BINDINGS.read_text(encoding="utf-8"))
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    scans = {row["id"]: row for row in manifest["locations"] if row["type"] == "scan"}
+
+    for location_id, binding in bindings["locations"].items():
+        scan = scans[binding["scan_location_id"]]
+        dock = binding["pose"]
+        dx = float(dock["x"]) - float(scan["x"])
+        dy = float(dock["y"]) - float(scan["y"])
+        yaw = float(scan["yaw"])
+        forward = dx * math.cos(yaw) + dy * math.sin(yaw)
+        lateral = -dx * math.sin(yaw) + dy * math.cos(yaw)
+
+        assert 0.05 <= forward <= 0.35, location_id
+        assert abs(lateral) <= 0.005, location_id
+        assert math.isclose(float(dock["yaw"]), yaw, abs_tol=0.002), location_id
+
+
+def test_dock_realign_migration_matches_the_versioned_field_bindings() -> None:
+    bindings = json.loads(FIELD_BINDINGS.read_text(encoding="utf-8"))
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    scans = {row["id"]: row for row in manifest["locations"] if row["type"] == "scan"}
+    sql = DOCK_REALIGN_MIGRATION.read_text(encoding="utf-8")
+    row_pattern = re.compile(
+        r"\('([^']+)',\s*'([^']+)',\s*'([^']+)',\s*"
+        r"(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*"
+        r"(-?\d+(?:\.\d+)?),\s*(\d+),\s*'([^']+)'\)"
+    )
+    rows = {
+        match.group(1): {
+            "type": match.group(2),
+            "status": match.group(3),
+            "x": float(match.group(4)),
+            "y": float(match.group(5)),
+            "yaw": float(match.group(6)),
+            "marker_id": int(match.group(7)),
+            "map_id": match.group(8),
+        }
+        for match in row_pattern.finditer(sql)
+    }
+
+    assert rows.keys() == bindings["locations"].keys()
+    assert "ON CONFLICT (id) DO UPDATE SET" in sql
+    for location_id, binding in bindings["locations"].items():
+        row = rows[location_id]
+        scan = scans[binding["scan_location_id"]]
+        assert row["type"] == binding["kind"], location_id
+        assert row["status"] == "ACTIVE", location_id
+        assert row["map_id"] == binding["map_id"], location_id
+        assert row["marker_id"] == scan["marker_id"], location_id
+        for axis in ("x", "y", "yaw"):
+            assert math.isclose(row[axis], float(binding["pose"][axis]), abs_tol=0.001), (
+                location_id,
+                axis,
+            )
 
 
 def test_schema_has_release_owned_routes_and_proven_claim_constraints() -> None:

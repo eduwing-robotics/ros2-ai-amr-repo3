@@ -29,6 +29,8 @@ def _estop_summary(robots: list[Robot], health: dict) -> dict:
         snapshot = health.get(robot.robot_id) or {}
         if snapshot.get("is_emergency") is True:
             state = "active"
+        elif snapshot.get("estop_state") == "disabled":
+            state = "disabled"
         elif snapshot.get("estop_state") != "clear":
             state = "unknown"
         elif not snapshot.get("ok") or snapshot.get("robot_online") is False:

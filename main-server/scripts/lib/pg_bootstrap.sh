@@ -9,7 +9,9 @@ pg_read_env_value() {
   [[ "${LMS_DISABLE_DOTENV:-}" != "1" ]] || return 0
   [[ -f "${ROOT}/.env" ]] || return 0
   line="$(grep -E "^${key}=" "${ROOT}/.env" | tail -n1 || true)"
-  [[ -n "$line" ]] && printf '%s' "${line#*=}" | tr -d "'\""
+  if [[ -n "$line" ]]; then
+    printf '%s' "${line#*=}" | tr -d "'\""
+  fi
 }
 
 pg_redact_url() {

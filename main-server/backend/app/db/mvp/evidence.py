@@ -348,6 +348,19 @@ class MvpEventRepository:
             data_json=data,
         )
 
+    def callback_event_exists(self, event_id: str) -> bool:
+        """Return whether an idempotent Movement callback was already stored."""
+        row = self.conn.execute(
+            """
+            SELECT 1 FROM evidence_events
+            WHERE source = 'runtime'
+              AND data_json ->> 'callback_event_id' = %s
+            LIMIT 1
+            """,
+            (event_id,),
+        ).fetchone()
+        return row is not None
+
     def list(self, limit: int = 50) -> list[dict[str, Any]]:
         import json
 

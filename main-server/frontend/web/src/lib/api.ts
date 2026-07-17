@@ -15,6 +15,17 @@ export class ApiError extends Error {
   }
 }
 
+function responseErrorMessage(text: string, status: number): string {
+  if (!text) return `HTTP ${status}`;
+  try {
+    const payload = JSON.parse(text) as { detail?: unknown };
+    if (typeof payload.detail === "string") return payload.detail;
+  } catch {
+    // Preserve non-JSON upstream error text.
+  }
+  return text;
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -22,7 +33,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new ApiError(text || `HTTP ${response.status}`, response.status);
+    throw new ApiError(responseErrorMessage(text, response.status), response.status);
   }
   // 204 등 빈 응답 방어
   const body = await response.text();

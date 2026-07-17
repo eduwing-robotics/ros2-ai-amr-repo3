@@ -201,6 +201,7 @@ class Settings:
     person_hazard_poll_hz: float = float(os.getenv("LMS_PERSON_HAZARD_POLL_HZ", "3"))
     person_hazard_stale_sec: float = float(os.getenv("LMS_PERSON_HAZARD_STALE_SEC", "2.0"))
     person_hazard_cooldown_sec: float = float(os.getenv("LMS_PERSON_HAZARD_COOLDOWN_SEC", "2.0"))
+    person_hazard_min_confidence: float = float(os.getenv("LMS_PERSON_HAZARD_MIN_CONFIDENCE", "0.50"))
     person_hazard_timeout_sec: float = min(float(os.getenv("LMS_PERSON_HAZARD_TIMEOUT_SEC", "0.5")), 1.0)
     # Operator-approved recovery moves only to this safe home location.
     recovery_safe_location_id: str = os.getenv("LMS_RECOVERY_SAFE_LOCATION_ID", "HOME_01").strip()

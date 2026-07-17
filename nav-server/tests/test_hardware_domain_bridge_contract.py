@@ -23,9 +23,11 @@ def test_robot1_hardware_bridge_is_topic_allowlisted_and_robot2_free() -> None:
         "joint_states",
         "imu",
         "battery_state",
+        "mission/tb3_1/aruco/detections",
         "cmd_vel",
     }
     assert config["topics"]["scan"]["qos"]["reliability"] == "best_effort"
+    assert config["topics"]["mission/tb3_1/aruco/detections"]["qos"]["reliability"] == "best_effort"
     assert config["topics"]["tf_static"]["qos"]["durability"] == "transient_local"
     assert config["topics"]["cmd_vel"]["reversed"] is True
     assert "camera" not in config["topics"]

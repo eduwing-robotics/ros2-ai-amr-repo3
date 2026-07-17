@@ -7,7 +7,6 @@ import argparse
 import fcntl
 import json
 import os
-from pathlib import Path
 import secrets
 import shutil
 import signal
@@ -16,10 +15,10 @@ import subprocess
 import sys
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
-
+from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "config" / "runtime_profiles" / "stack" / "manifest.json"
@@ -409,9 +408,8 @@ def component_env(profile: dict[str, Any], component: str, token: str, run_id: s
 
 
 def http_ready(url: str, timeout: float = 1.0) -> bool:
-    request = Request(url, headers={"Accept": "application/json"}, method="GET")
     try:
-        with urlopen(request, timeout=timeout) as response:
+        with urlopen(url, timeout=timeout) as response:
             return 200 <= response.status < 300
     except (HTTPError, URLError, TimeoutError, OSError):
         return False

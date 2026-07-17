@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -204,6 +205,13 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
                 },
             },
         }
+
+        def echo_runtime_command(payload):
+            echoed = copy.deepcopy(response)
+            echoed["command_id"] = payload["command_id"]
+            echoed["event"]["command_id"] = payload["command_id"]
+            return echoed
+
         with (
             patch.object(orchestrator, "task_repo") as task_repo,
             patch.object(orchestrator, "robot_repo") as robot_repo,
@@ -211,7 +219,11 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
             patch.object(orchestrator.command_service, "dispatch_robot_command") as dispatch,
             patch.object(orchestrator.person_hazard, "arm_physical_motion_monitor", return_value=True),
             patch.object(orchestrator.lift_load_evidence, "settings", _lift_gate_settings()),
-            patch.object(orchestrator.lift_load_evidence, "post_lift_load_evaluate", return_value=response) as post,
+            patch.object(
+                orchestrator.lift_load_evidence,
+                "post_lift_load_evaluate",
+                side_effect=echo_runtime_command,
+            ) as post,
             patch.object(orchestrator.lift_load_evidence, "evidence_repo", return_value=repo),
             patch.object(orchestrator.lift_load_evidence, "item_repo", return_value=catalog),
             patch.object(orchestrator, "event_repo"),

@@ -27,11 +27,13 @@ scripts/sf_nav.sh --profile <profile-id> print-config
 ROS_SETUP=/opt/ros/jazzy/setup.bash scripts/sf_nav.sh --profile <profile-id> check
 ```
 
-`print-config`는 선택 profile의 robot, domain, port, component ownership을 출력한다. `check`는 ROS setup, `ros2`, config, map file, duplicate port, `uvicorn`, `nav_app.app` import를 확인한다.
+`print-config`는 선택 profile의 robot, domain, port, component ownership을 출력한다. `check`는 ROS setup, TurtleBot3 overlay, `ros2`, config, map file, duplicate port, `uvicorn`, `nav_app.app` import를 확인한다.
 
 ## Nav API 시작
 
-ROS/Nav2와 현장 safety 조건을 준비한 terminal에서 실행한다.
+robot base와 현장 safety 조건을 준비한 terminal에서 실행한다. profile launcher가
+Movement API를 먼저 준비한 뒤 선택 로봇의 Nav2와 자동 `observe_only`
+localization을 함께 시작한다. 별도 `nav_ops.sh nav2-1`/`nav2-2`를 실행하지 않는다.
 
 ```bash
 cd nav-server
@@ -60,7 +62,7 @@ physical operation에서는 `active_robot_id`, `ros_domain_id`, `capabilities`, 
 
 ## 종료
 
-`foreground` terminal에서는 `Ctrl+C`가 child Nav process group을 정리한다.
+`foreground` terminal에서는 `Ctrl+C`가 Movement API와 Nav2/RViz child process group을 정리한다.
 백그라운드 `up`은 다음 `down` 명령으로 종료한다. 상태 확인은 `status`다.
 
 ```bash

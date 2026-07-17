@@ -134,7 +134,7 @@ def _probe_http_health(robot_id: str) -> dict[str, Any]:
     last_failed: dict[str, Any] | None = None
     bases = health_bases_for(robot_id)
     if not bases:
-        return failed_health(robot_id, "", "movement_endpoint_not_configured")
+        return unconfigured_health(robot_id)
     for base in bases:
         for url in health_urls_for(base):
             result = _probe_health_url(robot_id, url, base)
@@ -277,6 +277,30 @@ def failed_health(robot_id: str, url: str, error: str) -> dict[str, Any]:
         "checked_at": now_iso(),
         "is_emergency": robot_is_emergency(robot_id),
         "estop_state": "active" if local_estop is True else "unknown",
+    }
+
+
+def unconfigured_health(robot_id: str) -> dict[str, Any]:
+    """Represent a robot intentionally omitted from this Main profile.
+
+    An unconfigured endpoint is not an unreachable robot.  Keeping those two
+    states distinct prevents a TB1-only profile from showing a fleet E-stop
+    warning solely because TB2 is outside the selected runtime profile.
+    """
+    local_estop = robot_emergency_state(robot_id)
+    active = local_estop is True
+    return {
+        "ok": False,
+        "configured": False,
+        "robot_name": robot_id,
+        "mode": movement_client.mode,
+        "base_url": "",
+        "error": "movement_endpoint_not_configured",
+        "checked_at": now_iso(),
+        "robot_online": False,
+        "is_emergency": active,
+        "estop_state": "active" if active else "disabled",
+        "command_accepting": False,
     }
 
 

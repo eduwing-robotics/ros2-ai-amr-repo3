@@ -186,6 +186,24 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         )
         self.assertEqual(sum(step.get("waypoint_id") == "inbound_slot_1_approach" for step in steps), 1)
 
+        source_route = steps[1:4]
+        self.assertEqual({step["command_sequence_no"] for step in source_route}, {1})
+        self.assertEqual({step["human_hazard_monitor"] for step in source_route}, {False})
+
+        load = next(step for step in steps if step.get("params", {}).get("action") == "load")
+        unload = next(step for step in steps if step.get("params", {}).get("action") == "unload")
+        self.assertEqual((load["command_sequence_no"], load["evidence_sequence_no"]), (2, 3))
+        self.assertEqual((unload["command_sequence_no"], unload["evidence_sequence_no"]), (6, 5))
+
+        loaded_route = [
+            step for step in steps
+            if step.get("command_sequence_no") == 4 and step["action_type"] == "move"
+        ]
+        self.assertTrue(loaded_route)
+        self.assertTrue(all(step["human_hazard_monitor"] is True for step in loaded_route))
+        self.assertFalse(load["human_hazard_monitor"])
+        self.assertFalse(unload["human_hazard_monitor"])
+
 
 if __name__ == "__main__":
     unittest.main()

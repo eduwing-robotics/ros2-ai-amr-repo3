@@ -72,6 +72,7 @@ class InitialPoseRequest(BaseModel):
 class GlobalLocalizationRequest(BaseModel):
     strategy: str = Field(default="observe_only", description="observe_only 또는 bounded_linear_wiggle")
     allow_motion: bool = Field(default=False, description="bounded motion을 명시적으로 허용할 때만 true")
+    restart_existing: bool = Field(default=False, description="진행 중인 탐색을 폐기하고 처음부터 다시 시작")
     source: Optional[str] = Field(default=None, description="요청 출처 예: main_ui")
 
 

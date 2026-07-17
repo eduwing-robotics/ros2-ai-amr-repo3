@@ -63,5 +63,5 @@ class RecoveryActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     cargo_state: Literal["LOADED", "EMPTY", "UNKNOWN"] = "UNKNOWN"
-    strategy: Literal["safe_move", "manual_abort"] = "safe_move"
+    strategy: Literal["resume_task", "safe_move", "manual_abort"] = "safe_move"
     checks: RecoverySafetyChecks

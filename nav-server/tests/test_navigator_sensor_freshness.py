@@ -6,12 +6,11 @@ import importlib.util
 import sys
 import threading
 import time
-from unittest.mock import Mock
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -174,6 +173,7 @@ def test_pose_lookup_accepts_amcl_postdated_transform_within_tf_window(navigator
 
     assert pose is not None
     assert pose["x"] == 1.0
+    assert pose["age_sec"] == 0.0
     assert navigator.latest_tf_continuous is True
 
 
@@ -249,6 +249,10 @@ def _alignment_navigator(cls, *, scan_token=10.0):
     navigator.scan_lock = threading.Lock()
     navigator.scan_map_alignment_lock = threading.RLock()
     navigator.latest_scan = SimpleNamespace(
+        header=SimpleNamespace(
+            frame_id="base_scan",
+            stamp=SimpleNamespace(sec=int(time.time()), nanosec=0),
+        ),
         ranges=[1.0],
         angle_min=0.0,
         angle_increment=1.0,
@@ -256,6 +260,7 @@ def _alignment_navigator(cls, *, scan_token=10.0):
         range_max=3.0,
     )
     navigator.latest_scan_monotonic = scan_token
+    navigator.latest_scan_header_stamp_sec = time.time()
     navigator.scan_map_alignment_status = {
         "accepted": False,
         "refinement_required": False,
@@ -263,7 +268,7 @@ def _alignment_navigator(cls, *, scan_token=10.0):
         "attempts": 0,
         "confirmation_count": 0,
     }
-    navigator._pose_from_transform = lambda: {"x": 0.0, "y": 0.0, "yaw": 0.0}
+    navigator._pose_at_scan_stamp = lambda _scan: {"x": 0.0, "y": 0.0, "yaw": 0.0}
     navigator._scan_mount = lambda *_args: {"x": 0.0, "y": 0.0, "yaw": 0.0}
     return navigator
 
@@ -335,6 +340,62 @@ def test_concurrent_alignment_queries_compute_one_scan_once(navigator_class, mon
     assert len(calls) == 1
     assert len(results) == 2
     assert all(result["confirmation_count"] == 1 for result in results)
+
+
+def test_scan_alignment_uses_pose_at_scan_timestamp(navigator_class, monkeypatch):
+    stamp = SimpleNamespace(sec=123, nanosec=456)
+    scan = SimpleNamespace(header=SimpleNamespace(frame_id="base_scan", stamp=stamp))
+    transform = SimpleNamespace(
+        transform=SimpleNamespace(
+            translation=SimpleNamespace(x=1.0, y=2.0),
+            rotation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
+        )
+    )
+    calls = []
+    navigator = navigator_class.__new__(navigator_class)
+    navigator.tf_buffer = SimpleNamespace(
+        lookup_transform=lambda *args, **kwargs: calls.append((args, kwargs)) or transform
+    )
+    monkeypatch.setitem(
+        navigator_class._pose_at_scan_stamp.__globals__,
+        "Time",
+        SimpleNamespace(from_msg=lambda value: ("scan-time", value)),
+    )
+
+    pose = navigator._pose_at_scan_stamp(scan)
+
+    assert pose == {"x": 1.0, "y": 2.0, "yaw": 0.0}
+    assert calls[0][0][2] == ("scan-time", stamp)
+
+
+def test_temporal_pair_gap_retains_recent_accepted_alignment(navigator_class):
+    navigator = _alignment_navigator(navigator_class, scan_token=11.0)
+    navigator.scan_map_alignment_status = {
+        "accepted": True,
+        "refinement_required": False,
+        "reason": "aligned",
+        "attempts": 0,
+        "last_confirmation_scan_token": 10.0,
+    }
+    navigator._pose_at_scan_stamp = lambda _scan: None
+
+    status = navigator.localization_alignment_observation(_alignment_profile(interval_sec=1.0))
+
+    assert status["accepted"] is True
+    assert status["reason"] == "aligned"
+    assert status["temporal_pair_pending"] is True
+    assert status["deferred_reason"] == "scan_transform_pair_unavailable"
+
+
+def test_temporal_pair_gap_without_recent_admission_stays_pending(navigator_class):
+    navigator = _alignment_navigator(navigator_class, scan_token=20.0)
+    navigator._pose_at_scan_stamp = lambda _scan: None
+
+    status = navigator.localization_alignment_observation(_alignment_profile(interval_sec=1.0))
+
+    assert status["accepted"] is False
+    assert status["refinement_required"] is False
+    assert status["reason"] == "temporal_pair_pending"
 
 
 def test_nav2_readiness_monitor_starts_only_one_background_check(navigator_class):

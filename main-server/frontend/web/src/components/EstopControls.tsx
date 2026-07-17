@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { robotClearEstopAll, robotEstopAll, type EstopResult } from "../lib/safety";
+import { robotClearEstop, robotClearEstopAll, robotEstopAll, type EstopResult } from "../lib/safety";
 import { useEmergency } from "../hooks/useEmergency";
 import { useFeedback } from "./FeedbackProvider";
 
@@ -15,7 +15,7 @@ function failedRobotSummary(result: EstopResult) {
 }
 
 export function EstopControls() {
-  const { estopState, estopPartial, unknownRobots } = useEmergency();
+  const { estopState, estopPartial, emergencyRobots, unknownRobots } = useEmergency();
   const queryClient = useQueryClient();
   const { confirm, toast } = useFeedback();
   const [busy, setBusy] = useState(false);
@@ -27,7 +27,11 @@ export function EstopControls() {
           ? `ESTOP 활성 · 미확인 ${unknownRobots.length}`
           : "ESTOP 일부 활성"
         : "ESTOP 활성";
-  const canClearEstop = estopState === "active" && unknownRobots.length === 0;
+  const canClearEstop = estopState === "active" && emergencyRobots.length > 0;
+  const scopedClear = canClearEstop && unknownRobots.length > 0;
+  const clearLabel = scopedClear
+    ? `${emergencyRobots.join(", ")} ESTOP 해제 · 미확인 ${unknownRobots.length}`
+    : "ESTOP 해제";
 
   const refreshSafety = async () => {
     await queryClient.invalidateQueries({ queryKey: ["status"] });
@@ -52,21 +56,30 @@ export function EstopControls() {
   };
 
   const clearEstop = async () => {
+    const message = scopedClear
+      ? `비상 정지된 ${emergencyRobots.join(", ")}만 해제합니다.\n상태 미확인 ${unknownRobots.join(", ")}은 건드리지 않습니다.\n해제 후 작업은 자동 재개되지 않습니다.`
+      : CLEAR_CONFIRM_MESSAGE;
     const ok = await confirm({
       title: "비상 정지 해제",
-      message: CLEAR_CONFIRM_MESSAGE,
+      message,
       confirmLabel: "해제",
       danger: true,
     });
     if (!ok) return;
     setBusy(true);
     try {
-      const result = await robotClearEstopAll();
+      const results = scopedClear
+        ? await Promise.all(emergencyRobots.map((robotId) => robotClearEstop(robotId)))
+        : [await robotClearEstopAll()];
       await refreshSafety();
-      if (result.state === "partial" || result.partial) {
-        toast(`일부 해제 · 상태 미확인: ${(result.unknown_robots ?? []).join(", ") || "unknown"}`, "err");
-      } else if (!result.ok) {
-        throw new Error("Movement 해제 실패: " + (failedRobotSummary(result) || "unknown"));
+      const failed = results.filter((result) => !result.ok);
+      if (failed.length) {
+        throw new Error(
+          "Movement 해제 실패: " +
+            (failed.map((result) => failedRobotSummary(result)).filter(Boolean).join(", ") || "unknown"),
+        );
+      } else if (scopedClear) {
+        toast(`${emergencyRobots.join(", ")} 비상 정지 해제 · 미확인 로봇은 유지`, "ok");
       } else {
         toast("비상 정지 해제됨 — 작업은 복구 선택 필요", "ok");
       }
@@ -87,7 +100,7 @@ export function EstopControls() {
           onClick={() => void clearEstop()}
           title="클릭하여 비상 정지 해제"
         >
-          {estopLabel}
+          {clearLabel}
         </button>
       ) : (
         <button

@@ -1475,9 +1475,15 @@
 .operator-fleet-card .operator-robot-command { display: block; margin: 7px 0 0 auto; visibility: visible; }
 
 .fleet-mission-dock { min-height: 0; display: flex; flex-direction: column; margin: 0; padding: 0; overflow: hidden; border-radius: var(--radius-lg); }
-.fleet-mission-head { flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-bottom: 1px solid var(--border); }
+.fleet-mission-head { flex: 0 0 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-bottom: 1px solid var(--border); }
 .fleet-mission-head h2 { margin: 0; font-size: 13px; }
 .fleet-mission-head p { margin: 2px 0 0; color: var(--text-muted); font-size: 9px; }
+.fleet-mission-head-actions { display: flex; align-items: center; gap: 8px; }
+.fleet-live-state { display: inline-flex; min-height: 28px; align-items: center; gap: 5px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--text-muted); font: inherit; font-size: 9px; cursor: pointer; }
+.fleet-live-state:hover { border-color: var(--status-progress-border); color: var(--text); }
+.fleet-live-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok-border); }
+.fleet-live-state.is-error { border-color: var(--status-danger-border); background: var(--status-danger-bg); color: var(--status-danger-fg); }
+.fleet-live-state.is-error i { background: var(--status-danger-fg); }
 .fleet-mission-legend { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 9px; }
 .fleet-mission-legend i { width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--operator); }
 .fleet-mission-legend i.is-failed { background: var(--red); }
@@ -1485,6 +1491,8 @@
 .fleet-mission-row { min-width: 760px; display: grid; grid-template-columns: 148px 132px minmax(280px, 1fr) 116px; align-items: center; gap: 10px; min-height: 70px; padding: 7px 10px; border-bottom: 1px solid var(--border-light); }
 .fleet-mission-row:last-child { border-bottom: 0; }
 .fleet-mission-row.selected { background: color-mix(in srgb, var(--operator-soft) 65%, transparent); box-shadow: inset 3px 0 0 var(--operator); }
+.fleet-mission-row.is-hold { background: color-mix(in srgb, var(--status-warning-bg) 76%, var(--surface)); box-shadow: inset 4px 0 0 var(--status-warning-border); }
+.fleet-mission-row.is-hold.selected { background: color-mix(in srgb, var(--status-warning-bg) 68%, var(--operator-soft)); box-shadow: inset 4px 0 0 var(--status-warning-border), inset 0 0 0 1px var(--status-warning-border); }
 .fleet-robot-identity { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .fleet-robot-identity strong, .fleet-robot-identity small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet-robot-identity strong { font-size: 11px; }
@@ -1498,12 +1506,14 @@
 .fleet-timeline-segment.is-done { background: var(--ok-border); }
 .fleet-timeline-segment.is-active { background: var(--operator); box-shadow: 0 0 0 2px color-mix(in srgb, var(--operator) 16%, transparent); }
 .fleet-timeline-segment.is-failed { background: var(--red); }
+.fleet-timeline-segment.is-hold { background: var(--status-warning-border); }
 .fleet-timeline-steps { display: flex; margin: 5px 0 0; padding: 0; list-style: none; }
 .fleet-timeline-steps li { min-width: 0; display: flex; flex: 1; align-items: center; gap: 3px; color: var(--text-dim); font-size: 8px; }
 .fleet-timeline-steps li > span { display: grid; width: 13px; height: 13px; flex: none; place-items: center; border: 1px solid currentColor; border-radius: 50%; }
 .fleet-timeline-steps small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet-timeline-steps .is-active { color: var(--operator); font-weight: 700; }
 .fleet-timeline-steps .is-failed { color: var(--err-fg); font-weight: 700; }
+.fleet-timeline-steps .is-hold { color: var(--status-warning-fg); font-weight: 700; }
 .fleet-mission-empty, .fleet-idle-line { color: var(--text-dim); font-size: 9px; }
 .fleet-idle-line { display: flex; align-items: center; gap: 7px; }
 .fleet-idle-line span { height: 5px; flex: 1; border-radius: 999px; background: var(--border-light); }

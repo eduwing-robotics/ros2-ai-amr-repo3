@@ -68,6 +68,8 @@ class MovementHealthTest(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"], "movement_endpoint_not_configured")
+        self.assertFalse(result["configured"])
+        self.assertEqual(result["estop_state"], "disabled")
         self.assertEqual(health_bases_for("unknown-robot"), [])
         urlopen.assert_not_called()
 

@@ -24,9 +24,9 @@
       "nav_zone": "inbound_slot_1",
       "nav_waypoint": "inbound_slot_1_dock",
       "pose": {
-        "x": -0.04,
-        "y": 1.082,
-        "yaw": 1.655
+        "x": -0.085,
+        "y": 0.206,
+        "yaw": 1.571
       },
       "scan_location_id": "inbound_slot_1_approach"
     },
@@ -36,9 +36,9 @@
       "nav_zone": "inbound_slot_2",
       "nav_waypoint": "inbound_slot_2_dock",
       "pose": {
-        "x": 0.473,
-        "y": 0.27,
-        "yaw": -1.57
+        "x": 0.234,
+        "y": 0.206,
+        "yaw": 1.571
       },
       "scan_location_id": "inbound_slot_2_approach"
     },
@@ -48,9 +48,9 @@
       "nav_zone": "outbound_slot_1",
       "nav_waypoint": "outbound_slot_1_dock",
       "pose": {
-        "x": 1.327,
-        "y": 0.27,
-        "yaw": -1.57
+        "x": 1.131,
+        "y": 0.206,
+        "yaw": 1.571
       },
       "scan_location_id": "outbound_slot_1_approach"
     },
@@ -60,9 +60,9 @@
       "nav_zone": "outbound_slot_2",
       "nav_waypoint": "outbound_slot_2_dock",
       "pose": {
-        "x": 1.541,
-        "y": 0.27,
-        "yaw": -1.57
+        "x": 1.45,
+        "y": 0.206,
+        "yaw": 1.571
       },
       "scan_location_id": "outbound_slot_2_approach"
     },
@@ -72,9 +72,9 @@
       "nav_zone": "warehouse_section_a",
       "nav_waypoint": "warehouse_a_dock",
       "pose": {
-        "x": 0.327,
-        "y": 0.573,
-        "yaw": -0.155
+        "x": 0.239,
+        "y": -0.618,
+        "yaw": 0.0
       },
       "scan_location_id": "warehouse_a_approach"
     },
@@ -84,8 +84,8 @@
       "nav_zone": "warehouse_section_b",
       "nav_waypoint": "warehouse_b_dock",
       "pose": {
-        "x": 0.74,
-        "y": 0.992,
+        "x": 0.253,
+        "y": -0.376,
         "yaw": 0.0
       },
       "scan_location_id": "warehouse_b_approach"
@@ -96,9 +96,9 @@
       "nav_zone": "warehouse_section_c",
       "nav_waypoint": "warehouse_c_dock",
       "pose": {
-        "x": 1.06,
-        "y": 1.236,
-        "yaw": 3.14
+        "x": 1.039,
+        "y": -0.631,
+        "yaw": 3.142
       },
       "scan_location_id": "warehouse_c_approach"
     },
@@ -108,9 +108,9 @@
       "nav_zone": "warehouse_section_d",
       "nav_waypoint": "warehouse_d_dock",
       "pose": {
-        "x": 1.06,
-        "y": 0.992,
-        "yaw": 3.14
+        "x": 1.025,
+        "y": -0.377,
+        "yaw": 3.142
       },
       "scan_location_id": "warehouse_d_approach"
     },
@@ -120,9 +120,9 @@
       "nav_zone": "vehicle_1_zone",
       "nav_waypoint": "vehicle_1_dock",
       "pose": {
-        "x": 0.765,
-        "y": 0.33,
-        "yaw": -1.57
+        "x": 0.527,
+        "y": 0.306,
+        "yaw": 1.571
       },
       "scan_location_id": "vehicle_1_approach"
     },
@@ -132,9 +132,9 @@
       "nav_zone": "vehicle_2_zone",
       "nav_waypoint": "vehicle_2_dock",
       "pose": {
-        "x": 0.836,
-        "y": 0.953,
-        "yaw": 1.394
+        "x": 0.816,
+        "y": 0.326,
+        "yaw": 1.571
       },
       "scan_location_id": "vehicle_2_approach"
     },
@@ -144,9 +144,9 @@
       "nav_zone": "vehicle_2_zone",
       "nav_waypoint": "vehicle_2_dock",
       "pose": {
-        "x": 0.836,
-        "y": 0.953,
-        "yaw": 1.394
+        "x": 0.816,
+        "y": 0.326,
+        "yaw": 1.571
       },
       "scan_location_id": "vehicle_2_approach"
     }

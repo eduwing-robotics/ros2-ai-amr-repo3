@@ -44,6 +44,39 @@ class OrchestratorUnfoldLegsTest(unittest.TestCase):
             steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
         self.assertEqual(steps[0]["kind"], "dock_transfer")
 
+    def test_monitor_scope_and_recipe_ids_survive_step_planning(self) -> None:
+        conn = MagicMock()
+        scenario = {
+            "map_id": "map1",
+            "steps": [
+                {
+                    "seq": 1,
+                    "action_type": "move",
+                    "x": 1.0,
+                    "y": 2.0,
+                    "command_sequence_no": 4,
+                    "human_hazard_monitor": True,
+                },
+                {
+                    "seq": 2,
+                    "action_type": "dock_transfer",
+                    "params": {"aruco_marker_id": 7, "action": "unload", "level": 1},
+                    "command_sequence_no": 6,
+                    "evidence_sequence_no": 5,
+                    "human_hazard_monitor": False,
+                },
+            ],
+        }
+        with patch.object(orchestrator, "waypoint_repo") as wp_repo:
+            wp_repo.return_value.list.return_value = []
+            steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
+
+        self.assertEqual(steps[0]["command_sequence_no"], 4)
+        self.assertTrue(steps[0]["human_hazard_monitor"])
+        self.assertEqual(steps[1]["command_sequence_no"], 6)
+        self.assertEqual(steps[1]["evidence_sequence_no"], 5)
+        self.assertFalse(steps[1]["human_hazard_monitor"])
+
     def test_missing_map_id_raises_409(self) -> None:
         conn = MagicMock()
         with self.assertRaises(HTTPException) as ctx:
@@ -225,6 +258,28 @@ class OrchestratorDuplicateTransitionTest(unittest.TestCase):
         self.assertEqual(harness.state["preset_snapshot"]["_orchestration"]["step_index"], 0)
 
 class OrchestratorDispatchRetryTest(unittest.TestCase):
+    def test_retry_generation_changes_command_id_but_remains_deterministic(self) -> None:
+        step = {
+            "seq": 1,
+            "kind": "move_to_point",
+            "status": "ABORTED",
+            "params": {"map_id": "robot2_map", "x": 1.2, "y": -0.6, "yaw": 3.14},
+        }
+
+        first_attempt = orchestrator.orch_state.deterministic_step_command_id(
+            77, "tb3_1", step, 0,
+        )
+        retried = dict(step, retry_generation=1)
+        first_retry = orchestrator.orch_state.deterministic_step_command_id(
+            77, "tb3_1", retried, 0,
+        )
+
+        self.assertNotEqual(first_attempt, first_retry)
+        self.assertEqual(
+            first_retry,
+            orchestrator.orch_state.deterministic_step_command_id(77, "tb3_1", retried, 0),
+        )
+
     def test_retry_reuses_claimed_step_command_and_never_dispatches_after_success(self) -> None:
         from app.models.schemas import RobotCommandResponse
 

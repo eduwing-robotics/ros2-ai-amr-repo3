@@ -5,12 +5,11 @@ from __future__ import annotations
 import ast
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -77,7 +76,6 @@ def test_deployment_scripts_do_not_embed_operator_home_paths():
 
 def test_overlay_paths_are_explicit_when_they_are_not_repository_relative():
     required = {
-        "scripts/run_nav2_with_initial_pose.sh": "TURTLEBOT3_SETUP:?",
         "scripts/restart_robot_camera_tb3_2.sh": "ROBOT_WS_SETUP:?",
         "scripts/robot_sbc/start_bringup.sh": "WS_SETUP:?",
         "scripts/robot_sbc/start_camera.sh": "WS_SETUP:?",
@@ -86,6 +84,13 @@ def test_overlay_paths_are_explicit_when_they_are_not_repository_relative():
     }
     for relative_path, marker in required.items():
         assert marker in (ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def test_nav2_overlay_default_is_user_portable_and_still_overridable():
+    source = (ROOT / "scripts" / "run_nav2_with_initial_pose.sh").read_text(encoding="utf-8")
+
+    assert 'TURTLEBOT3_SETUP="${TURTLEBOT3_SETUP:-$HOME/turtlebot3_ws/install/setup.bash}"' in source
+    assert "/home/codelab" not in source
 
 
 def test_main_routes_are_hostname_based_without_automatic_fallbacks():

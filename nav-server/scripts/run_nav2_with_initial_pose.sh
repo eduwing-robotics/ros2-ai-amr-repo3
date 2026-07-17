@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="${SMARTFACTORY_REPO_ROOT:-$(cd "$ROOT/.." && pwd)}"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
-TURTLEBOT3_SETUP="${TURTLEBOT3_SETUP:?TURTLEBOT3_SETUP must point to the TurtleBot3 overlay setup.bash}"
+TURTLEBOT3_SETUP="${TURTLEBOT3_SETUP:-$HOME/turtlebot3_ws/install/setup.bash}"
 MAP_YAML="${MAP_YAML:-$ROOT/map/robot2_map.yaml}"
 NAV2_PARAMS_FILE="${NAV2_PARAMS_FILE:-$ROOT/config/nav2/burger_smartfactory.yaml}"
 EKF_PARAMS_FILE="${EKF_PARAMS_FILE:-$ROOT/config/robot_localization/ekf_tb3_burger.yaml}"
@@ -399,8 +399,8 @@ print(
 wait_for_automatic_localization() {
   local url
   url="$(localization_url)"
-  trigger_observe_only_localization "$url"
-  wait_for_localized_state "$url"
+  trigger_observe_only_localization "$url" || return 1
+  wait_for_localized_state "$url" || return 1
 }
 
 wait_for_robot_readiness() {
@@ -716,18 +716,29 @@ fi
 
 sleep "$INITIAL_POSE_DELAY_SEC"
 
+localization_ready=0
 if [[ -n "$INITIAL_X" && -n "$INITIAL_Y" && -n "$INITIAL_YAW" ]]; then
   localization_endpoint="$(localization_url)"
-  request_manual_initial_pose "$localization_endpoint" "$INITIAL_X" "$INITIAL_Y" "$INITIAL_YAW"
-  wait_for_localized_state "$localization_endpoint"
+  if request_manual_initial_pose "$localization_endpoint" "$INITIAL_X" "$INITIAL_Y" "$INITIAL_YAW" \
+    && wait_for_localized_state "$localization_endpoint"; then
+    localization_ready=1
+  fi
 else
-  wait_for_automatic_localization
+  if wait_for_automatic_localization; then
+    localization_ready=1
+  fi
 fi
 
-# Navigation activation needs a valid map -> base_link transform.  Publish the
-# AMCL seed first, then perform lifecycle startup in the foreground so a failed
-# activation cannot be hidden by an untracked background job.
+# Localization controls movement admission, not process lifetime. Keep Nav2 and
+# Main online after a convergence failure so the operator can retry localization
+# without restarting the complete stack. A real Nav2 lifecycle failure remains
+# fatal and is still reported to the supervisor.
 monitor_navigation_startup
-echo "[nav2_helper] navigation-ready: localization and lifecycle gates passed"
+if [[ "$localization_ready" == "1" ]]; then
+  echo "[nav2_helper] navigation-ready: localization and lifecycle gates passed"
+else
+  echo "[nav2_helper] localization-pending: Nav2 remains online; movement stays blocked until localization converges" >&2
+  echo "[nav2_helper] recovery: use Main UI '위치 다시 찾기' to retry observe-only localization" >&2
+fi
 
 wait "$launch_pid"

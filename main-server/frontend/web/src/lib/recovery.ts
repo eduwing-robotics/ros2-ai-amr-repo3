@@ -1,7 +1,7 @@
 import { apiGet, apiSend } from "./api";
 
 export type CargoState = "LOADED" | "EMPTY" | "UNKNOWN";
-export type RecoveryStrategy = "safe_move" | "manual_abort";
+export type RecoveryStrategy = "resume_task" | "safe_move" | "manual_abort";
 
 export interface RecoveryContext {
   task_id: number;
@@ -21,6 +21,9 @@ export interface RecoveryContext {
   item_name?: string | null;
   aruco_marker_id?: number | null;
   recommended_actions?: string[];
+  resume_available?: boolean;
+  resume_block_reason?: string | null;
+  current_step_status?: string | null;
   evidence?: {
     operation?: string | null;
     vision_zone_id?: string | null;

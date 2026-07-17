@@ -13,7 +13,7 @@
       "enabled": true,
       "profile": "tb2-live",
       "readiness_mode": "http",
-      "readiness_timeout_sec": 180
+      "readiness_timeout_sec": 60
     },
     "main": {"enabled": false}
   },

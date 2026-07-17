@@ -5,16 +5,21 @@ import time
 
 from fastapi import HTTPException
 
+from nav_app.adapters.callbacks import post_main_callback as _post_main_callback
 from nav_app.config import active_robot_profile, current_ros_domain_id
 from nav_app.runtime import runtime
-from nav_app.settings import ACTIVE_ROBOT_ID, is_simulation_mode
-from nav_app.util.time import utc_now as _utc_now
-from nav_app.adapters.callbacks import post_main_callback as _post_main_callback
-from nav_app.services.status_helpers import robot_state_from_mission_status
 from nav_app.services.capabilities import active_lift_status, profile_capabilities
 from nav_app.services.lift_backends import lift_provenance
 from nav_app.services.localization import GLOBAL_SEARCH, LocalizationGate, global_search_config
 from nav_app.services.scan_map_alignment import alignment_config
+from nav_app.services.status_helpers import robot_state_from_mission_status
+from nav_app.settings import ACTIVE_ROBOT_ID, is_simulation_mode
+from nav_app.util.time import utc_now as _utc_now
+
+_AUTOMATIC_RECOVERY_REASONS = {
+    "kidnapped_pose_jump",
+    "scan_map_alignment_refinement_pass_limit",
+}
 
 def active_bridge_robot_id():
     return active_robot_profile().get("bridge_robot_id")
@@ -114,7 +119,7 @@ def _global_localization_request(gate, strategy="observe_only", allow_motion=Fal
     }
 
 
-def localization_health():
+def localization_health(*, refresh_alignment: bool = True):
     gate = localization_gate()
     observation = None
     if gate.state == "UNLOCALIZED":
@@ -147,7 +152,12 @@ def localization_health():
             current_observation = dict(observation)
             current_observation.pop("amcl_samples", None)
             gate.observe(current_observation)
-    alignment = _scan_map_alignment_admission(gate)
+    alignment = (
+        _scan_map_alignment_admission(gate)
+        if refresh_alignment
+        else _cached_scan_map_alignment()
+    )
+    automatic_recovery = _maybe_start_automatic_localization_recovery(gate)
     health = gate.health()
     if isinstance(observation, dict):
         health["tf_status_reason"] = observation.get("tf_status_reason")
@@ -161,13 +171,74 @@ def localization_health():
                 if alignment.get("reason") == "confirmation_pending":
                     health["state"] = "CONVERGING"
                     health["reason"] = "scan_map_alignment_confirmation_pending"
+                elif alignment.get("reason") == "temporal_pair_pending":
+                    health["state"] = "CONVERGING"
+                    health["reason"] = "scan_map_alignment_temporal_pair_pending"
                 elif alignment.get("reason") == "global_localization_search_active":
                     health["state"] = "CONVERGING"
                     health["reason"] = "global_localization_search_active"
                 elif alignment.get("refinement_required"):
                     health["state"] = "CONVERGING"
                     health["reason"] = "scan_map_alignment_refinement_pending"
+    if automatic_recovery is not None:
+        health["automatic_recovery"] = automatic_recovery
     return health
+
+
+def _maybe_start_automatic_localization_recovery(gate):
+    """Start one observe-only reset for a confirmed idle-robot location loss.
+
+    Timing gaps, stale sensors, ambiguous matches, and failed searches are not
+    retried automatically. They remain visible to the operator's existing
+    ``위치 다시 찾기`` action instead of creating an unstable retry loop.
+    """
+    reason = str(gate.reason)
+    if reason not in _AUTOMATIC_RECOVERY_REASONS:
+        return None
+    navigator = runtime.navigator
+    if not navigator or not hasattr(navigator, "request_global_localization"):
+        return None
+    if (
+        getattr(navigator, "status", "IDLE") != "IDLE"
+        or bool(getattr(getattr(navigator, "safety", None), "estop", False))
+        or runtime.active_movement_command_id is not None
+    ):
+        return None
+    mission_status = str(getattr(runtime.mission_manager, "mission_status", "IDLE"))
+    if mission_status in {"ACCEPTED", "RUNNING", "EMERGENCY", "CHARGING"}:
+        return None
+    if (
+        hasattr(navigator, "global_localization_search_active")
+        and navigator.global_localization_search_active()
+    ):
+        return None
+
+    gate.start(None)
+    request = {
+        **_global_localization_request(gate),
+        "restart_existing": False,
+        "source": "confirmed_idle_location_loss",
+    }
+    search = navigator.request_global_localization(request)
+    return {
+        "triggered": bool(search.get("accepted")),
+        "trigger_reason": reason,
+        "strategy": "observe_only",
+        "motion_started": bool(search.get("motion_started", False)),
+        "search_reason": search.get("reason"),
+    }
+
+
+def _cached_scan_map_alignment():
+    """Return the last admission result without running LiDAR/map optimization.
+
+    Pose telemetry is polled at 1 Hz and must stay cheap. Full localization and
+    movement-admission routes still call ``localization_health()`` with the
+    default refresh so a command can never bypass the current alignment gate.
+    """
+    navigator = runtime.navigator
+    status = getattr(navigator, "scan_map_alignment_status", None) if navigator else None
+    return dict(status) if isinstance(status, dict) else None
 
 
 def _scan_map_alignment_admission(gate):
@@ -193,7 +264,7 @@ def _scan_map_alignment_admission(gate):
     alignment = navigator.localization_alignment_observation(gate.profile)
     if alignment.get("accepted"):
         return alignment
-    if alignment.get("reason") == "confirmation_pending":
+    if alignment.get("reason") in {"confirmation_pending", "temporal_pair_pending"}:
         return alignment
     if not alignment.get("refinement_required"):
         gate.reject(f"scan_map_alignment_{alignment.get('reason', 'failed')}")
@@ -249,7 +320,7 @@ def start_localization(seed=None):
     return gate.health()
 
 
-def start_global_localization(strategy="observe_only", allow_motion=False):
+def start_global_localization(strategy="observe_only", allow_motion=False, *, restart_existing=False):
     """Start map-wide AMCL search under the robot profile's fail-closed motion policy."""
     profile = active_robot_profile()
     config = global_search_config(profile)
@@ -260,7 +331,10 @@ def start_global_localization(strategy="observe_only", allow_motion=False):
         raise ValueError("bounded localization motion requires allow_motion=true")
     gate = localization_gate()
     gate.start(None)
-    request = _global_localization_request(gate, strategy, allow_motion)
+    request = {
+        **_global_localization_request(gate, strategy, allow_motion),
+        "restart_existing": bool(restart_existing),
+    }
     search = runtime.navigator.request_global_localization(request)
     return {"localization": gate.health(), "search": search, "policy": config}
 

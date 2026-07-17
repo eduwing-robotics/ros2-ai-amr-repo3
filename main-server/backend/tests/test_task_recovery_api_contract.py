@@ -70,3 +70,29 @@ def test_execute_accepts_all_required_safety_checks_when_true(client: TestClient
         strategy="safe_move",
         checks=payload["checks"],
     )
+
+
+def test_execute_accepts_original_task_resume_strategy(client: TestClient) -> None:
+    payload = {
+        "cargo_state": "EMPTY",
+        "strategy": "resume_task",
+        "checks": {"site_clear": True, "pose_ok": True, "cargo_ok": True},
+    }
+    conn = object()
+    transaction = MagicMock()
+    transaction.return_value.__enter__.return_value = conn
+
+    with (
+        patch.object(tasks, "transaction", transaction),
+        patch.object(tasks.recovery_service, "execute_recovery", return_value={"accepted": True}) as execute,
+    ):
+        response = client.post("/api/v1/tasks/7/recovery/execute", json=payload)
+
+    assert response.status_code == 200
+    execute.assert_called_once_with(
+        conn,
+        7,
+        cargo_state="EMPTY",
+        strategy="resume_task",
+        checks=payload["checks"],
+    )

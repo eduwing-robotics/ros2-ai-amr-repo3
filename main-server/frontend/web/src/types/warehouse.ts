@@ -105,12 +105,26 @@ export interface WorkOrderTaskProgressStep {
   command_id?: string | null;
   transfer_action?: string | null;
   failure_reason?: string | null;
+  command_def_id?: number | null;
+  sequence_no?: number | null;
+  command_type?: string | null;
+  target_system?: string | null;
+  required_evidence_type?: string | null;
+  evidence_count?: number;
+  runtime_command_id?: string | null;
+  target?: string | null;
+  human_hazard_monitor?: boolean;
+  last_observed_at?: string | null;
 }
 
 export interface WorkOrderTaskProgress {
   phase: string;
   current_step_index: number;
   steps: WorkOrderTaskProgressStep[];
+  current_recipe_index?: number;
+  recipe_steps?: WorkOrderTaskProgressStep[];
+  recovery_reason?: string | null;
+  cargo_state?: string | null;
 }
 
 export interface WorkOrderRobotTask {

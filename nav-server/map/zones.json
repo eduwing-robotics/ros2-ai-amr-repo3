@@ -1,5 +1,5 @@
 {
-  "version": "factory_180cm_aruco_waypoints_v11_approach_backoff",
+  "version": "factory_180cm_aruco_waypoints_v12_normal_handoff",
   "map": {
     "image": "robot2_map.pgm",
     "yaml": "robot2_map.yaml",
@@ -8,7 +8,7 @@
   },
   "notes": [
     "Nav2 approach points were moved farther back from slots/parking boxes to reduce costmap inflation issues.",
-    "Dock handoff poses and ArUco marker positions remain close to the target; final parking should be handled by ArUco servoing.",
+    "Dock handoff poses are short straight targets on each field-validated approach normal; final motion remains ArUco-servo controlled.",
     "lift_levels_mm on approach waypoints: optional per-level pre_insert/load/unload/carry overrides (see warehouse_b_approach).",
     "lift_levels_mm L1: pre_insert=0mm → insert → load=6mm → carry=6mm.",
     "lift_levels_mm L2: pre_insert=50mm(2층 적재/진입) unload=43mm(내려놓고 후진, 2026-07-08 확정). 리프트: 이중 HOME + SPEED 700 권장."
@@ -91,9 +91,9 @@
       }
     },
     "warehouse_a_dock": {
-      "x": 0.327,
-      "y": 0.573,
-      "theta": -0.155,
+      "x": 0.239,
+      "y": -0.618,
+      "theta": 0.0,
       "role": "A 슬롯 ArUco 전환"
     },
     "warehouse_b_approach": {
@@ -143,8 +143,8 @@
       }
     },
     "warehouse_b_dock": {
-      "x": 0.74,
-      "y": 0.992,
+      "x": 0.253,
+      "y": -0.376,
       "theta": 0.0,
       "role": "B 슬롯 ArUco 전환"
     },
@@ -189,9 +189,9 @@
       }
     },
     "warehouse_c_dock": {
-      "x": 1.06,
-      "y": 1.236,
-      "theta": 3.14,
+      "x": 1.039,
+      "y": -0.631,
+      "theta": 3.142,
       "role": "C 슬롯 ArUco 전환"
     },
     "warehouse_d_approach": {
@@ -235,9 +235,9 @@
       }
     },
     "warehouse_d_dock": {
-      "x": 1.06,
-      "y": 0.992,
-      "theta": 3.14,
+      "x": 1.025,
+      "y": -0.377,
+      "theta": 3.142,
       "role": "D 슬롯 ArUco 전환"
     },
     "inbound_slot_1_pre_approach": {
@@ -289,9 +289,9 @@
       }
     },
     "inbound_slot_1_dock": {
-      "x": -0.04,
-      "y": 1.082,
-      "theta": 1.655,
+      "x": -0.085,
+      "y": 0.206,
+      "theta": 1.571,
       "role": "입고 슬롯1 ArUco 전환"
     },
     "inbound_slot_2_approach": {
@@ -337,9 +337,9 @@
       }
     },
     "inbound_slot_2_dock": {
-      "x": 0.473,
-      "y": 0.27,
-      "theta": -1.57,
+      "x": 0.234,
+      "y": 0.206,
+      "theta": 1.571,
       "role": "입고 슬롯2 ArUco 전환"
     },
     "outbound_slot_1_approach": {
@@ -384,9 +384,9 @@
       }
     },
     "outbound_slot_1_dock": {
-      "x": 1.327,
-      "y": 0.27,
-      "theta": -1.57,
+      "x": 1.131,
+      "y": 0.206,
+      "theta": 1.571,
       "role": "출고 슬롯1 ArUco 전환"
     },
     "outbound_slot_2_approach": {
@@ -432,9 +432,9 @@
       }
     },
     "outbound_slot_2_dock": {
-      "x": 1.541,
-      "y": 0.27,
-      "theta": -1.57,
+      "x": 1.45,
+      "y": 0.206,
+      "theta": 1.571,
       "role": "출고 슬롯2 ArUco 전환"
     },
     "vehicle_1_approach": {
@@ -456,9 +456,9 @@
       }
     },
     "vehicle_1_dock": {
-      "x": 0.765,
-      "y": 0.33,
-      "theta": -1.57,
+      "x": 0.527,
+      "y": 0.306,
+      "theta": 1.571,
       "role": "1호차 ArUco 정밀주차 전환"
     },
     "vehicle_2_approach": {
@@ -480,9 +480,9 @@
       }
     },
     "vehicle_2_dock": {
-      "x": 0.836,
-      "y": 0.953,
-      "theta": 1.394,
+      "x": 0.816,
+      "y": 0.326,
+      "theta": 1.571,
       "role": "2호차 ArUco 정밀주차 전환"
     }
   },

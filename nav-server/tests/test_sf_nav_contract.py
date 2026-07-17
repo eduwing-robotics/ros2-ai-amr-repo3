@@ -1,11 +1,10 @@
 import json
 import os
+import socket
 import subprocess
 import sys
-import socket
 import time
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "sf_nav.sh"
@@ -106,6 +105,13 @@ def test_every_profile_declares_base_component():
         resolved = json.loads(run_sf("--profile", name, "print-config").stdout)
         assert resolved["components"]["base"]["enabled"] is True
         assert resolved["components"]["base"]["ownership"] == "external"
+        assert resolved["components"]["nav2"] == {
+            "enabled": True,
+            "ownership": "managed-script",
+            "readiness_probe": "lifecycle-active",
+            "required": True,
+            "start_script": "scripts/run_nav2_with_initial_pose.sh",
+        }
 
 
 def test_smoke_uses_current_health_and_endpoint_contract(tmp_path):

@@ -52,7 +52,12 @@ def _robot(tmp_path: Path, robot_id: str, domain: int, port: int, *, enabled: bo
     }
 
 
-def _run(args: list[str], *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+def _run(
+    args: list[str],
+    *,
+    env: dict[str, str] | None = None,
+    cwd: Path = ROOT,
+) -> subprocess.CompletedProcess[str]:
     merged_env = os.environ.copy()
     merged_env.update(
         {
@@ -64,7 +69,7 @@ def _run(args: list[str], *, env: dict[str, str] | None = None) -> subprocess.Co
         merged_env.update(env)
     return subprocess.run(
         [str(RUN_SCRIPT), *args],
-        cwd=ROOT,
+        cwd=cwd,
         env=merged_env,
         text=True,
         stdout=subprocess.PIPE,
@@ -141,6 +146,21 @@ def test_check_mode_runs_preflight_without_starting_uvicorn(tmp_path: Path):
     assert "uvicorn" not in result.stdout.lower()
 
 
+def test_check_mode_imports_nav_app_independently_of_operator_cwd(tmp_path: Path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    ros2 = fake_bin / "ros2"
+    ros2.write_text("#!/usr/bin/env bash\necho fake ros2\n", encoding="utf-8")
+    ros2.chmod(0o755)
+    ros_setup = tmp_path / "setup.bash"
+    ros_setup.write_text(f'export PATH="{fake_bin}:$PATH"\n', encoding="utf-8")
+
+    result = _run(["--check"], env={"ROS_SETUP": str(ros_setup)}, cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "preflight OK" in result.stdout
+
+
 def test_shell_script_has_no_legacy_hardcoded_topology_or_pythonpath_injection():
     script = RUN_SCRIPT.read_text(encoding="utf-8")
 
@@ -150,6 +170,10 @@ def test_shell_script_has_no_legacy_hardcoded_topology_or_pythonpath_injection()
     assert "PYTHONPATH" not in script
     assert 'start_nav_server "tb3_burger_01"' not in script
     assert 'start_nav_server "tb3_burger_02"' not in script
+    assert 'start_nav2 "tb3_burger_01"' not in script
+    assert 'start_nav2 "tb3_burger_02"' not in script
+    assert "wait_for_movement_api_start" in script
+    assert "managed_nav2_enabled" in script
     assert 'RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"' in script
     assert 'source "$SCRIPT_DIR/configure_cyclonedds_lan.sh"' in script
     assert 'source "$SCRIPT_DIR/configure_cyclonedds_local_domain.sh"' in script
@@ -160,6 +184,7 @@ def test_nav2_helper_defaults_to_confirmed_map_and_auto_pose_has_no_stale_defaul
     nav_ops = (ROOT / "scripts" / "nav_ops.sh").read_text(encoding="utf-8")
 
     assert 'MAP_YAML="${MAP_YAML:-$ROOT/map/robot2_map.yaml}"' in helper
+    assert 'TURTLEBOT3_SETUP="${TURTLEBOT3_SETUP:-$HOME/turtlebot3_ws/install/setup.bash}"' in helper
     assert "map/robot1_map.yaml" not in helper
     assert "NAV2_INITIAL_X:-0.066" not in nav_ops
     assert "NAV2_INITIAL_Y:-0.402" not in nav_ops

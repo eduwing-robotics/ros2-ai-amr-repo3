@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.movement_helpers import (
@@ -13,9 +15,10 @@ from app.api.movement_helpers import (
 )
 from app.core.config import settings
 from app.db.connection import transaction
-from app.db.repo_bridge import event_repo, movement_repo, robot_repo
+from app.db.repo_bridge import command_repo, event_repo, movement_repo, robot_repo
 from app.models.schemas import ApiMessage, InitialPoseRequest
 from app.security import ReplayCache, verify_headers
+from app.services import evidence_runtime
 from app.services import missions as mission_service
 from app.services import movement_callbacks as callbacks
 from app.services.api_logs import list_logs as list_api_logs
@@ -206,6 +209,113 @@ def set_robot_initial_pose(robot_id: str, payload: InitialPoseRequest) -> dict:
     return {"ok": True, "robot_id": robot_id, "map_context": map_context, "response": response}
 
 
+@router.post("/robots/{robot_id}/localization/restart")
+def restart_robot_localization(robot_id: str) -> dict:
+    """Execute the reusable, observe-only localization recovery command."""
+    runtime_command_id = f"localization-restart-{robot_id}-{uuid4().hex[:12]}"
+    with transaction() as conn:
+        if not robot_repo(conn).exists(robot_id):
+            raise HTTPException(status_code=404, detail="robot not found")
+        command_def_id = command_repo(conn).resolve_for_leg("LOCALIZATION_RECOVERY", 1)
+        if command_def_id is None:
+            raise HTTPException(status_code=409, detail="localization recovery command is not configured")
+        evidence_runtime.record_movement_evidence(
+            conn,
+            task_id=None,
+            command_def_id=command_def_id,
+            event_type="LOCALIZATION_RESTART_REQUESTED",
+            source="operator",
+            data_json={
+                "runtime_command_id": runtime_command_id,
+                "robot_id": robot_id,
+                "strategy": "observe_only",
+                "allow_motion": False,
+            },
+        )
+    try:
+        response = movement_client.restart_localization(robot_id)
+    except MovementClientError as exc:
+        with transaction() as conn:
+            evidence_runtime.record_movement_evidence(
+                conn,
+                task_id=None,
+                command_def_id=command_def_id,
+                event_type="LOCALIZATION_RESTART_FAILED",
+                source="movement",
+                severity="WARNING",
+                data_json={
+                    "runtime_command_id": runtime_command_id,
+                    "robot_id": robot_id,
+                    "detail": str(exc),
+                },
+            )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "movement_localization_restart_failed",
+                "message": str(exc),
+                "robot_id": robot_id,
+            },
+        ) from exc
+    if response.get("accepted") is not True:
+        with transaction() as conn:
+            evidence_runtime.record_movement_evidence(
+                conn,
+                task_id=None,
+                command_def_id=command_def_id,
+                event_type="LOCALIZATION_RESTART_REJECTED",
+                source="movement",
+                severity="WARNING",
+                data_json={
+                    "runtime_command_id": runtime_command_id,
+                    "robot_id": robot_id,
+                    "response": response,
+                },
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "movement_localization_restart_rejected",
+                "robot_id": robot_id,
+                "response": response,
+            },
+        )
+    with transaction() as conn:
+        evidence_runtime.record_movement_evidence(
+            conn,
+            task_id=None,
+            command_def_id=command_def_id,
+            event_type="LOCALIZATION_RESTART_ACCEPTED",
+            source="movement",
+            data_json={
+                "runtime_command_id": runtime_command_id,
+                "robot_id": robot_id,
+                "response": response,
+            },
+        )
+        event_repo(conn).append(
+            event_type="MOVEMENT_LOCALIZATION_RESTART",
+            robot_id=robot_id,
+            command_id=runtime_command_id,
+            message=f"observe-only localization recovery accepted: {robot_id}",
+            payload={
+                "command_def_id": command_def_id,
+                "runtime_command_id": runtime_command_id,
+                "strategy": "observe_only",
+                "allow_motion": False,
+                "response": response,
+            },
+        )
+    return {
+        "ok": True,
+        "robot_id": robot_id,
+        "command_id": runtime_command_id,
+        "command_def_id": command_def_id,
+        "state": "ACCEPTED",
+        "response": response,
+    }
+
+
 @router.get("/movement/commands/{command_id}/trace")
 def movement_command_trace(command_id: str, robot_id: str | None = Query(default=None)) -> dict:
     """command_id 기준 DB 기록, callback 이벤트, Movement polling 상태를 묶어 반환한다."""
@@ -247,16 +357,18 @@ def movement_command_trace(command_id: str, robot_id: str | None = Query(default
 def movement_command_event(payload: dict) -> ApiMessage:
     """Movement callback_url 이벤트를 수신해 이벤트 타임라인에 기록한다."""
     with transaction() as conn:
-        callbacks.ingest_command_event(conn, payload)
-    return ApiMessage(message="movement command event saved")
+        result = callbacks.ingest_command_event(conn, payload)
+    message = result.get("message") if isinstance(result, dict) else None
+    return ApiMessage(message=str(message or "movement command event saved"))
 
 
 @router.post("/movement/results", response_model=ApiMessage, dependencies=[Depends(require_nav_callback_signature)])
 def movement_result(payload: dict) -> ApiMessage:
     """Movement result callback을 수신해 이벤트 타임라인에 기록한다."""
     with transaction() as conn:
-        callbacks.ingest_result(conn, payload)
-    return ApiMessage(message="movement result saved")
+        result = callbacks.ingest_result(conn, payload)
+    message = result.get("message") if isinstance(result, dict) else None
+    return ApiMessage(message=str(message or "movement result saved"))
 
 
 @router.post("/movement/robots/{robot_name}/status", response_model=ApiMessage, dependencies=[Depends(require_nav_callback_signature)])
@@ -296,4 +408,21 @@ def robot_clear_estop_all() -> dict:
         "unknown_robots": unknown,
         "active_robots": active,
         "robots": results,
+    }
+
+
+@router.post("/robots/{robot_id}/clear-estop")
+def robot_clear_estop(robot_id: str) -> dict:
+    """상태가 확인된 단일 로봇만 비상 정지를 해제한다."""
+    with transaction() as conn:
+        result = callbacks.clear_estop_robot(conn, robot_id)
+    ok = bool(result.get("ok")) and result.get("state") == "cleared"
+    unknown = [] if ok else [robot_id]
+    return {
+        "ok": ok,
+        "state": "clear" if ok else "partial",
+        "partial": not ok,
+        "unknown_robots": unknown,
+        "active_robots": [],
+        "robots": [result],
     }

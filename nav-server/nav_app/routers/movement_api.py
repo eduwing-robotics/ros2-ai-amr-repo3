@@ -285,7 +285,9 @@ def movement_robot_pose(robot_name: str):
         raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
     robot_context.assert_active_bridge_robot(robot_name, "위치 조회")
     pose = runtime.navigator.get_current_pose()
-    localization = robot_context.localization_health()
+    # Pose is a high-rate telemetry route. Reuse the last scan/map admission
+    # result here; command admission and /localization keep the full refresh.
+    localization = robot_context.localization_health(refresh_alignment=False)
     return {
         "robot_name": robot_name,
         "robot_id": ACTIVE_ROBOT_ID,
@@ -313,7 +315,11 @@ def movement_robot_global_localization(robot_name: str, req: GlobalLocalizationR
         raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
     robot_context.assert_active_bridge_robot(robot_name, "global localization 요청")
     try:
-        result = robot_context.start_global_localization(req.strategy, req.allow_motion)
+        result = robot_context.start_global_localization(
+            req.strategy,
+            req.allow_motion,
+            restart_existing=req.restart_existing,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {

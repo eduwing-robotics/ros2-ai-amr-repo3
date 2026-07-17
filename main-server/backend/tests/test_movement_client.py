@@ -93,6 +93,32 @@ class HttpMovementClientTest(unittest.TestCase):
         self.assertEqual(request.method, "POST")
         self.assertIn("x-sf-signature", {key.lower(): value for key, value in request.headers.items()})
 
+    def test_restart_localization_uses_signed_observe_only_global_search(self) -> None:
+        with patch("app.services.movement.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"accepted": true}'
+            result = self.client.restart_localization("tb3_1")
+
+        self.assertTrue(result["accepted"])
+        request = urlopen.call_args.args[0]
+        self.assertEqual(
+            request.full_url,
+            "http://nav.local:8001/movement-api/v1/robots/tb3_1/localization/global-search",
+        )
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(
+            json.loads(request.data.decode()),
+            {
+                "strategy": "observe_only",
+                "allow_motion": False,
+                "restart_existing": True,
+                "source": "main_ui_relocalize",
+            },
+        )
+        self.assertIn(
+            "x-sf-signature",
+            {key.lower(): value for key, value in request.headers.items()},
+        )
+
     def test_estop_controls_use_signed_root_compatibility_paths(self) -> None:
         with patch("app.services.movement.urlopen") as urlopen:
             response = urlopen.return_value.__enter__.return_value

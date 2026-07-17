@@ -4,7 +4,7 @@
 
 ## 빠른 현장 원칙
 
-- 정상 장비는 TB1을 실제 `robot2_map` 시작 위치의 바닥에 놓고 바로 시작한다. 매 세션마다 바퀴를 공중에 띄우거나 별도 motor spin 시험을 하지 않는다.
+- 정상 장비는 TB1을 `robot2_map` 내부의 안전한 바닥 위치에 놓고 바로 시작한다. 시작 좌표는 고정하지 않으며, 매 세션마다 바퀴를 공중에 띄우거나 별도 motor spin 시험을 하지 않는다.
 - 기본 순서는 `통신 확인 → base·Nav·Main·AI 시작 → localization 확인 → Main 짧은 주행 → 필요한 현장 기능`이다.
 - 전날 localization 성공 기록은 참고한다. 새 세션에서는 map ID, fresh scan/TF, scan과 벽의 대략적 정합, `localized=true`만 짧게 다시 확인한다. 전체 calibration이나 global search를 반복하지 않는다.
 - 상세 covariance·global search·wiggle·개별 topic 진단은 빠른 경로가 실패했을 때만 수행한다.
@@ -41,6 +41,12 @@
 | 7 TB1 synthetic 입·출고 | `BLOCKED` | field commissioning과 Main synthetic task admission |
 | 8 TB2 물리 입·출고 | `DEFERRED` | TB2 lift·camera·field 준비 |
 
+### 코드에서 먼저 고정한 것과 현장에서 정할 것을 구분한다
+
+- 코드 검증 완료: marker `0/1, 3/4, 5/6, 7/8/10/9` 역할, Main·Nav의 scan/dock 연결, helper가 marker 법선 방향에 놓이는지, 맵 경계 안인지, DB migration과 UI 작업 강조의 정합.
+- 실물 확인 필요: 각 scan pose가 실제 marker에서 약 0.40m인지, yaw·좌우 오프셋, 직선 진입 공간, TB1 footprint 여유와 반복 도착 오차.
+- 위 실물 항목을 확인하기 전에는 좌표가 화면에 정상 표시돼도 field dispatch 차단을 해제하지 않는다.
+
 ## 필요한 장비
 
 ### TB1 1차에 필수
@@ -73,7 +79,7 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 ## 0. 안전·설정 preflight
 
-- [ ] TB1을 실제 맵의 알려진 시작 위치에 놓고 물리 정지 수단과 짧은 주행 공간만 확인한다.
+- [ ] TB1을 실제 맵 내부의 안전한 임의 위치에 놓고 물리 정지 수단과 짧은 주행 공간만 확인한다.
 - [ ] `./scripts/install-smartfactory-hosts.sh --check`가 모든 server의 hostname-first `192.168.30.x` 설정을 통과한다.
 - [ ] `.5` 통합 시험이면 `smartfactory-integration.local`, `.9` Main 운용이면 `smartfactory-main.local`이 해당 PC의 canonical `192.168.30.x` interface로 해석되고 선택 stack profile의 bind 검사를 통과한다.
 - [ ] 각 host의 preflight credential-set ID가 같고, 선택한 표준 launcher가 `.secrets/service-hmac.env`의 Movement, Vision, frame gateway credential을 내부 로드한다. 운영자 명령마다 token이나 secret을 붙이지 않는다.
@@ -86,8 +92,8 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 ## 1. 서비스 시작
 
-1. [Nav 전체 시작 runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)에 따라 TB1 SBC의 robot base를 시작한다. PiCam E2E도 확인할 때만 camera를 함께 시작한다.
-2. `.5`에서 Main과 TB1 Nav를 함께 시험하면 저장소 루트에서 통합 profile을 실행한다. bridge, Movement API, Main/UI가 순서대로 시작된다.
+1. [Nav 전체 시작 runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)에 따라 TB1 SBC의 robot base를 시작한다. PiCam E2E도 확인할 때만 두 번째 SBC terminal에서 `ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py`를 실행한다.
+2. `.5`에서 Main과 TB1 Nav를 함께 시험하면 저장소 루트에서 통합 profile을 실행한다. bridge, Movement API, TB1 Nav2/자동 localization, Main/UI가 profile 소유 순서로 시작된다.
 
    ```bash
    cd <repository-root>
@@ -99,23 +105,13 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
    `.12` Nav와 `.9` Main을 분리 운용할 때는 각각 `nav-field-tb1`과
    `main-field`를 같은 명령으로 실행한다.
 
-3. stack foreground와 다른 tmux pane에서 TB1 Nav2와 자동 localization을 시작한다.
-
-   ```bash
-   cd <repository-root>/nav-server
-   TURTLEBOT3_SETUP="$HOME/turtlebot3_ws/install/setup.bash" scripts/nav_ops.sh nav2-1
-   ```
-
-   helper가 `navigation-ready`를 출력할 때까지 기다린다. `scripts/nav_ops.sh start`는
-   stack이 이미 소유한 Movement API를 중복 실행하므로 호출하지 않는다.
-
-4. 외부 AI laptop에서 AI와 `tb3_1_picam` source를 시작한다.
-5. [시작과 종료](startup-shutdown.md)에 따라 `scripts/sf_stack.sh status`와
+3. 외부 AI laptop에서 AI와 `tb3_1_picam` source를 시작한다.
+4. [시작과 종료](startup-shutdown.md)에 따라 `scripts/sf_stack.sh status`와
    `scripts/sf_stack.sh smoke`로 선택한 TB1 profile과 Main·AI health만 확인한다.
    전체 robot inventory를 검사하는 `--hardware-checklist`는 TB1 단독 빠른 실행에 사용하지 않는다.
 
-`foreground`의 `Ctrl+C`는 stack이 시작한 process group만 역순으로 종료한다.
-robot base와 Nav2의 별도 terminal은 각각 `Ctrl+C`로 종료한다.
+`foreground`의 `Ctrl+C`는 stack이 시작한 bridge, Movement API, Nav2/RViz와
+Main process group을 역순으로 종료한다. robot base는 SBC terminal에서 별도로 종료한다.
 
 ## 2. 실제 localization
 
@@ -123,6 +119,7 @@ robot base와 Nav2의 별도 terminal은 각각 `Ctrl+C`로 종료한다.
 - [ ] `/scan`, odom, `odom -> base_footprint` TF가 fresh다.
 - [ ] RViz에서 실제 벽·고정 구조물과 scan이 대략 겹친다.
 - [ ] health가 `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false`다.
+- [ ] 로봇을 들어 크게 옮겼다면 Nav 전체를 재기동하지 않고 `/operate/control`의 **위치 다시 찾기**로 `observe_only` 재탐색한 뒤 위 조건을 다시 확인한다.
 
 여기까지 통과하면 바로 Main 짧은 주행으로 이동한다. localization이 실패하거나 scan이 어긋날 때만 [기능 체크리스트의 실패 진단](feature-checklists.md#localization-실패-시에만)에서 `observe_only`와 상세 안정성 조건을 확인한다.
 
@@ -184,8 +181,8 @@ robot base와 Nav2의 별도 terminal은 각각 `Ctrl+C`로 종료한다.
 - [ ] Main이 trusted stop을 DB에 기록하고 Nav E-stop을 호출한다.
 - [ ] Nav2가 취소되고 base가 0속도이며 UI가 ESTOP와 `AWAITING_OPERATOR`를 표시한다.
 - [ ] 위험 제거 후 E-stop clear만으로 자동 재개되지 않는다.
-- [ ] [ESTOP 복구 runbook](../../main-server/docs/operations/ESTOP_RECOVERY_PLAYBOOK.md)에 따라 cargo 상태와 `safe_move` 또는 `manual_abort`를 선택하고 live Movement health 확인 뒤 실행한다.
-- [ ] TB1 person-only 시험은 화물이 없으므로 `EMPTY`를 선택한다. `safe_move`를 실행했다면 configured safe location 도착 뒤 다시 `AWAITING_OPERATOR`인지 확인하고, 필요하면 별도 `manual_abort`로 작업을 종료한다. 어느 경우에도 interrupted step은 자동 재개되지 않는다.
+- [ ] [ESTOP 복구 runbook](../../main-server/docs/operations/ESTOP_RECOVERY_PLAYBOOK.md)에 따라 cargo 상태와 현장을 확인한다. 현재 step이 `move_to_point`·`aruco_align`·`leave_dock`이면 `resume_task`, 원래 Task를 계속하지 않을 때는 `safe_move` 또는 `manual_abort`를 선택한다.
+- [ ] TB1 person-only 시험은 화물이 없으므로 `EMPTY`를 선택한다. `resume_task`는 같은 Task·같은 목적지에 새 command ID로 재출발하고 monitor가 먼저 재arm되는지 확인한다. `dock_transfer`는 자동 재시도하지 않는다.
 
 중지: monitor 미arm, stale/wrong-task advisory, Main trusted decision 누락, 자동 재개, 시험자의 금지 구역 진입, 정지 담당자의 시야 상실, 정지 거리·시간이 현장 안전 기준을 넘음. 사람 또는 로봇이 지정 경계를 벗어나면 즉시 물리 정지한다.
 

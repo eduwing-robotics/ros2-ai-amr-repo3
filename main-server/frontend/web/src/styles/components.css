@@ -196,6 +196,9 @@ body.layout-resizing * {
 .dock-scan-dot { fill: var(--amber); stroke: #fff; stroke-width: 1; }
 .dock-scan-badge { font-size: 9.5px; font-weight: 700; fill: var(--amber); paint-order: stroke; stroke: #fff; stroke-width: 2.5px; pointer-events: none; }
 .dock-scan-marker.link-selected .dock-scan-dot { stroke: var(--amber); stroke-width: 1.2; }
+.dock-pair-overlay.work-order-focused .dock-scan-line { stroke: var(--operator); stroke-width: 1.8; opacity: 1; }
+.dock-pair-overlay.work-order-focused .dock-scan-dot { fill: var(--operator); stroke-width: 2; filter: drop-shadow(0 0 4px color-mix(in srgb,var(--operator) 65%,transparent)); }
+.dock-pair-overlay.work-order-focused .dock-scan-badge { fill: var(--operator); font-weight: 800; }
 .dock-scan-legend-swatch {
   display: inline-block;
   width: 14px;

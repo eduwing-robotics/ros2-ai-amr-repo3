@@ -5,7 +5,7 @@ import { useAdminMutations } from "../../hooks/useAdminData";
 import { useFeedback } from "../../components/FeedbackProvider";
 import { useGotoTarget } from "../operate/GotoTargetContext";
 import { radToDeg, degToRad } from "../../lib/coords";
-import { missionGoto, movementMapState, robotLocalization, robotNavState } from "../../lib/missions";
+import { missionGoto, movementMapState, restartRobotLocalization, robotLocalization, robotNavState } from "../../lib/missions";
 import { isMapRuntimeMismatch, mapAssetWarning, runtimeBadgeLabel } from "../../lib/mapRuntime";
 import { shortId } from "../../lib/format";
 import type { Robot } from "../../types";
@@ -22,7 +22,7 @@ export function MapGotoOperate({
   const { target, mapId, setTarget } = useGotoTarget();
   const { data: maps = [] } = useMaps();
   const { teleop } = useAdminMutations();
-  const { toast } = useFeedback();
+  const { confirm, toast } = useFeedback();
   const [robotId, setRobotId] = useState("");
   const [status, setStatus] = useState("맵을 클릭해 목적지를 지정하세요.");
   const [busy, setBusy] = useState(false);
@@ -38,7 +38,7 @@ export function MapGotoOperate({
     queryFn: movementMapState,
     refetchInterval: 5000,
   });
-  const { data: localization } = useQuery({
+  const { data: localization, refetch: refetchLocalization } = useQuery({
     queryKey: ["robot-localization", robot],
     queryFn: () => robotLocalization(robot),
     enabled: Boolean(robot),
@@ -119,6 +119,29 @@ export function MapGotoOperate({
     }
   };
 
+  const relocalize = async () => {
+    if (!robot) { setStatus("로봇을 선택하세요."); return; }
+    const ok = await confirm({
+      title: "로봇 위치 다시 찾기",
+      message: "로봇이 정지한 상태에서 들어 옮겼을 때 사용합니다. 기존 위치 추정을 버리고, 로봇을 움직이지 않은 채 처음부터 위치를 다시 찾습니다.",
+      confirmLabel: "다시 찾기",
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const result = await restartRobotLocalization(robot);
+      await refetchLocalization();
+      setStatus(`위치 재탐색 명령 접수: ${shortId(result.command_id)}`);
+      toast(`로컬라이제이션 복구 명령 접수 (${shortId(result.command_id)})`, "ok");
+    } catch (e) {
+      const msg = (e as Error).message;
+      setStatus(`위치 재탐색 실패: ${msg}`);
+      toast(`위치 재탐색 실패: ${msg}`, "err");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const applyKeyboardTarget = () => {
     const x = parseFloat(kx);
     const y = parseFloat(ky);
@@ -145,6 +168,7 @@ export function MapGotoOperate({
         </select>
         <button type="button" className="btn" disabled={gotoBlocked || busy || !target} onClick={() => void go()}>이동</button>
         <button type="button" className="btn danger" disabled={robotBlocked || busy} onClick={() => void stop()}>정지</button>
+        <button type="button" className="btn" disabled={busy || !robot} onClick={() => void relocalize()}>위치 다시 찾기</button>
       </div>
       <div className="toolbar goto-kb-row">
         <label className="field-inline">x<input className="filter narrow" value={kx} onChange={(e) => setKx(e.target.value)} disabled={gotoBlocked} /></label>

@@ -104,7 +104,28 @@ def deterministic_step_command_id(task_id: int, robot_id: str, step: dict[str, A
     """Stable command identity for a task step, including retries after a crash."""
     kind = str(step.get("kind") or "move_to_point")
     seq = int(step.get("seq") or step_index + 1)
+    retry_generation = int(step.get("retry_generation") or 0)
+    identity: dict[str, Any] = {"kind": kind, "params": step.get("params") or {}}
+    if retry_generation > 0:
+        identity["retry_generation"] = retry_generation
     fingerprint = sha256(
-        json.dumps({"kind": kind, "params": step.get("params") or {}}, sort_keys=True, separators=(",", ":")).encode()
+        json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()[:12]
-    return f"task-{task_id}-{robot_id}-{kind}-step-{seq}-{fingerprint}"
+    retry_suffix = f"-retry-{retry_generation}" if retry_generation > 0 else ""
+    return f"task-{task_id}-{robot_id}-{kind}-step-{seq}{retry_suffix}-{fingerprint}"
+
+
+def deterministic_evidence_command_id(
+    task_id: int,
+    operation: str,
+    command_sequence_no: int | None,
+    attempt: int,
+) -> str:
+    """Stable Main→AI command identity, separate from ``commands.id``.
+
+    ``commands.id`` identifies the static recipe definition.  This string
+    identifies one runtime observation attempt and is echoed by AI Server.
+    """
+    normalized_operation = str(operation or "evidence").strip().lower().replace("_", "-")
+    sequence = int(command_sequence_no or 0)
+    return f"task-{task_id}-vision-{normalized_operation}-step-{sequence}-attempt-{int(attempt)}"

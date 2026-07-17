@@ -23,7 +23,13 @@ from app.services.movement import MovementClientError, movement_client
 from app.services.movement_health import get_movement_health
 
 CargoState = Literal["LOADED", "EMPTY", "UNKNOWN"]
-RecoveryStrategy = Literal["safe_move", "manual_abort"]
+RecoveryStrategy = Literal["resume_task", "safe_move", "manual_abort"]
+RESUMABLE_STEP_KINDS = frozenset({"move_to_point", "aruco_align", "leave_dock"})
+RESUMABLE_STEP_STATES = frozenset(
+    {"PENDING", "DISPATCHING", "DISPATCHED", "RUNNING", "ABORTED", "CANCELLED", "FAILED", "REJECTED"}
+)
+RESUMABLE_INFLIGHT_STEP_STATES = frozenset({"DISPATCHING", "DISPATCHED", "RUNNING"})
+CONFIRMED_INTERRUPTED_COMMAND_STATES = frozenset({"ABORTED", "CANCELLED", "FAILED", "REJECTED"})
 ACTIVE_RECOVERY_PHASES = {
     orch_state.PHASE_AWAITING_OPERATOR,
     orch_state._LEGACY_AWAITING,
@@ -141,6 +147,50 @@ def _assert_needs_attention_phase(conn, task_id: int) -> None:
         raise HTTPException(status_code=409, detail="recovery_requires_needs_attention_phase")
 
 
+def _resume_step_eligibility(orch: dict[str, Any]) -> dict[str, Any]:
+    if orch_state.normalize_phase(orch.get("phase")) != orch_state.PHASE_AWAITING_OPERATOR:
+        return {"executable": False, "reason": "resume_requires_needs_attention_phase"}
+    steps = orch_state.get_steps(orch)
+    step_index = orch_state.get_step_index(orch)
+    if step_index < 0 or step_index >= len(steps):
+        return {"executable": False, "reason": "resume_current_step_missing"}
+    step = steps[step_index]
+    kind = str(step.get("kind") or "")
+    status = str(step.get("status") or "PENDING").upper()
+    if kind not in RESUMABLE_STEP_KINDS:
+        return {
+            "executable": False,
+            "reason": "resume_step_kind_requires_manual_recovery",
+            "step_index": step_index,
+            "step_kind": kind,
+            "step_status": status,
+        }
+    if status not in RESUMABLE_STEP_STATES:
+        return {
+            "executable": False,
+            "reason": "resume_step_state_not_retryable",
+            "step_index": step_index,
+            "step_kind": kind,
+            "step_status": status,
+        }
+    if status in RESUMABLE_INFLIGHT_STEP_STATES and not step.get("command_id"):
+        return {
+            "executable": False,
+            "reason": "resume_interrupted_command_id_missing",
+            "step_index": step_index,
+            "step_kind": kind,
+            "step_status": status,
+        }
+    return {
+        "executable": True,
+        "reason": None,
+        "step_index": step_index,
+        "step_kind": kind,
+        "step_status": status,
+        "step": step,
+    }
+
+
 def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
     task = evidence_runtime.attach_orchestration(task_repo(conn).get(task_id), conn)
     if not task:
@@ -159,12 +209,17 @@ def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
     item_id = str(task.get("item_id") or task.get("item_code") or "")
     item = item_repo(conn).get(item_id) if item_id else None
     evidence_hold = hold_reason in {"evidence_gate", "evidence_not_approved", "manual_fixture_transfer_required"}
+    resume = _resume_step_eligibility(orch)
+    if task.get("status") != "RUNNING":
+        resume = {"executable": False, "reason": "resume_task_not_running"}
     if execution_mode == "evidence_only":
         recommended_actions = ["retry_evidence", "cancel_test"]
     elif evidence_hold:
         recommended_actions = ["retry_evidence_with_safety_checks", "safe_move", "manual_abort"]
     else:
         recommended_actions = ["safe_move", "manual_abort"]
+        if resume.get("executable"):
+            recommended_actions.insert(0, "resume_task")
     active_recovery_cmd = recovery.get("active_command_id")
     return {
         "task_id": task_id,
@@ -187,6 +242,9 @@ def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
         "item_name": item.get("item_name") if item else None,
         "aruco_marker_id": item.get("aruco_marker_id") if item else None,
         "recommended_actions": recommended_actions,
+        "resume_available": bool(resume.get("executable")),
+        "resume_block_reason": resume.get("reason"),
+        "current_step_status": (current_step or {}).get("status"),
         "evidence": {
             "operation": (current_step or {}).get("operation") or ((current_step or {}).get("params") or {}).get("evidence_operation"),
             "vision_zone_id": (current_step or {}).get("vision_zone_id"),
@@ -234,10 +292,45 @@ def preview_recovery_plan(
     cargo_state: CargoState,
     strategy: RecoveryStrategy,
 ) -> dict[str, Any]:
-    if strategy not in {"safe_move", "manual_abort"}:
+    if strategy not in {"resume_task", "safe_move", "manual_abort"}:
         raise HTTPException(status_code=422, detail="unsupported recovery strategy")
     if cargo_state == "UNKNOWN":
         raise HTTPException(status_code=409, detail="cargo_state UNKNOWN blocks automated recovery")
+    if strategy == "resume_task":
+        task = evidence_runtime.attach_orchestration(task_repo(conn).get(task_id), conn)
+        if not task:
+            raise HTTPException(status_code=404, detail="task not found")
+        orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
+        resume = _resume_step_eligibility(orch)
+        if task.get("status") != "RUNNING":
+            resume = {"executable": False, "reason": "resume_task_not_running"}
+        if not resume.get("executable"):
+            return {
+                "task_id": task_id,
+                "strategy": strategy,
+                "cargo_state": cargo_state,
+                "steps": [],
+                "executable": False,
+                "resume_block_reason": resume.get("reason"),
+            }
+        step = dict(resume["step"])
+        retry_generation = int(step.get("retry_generation") or 0) + 1
+        return {
+            "task_id": task_id,
+            "strategy": strategy,
+            "cargo_state": cargo_state,
+            "steps": [
+                {
+                    "kind": step.get("kind"),
+                    "label": "중단된 현재 단계 다시 실행",
+                    "step_index": int(resume["step_index"]),
+                    "params": dict(step.get("params") or {}),
+                    "retry_generation": retry_generation,
+                }
+            ],
+            "executable": True,
+            "resume_block_reason": None,
+        }
     if strategy == "manual_abort":
         return {
             "task_id": task_id,
@@ -252,6 +345,7 @@ def preview_recovery_plan(
     steps.append({
         "kind": "move_to_point",
         "label": f"safe:{safe.get('slot_id') or safe.get('location_id')}",
+        "human_hazard_monitor": cargo_state == "LOADED",
         "params": {
             "map_id": settings.movement_active_map_id,
             "x": float(safe["x"]),
@@ -334,6 +428,193 @@ def save_recovery_decision(
     return {"task_id": task_id, "saved": True, "plan": plan}
 
 
+def _verify_interrupted_step_terminal(robot_id: str, step: dict[str, Any]) -> dict[str, Any]:
+    """Prove that the previous command cannot resume when E-stop is cleared."""
+    persisted_state = str(step.get("status") or "PENDING").upper()
+    command_id = str(step.get("command_id") or "")
+    if persisted_state == "PENDING":
+        return {"state": "NOT_DISPATCHED", "command_id": command_id or None}
+    if persisted_state in CONFIRMED_INTERRUPTED_COMMAND_STATES:
+        return {"state": persisted_state, "command_id": command_id or None}
+    if persisted_state not in RESUMABLE_INFLIGHT_STEP_STATES or not command_id:
+        raise HTTPException(status_code=409, detail="resume_interrupted_command_state_unsafe")
+    try:
+        observed = movement_client.command_status(robot_id, command_id)
+    except MovementClientError as exc:
+        if exc.status_code == 404 and person_hazard.held_motion_is_proven_inactive(
+            robot_id,
+            command_id,
+            command_missing=True,
+        ):
+            return {
+                "state": "NAV_RESTARTED_IDLE",
+                "command_id": command_id,
+                "proof": "command_missing_and_nav_idle_without_active_commands",
+            }
+        raise HTTPException(
+            status_code=409,
+            detail="resume_interrupted_command_state_unavailable",
+        ) from exc
+    state = str(observed.get("state") or observed.get("status") or "").upper()
+    if state in {"CANCELED", "STOPPED"}:
+        state = "CANCELLED"
+    if state not in CONFIRMED_INTERRUPTED_COMMAND_STATES:
+        raise HTTPException(status_code=409, detail="resume_interrupted_command_still_active")
+    return {"state": state, "command_id": command_id}
+
+
+def _execute_resume_task(
+    conn,
+    task_id: int,
+    *,
+    cargo_state: CargoState,
+    checks: dict[str, bool],
+) -> dict[str, Any]:
+    plan = preview_recovery_plan(
+        conn,
+        task_id,
+        cargo_state=cargo_state,
+        strategy="resume_task",
+    )
+    if not plan.get("executable"):
+        raise HTTPException(
+            status_code=409,
+            detail=str(plan.get("resume_block_reason") or "resume_task_not_executable"),
+        )
+    task = task_repo(conn).get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    if task.get("status") != "RUNNING":
+        raise HTTPException(status_code=409, detail="resume_task_not_running")
+    robot_id = str(task.get("assigned_robot_id") or task.get("robot_id") or "")
+    if not robot_id:
+        raise HTTPException(status_code=409, detail="task has no assigned robot")
+
+    held_orchestration = evidence_repo(conn).get_orchestration(task_id) or {}
+    if orch_state.normalize_phase(held_orchestration.get("phase")) != orch_state.PHASE_AWAITING_OPERATOR:
+        raise HTTPException(status_code=409, detail="recovery_requires_needs_attention_phase")
+    held_fingerprint = _orchestration_fingerprint(held_orchestration)
+    trusted_safety_gate = dict(
+        _verify_recovery_safety_gate(
+            conn,
+            task_id,
+            robot_id,
+            held_orchestration_fingerprint=held_fingerprint,
+        )
+    )
+    trusted_safety_gate["held_orchestration_fingerprint"] = held_fingerprint
+    resume = _resume_step_eligibility(held_orchestration)
+    if not resume.get("executable"):
+        raise HTTPException(status_code=409, detail=str(resume.get("reason")))
+    interrupted_command = _verify_interrupted_step_terminal(robot_id, resume["step"])
+    trusted_safety_gate["interrupted_command"] = interrupted_command
+
+    with recovery_start_guard(
+        conn,
+        task_id,
+        fallback={"phase": orch_state.PHASE_AWAITING_OPERATOR},
+    ) as current:
+        if current is None or orch_state.normalize_phase(current.get("phase")) != orch_state.PHASE_AWAITING_OPERATOR:
+            raise HTTPException(status_code=409, detail="recovery_requires_needs_attention_phase")
+        if _active_task_safety_stops(conn, task_id):
+            raise HTTPException(status_code=409, detail="recovery_blocked_active_safety_stop")
+        if _orchestration_fingerprint(current) != held_fingerprint:
+            raise HTTPException(status_code=409, detail="recovery_safety_gate_stale")
+        current_resume = _resume_step_eligibility(current)
+        if not current_resume.get("executable"):
+            raise HTTPException(status_code=409, detail=str(current_resume.get("reason")))
+
+        orch = json.loads(json.dumps(current))
+        steps = orch_state.get_steps(orch)
+        step_index = int(current_resume["step_index"])
+        step = steps[step_index]
+        prior_command_id = step.pop("command_id", None)
+        prior_status = str(step.get("status") or "")
+        step.pop("transition_id", None)
+        step["retry_generation"] = int(step.get("retry_generation") or 0) + 1
+        step["status"] = "pending"
+        orch_state.set_steps(orch, steps)
+        orch_state.set_phase(orch, orch_state.PHASE_RUNNING)
+        orch.pop("stop_request", None)
+        orch = _record_recovery_decision(
+            conn,
+            task_id,
+            orch,
+            cargo_state=cargo_state,
+            strategy="resume_task",
+            checks=checks,
+            plan=plan,
+            trusted_safety_gate=trusted_safety_gate,
+        )
+        recovery = dict(orch.get("recovery") or {})
+        recovery.update(
+            {
+                "resumed_step_index": step_index,
+                "resumed_step_kind": step.get("kind"),
+                "resumed_from_command_id": prior_command_id,
+                "resumed_from_status": prior_status,
+                "retry_generation": step["retry_generation"],
+                "resumed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        for key in (
+            "active_command_id",
+            "active_command_kind",
+            "active_robot_id",
+            "active_command_params",
+            "dispatch_state",
+            "stop_requested",
+        ):
+            recovery.pop(key, None)
+        orch["recovery"] = recovery
+        evidence_runtime.save_orchestration(conn, task_id, orch)
+        evidence_repo(conn).append(
+            task_id=task_id,
+            event_type="TASK_RECOVERY_RESUME_PENDING",
+            source="operator",
+            trusted=True,
+            data_json={
+                "robot_id": robot_id,
+                "step_index": step_index,
+                "step_kind": step.get("kind"),
+                "prior_command_id": prior_command_id,
+                "prior_status": prior_status,
+                "retry_generation": step["retry_generation"],
+                "cargo_state": cargo_state,
+                "checks": checks,
+            },
+        )
+        # The retry identity must be durable before person-monitor arming and
+        # Movement HTTP. poll_running_tasks safely resumes a crash at this point.
+        conn.commit()
+
+    from app.services import orchestrator
+
+    command_id = orchestrator.dispatch_current_step(conn, task_id)
+    if not command_id:
+        raise HTTPException(status_code=409, detail="resume_task_dispatch_not_claimed")
+    evidence_repo(conn).append(
+        task_id=task_id,
+        event_type="TASK_RECOVERY_RESUMED",
+        source="main_recovery",
+        trusted=True,
+        data_json={
+            "robot_id": robot_id,
+            "step_index": int(plan["steps"][0]["step_index"]),
+            "command_id": command_id,
+            "retry_generation": int(plan["steps"][0]["retry_generation"]),
+        },
+    )
+    return {
+        "task_id": task_id,
+        "command_id": command_id,
+        "accepted": True,
+        "strategy": "resume_task",
+        "message": "중단된 원래 작업 단계를 다시 시작했습니다.",
+        "plan": plan,
+    }
+
+
 def execute_recovery(
     conn,
     task_id: int,
@@ -344,6 +625,13 @@ def execute_recovery(
 ) -> dict[str, Any]:
     _assert_needs_attention_phase(conn, task_id)
     _assert_recovery_checks(checks)
+    if strategy == "resume_task":
+        return _execute_resume_task(
+            conn,
+            task_id,
+            cargo_state=cargo_state,
+            checks=checks,
+        )
     if strategy == "manual_abort":
         plan = preview_recovery_plan(
             conn,
@@ -492,6 +780,11 @@ def execute_recovery(
                 "active_command_kind": "move_to_point",
                 "active_robot_id": str(robot_id),
                 "active_command_params": dict(first.get("params") or {}),
+                # A recovery move is inside the person-monitor envelope only
+                # while cargo is known to be loaded. Empty repositioning keeps
+                # the normal robot safety stack but does not arm the AI hazard
+                # monitor outside POST_PICK_UP -> PRE_DROP_OFF.
+                "human_hazard_monitor": bool(first.get("human_hazard_monitor")),
                 "dispatch_state": RECOVERY_DISPATCH_PENDING,
                 "strategy": strategy,
                 "cargo_state": cargo_state,
@@ -539,28 +832,32 @@ def _dispatch_persisted_recovery_command(
             task_id=task_id,
         )
 
-    # Vision is remote I/O. Arm it before taking the short task claim; a
-    # monitor failure may itself E-stop and persist a newer operator hold.
-    if not person_hazard.arm_physical_motion_monitor(
-        conn,
-        robot_id,
-        task_id,
-        command_id,
-        command_kind,
-    ):
-        # A real arm failure has already recorded Main's trusted fail-safe
-        # E-stop/hold on this connection; make that safety decision durable.
-        conn.commit()
-        _hold_recovery_dispatch(
+    monitor_required = bool(recovery.get("human_hazard_monitor"))
+    if monitor_required:
+        # Vision is remote I/O. Arm it before taking the short task claim; a
+        # monitor failure may itself E-stop and persist a newer operator hold.
+        if not person_hazard.arm_physical_motion_monitor(
             conn,
+            robot_id,
             task_id,
             command_id,
-            orch,
-            reason="person_monitor_outage",
-            result="PERSON_MONITOR_UNAVAILABLE",
-            cargo_state=None,
-        )
-        raise HTTPException(status_code=503, detail="person_monitor_unavailable")
+            command_kind,
+        ):
+            # A real arm failure has already recorded Main's trusted fail-safe
+            # E-stop/hold on this connection; make that safety decision durable.
+            conn.commit()
+            _hold_recovery_dispatch(
+                conn,
+                task_id,
+                command_id,
+                orch,
+                reason="person_monitor_outage",
+                result="PERSON_MONITOR_UNAVAILABLE",
+                cargo_state=None,
+            )
+            raise HTTPException(status_code=503, detail="person_monitor_unavailable")
+    else:
+        person_hazard.disable_monitor(robot_id, conn=conn)
 
     claimed = _claim_recovery_dispatch(conn, task_id, command_id, orch)
     if claimed is None:
@@ -615,6 +912,7 @@ def _clear_active_recovery_command(recovery: dict[str, Any]) -> None:
     recovery.pop("active_command_kind", None)
     recovery.pop("active_robot_id", None)
     recovery.pop("active_command_params", None)
+    recovery.pop("human_hazard_monitor", None)
 
 
 def _claim_recovery_dispatch(

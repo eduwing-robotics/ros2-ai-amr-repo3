@@ -12,6 +12,7 @@ const QUEUE = new Set(["QUEUED", "PENDING", "ASSIGNED", "RUNNING", "IN_PROGRESS"
 const RUNNING = new Set(["RUNNING", "IN_PROGRESS", "CANCEL_REQUESTED", "AWAITING_OPERATOR", "RECOVERY_REQUIRED", "RECOVERY_RUNNING"]);
 const STOPPABLE = new Set(["RUNNING", "IN_PROGRESS", "AWAITING_OPERATOR", "RECOVERY_REQUIRED", "RECOVERY_RUNNING"]);
 const CANCELLABLE = new Set(["QUEUED", "PENDING", "ASSIGNED"]);
+const HOLD = new Set(["AWAITING_OPERATOR", "RECOVERY_REQUIRED", "CANCEL_REQUESTED"]);
 
 function phaseOf(order: WorkOrder, task: WorkOrderRobotTask | null) {
   const taskStatus = String(task?.status ?? order.status ?? "QUEUED").toUpperCase();
@@ -25,28 +26,34 @@ function stepState(step: WorkOrderTaskProgressStep, current: number) {
   const status = step.status.toUpperCase();
   if (DONE.has(status) || step.step_index < current) return "done";
   if (FAILED.has(status)) return "failed";
+  if (HOLD.has(status) || status === "HOLD") return "hold";
   if (step.step_index === current) return "active";
   return "waiting";
 }
 function stepLabel(step: WorkOrderTaskProgressStep) {
   const kind = step.kind.toLowerCase(), transfer = String(step.transfer_action ?? "").toLowerCase();
+  if (kind === "verify_post_pick_up") return "AI 적재 확인";
+  if (kind === "verify_pre_drop_off") return "AI 하역 전 확인";
   if (kind === "leave_dock") return "출발";
   if (kind === "dock_transfer" && transfer === "load") return "적재";
   if (kind === "dock_transfer" && transfer === "unload") return "하역";
   if (kind === "aruco_align") return "주차";
+  if (kind === "move_to_point" && step.human_hazard_monitor) return "운송·사람 감시";
   if (kind === "move_to_point") return transfer === "load" ? "적재 이동" : transfer === "unload" ? "하역 이동" : "복귀";
   return step.label || step.kind;
 }
 function MissionTimeline({ task }: { task: WorkOrderRobotTask }) {
   const progress = task.progress;
-  if (!progress?.steps.length) return <div className="fleet-idle-line"><span />실행 전 · 단계 대기</div>;
-  const completed = progress.steps.filter((step) => DONE.has(step.status.toUpperCase())).length;
-  return <div className="fleet-timeline" aria-label={`Task ${task.task_id} 진행도 ${completed}/${progress.steps.length}`}><div className="fleet-timeline-track" aria-hidden="true">{progress.steps.map((step) => <span className={`fleet-timeline-segment is-${stepState(step, progress.current_step_index)}`} key={step.step_index} />)}</div><ol className="fleet-timeline-steps">{progress.steps.map((step) => { const state = stepState(step, progress.current_step_index); return <li className={`is-${state}`} key={step.step_index} aria-current={state === "active" ? "step" : undefined}><span>{step.step_index + 1}</span><small>{stepLabel(step)}</small></li>; })}</ol></div>;
+  if (!progress || (!progress.steps.length && !progress.recipe_steps?.length)) return <div className="fleet-idle-line"><span />실행 전 · 단계 대기</div>;
+  const steps = progress.recipe_steps?.length ? progress.recipe_steps : progress.steps;
+  const current = progress.recipe_steps?.length ? (progress.current_recipe_index ?? 0) : progress.current_step_index;
+  const completed = steps.filter((step) => DONE.has(step.status.toUpperCase())).length;
+  return <div className="fleet-timeline" aria-label={`Task ${task.task_id} 진행도 ${completed}/${steps.length}`}><div className="fleet-timeline-track" aria-hidden="true">{steps.map((step) => <span className={`fleet-timeline-segment is-${stepState(step, current)}`} key={step.step_index} />)}</div><ol className="fleet-timeline-steps">{steps.map((step) => { const state = stepState(step, current); return <li className={`is-${state}`} key={step.step_index} aria-current={state === "active" ? "step" : undefined}><span>{step.step_index + 1}</span><small>{stepLabel(step)}</small></li>; })}</ol></div>;
 }
 
 type QueueRow = { order: WorkOrder; task: WorkOrderRobotTask | null };
 export function FleetMissionDock({ robots, selectedRobotId, onRobotSelect }: { robots: Robot[]; selectedRobotId: string; onRobotSelect: (robotId: string) => void }) {
-  const { data: orders = [] } = useWorkOrders(50);
+  const { data: orders = [], dataUpdatedAt, isFetching, isError, refetch } = useWorkOrders(50);
   const stopWorkOrder = useStopWorkOrder();
   const cancelWorkOrder = useCancelWorkOrder();
   const { cancelTask } = useAdminMutations();
@@ -59,6 +66,7 @@ export function FleetMissionDock({ robots, selectedRobotId, onRobotSelect }: { r
   }), [allRows]);
   const historyRows = useMemo(() => allRows.filter(({ order, task }) => !QUEUE.has(phaseOf(order, task))).sort((a, b) => b.order.order_id - a.order.order_id), [allRows]);
   const rows = tab === "queue" ? queueRows : historyRows;
+  const updatedAt = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("ko-KR", { hour12: false }) : "대기 중";
   const stop = (order: WorkOrder, robotId?: string | null) => {
     if (!confirm(`작업 #${order.order_id}${robotId ? ` · 로봇 ${robotId}` : ""}을 안전 중지할까요?\n\n정지 확인 후 적재 화물이 있으면 운영자 복구가 필요합니다.`)) return;
     stopWorkOrder.mutate(order.order_id);
@@ -70,12 +78,12 @@ export function FleetMissionDock({ robots, selectedRobotId, onRobotSelect }: { r
     else cancelWorkOrder.mutate(order.order_id);
   };
   return <section className="fleet-mission-dock panel" aria-label="작업 큐, 할당 로봇, 타임라인과 안전 중지">
-    <header className="fleet-mission-head"><div><h2>{tab === "queue" ? "실시간 작업 큐" : "작업 기록"}</h2><p>{tab === "queue" ? `실행 중 ${queueRows.filter((row) => RUNNING.has(taskStatusOf(row.order, row.task))).length} · 할당 대기 ${queueRows.filter((row) => taskStatusOf(row.order, row.task) === "ASSIGNED").length} · 미할당 ${queueRows.filter((row) => !row.task?.assigned_robot_id).length}` : `완료·실패·중단 ${historyRows.length}건`}</p></div><div className="fleet-dock-tabs" role="tablist" aria-label="하단 작업 보기"><button type="button" role="tab" aria-selected={tab === "queue"} className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>진행·예약</button><button type="button" role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>작업 기록</button></div></header>
+    <header className="fleet-mission-head"><div><h2>{tab === "queue" ? "실시간 작업 큐" : "작업 기록"}</h2><p>{tab === "queue" ? `실행 중 ${queueRows.filter((row) => RUNNING.has(taskStatusOf(row.order, row.task))).length} · 할당 대기 ${queueRows.filter((row) => taskStatusOf(row.order, row.task) === "ASSIGNED").length} · 미할당 ${queueRows.filter((row) => !row.task?.assigned_robot_id).length}` : `완료·실패·중단 ${historyRows.length}건`}</p></div><div className="fleet-mission-head-actions"><button type="button" className={`fleet-live-state${isError ? " is-error" : ""}`} onClick={() => void refetch()} title="작업 큐 즉시 새로고침"><i aria-hidden="true" />{isError ? "연결 오류 · 재시도" : isFetching ? "갱신 중" : `LIVE · ${updatedAt}`}</button><div className="fleet-dock-tabs" role="tablist" aria-label="하단 작업 보기"><button type="button" role="tab" aria-selected={tab === "queue"} className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>진행·예약</button><button type="button" role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>작업 기록</button></div></div></header>
     <div className="fleet-mission-columns" aria-hidden="true"><span>작업</span><span>할당 로봇</span><span>진행 타임라인</span><span>작업 제어</span></div>
     <div className="fleet-mission-rows">{rows.length === 0 ? <div className="empty">{tab === "queue" ? "진행·예약 작업이 없습니다." : "완료된 작업 기록이 없습니다."}</div> : rows.map(({ order, task }) => {
-      const robotId = task?.assigned_robot_id ?? null, phase = phaseOf(order, task), taskStatus = taskStatusOf(order, task), running = RUNNING.has(taskStatus);
+      const robotId = task?.assigned_robot_id ?? null, phase = phaseOf(order, task), taskStatus = taskStatusOf(order, task), running = phase === "RUNNING" || phase === "IN_PROGRESS" || phase === "RECOVERY_RUNNING", holding = HOLD.has(phase);
       const selected = Boolean(robotId && selectedRobotId === robotId), stopping = stopWorkOrder.isPending && stopWorkOrder.variables === order.order_id, cancelling = task ? cancelTask.isPending && cancelTask.variables === task.task_id : cancelWorkOrder.isPending && cancelWorkOrder.variables === order.order_id, canStop = tab === "queue" && STOPPABLE.has(taskStatus), canCancel = tab === "queue" && (task ? canCancelTask(task) : CANCELLABLE.has(taskStatus));
-      return <article data-operation={order.operation} data-history-status={phase} data-status-tone={statusTone(taskStatus)} className={`fleet-mission-row${selected ? " selected" : ""}${running ? " is-running" : ""}${tab === "history" ? " is-history" : ""}`} key={`${order.order_id}-${task?.task_id ?? "order"}`}>
+      return <article data-operation={order.operation} data-history-status={phase} data-status-tone={statusTone(phase)} className={`fleet-mission-row${selected ? " selected" : ""}${running ? " is-running" : ""}${holding ? " is-hold" : ""}${tab === "history" ? " is-history" : ""}`} key={`${order.order_id}-${task?.task_id ?? "order"}`}>
         <div className="fleet-task-summary" title={"작업 #" + order.order_id + (task ? " · Task #" + task.task_id : "")}><Pill status={phase} /><strong>{running ? <span className="fleet-live-label"><i />LIVE</span> : null}{task ? "Task #" + task.task_id : "작업 #" + order.order_id}</strong><span>{order.operation === "inbound" ? "입고" : "출고"} · {order.item_name || order.item_code}{order.aruco_marker_id == null ? "" : ` · A${order.aruco_marker_id}`} · {task?.quantity ?? order.quantity}개</span>{Number(task?.priority ?? 0) > 0 ? <small>우선 {task?.priority}</small> : null}</div>
         {robotId ? <button type="button" className="fleet-assignee" onClick={() => onRobotSelect(robotId)}><strong>{robotNames.get(robotId) ?? robotId}</strong>{robotNames.get(robotId) && robotNames.get(robotId) !== robotId ? <span className="mono">{robotId}</span> : null}</button> : <div className="fleet-unassigned"><strong>미할당</strong><span>배정 대기</span></div>}
         <div className="fleet-task-progress">{task ? <MissionTimeline task={task} /> : <div className="fleet-idle-line"><span />작업 계획 대기</div>}</div>

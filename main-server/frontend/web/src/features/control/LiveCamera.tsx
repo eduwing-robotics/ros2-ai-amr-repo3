@@ -76,6 +76,7 @@ export function CameraTile({
   const webrtcRetryAttemptRef = useRef(0);
   const streamKeyRef = useRef("");
   const lastMjpegLoadAtRef = useRef(0);
+  const mjpegRequestInFlightRef = useRef(false);
   const mjpegActiveRef = useRef(false);
   const visibleRef = useRef(true);
   const viewOptions = viewsForSource(source);
@@ -103,6 +104,7 @@ export function CameraTile({
   }, []);
 
   const clearMjpegTimers = useCallback(() => {
+    mjpegRequestInFlightRef.current = false;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -119,7 +121,8 @@ export function CameraTile({
 
   const pollMjpegFrame = useCallback(() => {
     const img = imgRef.current;
-    if (!img || !source || !visibleRef.current) return;
+    if (!img || !source || !visibleRef.current || mjpegRequestInFlightRef.current) return;
+    mjpegRequestInFlightRef.current = true;
     img.style.display = "";
     img.src = latestImageUrl(source, kind, Date.now());
   }, [kind, source]);
@@ -301,6 +304,7 @@ export function CameraTile({
 
     mjpegActiveRef.current = true;
     mjpegBackoffRef.current = 0;
+    mjpegRequestInFlightRef.current = false;
     lastMjpegLoadAtRef.current = 0;
     beginMjpegPoll(0);
     startMjpegPollTimer();
@@ -344,6 +348,7 @@ export function CameraTile({
   ]);
 
   const handleMjpegLoad = () => {
+    mjpegRequestInFlightRef.current = false;
     if (mode !== "mjpeg" || !isVisible) return;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
@@ -358,6 +363,7 @@ export function CameraTile({
   };
 
   const handleMjpegError = () => {
+    mjpegRequestInFlightRef.current = false;
     if (mode !== "mjpeg" || !isVisible) return;
     setTransportDisplay("error");
     setStatus("stream 오류 — 재연결 시도");

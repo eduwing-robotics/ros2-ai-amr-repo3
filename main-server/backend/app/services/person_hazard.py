@@ -13,7 +13,7 @@ from app.db.mvp.evidence import MvpEvidenceRepository
 from app.db.repo_bridge import evidence_repo, safety_stop_repo
 from app.services import evidence_runtime
 from app.services import orchestration_state as orch_state
-from app.services.movement import movement_client
+from app.services.movement import MovementClientError, movement_client
 from app.services.vision_proxy import (
     VisionUpstreamError,
     fetch_person_hazard_latest,
@@ -32,6 +32,27 @@ _PHYSICAL_MOTION_KINDS = frozenset({
 })
 _ACTIVE_MOTION_STATES = frozenset({"DISPATCHING", "DISPATCHED", "RUNNING"})
 _ACTIVE_RECOVERY_DISPATCH_STATES = frozenset({"PENDING", "DISPATCHING", "SENT"})
+_TERMINAL_MOVEMENT_COMMAND_STATES = frozenset({
+    "ABORTED",
+    "CANCELED",
+    "CANCELLED",
+    "DONE",
+    "FAILED",
+    "REJECTED",
+    "STOPPED",
+    "SUCCEEDED",
+})
+
+
+def step_requires_monitor(step: dict[str, Any]) -> bool:
+    """Read the stored monitor policy, failing closed for legacy snapshots.
+
+    New plans always persist ``human_hazard_monitor``. Older running tasks have
+    no key, so they retain the former all-physical-leg policy until terminal.
+    """
+    if "human_hazard_monitor" in step:
+        return bool(step.get("human_hazard_monitor"))
+    return str(step.get("kind") or "") in _PHYSICAL_MOTION_KINDS
 
 FORBIDDEN_PAYLOAD_KEYS = frozenset({
     "bbox", "bbox_xyxy", "mask", "mask_rle", "polygon", "raw_detections", "detections",
@@ -104,8 +125,8 @@ def enable_monitor(robot_id: str, task_id: int, *, command_id: str | None = None
         return True
     source = robot_source(robot_id)
     existing = _runtime.get(robot_id)
-    # A task's monitor is a continuous physical-motion envelope.  Do not
-    # briefly disarm it between Nav2, ArUco, dock/lift, or leave-dock legs.
+    # One task may use multiple route waypoints inside the loaded-transport
+    # segment. Keep that monitor continuous across those adjacent NAV commands.
     if existing and existing.enabled and existing.task_id == task_id:
         existing.last_command_id = command_id
         return True
@@ -171,18 +192,17 @@ def on_move_to_point_dispatched(conn, task_id: int, robot_id: str, command_id: s
 
 
 def on_move_to_point_leg_done(robot_id: str, *, conn=None) -> None:
-    """Compatibility no-op: retain monitoring until the task is terminal."""
+    """Compatibility no-op: the orchestrator closes the loaded-route envelope."""
 
 
 def arm_physical_motion_monitor(
     conn, robot_id: str, task_id: int, command_id: str, kind: str
 ) -> bool:
-    """Arm or retain the person monitor before every physical-motion command."""
+    """Arm or retain the person monitor for a recipe-marked transport command."""
     existing = _runtime.get(robot_id)
     if existing and existing.enabled and existing.task_id == task_id and not existing.fail_safe_triggered:
-        # Do not create a monitoring gap between adjacent movement legs.  The
-        # remote monitor remains armed through approach, alignment, lift, and
-        # reverse; Main only refreshes its local command/stage attribution.
+        # Do not create a monitoring gap between adjacent waypoints in the same
+        # loaded transport route; only refresh command attribution.
         existing.last_command_id = command_id
         existing.last_leg_kind = kind
         return True
@@ -235,6 +255,51 @@ def mark_running_tasks_needs_attention(conn, *, reason: str) -> int:
     return count
 
 
+def held_motion_is_proven_inactive(
+    robot_id: str,
+    command_id: str,
+    *,
+    command_missing: bool = False,
+) -> bool:
+    """Return true only when Nav proves a persisted held command cannot move.
+
+    A Main restart may follow a full Nav stack restart.  In that case Nav no
+    longer has the old in-memory command, while Main intentionally keeps the
+    task in AWAITING_OPERATOR.  A 404 alone is not enough evidence: the live
+    Nav state must also identify the same robot, be ready and idle, and report
+    no active commands.  Any missing, conflicting, or unreachable evidence
+    remains fail-closed.
+    """
+    if not command_id:
+        return False
+
+    if not command_missing:
+        try:
+            command = movement_client.command_status(robot_id, command_id)
+        except MovementClientError as exc:
+            if exc.status_code != 404:
+                return False
+        else:
+            state = str(command.get("state") or command.get("status") or "").upper()
+            return state in _TERMINAL_MOVEMENT_COMMAND_STATES
+
+    try:
+        nav_state = movement_client.nav_state(robot_id)
+    except MovementClientError:
+        return False
+
+    active_commands = nav_state.get("active_commands")
+    return bool(
+        str(nav_state.get("robot_name") or "") == robot_id
+        and nav_state.get("robot_online") is True
+        and nav_state.get("nav2_ready") is True
+        and str(nav_state.get("navigator_status") or "").upper() == "IDLE"
+        and str(nav_state.get("mission_status") or "").upper() == "IDLE"
+        and isinstance(active_commands, list)
+        and not active_commands
+    )
+
+
 def reconcile_startup_person_hazard_safety(conn) -> int:
     """Fail closed before startup pollers advance persisted physical motion."""
     if not getattr(settings, "person_hazard_enabled", True):
@@ -251,13 +316,14 @@ def reconcile_startup_person_hazard_safety(conn) -> int:
         steps = orch_state.get_steps(orch)
         step_index = orch_state.get_step_index(orch)
         step = steps[step_index] if 0 <= step_index < len(steps) else {}
+        monitor_required = step_requires_monitor(step)
         preserve_existing_hold = False
 
         if phase == orch_state.PHASE_RUNNING:
             kind = str(step.get("kind") or "")
             command_id = str(step.get("command_id") or "")
             if (
-                kind not in _PHYSICAL_MOTION_KINDS
+                not monitor_required
                 or str(step.get("status") or "").upper() not in _ACTIVE_MOTION_STATES
             ):
                 continue
@@ -265,16 +331,20 @@ def reconcile_startup_person_hazard_safety(conn) -> int:
             kind = str(step.get("kind") or "")
             command_id = str(step.get("command_id") or "")
             if (
-                kind not in _PHYSICAL_MOTION_KINDS
+                not monitor_required
                 or str(step.get("status") or "").lower() != "transition_claimed"
             ):
                 continue
         elif phase == orch_state.PHASE_CANCEL_REQUESTED:
+            if not monitor_required:
+                continue
             stop_request = orch.get("stop_request") or {}
             robot_id = str(stop_request.get("robot_id") or robot_id)
             kind = str(step.get("kind") or "cancel_requested")
             command_id = str(stop_request.get("command_id") or step.get("command_id") or "")
         elif phase == orch_state.PHASE_RECOVERY_RUNNING:
+            if not monitor_required:
+                continue
             recovery = orch.get("recovery") or {}
             robot_id = str(recovery.get("active_robot_id") or robot_id)
             kind = str(recovery.get("active_command_kind") or "move_to_point")
@@ -296,7 +366,7 @@ def reconcile_startup_person_hazard_safety(conn) -> int:
             kind = str(step.get("kind") or "")
             command_id = str(recovery.get("command_id") or step.get("command_id") or "")
             if (
-                kind not in _PHYSICAL_MOTION_KINDS
+                not monitor_required
                 or str(step.get("status") or "").upper() not in _ACTIVE_MOTION_STATES
             ):
                 continue
@@ -304,6 +374,18 @@ def reconcile_startup_person_hazard_safety(conn) -> int:
         else:
             continue
         if not robot_id:
+            continue
+
+        if preserve_existing_hold and held_motion_is_proven_inactive(robot_id, command_id):
+            logger.info(
+                "Main restart retained operator hold without reasserting E-stop "
+                "because Nav proved the persisted command inactive "
+                "task=%s robot=%s command=%s kind=%s",
+                task_id,
+                robot_id,
+                command_id,
+                kind,
+            )
             continue
 
         runtime = _runtime.get(robot_id)
@@ -386,6 +468,17 @@ def _is_stale(observed_at: datetime | None, enable_time: datetime) -> bool:
     if observed_at < enable_time:
         return True
     return (now - observed_at).total_seconds() > settings.person_hazard_stale_sec
+
+
+def _meets_confidence_policy(event: dict[str, Any]) -> bool:
+    confidence = event.get("confidence")
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+        return False
+    threshold = max(
+        0.0,
+        min(1.0, float(getattr(settings, "person_hazard_min_confidence", 0.50))),
+    )
+    return 0.0 <= float(confidence) <= 1.0 and float(confidence) >= threshold
 
 
 def _record_degraded(robot_id: str, detail: str) -> None:
@@ -534,6 +627,10 @@ def process_advisory(conn, runtime: MonitorRuntime, payload: dict[str, Any]) -> 
         return False
     observed_at = _parse_observed_at(str(event.get("observed_at") or ""))
     if _is_stale(observed_at, runtime.enable_time):
+        return False
+    # Vision is an untrusted advisory boundary. Main owns the stop decision and
+    # must not promote a low-confidence detector candidate to a trusted E-stop.
+    if not _meets_confidence_policy(event):
         return False
     dedup = _dedup_key(event)
     if _cooldown_active(runtime.robot_id, runtime.source, runtime.task_id, dedup):

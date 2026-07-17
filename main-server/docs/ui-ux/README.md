@@ -22,6 +22,7 @@ flowchart TD
 
 ## 횡단 문서
 
+- [DESIGN_SYSTEM](DESIGN_SYSTEM.md) — 운영·관리 화면의 시각·상호작용 규칙
 - [IA](IA.md) — 네비게이션 정보구조·목표 라우트
 - [EXPOSURE_POLICY](EXPOSURE_POLICY.md) — 미완성 화면 노출 기준
 - [FRONTEND](FRONTEND.md) — as-built · 레이아웃 · backlog

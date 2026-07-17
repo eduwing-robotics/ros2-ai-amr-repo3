@@ -1,19 +1,29 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import signal
 import socket
 import subprocess
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "sf_stack.sh"
 MANIFEST = ROOT / "config" / "runtime_profiles" / "stack" / "manifest.json"
+
+
+def _load_stack_module():
+    spec = importlib.util.spec_from_file_location("sf_stack_under_test", ROOT / "scripts" / "sf_stack.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _fake_runner(path: Path, *, fail: bool = False) -> Path:
@@ -120,6 +130,33 @@ def _wait_for_running(state_root: Path) -> tuple[Path, dict]:
                 return state_path, state
         time.sleep(0.05)
     raise AssertionError("stack did not become running")
+
+
+def test_http_readiness_probe_does_not_force_json_for_html_frontend() -> None:
+    class HtmlHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            if self.headers.get("Accept") == "application/json":
+                self.send_response(406)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<!doctype html><title>ready</title>")
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), HtmlHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        stack = _load_stack_module()
+        assert stack.http_ready(f"http://127.0.0.1:{server.server_port}/") is True
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
 
 
 def test_owned_stack_stops_in_reverse_without_touching_unrelated_process(tmp_path: Path) -> None:
@@ -361,6 +398,7 @@ def test_repository_profiles_assign_one_safe_default_per_field_host() -> None:
     assert profiles["tb1-local-e2e"]["components"]["main"]["enabled"] is True
     assert profiles["tb1-local-e2e"]["components"]["nav"]["profile"] == "tb1-live"
     assert profiles["tb1-local-e2e"]["components"]["nav"]["readiness_mode"] == "http"
+    assert profiles["tb1-local-e2e"]["components"]["nav"]["readiness_timeout_sec"] == 60
     assert profiles["tb1-local-e2e"]["health"]["main"] == [
         "http://smartfactory-integration.local:8088/health",
         "http://smartfactory-integration.local:5173/",

@@ -3,7 +3,6 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from nav_app.bootstrap import ensure_import_paths
 
 ensure_import_paths()
@@ -103,6 +102,24 @@ def test_health_ok(client):
     assert body["simulation_mode"] is True
 
 
+def test_pose_route_uses_lightweight_localization_refresh(client, monkeypatch):
+    runtime.navigator.get_current_pose.return_value = {
+        "source": "tf",
+        "x": 1.0,
+        "y": 2.0,
+        "yaw": 0.1,
+        "age_sec": 0.02,
+    }
+    localization_health = MagicMock(return_value={"localized": True, "state": "LOCALIZED"})
+    monkeypatch.setattr(robot_context, "localization_health", localization_health)
+
+    response = client.get("/movement-api/v1/robots/tb3_1/pose")
+
+    assert response.status_code == 200
+    assert response.json()["localized"] is True
+    localization_health.assert_called_once_with(refresh_alignment=False)
+
+
 def test_endpoints_contract_shape(client):
     response = client.get("/movement-api/v1/endpoints")
     assert response.status_code == 200
@@ -198,6 +215,22 @@ def test_global_localization_defaults_to_observe_only(client):
     payload = response.json()
     assert payload["accepted"] is True
     assert payload["search"]["motion_started"] is False
+
+
+def test_explicit_global_localization_restart_replaces_existing_search(client):
+    path = "/movement-api/v1/robots/tb3_1/localization/global-search"
+    body = b'{"strategy":"observe_only","allow_motion":false,"restart_existing":true}'
+    response = client.post(
+        path,
+        content=body,
+        headers={"content-type": "application/json", **sign_headers("test-main-nav-secret", "POST", path, body)},
+    )
+
+    assert response.status_code == 200
+    request = runtime.navigator.request_global_localization.call_args.args[0]
+    assert request["strategy"] == "observe_only"
+    assert request["allow_motion"] is False
+    assert request["restart_existing"] is True
 
 
 def test_automatic_localization_uses_profile_policy_once(client):

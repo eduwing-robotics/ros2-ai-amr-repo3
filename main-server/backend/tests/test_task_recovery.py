@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from fastapi import HTTPException
 
 from app.services import movement_health
+from app.services import orchestration_state as orch_state
 from app.services import task_recovery as recovery
 
 
@@ -135,6 +136,7 @@ class TaskRecoveryTest(unittest.TestCase):
             plan = recovery.preview_recovery_plan(conn, 1, cargo_state="LOADED", strategy="safe_move")
         kinds = [s["kind"] for s in plan["steps"]]
         self.assertIn("move_to_point", kinds)
+        self.assertTrue(plan["steps"][0]["human_hazard_monitor"])
         self.assertFalse(plan["dock_transfer_available"])
 
     def test_dock_transfer_disabled_keeps_safe_move_executable(self) -> None:
@@ -151,6 +153,200 @@ class TaskRecoveryTest(unittest.TestCase):
         with patch("app.services.task_recovery._safe_zone_location", return_value=safe):
             plan = recovery.preview_recovery_plan(MagicMock(), 1, cargo_state="EMPTY", strategy="safe_move")
         self.assertEqual([step["kind"] for step in plan["steps"]], ["move_to_point"])
+        self.assertFalse(plan["steps"][0]["human_hazard_monitor"])
+
+    def _held_task(self, *, kind: str = "move_to_point", status: str = "ABORTED") -> dict:
+        return {
+            "task_id": 1,
+            "status": "RUNNING",
+            "assigned_robot_id": "tb3_1",
+            "preset_snapshot": {
+                "_orchestration": {
+                    "phase": orch_state.PHASE_AWAITING_OPERATOR,
+                    "step_index": 0,
+                    "steps": [
+                        {
+                            "seq": 1,
+                            "kind": kind,
+                            "status": status,
+                            "command_id": "old-command",
+                            "transition_id": "old-transition",
+                            "params": {
+                                "map_id": "robot2_map",
+                                "x": 1.239,
+                                "y": -0.631,
+                                "yaw": 3.14159,
+                            },
+                        }
+                    ],
+                    "recovery": {"reason": "movement_estop", "robot_id": "tb3_1"},
+                }
+            },
+        }
+
+    def test_resume_preview_retries_the_same_interrupted_move_step(self) -> None:
+        task = self._held_task()
+        with (
+            patch.object(recovery.evidence_runtime, "attach_orchestration", return_value=task),
+            patch.object(recovery, "task_repo") as tasks,
+        ):
+            tasks.return_value.get.return_value = task
+            plan = recovery.preview_recovery_plan(
+                MagicMock(), 1, cargo_state="EMPTY", strategy="resume_task",
+            )
+
+        self.assertTrue(plan["executable"])
+        self.assertEqual(plan["steps"][0]["kind"], "move_to_point")
+        self.assertEqual(plan["steps"][0]["step_index"], 0)
+        self.assertEqual(
+            plan["steps"][0]["params"],
+            task["preset_snapshot"]["_orchestration"]["steps"][0]["params"],
+        )
+        self.assertEqual(plan["steps"][0]["retry_generation"], 1)
+
+    def test_resume_preview_does_not_blindly_retry_dock_transfer(self) -> None:
+        task = self._held_task(kind="dock_transfer")
+        with (
+            patch.object(recovery.evidence_runtime, "attach_orchestration", return_value=task),
+            patch.object(recovery, "task_repo") as tasks,
+        ):
+            tasks.return_value.get.return_value = task
+            plan = recovery.preview_recovery_plan(
+                MagicMock(), 1, cargo_state="LOADED", strategy="resume_task",
+            )
+
+        self.assertFalse(plan["executable"])
+        self.assertEqual(plan["resume_block_reason"], "resume_step_kind_requires_manual_recovery")
+
+    def test_resume_inflight_step_requires_previous_command_to_be_terminal(self) -> None:
+        step = self._held_task(status="dispatched")["preset_snapshot"]["_orchestration"]["steps"][0]
+        with (
+            patch.object(recovery.movement_client, "command_status", return_value={"state": "RUNNING"}),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            recovery._verify_interrupted_step_terminal("tb3_1", step)
+
+        self.assertEqual(ctx.exception.detail, "resume_interrupted_command_still_active")
+
+    def test_resume_inflight_step_accepts_observed_aborted_command(self) -> None:
+        step = self._held_task(status="dispatched")["preset_snapshot"]["_orchestration"]["steps"][0]
+        with patch.object(recovery.movement_client, "command_status", return_value={"state": "ABORTED"}):
+            result = recovery._verify_interrupted_step_terminal("tb3_1", step)
+
+        self.assertEqual(result, {"state": "ABORTED", "command_id": "old-command"})
+
+    def test_resume_inflight_step_accepts_missing_old_command_only_when_nav_proves_idle(self) -> None:
+        step = self._held_task(status="dispatched")["preset_snapshot"]["_orchestration"]["steps"][0]
+        with (
+            patch.object(
+                recovery.movement_client,
+                "command_status",
+                side_effect=recovery.MovementClientError("missing", status_code=404),
+            ),
+            patch.object(
+                recovery.person_hazard,
+                "held_motion_is_proven_inactive",
+                return_value=True,
+            ) as inactive,
+        ):
+            result = recovery._verify_interrupted_step_terminal("tb3_1", step)
+
+        self.assertEqual(
+            result,
+            {
+                "state": "NAV_RESTARTED_IDLE",
+                "command_id": "old-command",
+                "proof": "command_missing_and_nav_idle_without_active_commands",
+            },
+        )
+        inactive.assert_called_once_with(
+            "tb3_1",
+            "old-command",
+            command_missing=True,
+        )
+
+    def test_resume_inflight_step_keeps_missing_command_fail_closed_without_idle_proof(self) -> None:
+        step = self._held_task(status="dispatched")["preset_snapshot"]["_orchestration"]["steps"][0]
+        with (
+            patch.object(
+                recovery.movement_client,
+                "command_status",
+                side_effect=recovery.MovementClientError("missing", status_code=404),
+            ),
+            patch.object(
+                recovery.person_hazard,
+                "held_motion_is_proven_inactive",
+                return_value=False,
+            ),
+            self.assertRaises(HTTPException) as ctx,
+        ):
+            recovery._verify_interrupted_step_terminal("tb3_1", step)
+
+        self.assertEqual(ctx.exception.detail, "resume_interrupted_command_state_unavailable")
+
+    def test_recovery_context_recommends_original_task_resume_first(self) -> None:
+        task = self._held_task()
+        with (
+            patch.object(recovery.evidence_runtime, "attach_orchestration", return_value=task),
+            patch.object(recovery, "task_repo") as tasks,
+        ):
+            tasks.return_value.get.return_value = task
+            context = recovery.get_recovery_context(MagicMock(), 1)
+
+        self.assertTrue(context["resume_available"])
+        self.assertEqual(context["recommended_actions"][0], "resume_task")
+
+    def test_resume_execution_resets_same_step_and_dispatches_new_attempt(self) -> None:
+        task = self._held_task()
+        held = task["preset_snapshot"]["_orchestration"]
+        evidence = MagicMock()
+        evidence.get_orchestration.return_value = held
+        evidence.list_for_task.return_value = []
+        tasks = MagicMock()
+        tasks.get.return_value = task
+        saved: list[dict] = []
+
+        def capture(_conn, _task_id, orchestration):
+            saved.append(orchestration)
+
+        gate = {
+            "held_orchestration_fingerprint": recovery._orchestration_fingerprint(held),
+            "live_health": {"estop_state": "clear"},
+        }
+        conn = MagicMock()
+        with (
+            patch.object(recovery, "evidence_repo", return_value=evidence),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(recovery, "_assert_needs_attention_phase"),
+            patch.object(recovery, "_active_task_safety_stops", return_value=[]),
+            patch.object(recovery, "_verify_recovery_safety_gate", return_value=gate),
+            patch.object(
+                recovery,
+                "_verify_interrupted_step_terminal",
+                return_value={"state": "ABORTED", "command_id": "old-command"},
+            ),
+            patch.object(recovery.evidence_runtime, "attach_orchestration", return_value=task),
+            patch.object(recovery.evidence_runtime, "save_orchestration", side_effect=capture),
+            patch("app.services.orchestrator.dispatch_current_step", return_value="new-command") as dispatch,
+        ):
+            result = recovery.execute_recovery(
+                conn,
+                1,
+                cargo_state="EMPTY",
+                strategy="resume_task",
+                checks={"site_clear": True, "pose_ok": True, "cargo_ok": True},
+            )
+
+        self.assertEqual(result["task_id"], 1)
+        self.assertEqual(result["command_id"], "new-command")
+        dispatch.assert_called_once_with(conn, 1)
+        resumed = saved[-1]
+        self.assertEqual(resumed["phase"], orch_state.PHASE_RUNNING)
+        step = resumed["steps"][0]
+        self.assertEqual(step["status"], "pending")
+        self.assertEqual(step["retry_generation"], 1)
+        self.assertNotIn("command_id", step)
+        self.assertNotIn("transition_id", step)
 
     def test_evidence_hold_context_uses_db_item_catalog_for_operator_ui(self) -> None:
         conn = MagicMock()
