@@ -52,20 +52,32 @@ class WorkOrderRobotAssignTest(unittest.TestCase):
     @patch("app.domains.movement.navigation.localization_snapshot")
     def test_assert_robot_ready_ok(self, snap) -> None:
         snap.return_value = {
-            "health": {"ok": True, "robot_online": True, "command_accepting": True},
+            "health": {
+                "ok": True, "dry_run": False, "robot_online": True,
+                "localized": True, "nav2_ready": True, "command_accepting": True,
+                "is_emergency": False, "battery": 80,
+            },
             "localized": True,
-            "pose": {"x": 0, "y": 0},
+            "pose": {"x": 0, "y": 0, "age_sec": 0.1},
         }
         tasks._assert_robot_ready_for_assignment("tb3_1")
 
     @patch("app.domains.movement.navigation.localization_snapshot")
     def test_battery_assignment_boundaries(self, snap) -> None:
         base = {
-            "health": {"ok": True, "robot_online": True, "command_accepting": True},
+            "health": {
+                "ok": True, "dry_run": False, "robot_online": True,
+                "localized": True, "nav2_ready": True, "command_accepting": True,
+                "is_emergency": False,
+            },
             "localized": True,
-            "pose": {"x": 0, "y": 0},
+            "pose": {"x": 0, "y": 0, "age_sec": 0.1},
         }
-        for battery, expected in ((19, "robot_battery_low"), (20, None), (None, None)):
+        for battery, expected in (
+            (19, "robot_battery_low"),
+            (20, None),
+            (None, "robot_battery_unknown"),
+        ):
             with self.subTest(battery=battery):
                 health = dict(base["health"])
                 health["battery"] = battery

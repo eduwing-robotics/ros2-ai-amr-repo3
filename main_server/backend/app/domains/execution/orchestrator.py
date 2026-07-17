@@ -17,6 +17,8 @@ from app.domains.execution import evidence, inout_scenarios, recovery
 from app.domains.execution import state as orch_state
 from app.domains.movement import commands
 from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
+from app.domains.movement.health import get_movement_health
+from app.domains.movement.navigation import movement_reason
 from app.domains.safety import hazard as person_hazard
 from app.domains.vision import evidence as lift_load_evidence
 from app.domains.warehouse import inventory as inventory_ops
@@ -255,6 +257,28 @@ def start_task_orchestration(
     robot_id = task.get("assigned_robot_id")
     if not robot_id:
         raise HTTPException(status_code=409, detail="task has no assigned robot")
+
+    fresh_health = get_movement_health([str(robot_id)], force=True).get(str(robot_id), {})
+    readiness_reason, _ = movement_reason(fresh_health)
+    if readiness_reason != "ok":
+        tasks.unassign_to_queue(conn, task_id)
+        robots.set_task(conn, str(robot_id), "IDLE", None)
+        tasks.add_history(
+            conn, task_id, "ASSIGNED", "QUEUED",
+            f"Movement readiness deferred: {readiness_reason}", source,
+        )
+        operational_events.append(
+            conn,
+            event_type="TASK_READINESS_DEFERRED",
+            task_id=task_id,
+            robot_id=str(robot_id),
+            message=f"task {task_id} returned to queue: {readiness_reason}",
+            payload={"reason": readiness_reason, "source": source},
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "movement_not_ready", "reason": readiness_reason},
+        )
 
     scenario = evidence.build_scenario_from_task(conn, task)
     steps = plan_command_steps(conn, scenario, task_id, robot_id)

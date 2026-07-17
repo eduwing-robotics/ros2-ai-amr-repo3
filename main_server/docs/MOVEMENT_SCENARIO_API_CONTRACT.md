@@ -1,13 +1,16 @@
 # Main ↔ Movement Scenario API Contract
 
-상태: Active — Main 구현 완료·Movement 구현 대기
+상태: Active — Main·Movement 구현, 통합 검증 중
 주 독자: Main·Movement 서버 개발자
 보조 독자: 통합 QA·현장 운영 담당자
 난이도: 연동
 소유: Main·Movement Integration
-최종 갱신: 2026-07-16 20:50 KST
+최종 갱신: 2026-07-17 18:40 KST
 구현 기준: Main Scenario API v1 client·DB waypoint snapshot·9단계 callback orchestrator
 목적: Main이 업무 위치와 실제 접근 좌표를 한 번 전송하고 Movement가 전체 입출고를 실행하면서 공통 업무 단계로 진행도를 callback하는 양방향 정본 계약.
+
+운영 진단은 [Movement Scenario Troubleshooting](MOVEMENT_SCENARIO_TROUBLESHOOTING.md), location과 waypoint의 명시적
+연결은 [Movement Waypoint Contract](MOVEMENT_WAYPOINT_CONTRACT.md)를 따른다.
 
 문서 버전: `1.0`
 
@@ -58,6 +61,21 @@ v1에서는 실행 중 자동 resume을 제공하지 않는다. 안전 중지·�
 Movement base URL은 Main의 robot별 설정을 정본으로 한다. 예시의 `tb3_2`는
 `http://smartfactory-nav.local:8002/movement-api/v1`, Main callback base는
 `http://smartfactory-main.local:8088/api/v1`이다.
+
+분리 서버 환경에서 callback에 `localhost` 또는 `127.0.0.1`을 사용하는 것은 금지한다. 이 주소는 Movement 서버
+자신을 가리킨다. IP 주소는 hostname 장애 시에만 fallback으로 사용한다.
+
+### 2.1 실행 전 READY Gate
+
+Main은 명령 직전 최신 `/health`에서 아래 조건을 모두 확인한다. 누락 또는 `null`은 실패다.
+
+```text
+ok=true, dry_run=false, robot_online=true, localized=true,
+nav2_ready=true, command_accepting=true, is_emergency=false
+```
+
+Main의 신규 배차에는 `battery >= 20` 정책을 추가 적용한다. Gate 실패 시 Task는 대기시키고 같은 명령을 반복 POST하지
+않는다. Movement 상태가 READY로 복구된 뒤 같은 Task를 다시 평가한다.
 
 ## 3. Scenario 실행 요청
 
@@ -328,6 +346,10 @@ Terminal callback에는 다음 필드가 추가로 필수다.
 Movement는 `2xx`에서 전송 성공으로 처리한다. 동일 callback 재전송은 같은 `event_id`를 사용하며 Main은
 `200 duplicate=true`로 ACK한다.
 
+Scenario v1 callback에서 이 절의 필수 필드를 누락하는 것은 계약 위반이다. 현재 Main의 공개 callback 모델은 구형
+Movement callback 호환을 위해 일부 필드를 nullable로 수신하지만, 이 호환 범위를 Scenario v1 필수 계약으로
+해석하면 안 된다. Main은 향후 Scenario command에 연결된 callback에 strict 검증을 적용한다.
+
 ## 7. 화물·재고·Task 판정
 
 | 조건 | Main 처리 |
@@ -499,6 +521,9 @@ Main은 callback 유실 시 이 응답을 callback과 동일한 상태 전이 �
 
 Movement는 오류 응답에 물리 튜닝값이나 내부 stack trace를 노출하지 않는다.
 
+terminal 실패 callback에는 `reason_code`와 `message`가 필수다. 상태 조회가 `FAILED`인데 두 필드가 없으면 Main은
+안전한 실패 상태만 적용하고 자동 재실행·원인별 복구를 금지하며 계약 위반 이벤트를 기록한다.
+
 `retryable=false`는 동일 body 자동 재시도로 해결되지 않는다는 뜻이다. `retryable=true`여도 Main은 로봇 동작의
 중복 가능성을 확인하기 위해 GET 조회와 `command_id` 멱등 규칙을 먼저 적용한다.
 
@@ -544,6 +569,9 @@ Movement도 신규 구현과 배포 설정에서 이 경로를 제공하거나 �
 | SC-10 | callback 유실 | GET 조회로 동일 상태 수렴 |
 | SC-11 | safe-stop | 실제 정지 후 terminal callback, 후속 step 미실행 |
 | SC-12 | 최종 Gate | PARK·EMPTY·IDLE·권한 반환 후에만 COMPLETED |
+| SC-13 | READY Gate | null 없는 7개 boolean 조건을 명령 직전에 확인 |
+| SC-14 | callback 주소 | Movement 장비에서 hostname callback 도달, localhost 미사용 |
+| SC-15 | 실패 진단 | terminal 실패에 reason code·message·step 문맥 포함 |
 
 ## 16. 변경 관리
 

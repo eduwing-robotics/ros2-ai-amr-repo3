@@ -5,7 +5,7 @@
 보조 독자: 전체 프로젝트 구성원
 난이도: 입문
 소유: Docs
-최종 갱신: 2026-07-16 20:50 KST
+최종 갱신: 2026-07-17 18:40 KST
 구현 기준: 현재 추적 중인 공개 문서와 저장소 경로
 목적: GitHub 공개 정본 목차와 권장 읽기 순서.
 
@@ -28,6 +28,8 @@
 | [API](API.md) | Main·Frontend 개발자 | 개발 | Browser→Main REST 경계 |
 | [INTERFACES](INTERFACES.md) | 서버 연동 개발자 | 연동 | Main↔외부 서버 계약 |
 | [Movement Scenario API Contract](MOVEMENT_SCENARIO_API_CONTRACT.md) | Main·Movement 개발자 | 연동 | 입출고 단일 실행·업무 단계·callback 정본 |
+| [Movement Waypoint Contract](MOVEMENT_WAYPOINT_CONTRACT.md) | Main·Movement 개발자 | 연동 | location·물리 위치·approach waypoint 매핑 정본 |
+| [Movement Scenario Troubleshooting](MOVEMENT_SCENARIO_TROUBLESHOOTING.md) | 연동 개발자·현장 운영자 | 운영 | READY·callback·실패를 중복 실행 없이 진단 |
 | [MOVEMENT_SERVER_REQUIREMENTS](MOVEMENT_SERVER_REQUIREMENTS.md) | Movement 개발자 | 연동 | callback·재시도·ESTOP 요구 |
 
 ```mermaid

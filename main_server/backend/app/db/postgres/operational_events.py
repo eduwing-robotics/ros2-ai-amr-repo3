@@ -54,6 +54,24 @@ def callback_event_exists(conn, event_id: str) -> bool:
     return row is not None
 
 
+def should_append_callback_validation_failure(
+    conn, signature: str, *, reminder_sec: int = 60
+) -> bool:
+    """Record a repeated invalid callback once per reminder window."""
+    row = conn.execute(
+        """
+            SELECT observed_at < now() - make_interval(secs => %s) AS reminder_due
+            FROM evidence_events
+            WHERE source = 'runtime'
+              AND event_type = 'MOVEMENT_CALLBACK_VALIDATION_FAILED'
+              AND data_json ->> 'signature' = %s
+            ORDER BY observed_at DESC, id DESC LIMIT 1
+        """,
+        (reminder_sec, signature),
+    ).fetchone()
+    return not row or bool(row.get("reminder_due"))
+
+
 def latest_estop_states(conn, robot_ids: list[str]) -> dict[str, str]:
     """Return the latest persisted ESTOP lifecycle state for each robot."""
     if not robot_ids:

@@ -58,6 +58,11 @@ def assign(conn, task_id: int, robot_id: str, status: str = "ASSIGNED") -> None:
     conn.execute("UPDATE tasks SET status = %s, robot_id = %s WHERE id = %s", (status, robot_id, task_id))
 
 
+def unassign_to_queue(conn, task_id: int) -> None:
+    """Release a deferred assignment without failing the queued task."""
+    conn.execute("UPDATE tasks SET status = 'QUEUED', robot_id = NULL WHERE id = %s", (task_id,))
+
+
 def set_priority(conn, task_id: int, priority: int) -> None:
     conn.execute("UPDATE tasks SET priority = %s WHERE id = %s", (priority, task_id))
 

@@ -254,9 +254,18 @@ class MovementCallbackRouteTest(unittest.TestCase):
         self.assertEqual(body["message"], "movement command event saved")
         ingest.assert_called_once_with(conn, payload)
 
-    def test_command_event_requires_command_robot_and_state(self) -> None:
+    @patch("app.main.transaction")
+    @patch("app.main.operational_events")
+    def test_command_event_requires_command_robot_and_state(self, events, transaction_ctx) -> None:
+        conn = MagicMock()
+        transaction_ctx.return_value.__enter__.return_value = conn
+        events.should_append_callback_validation_failure.return_value = True
+
         res = self.client.post("/api/v1/movement/command-events", json={"task_id": 42, "event": "DONE"})
+
         self.assertEqual(res.status_code, 422)
+        events.append.assert_called_once()
+        self.assertEqual(events.append.call_args.kwargs["event_type"], "MOVEMENT_CALLBACK_VALIDATION_FAILED")
 
     @patch("app.domains.movement.router.transaction")
     @patch("app.domains.movement.router.callbacks.ingest_command_event")

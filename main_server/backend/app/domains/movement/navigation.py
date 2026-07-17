@@ -174,18 +174,28 @@ def movement_reason(health: dict, pose_payload: dict | None = None) -> tuple[str
     """Movement health/pose를 운영자가 이해할 수 있는 reason/action으로 정규화한다."""
     pose_payload = pose_payload or {}
     pose = pose_payload.get("pose") if pose_payload else health.get("pose")
-    localized = bool(pose_payload.get("localized", health.get("localized", False)))
-    if not health.get("ok"):
+    localized = pose_payload.get("localized", health.get("localized"))
+    if health.get("ok") is not True:
         return "movement_api_unreachable", "check_movement_server"
-    if health.get("robot_online") is False:
+    if health.get("dry_run") is not False:
+        return "movement_dry_run", "disable_dry_run"
+    if health.get("robot_online") is not True:
         return "robot_offline", "check_robot_bringup"
-    if health.get("is_emergency"):
+    if health.get("is_emergency") is not False:
         return "emergency_stop", "clear_emergency"
-    if not localized or not pose:
+    if localized is not True or not pose:
         if health.get("localization_required", True):
             return "initial_pose_required", "set_initial_pose"
         return "amcl_pose_not_received", "check_localization"
-    if health.get("command_accepting") is False:
+    try:
+        pose_age = float(pose.get("age_sec"))
+    except (TypeError, ValueError):
+        return "localization_lost", "set_initial_pose"
+    if pose_age > settings.pose_source_lost_sec:
+        return "localization_lost", "set_initial_pose"
+    if health.get("nav2_ready") is not True:
+        return "nav2_not_ready", "check_nav_state"
+    if health.get("command_accepting") is not True:
         return "command_not_accepting", "check_nav_state"
     return "ok", None
 

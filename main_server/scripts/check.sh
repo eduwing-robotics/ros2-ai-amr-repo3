@@ -100,7 +100,7 @@ done < <(find . \
 # Public Markdown is intentionally flat under docs/.
 while IFS= read -r file; do
   case "$file" in
-    docs/README.md|docs/GLOSSARY.md|docs/ARCHITECTURE.md|docs/DATABASE.md|docs/INTERFACES.md|docs/API.md|docs/OPERATIONS.md|docs/UX.md|docs/UI_UX_DESIGN.md|docs/TEST_CASES.md|docs/MOVEMENT_SERVER_REQUIREMENTS.md|docs/MOVEMENT_SCENARIO_API_CONTRACT.md|docs/OPERATOR_BUTTON_GUIDE.md) ;;
+    docs/README.md|docs/GLOSSARY.md|docs/ARCHITECTURE.md|docs/DATABASE.md|docs/INTERFACES.md|docs/API.md|docs/OPERATIONS.md|docs/UX.md|docs/UI_UX_DESIGN.md|docs/TEST_CASES.md|docs/MOVEMENT_SERVER_REQUIREMENTS.md|docs/MOVEMENT_SCENARIO_API_CONTRACT.md|docs/MOVEMENT_WAYPOINT_CONTRACT.md|docs/MOVEMENT_SCENARIO_TROUBLESHOOTING.md|docs/OPERATOR_BUTTON_GUIDE.md) ;;
     *) err "Unexpected public Markdown file: $file" ;;
   esac
 done < <(find docs -maxdepth 1 -name '*.md' -type f -print)

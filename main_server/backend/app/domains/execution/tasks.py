@@ -77,9 +77,12 @@ def assign_work_order_robot(conn, task_id: int, robot_id: str) -> dict[str, Any]
 _ASSIGN_READINESS_DETAIL = {
     "robot_offline": "robot_offline",
     "movement_api_unreachable": "robot_offline",
+    "movement_dry_run": "robot_not_accepting",
     "emergency_stop": "robot_not_accepting",
     "initial_pose_required": "robot_not_localized",
     "amcl_pose_not_received": "robot_not_localized",
+    "localization_lost": "robot_not_localized",
+    "nav2_not_ready": "robot_not_accepting",
     "command_not_accepting": "robot_not_accepting",
 }
 
@@ -99,7 +102,9 @@ def robot_assignment_block_reason(robot_id: str) -> str | None:
     from app.domains.movement.health import battery_from_health
 
     battery = battery_from_health(health)
-    if battery is not None and battery < 20:
+    if battery is None:
+        return "robot_battery_unknown"
+    if battery < 20:
         return "robot_battery_low"
     return None
 

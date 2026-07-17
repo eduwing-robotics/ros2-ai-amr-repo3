@@ -2,11 +2,15 @@
 
 import asyncio
 import contextlib
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -24,6 +28,8 @@ from app.domains.movement.pose_monitor import (
 )
 from app.domains.movement.pose_runtime import pose_runtime
 from app.domains.safety.hazard_loop import person_hazard_loop
+
+logger = logging.getLogger(__name__)
 
 
 class SpaStaticFiles(StaticFiles):
@@ -111,6 +117,42 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(router, prefix=settings.api_prefix)
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        if request.url.path == f"{settings.api_prefix}/movement/command-events":
+            try:
+                raw = await request.json()
+                body = raw if isinstance(raw, dict) else {}
+            except Exception:
+                body = {}
+            command_id = str(body.get("command_id") or "")
+            event_id = str(body.get("event_id") or "")
+            signature = f"{command_id}:{event_id}:{exc.errors()}"[:1000]
+            payload = {
+                "signature": signature,
+                "path": request.url.path,
+                "command_id": command_id or None,
+                "task_id": body.get("task_id"),
+                "event_id": event_id or None,
+                "sequence": body.get("sequence"),
+                "validation_errors": jsonable_encoder(exc.errors()),
+            }
+            try:
+                with transaction() as conn:
+                    if operational_events.should_append_callback_validation_failure(conn, signature):
+                        operational_events.append(
+                            conn,
+                            event_type="MOVEMENT_CALLBACK_VALIDATION_FAILED",
+                            task_id=body.get("task_id") if isinstance(body.get("task_id"), int) else None,
+                            robot_id=str(body.get("robot_name") or body.get("robot_id") or "") or None,
+                            command_id=command_id or None,
+                            message="Movement callback schema validation failed",
+                            payload=payload,
+                        )
+            except Exception:
+                logger.exception("failed to persist Movement callback validation evidence")
+        return JSONResponse(status_code=422, content=jsonable_encoder({"detail": exc.errors()}))
 
     @app.get("/health")
     def health() -> dict:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from app.core.config import settings
 from app.db.connection import AUTO_ASSIGN_LOCK_ID, TASK_PROGRESS_LOCK_ID, transaction, try_advisory_xact_lock
 from app.domains.execution import tasks
 from app.domains.execution.orchestrator import poll_running_tasks
@@ -27,7 +28,11 @@ def poll_task_progress_once() -> dict:
     # Separate transaction preserves the existing rollback boundary.
     with transaction() as conn:
         if try_advisory_xact_lock(conn, AUTO_ASSIGN_LOCK_ID):
-            assignment = tasks.auto_assign_and_start(conn, source="task_progress_poller")
+            assignment = tasks.auto_assign_and_start(
+                conn,
+                callback_base_url=settings.api_callback_base_url(),
+                source="task_progress_poller",
+            )
     return {
         "advanced": advanced,
         "recovery_advanced": recovery_advanced,

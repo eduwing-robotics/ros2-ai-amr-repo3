@@ -14,6 +14,11 @@ def test_initial_dispatch_failure_enters_canonical_failure_handler() -> None:
     task = {"task_id": 7, "status": "ASSIGNED", "assigned_robot_id": "tb3_2"}
     with (
         patch.object(orchestrator, "_task", return_value=task),
+        patch.object(orchestrator, "get_movement_health", return_value={"tb3_2": {
+            "ok": True, "dry_run": False, "robot_online": True, "localized": True,
+            "nav2_ready": True, "command_accepting": True, "is_emergency": False,
+            "pose": {"x": 0, "y": 0, "age_sec": 0.1},
+        }}),
         patch.object(orchestrator.evidence, "build_scenario_from_task", return_value={"map_id": "map", "steps": [{}]}),
         patch.object(orchestrator, "plan_command_steps", return_value=[{"kind": "inout_scenario"}]),
         patch.object(orchestrator, "dispatch_current_step", side_effect=HTTPException(status_code=409, detail={"code": "waypoint_location_mismatch"})),
@@ -38,6 +43,39 @@ def test_movement_error_exposes_structured_detail() -> None:
         "retryable": False,
         "upstream_status": 409,
     }
+
+
+def test_scenario_start_forces_fresh_health_and_returns_not_ready_task_to_queue() -> None:
+    conn = MagicMock()
+    task = {
+        "task_id": 363,
+        "status": "ASSIGNED",
+        "assigned_robot_id": "tb3_2",
+        "preset_snapshot": {},
+    }
+    offline = {
+        "ok": True, "dry_run": False, "robot_online": False,
+        "localized": True, "nav2_ready": False, "command_accepting": False,
+        "is_emergency": False, "pose": {"x": 0, "y": 0, "age_sec": 0.1},
+    }
+    with (
+        patch.object(orchestrator, "_task", return_value=task),
+        patch.object(orchestrator, "get_movement_health", return_value={"tb3_2": offline}) as health,
+        patch.object(orchestrator.tasks, "unassign_to_queue") as unassign,
+        patch.object(orchestrator.tasks, "add_history"),
+        patch.object(orchestrator.robots, "set_task") as set_robot,
+        patch.object(orchestrator.operational_events, "append"),
+        patch.object(orchestrator.commands, "dispatch_robot_command") as dispatch,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            orchestrator.start_task_orchestration(conn, 363, "http://main/api/v1", "task_progress_poller")
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == {"code": "movement_not_ready", "reason": "robot_offline"}
+    health.assert_called_once_with(["tb3_2"], force=True)
+    unassign.assert_called_once_with(conn, 363)
+    set_robot.assert_called_once_with(conn, "tb3_2", "IDLE", None)
+    dispatch.assert_not_called()
 
 
 def test_reconcile_undispatched_requires_no_movement_command() -> None:
