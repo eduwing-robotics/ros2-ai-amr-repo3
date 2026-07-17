@@ -22,6 +22,10 @@ import {
 } from "../../types/warehouse";
 type AssignMode = "auto" | "manual";
 
+const MOVEMENT_V1_INBOUND_STORAGE_BY_ZONE: Record<string, string> = {
+  INBOUND_02: "STORAGE_02",
+};
+
 export interface WorkOrderPayloadInput {
   operation: Operation;
   itemCode: string;
@@ -278,10 +282,11 @@ export function WorkOrderForm({
   const quantityOverStock = operation === "outbound" && itemCode && qty > stockOnHand;
   const noEmptySlot = operation === "inbound" && !!itemCode && emptySlots < 1;
 
-  const slotCandidates = useMemo(
-    () => slotCandidatesForOperation(operation, slots, inventory, itemCode, qty, selectedFloor),
-    [operation, slots, inventory, itemCode, qty, selectedFloor],
-  );
+  const slotCandidates = useMemo(() => {
+    const candidates = slotCandidatesForOperation(operation, slots, inventory, itemCode, qty, selectedFloor);
+    const requiredSlotId = operation === "inbound" ? MOVEMENT_V1_INBOUND_STORAGE_BY_ZONE[zoneId] : undefined;
+    return requiredSlotId ? candidates.filter((candidate) => candidate.slot_id === requiredSlotId) : candidates;
+  }, [operation, slots, inventory, itemCode, qty, selectedFloor, zoneId]);
 
   const manualSlotReady = assignMode === "manual" && manualSlotId.length > 0;
   const selectedZoneMissingScan = !!zoneId && !linkedDockPairs.some((p) => p.dock_waypoint_id === zoneId && p.dock_mode === "aruco");

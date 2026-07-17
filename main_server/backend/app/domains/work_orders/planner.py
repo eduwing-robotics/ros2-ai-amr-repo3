@@ -18,6 +18,12 @@ from app.db.postgres import (
 MAX_WORK_ORDER_QUANTITY = 50
 FLOOR_CHOICES = (1, 2)
 
+# Movement Scenario v1 currently validates this inbound route as a fixed profile.
+# Keep the planning constraint here so unsupported work orders fail before dispatch.
+MOVEMENT_V1_INBOUND_STORAGE_BY_ZONE = {
+    "INBOUND_02": "STORAGE_02",
+}
+
 
 def preview_work_order(conn, payload: dict[str, Any]) -> dict[str, Any]:
     item_code = payload["item_code"]
@@ -140,6 +146,9 @@ def _plan_inbound_single(
     if not slots:
         raise HTTPException(status_code=409, detail="no_available_slot")
     inbound_loc = locations.get_inbound(conn, payload.get("inbound_waypoint_id"))
+    required_slot_id = MOVEMENT_V1_INBOUND_STORAGE_BY_ZONE.get(str(inbound_loc.get("slot_id") or ""))
+    if required_slot_id:
+        slots = [slot for slot in slots if slot.get("slot_id") == required_slot_id]
     for slot in slots:
         for candidate_floor in _candidate_floors(floor):
             if _slot_occupied(conn, slot["slot_id"], candidate_floor):
@@ -196,6 +205,17 @@ def _resolve_single_slot(
     inbound_loc = locations.get_inbound(conn, payload.get("inbound_waypoint_id"))
     outbound_loc = locations.get_outbound(conn, payload.get("outbound_waypoint_id"))
     if operation == "inbound":
+        required_slot_id = MOVEMENT_V1_INBOUND_STORAGE_BY_ZONE.get(str(inbound_loc.get("slot_id") or ""))
+        if required_slot_id and slot_id != required_slot_id:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "movement_profile_slot_mismatch",
+                    "inbound_location_id": inbound_loc.get("slot_id"),
+                    "required_slot_id": required_slot_id,
+                    "requested_slot_id": slot_id,
+                },
+            )
         for candidate_floor in _candidate_floors(floor):
             if _slot_occupied(conn, slot_id, candidate_floor):
                 continue
