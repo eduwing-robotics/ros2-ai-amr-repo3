@@ -167,6 +167,15 @@ export function OperatorShell() {
   const selectedRobotId = selectedRobot?.robot_id ?? "";
   const selectedRobotCommandBlocked = selectedRobot?.command_enabled === false;
   const unavailableRobotIds = robots.filter((robot) => robot.command_enabled === false).map((robot) => robot.robot_id);
+  const robotBlockReasons: Record<string, string> = Object.fromEntries(robots.filter((robot) => robot.command_enabled === false).map((robot) => {
+    const health = data?.movement_health?.[robot.robot_id];
+    const reason = health?.reason
+      || (health?.localized === false ? "localization_lost" : null)
+      || (health?.nav2_ready === false ? "nav2_not_ready" : null)
+      || robot.operational_reason
+      || "command_not_accepting";
+    return [robot.robot_id, String(reason)] as const;
+  }));
   const [cameraRobotId, setCameraRobotId] = useState<string | null>(null);
   const [focusedWaypointId, setFocusedWaypointId] = useState<string | null>(null);
   const [focusedZoneId, setFocusedZoneId] = useState<string | null>(null);
@@ -387,6 +396,7 @@ export function OperatorShell() {
                   disabled={allRobotsEmergency || (robots.length > 0 && robots.every((robot) => robot.command_enabled === false))}
                   emergencyRobots={emergencyRobots}
                   unavailableRobotIds={unavailableRobotIds}
+                  robotBlockReasons={robotBlockReasons}
                   onSubmitted={(order, autoStart) => {
                             void refetch();
                             if (!autoStart) navigate(`/operate/tasks?order=${order.order_id}`);
@@ -459,6 +469,7 @@ export function OperatorShell() {
                           disabled={allRobotsEmergency || (robots.length > 0 && robots.every((robot) => robot.command_enabled === false))}
                           emergencyRobots={emergencyRobots}
                           unavailableRobotIds={unavailableRobotIds}
+                  robotBlockReasons={robotBlockReasons}
                           onSubmitted={(order, autoStart) => {
                           void refetch();
                           if (!autoStart) navigate(`/operate/tasks?order=${order.order_id}`);

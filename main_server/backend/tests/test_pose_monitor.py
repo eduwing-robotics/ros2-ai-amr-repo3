@@ -71,3 +71,21 @@ def test_fallback_poll_marks_movement_disconnected() -> None:
         pose_monitor._poll_robot_pose("r1")
 
     connected.assert_called_once_with("r1", False)
+
+def test_fallback_poll_backoff_increases_and_success_resets() -> None:
+    pose_monitor._pose_poll_backoff.clear()
+    with patch.object(pose_monitor.time, "monotonic", return_value=100.0):
+        pose_monitor._record_poll_failure("r1")
+        first = pose_monitor.pose_poll_backoff_metrics()["r1"]
+        pose_monitor._record_poll_failure("r1")
+        second = pose_monitor.pose_poll_backoff_metrics()["r1"]
+    assert first["retry_in_sec"] == 1.0
+    assert second["retry_in_sec"] == 2.0
+    assert not pose_monitor._poll_is_due("r1", 101.0)
+    pose_monitor._record_poll_success("r1")
+    assert "r1" not in pose_monitor.pose_poll_backoff_metrics()
+
+
+def test_pose_thresholds_allow_expected_push_jitter() -> None:
+    assert pose_monitor.settings.pose_push_preferred_sec < pose_monitor.settings.pose_receive_stale_sec
+    assert pose_monitor.settings.pose_receive_stale_sec < pose_monitor.settings.pose_receive_lost_sec

@@ -337,3 +337,13 @@ class MovementCallbackRouteTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_duplicate_robot_status_issue_is_suppressed() -> None:
+    conn = MagicMock()
+    with patch.object(callbacks.operational_events, "should_append_robot_status_issue", return_value=False), patch.object(
+        callbacks.operational_events, "append"
+    ) as append:
+        saved = callbacks.ingest_robot_status(conn, "r3", {"state": "offline", "localized": False})
+    assert saved is False
+    append.assert_not_called()

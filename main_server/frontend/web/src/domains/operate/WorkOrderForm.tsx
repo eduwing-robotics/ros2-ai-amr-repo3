@@ -26,6 +26,20 @@ const MOVEMENT_V1_INBOUND_STORAGE_BY_ZONE: Record<string, string> = {
   INBOUND_02: "STORAGE_02",
 };
 
+const ROBOT_BLOCK_GUIDANCE: Record<string, string> = {
+  amcl_pose_not_received: "초기 위치를 설정하고 AMCL pose 수신을 확인하세요.",
+  localization_lost: "맵에서 초기 위치를 다시 지정하세요.",
+  nav2_not_ready: "Nav2 lifecycle이 active인지 확인하세요.",
+  command_not_accepting: "Movement readiness 복구 후 다시 시도하세요.",
+  movement_or_robot_offline: "Movement 서버와 로봇 연결을 확인하세요.",
+  emergency_stop_active: "안전 확인 후 비상정지를 해제하세요.",
+};
+
+function blockGuidance(reason?: string): string {
+  if (!reason) return "로봇 상태와 Movement readiness를 확인하세요.";
+  return ROBOT_BLOCK_GUIDANCE[reason] ?? "차단 사유: " + reason;
+}
+
 export interface WorkOrderPayloadInput {
   operation: Operation;
   itemCode: string;
@@ -201,6 +215,7 @@ export function WorkOrderForm({
   disabled,
   emergencyRobots = [],
   unavailableRobotIds = [],
+  robotBlockReasons = {},
   onSubmitted,
 }: {
   onClose?: () => void;
@@ -209,6 +224,7 @@ export function WorkOrderForm({
   disabled?: boolean;
   emergencyRobots?: string[];
   unavailableRobotIds?: string[];
+  robotBlockReasons?: Record<string, string>;
   /** 생성 성공 시 호출 — 예약이면 셸이 작업 큐를 열어 다음 행동을 잇는다. */
   onSubmitted?: (order: WorkOrder, autoStart: boolean) => void;
 }) {
@@ -234,6 +250,7 @@ export function WorkOrderForm({
 
   const selectedRobotEmergency = Boolean(robotId && emergencyRobots.includes(robotId));
   const selectedRobotUnavailable = Boolean(robotId && unavailableRobotIds.includes(robotId));
+  const selectedRobotBlockReason = robotId ? robotBlockReasons[robotId] : undefined;
   const formBlocked = Boolean(disabled) || selectedRobotEmergency || selectedRobotUnavailable;
 
   const qty = Number(quantity);
@@ -502,7 +519,7 @@ export function WorkOrderForm({
             <span className="pill err">선택한 로봇이 비상 정지 상태입니다</span>
           ) : null}
           {robotId && selectedRobotUnavailable ? (
-            <span className="pill err">선택한 로봇은 현재 명령을 실행할 수 없습니다</span>
+            <span className="pill err">{blockGuidance(selectedRobotBlockReason)}</span>
           ) : null}
           {robotId && !selectedRobotEmergency && !selectedRobotUnavailable ? (
             <span className="muted">생성 시 {robotId}에 즉시 배정 (유휴·localized·명령 수신 가능해야 함)</span>
@@ -516,6 +533,14 @@ export function WorkOrderForm({
         </div>
       ) : null}
       </div>
+      {unavailableRobotIds.length > 0 ? (
+        <div className="inline-alert warn mt-8" role="status">
+          <strong>실행 준비 확인</strong>
+          {unavailableRobotIds.map((id) => (
+            <div key={id} className="muted">{id}: {blockGuidance(robotBlockReasons[id])}</div>
+          ))}
+        </div>
+      ) : null}
       <div className="work-order-footer">
         <div className="work-order-auto-start">
           <label className="switch-line">

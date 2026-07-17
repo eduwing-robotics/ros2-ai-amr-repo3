@@ -6,6 +6,7 @@ import asyncio
 import logging
 import queue
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,6 +23,44 @@ logger = logging.getLogger(__name__)
 class QueuedPoseEvent:
     payload: dict[str, Any]
     attempts: int = 0
+
+
+@dataclass
+class PosePollBackoff:
+    failures: int = 0
+    next_due_at: float = 0.0
+
+
+_POLL_BACKOFF_DELAYS_SEC = (1.0, 2.0, 5.0, 10.0, 30.0)
+_pose_poll_backoff: dict[str, PosePollBackoff] = {}
+_pose_poll_backoff_lock = threading.Lock()
+
+
+def _poll_is_due(robot_id: str, now: float) -> bool:
+    with _pose_poll_backoff_lock:
+        return now >= _pose_poll_backoff.get(robot_id, PosePollBackoff()).next_due_at
+
+
+def _record_poll_success(robot_id: str) -> None:
+    with _pose_poll_backoff_lock:
+        _pose_poll_backoff.pop(robot_id, None)
+
+
+def _record_poll_failure(robot_id: str) -> None:
+    with _pose_poll_backoff_lock:
+        state = _pose_poll_backoff.setdefault(robot_id, PosePollBackoff())
+        state.failures += 1
+        delay = _POLL_BACKOFF_DELAYS_SEC[min(state.failures - 1, len(_POLL_BACKOFF_DELAYS_SEC) - 1)]
+        state.next_due_at = time.monotonic() + delay
+
+
+def pose_poll_backoff_metrics() -> dict[str, Any]:
+    now = time.monotonic()
+    with _pose_poll_backoff_lock:
+        return {
+            robot_id: {"failures": state.failures, "retry_in_sec": max(0.0, state.next_due_at - now)}
+            for robot_id, state in _pose_poll_backoff.items()
+        }
 
 
 class PoseEventQueue:
@@ -138,6 +177,7 @@ def _poll_robot_pose(robot_id: str) -> None:
             if localized is not None:
                 pose_runtime.update_localization(robot_id, bool(localized))
             pose_runtime.mark_movement_connected(robot_id, True)
+            _record_poll_success(robot_id)
             return
         payload = {
             "map_id": settings.movement_active_map_id,
@@ -158,21 +198,26 @@ def _poll_robot_pose(robot_id: str) -> None:
             localized=response.get("localized"),
         )
         pose_runtime.mark_movement_connected(robot_id, True)
+        _record_poll_success(robot_id)
     except (MovementClientError, KeyError, TypeError, ValueError, UnknownRobotError) as exc:
         logger.warning("pose fallback poll failed for %s: %s", robot_id, exc)
         pose_runtime.mark_movement_connected(robot_id, False)
+        _record_poll_failure(robot_id)
     except Exception:
         logger.exception("unexpected pose fallback poll failure for %s", robot_id)
         pose_runtime.mark_movement_connected(robot_id, False)
+        _record_poll_failure(robot_id)
 
 
 async def pose_fallback_poller_loop() -> None:
     """Poll Movement only when canonical push is absent/stale."""
     while True:
+        now = time.monotonic()
         due = [
             robot_id
             for robot_id in pose_runtime.known_robot_ids()
-            if (age := pose_runtime.receive_age_sec(robot_id)) is None or age > settings.pose_push_preferred_sec
+            if ((age := pose_runtime.receive_age_sec(robot_id)) is None or age > settings.pose_push_preferred_sec)
+            and _poll_is_due(robot_id, now)
         ]
         if due:
             await asyncio.gather(*(asyncio.to_thread(_poll_robot_pose, robot_id) for robot_id in due))
@@ -184,4 +229,12 @@ def pose_runtime_metrics() -> dict[str, Any]:
         "robots": pose_runtime.known_robot_ids(),
         "poses": len(pose_runtime.list_snapshots()),
         "event_writer": pose_event_queue.metrics(),
+        "poll_backoff": pose_poll_backoff_metrics(),
+        "thresholds_sec": {
+            "push_preferred": settings.pose_push_preferred_sec,
+            "receive_stale": settings.pose_receive_stale_sec,
+            "receive_lost": settings.pose_receive_lost_sec,
+            "source_stale": settings.pose_source_stale_sec,
+            "source_lost": settings.pose_source_lost_sec,
+        },
     }

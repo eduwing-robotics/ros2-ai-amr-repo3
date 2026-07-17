@@ -275,8 +275,8 @@ def movement_robot_status(robot_name: str, payload: MovementRobotStatusCallback,
             callbacks.ingest_estop_status(conn, robot_name, body)
     if callbacks.robot_status_requires_event(body):
         with transaction() as conn:
-            callbacks.ingest_robot_status(conn, robot_name, body)
-        return ApiMessage(message="movement robot status issue saved")
+            saved = callbacks.ingest_robot_status(conn, robot_name, body)
+        return ApiMessage(message="movement robot status issue saved" if saved else "movement robot status issue deduplicated")
     return ApiMessage(message="movement robot status accepted")
 
 

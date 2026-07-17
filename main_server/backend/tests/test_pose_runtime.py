@@ -58,10 +58,10 @@ class TestPoseRuntime:
     def test_watchdog_emits_issue_once_and_three_samples_recover(self) -> None:
         self.runtime.ingest("r1", {"map_id": "m", "x": 1, "y": 2}, source_kind="canonical")
         self.runtime.collect_events()
-        self.clock.advance(1.6)
+        self.clock.advance(4.6)
         assert [e["event_type"] for e in self.runtime.collect_events()] == ["POSE_STALE"]
         assert self.runtime.collect_events() == []
-        self.clock.advance(3.5)
+        self.clock.advance(7.5)
         assert [e["event_type"] for e in self.runtime.collect_events()] == ["POSE_LOST"]
 
         for sample in range(3):

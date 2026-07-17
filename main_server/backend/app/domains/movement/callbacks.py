@@ -133,8 +133,10 @@ def robot_status_requires_event(payload: dict[str, Any]) -> bool:
     }
 
 
-def ingest_robot_status(conn, robot_name: str, payload: dict[str, Any]) -> None:
+def ingest_robot_status(conn, robot_name: str, payload: dict[str, Any]) -> bool:
     """이상 상태 콜백만 운영 이벤트 타임라인에 기록한다."""
+    if not operational_events.should_append_robot_status_issue(conn, robot_name, payload):
+        return False
     message = str(payload.get("state") or "status issue")
     if message.lower() == "error":
         cause = operational_events.latest_failure_message(conn, robot_name)
@@ -148,6 +150,7 @@ def ingest_robot_status(conn, robot_name: str, payload: dict[str, Any]) -> None:
         message=message,
         payload=payload,
     )
+    return True
 
 
 def ingest_estop_status(conn, robot_name: str, payload: dict[str, Any]) -> bool:

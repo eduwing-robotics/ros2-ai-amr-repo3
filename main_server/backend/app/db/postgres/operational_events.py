@@ -89,6 +89,30 @@ def latest_estop_states(conn, robot_ids: list[str]) -> dict[str, str]:
     }
 
 
+def should_append_robot_status_issue(
+    conn, robot_id: str, payload: dict[str, Any], *, reminder_sec: int = 60
+) -> bool:
+    """Persist a robot issue on state transition, then at most once per reminder window."""
+    row = conn.execute(
+        """
+            SELECT data_json, observed_at < now() - make_interval(secs => %s) AS reminder_due
+            FROM evidence_events
+            WHERE source = %s AND event_type = %s
+              AND data_json ->> %s = %s
+            ORDER BY observed_at DESC, id DESC LIMIT 1
+        """,
+        (reminder_sec, "runtime", "MOVEMENT_ROBOT_STATUS_ISSUE", "robot_id", robot_id),
+    ).fetchone()
+    if not row:
+        return True
+    previous = row.get("data_json") or {}
+    if isinstance(previous, str):
+        previous = json.loads(previous)
+    keys = ("state", "localized", "is_emergency", "command_accepting", "robot_online")
+    transitioned = any(previous.get(key) != payload.get(key) for key in keys)
+    return transitioned or bool(row.get("reminder_due"))
+
+
 def list_operational_events(conn, limit: int = 50) -> list[dict[str, Any]]:
 
     rows = conn.execute(
