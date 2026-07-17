@@ -33,7 +33,8 @@ Commissioning을 포함해 runtime IP fallback을 두지 않는다. `192.168.30.
 ## Main 바인딩
 
 표준 운영 진입점은 저장소 루트의 `scripts/sf_stack.sh`다. `.9`의
-`main-field`는 `smartfactory-main.local`, `.5`의 `tb1-local-e2e`는
+`main-field`는 `smartfactory-main.local`, `.5`의 `tb1-local-e2e`,
+`tb2-local-e2e`, `all-local-e2e`, `tb1-synthetic-e2e`는
 `smartfactory-integration.local`에만 Main과 UI를 bind한다. 내부
 `main-server/scripts/real.sh`도 선택된 고정 site profile의 이름이 이 PC의
 `192.168.30.x` interface로 해석될 때만 시작한다. 이름 해석 실패, 다른 subnet,

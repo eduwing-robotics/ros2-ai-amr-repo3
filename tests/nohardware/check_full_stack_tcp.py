@@ -489,6 +489,7 @@ def _exercise_work_orders(main_base: str) -> dict[str, Any]:
 def _exercise_work_order_safe_stop(
     main_base: str,
     nav_base: str,
+    ai_base: str,
     order_id: int,
     command_id: str,
     timeout: float,
@@ -596,6 +597,14 @@ def _exercise_work_order_safe_stop(
     assert len(requested) == 1, requested
     assert len(stopped) == 1, stopped
 
+    person_recovery = _exercise_person_stop_recovery(
+        main_base,
+        nav_base,
+        ai_base,
+        order_id,
+        timeout,
+    )
+
     cleanup = _expect(
         _request(
             "POST",
@@ -633,6 +642,7 @@ def _exercise_work_order_safe_stop(
         },
         "stop_request_events": len(requested),
         "stop_terminal_events": len(stopped),
+        "person_recovery": person_recovery,
         "terminal_status": "CANCELLED",
         "robot_status": robot["status"],
     }
@@ -861,7 +871,7 @@ def _exercise_person_stop_recovery(
     main_base: str,
     nav_base: str,
     ai_base: str,
-    suffix: str,
+    task_id: int,
     timeout: float,
 ) -> dict[str, Any]:
     # The assembled graph intentionally runs one Nav process. Remove the
@@ -882,57 +892,21 @@ def _exercise_person_stop_recovery(
         200,
         "clear AI person fixture",
     )
-    initial_pose = _expect(
+    loaded_recovery = _expect(
         _request(
             "POST",
-            _url(main_base, "/api/v1/robots/tb3_1/initial-pose"),
+            _url(main_base, f"/api/v1/tasks/{task_id}/recovery/execute"),
             {
-                "map_id": "robot2_map",
-                "frame_id": "map",
-                "x": 0.0,
-                "y": 0.0,
-                "yaw": 0.0,
-                "source": "nohardware_public_acceptance",
+                "cargo_state": "LOADED",
+                "strategy": "safe_move",
+                "checks": {"site_clear": True, "pose_ok": True, "cargo_ok": True},
             },
         ),
         200,
-        "public Main initial pose",
+        "loaded safe recovery dispatch",
     )
-    assert initial_pose.get("ok") is True, initial_pose
-
-    created = _expect(
-        _request(
-            "POST",
-            _url(main_base, "/api/v1/tasks"),
-            {
-                "task_type": "MOVE",
-                "priority": 50,
-                "to_location": "HOME_01",
-                "created_by": "nohardware_public_acceptance",
-            },
-        ),
-        200,
-        "public MOVE task create",
-    )
-    task_id = int(created["task_id"])
-    assigned = _expect(
-        _request(
-            "POST",
-            _url(main_base, f"/api/v1/tasks/{task_id}/assign"),
-            {"robot_id": "tb3_1"},
-        ),
-        200,
-        "public MOVE task assignment",
-    )
-    assert assigned.get("status") == "ASSIGNED" and assigned.get("assigned_robot_id") == "tb3_1", assigned
-    started = _expect(
-        _request("POST", _url(main_base, f"/api/v1/tasks/{task_id}/start-mission"), {}),
-        200,
-        "public MOVE mission start",
-    )
-    assert (started.get("task") or {}).get("status") == "RUNNING", started
-    started_command_id = str((started.get("mission") or {}).get("command_id") or "")
-    assert started_command_id, started
+    started_command_id = str(loaded_recovery.get("command_id") or "")
+    assert loaded_recovery.get("accepted") is True and started_command_id, loaded_recovery
     _expect(
         _request("POST", _url(ai_base, "/__nohardware/person-detection"), {}),
         200,
@@ -1093,6 +1067,7 @@ def main() -> int:
             "work_order_safe_stop": _exercise_work_order_safe_stop(
                 args.main_base,
                 args.nav_base,
+                args.ai_base,
                 args.safe_stop_order_id,
                 args.safe_stop_command_id,
                 args.timeout,
@@ -1124,13 +1099,6 @@ def main() -> int:
             args.main_base,
             suffix,
             args.assigned_inbound_task_id,
-        ),
-        "person_recovery": _exercise_person_stop_recovery(
-            args.main_base,
-            args.nav_base,
-            args.ai_base,
-            suffix,
-            args.timeout,
         ),
     }
     print(json.dumps({"ok": True, "phase": args.phase, "checks": summary}, ensure_ascii=False, indent=2, sort_keys=True))

@@ -20,9 +20,16 @@
 3. 선택 로봇의 SBC에서 hardware/ROS base를 시작한다. TB1 PiCam이 필요하면 두 번째 SBC terminal에서 `ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py`를 실행한다. TB2 camera/lift를 포함한 상세 명령은 [LMS Full Startup Runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)을 따른다. 이 외부 프로세스는 stack 실행기가 임의로 종료하지 않는다.
 4. 각 host에서 공통 stack profile을 확인하고 실행한다. 프로파일을 생략하면
    로컬 `192.168.30.x` 주소에 따라 `.5=tb1-local-e2e`, `.9=main-field`,
-   `.12=nav-field-tb1`이 선택된다. TB2 또는 두 로봇 Nav는 `.12`에서 각각
-   `nav-field-tb2`, `nav-field-all`을 명시한다. TB1 실제 base에 lift만 가상화하는
-   시험은 `.5`에서 `tb1-synthetic-e2e`를 명시하며 기본 선택되지 않는다.
+   `.12=nav-field-tb1`이 선택된다. 다른 구성은 반드시 `--profile`로 명시한다.
+
+   | 실행 PC | profile | 시작 범위 |
+   | --- | --- | --- |
+   | `.5` 통합 시험 PC | `tb1-local-e2e` | Main/UI + TB1 bridge/Nav |
+   | `.5` 통합 시험 PC | `tb2-local-e2e` | Main/UI + TB2 Nav |
+   | `.5` 통합 시험 PC | `all-local-e2e` | Main/UI + TB1 bridge/Nav + TB2 Nav |
+   | `.5` 통합 시험 PC | `tb1-synthetic-e2e` | Main/UI + TB1 실제 base/Nav + 가상 lift |
+   | `.9` Main PC | `main-field` | Main/UI |
+   | `.12` Nav PC | `nav-field-tb1`, `nav-field-tb2`, `nav-field-all` | 선택 로봇 Nav |
 
    ```bash
    cd <repository-root>
@@ -30,6 +37,13 @@
    scripts/sf_stack.sh print-config
    scripts/sf_stack.sh check
    scripts/sf_stack.sh foreground
+   ```
+
+   예를 들어 `.5`에서 TB2만 시험할 때는 다음처럼 실행한다.
+
+   ```bash
+   scripts/sf_stack.sh --profile tb2-local-e2e check
+   scripts/sf_stack.sh --profile tb2-local-e2e foreground
    ```
 
    Nav를 포함한 profile은 Movement API가 준비된 뒤 선택 로봇의 Nav2/RViz와
@@ -41,8 +55,9 @@
 
 5. 외부 AI host의 운영자가 AI service와 camera source를 시작하고 health URL을 전달한다. Nav/Main host에서는 AI service를 로컬로 시작하지 않는다. Main의 `LMS_VISION_API_BASE_URL`과 `LMS_VISION_STREAM_BASE_URL`은 해당 외부 host를 가리켜야 한다.
 
-6. `.5`의 `tb1-local-e2e`와 `.9`의 `main-field`는 Main service, PostgreSQL,
-   UI를 profile 안에서 시작한다. `.12`의 Nav profile은 Main을 시작하지 않는다.
+6. `.5`의 모든 local E2E profile과 `.9`의 `main-field`는 Main service,
+   PostgreSQL, UI를 profile 안에서 시작한다. `.12`의 Nav profile은 Main을 시작하지
+   않는다.
 
    Person safety가 활성화된 Main은 시작 시 남아 있는 physical·cancel·recovery·callback
    전이 상태를 poller보다 먼저 확인한다. 중단된 이동 상태는 E-stop과

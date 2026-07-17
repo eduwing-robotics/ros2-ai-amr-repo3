@@ -407,6 +407,34 @@ def test_repository_profiles_assign_one_safe_default_per_field_host() -> None:
         profiles["tb1-local-e2e"]["components"]["main"]["env"]["LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED"]
         == "false"
     )
+    assert profiles["tb2-local-e2e"]["site"]["allowed_local_ips"] == ["192.168.30.5"]
+    assert profiles["tb2-local-e2e"]["components"]["bridge"]["enabled"] is False
+    assert profiles["tb2-local-e2e"]["components"]["nav"]["profile"] == "tb2-live"
+    assert (
+        profiles["tb2-local-e2e"]["components"]["main"]["env"]["LMS_MOVEMENT_BASE_URLS"]
+        == "tb3_2=http://smartfactory-integration.local:8002/movement-api/v1"
+    )
+    assert (
+        profiles["tb2-local-e2e"]["components"]["main"]["env"]["LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED"]
+        == "false"
+    )
+    assert profiles["all-local-e2e"]["site"]["allowed_local_ips"] == ["192.168.30.5"]
+    assert (
+        profiles["all-local-e2e"]["components"]["bridge"]["runner"]
+        == "nav-server/scripts/run_tb3_1_hardware_bridge.sh"
+    )
+    assert profiles["all-local-e2e"]["components"]["nav"]["profile"] == "all-live"
+    assert (
+        profiles["all-local-e2e"]["components"]["main"]["env"]["LMS_MOVEMENT_BASE_URLS"]
+        == (
+            "tb3_1=http://smartfactory-integration.local:8001/movement-api/v1,"
+            "tb3_2=http://smartfactory-integration.local:8002/movement-api/v1"
+        )
+    )
+    assert (
+        profiles["all-local-e2e"]["components"]["main"]["env"]["LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED"]
+        == "false"
+    )
     assert profiles["main-field"]["components"]["nav"]["enabled"] is False
     assert profiles["main-field"]["health"]["main"] == [
         "http://smartfactory-main.local:8088/health",

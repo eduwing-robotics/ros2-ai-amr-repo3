@@ -235,6 +235,11 @@ UI 입고 세부 조작은 [Inbound Scenario Test](../../main-server/docs/operat
 
 TB2가 준비되면 `tb2-live`를 명시하고 0~6단계를 TB2로 다시 통과한 뒤 7단계에 적힌 입고·출고 흐름을 실제 lift와 화물로 수행한다. 7단계의 synthetic profile 명령과 nonphysical admission은 TB2에서 사용하지 않는다.
 
+`.5` 통합 시험 PC에서 TB2만 시작할 때는 `tb2-local-e2e`, TB1과 TB2를 함께
+시작할 때는 `all-local-e2e` stack profile을 사용한다. 프로파일을 생략하면 안전한
+기본값인 `tb1-local-e2e`가 선택된다. 실행 명령은 [시작과 종료](startup-shutdown.md)를
+따른다.
+
 | TB1 문서 값 | TB2에서 사용할 값 |
 | --- | --- |
 | `tb1-live` | `tb2-live` |
