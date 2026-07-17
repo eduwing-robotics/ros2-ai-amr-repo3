@@ -267,6 +267,9 @@ def movement_robot_status(robot_name: str, payload: MovementRobotStatusCallback,
         raise HTTPException(status_code=404, detail="robot not registered") from exc
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"invalid pose: {exc}") from exc
+    if callbacks.robot_status_is_fresh(body):
+        with transaction() as conn:
+            postgres_robots.touch(conn, robot_name)
     if "is_emergency" in body:
         with transaction() as conn:
             callbacks.ingest_estop_status(conn, robot_name, body)

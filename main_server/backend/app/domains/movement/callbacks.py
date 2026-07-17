@@ -5,6 +5,7 @@ from __future__ import annotations
 import zlib
 from typing import Any
 
+from app.core.config import settings
 from app.db.connection import MOVEMENT_CALLBACK_LOCK_NAMESPACE, advisory_xact_lock_for_key
 from app.db.postgres import operational_events
 from app.domains.execution import orchestrator
@@ -99,6 +100,23 @@ def ingest_robot_status_pose(robot_name: str, payload: dict[str, Any]) -> bool:
         source_kind="status",
         localized=payload.get("localized"),
     )
+
+
+def robot_status_is_fresh(payload: dict[str, Any]) -> bool:
+    """True only for a live robot heartbeat or a fresh pose sample."""
+    state = str(payload.get("state") or "").strip().lower()
+    if state in {"offline", "disconnected", "error", "fault", "failed"}:
+        return False
+    if payload.get("robot_online") is False:
+        return False
+    pose = payload.get("pose") or {}
+    if pose:
+        try:
+            age = float(pose.get("age_sec"))
+        except (TypeError, ValueError):
+            return False
+        return age <= settings.pose_source_lost_sec and payload.get("localized") is not False
+    return payload.get("robot_online") is True
 
 
 def robot_status_requires_event(payload: dict[str, Any]) -> bool:

@@ -17,6 +17,7 @@ class CameraSource(BaseModel):
     robot_id: str | None = None
     status: str = "not_connected"
     stream_url: str | None = None
+    last_frame_age_s: float | None = None
 
 
 class CameraSourceUpsert(BaseModel):

@@ -47,6 +47,15 @@ def battery_from_health(health: dict[str, Any]) -> int | None:
     0%로 덮어쓰지 않되 운영 상태 응답에는 미수신으로 표시한다. 계약: 정수 퍼센트 0~100
     (docs/reference/MOVEMENT_SERVER_REQUIREMENTS.md §6.1).
     """
+    if health.get("battery_stale") is True:
+        return None
+    raw_age = health.get("battery_age_sec")
+    if raw_age is not None:
+        try:
+            if float(raw_age) > settings.battery_stale_sec:
+                return None
+        except (TypeError, ValueError):
+            return None
     raw = health.get("battery")
     if raw is None:
         raw = health.get("battery_percentage")
@@ -170,8 +179,14 @@ def _probe_pose_as_health(robot_id: str, routed_base: str) -> dict[str, Any]:
         with urlopen(req, timeout=settings.movement_health_timeout_sec) as res:
             raw = read_limited(res, max_bytes=MAX_JSON_RESPONSE_BYTES).decode("utf-8")
         payload = json.loads(raw) if raw else {}
-        pose = payload.get("pose")
+        pose = payload.get("pose") or {}
         localized = bool(payload.get("localized")) or bool(pose)
+        try:
+            pose_age = float(pose.get("age_sec"))
+        except (TypeError, ValueError):
+            pose_age = None
+        pose_fresh = bool(pose) and pose_age is not None and pose_age <= settings.pose_source_lost_sec
+        robot_online = pose_fresh and payload.get("robot_online") is not False and localized
         finish_call(ctx, True, 200, "pose fallback ok")
         return {
             "ok": True,
@@ -180,8 +195,11 @@ def _probe_pose_as_health(robot_id: str, routed_base: str) -> dict[str, Any]:
             "base_url": routed_base,
             "checked_at": now_iso(),
             "robot_name": payload.get("robot_name") or key,
-            "robot_online": True,
+            "robot_online": robot_online,
+            "command_accepting": False if not robot_online else payload.get("command_accepting"),
+            "nav2_ready": False if not robot_online else payload.get("nav2_ready"),
             "localized": localized,
+            "pose_age_sec": pose_age,
             "pose": pose,
             "is_emergency": robot_is_emergency(robot_id),
             "health_error": "health endpoint unavailable; pose API responded",

@@ -39,11 +39,26 @@ def movement_robot_key(robot_id: str) -> str:
 
 
 class MovementClientError(RuntimeError):
-    """Movement 서버 호출 실패."""
+    """Movement 서버 호출 실패와 bounded upstream detail."""
 
-    def __init__(self, message: str, *, status_code: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        detail: dict[str, Any] | None = None,
+    ):
         super().__init__(message)
         self.status_code = status_code
+        self.detail = detail or {"message": message}
+
+    def api_detail(self) -> dict[str, Any]:
+        return {
+            "code": self.detail.get("code") or "movement_upstream_error",
+            "message": self.detail.get("message") or str(self),
+            "retryable": bool(self.detail.get("retryable", self.status_code is None or self.status_code >= 500)),
+            "upstream_status": self.status_code,
+        }
 
 
 class MovementClient:
@@ -417,10 +432,26 @@ class HttpMovementClient(MovementClient):
                 raw = read_limited(res, max_bytes=MAX_JSON_RESPONSE_BYTES).decode("utf-8")
             finish_call(ctx, True, 200, success_message)
         except HTTPError as exc:
-            read_error_detail(exc)
-            safe_detail = f"movement upstream HTTP {exc.code}"
+            raw_detail = read_error_detail(exc)
+            parsed_detail: dict[str, Any] = {}
+            try:
+                parsed = json.loads(raw_detail) if raw_detail else {}
+                candidate = parsed.get("detail", parsed) if isinstance(parsed, dict) else {}
+                if isinstance(candidate, dict):
+                    parsed_detail = candidate
+                elif isinstance(candidate, str):
+                    parsed_detail = {"message": candidate}
+            except json.JSONDecodeError:
+                if raw_detail:
+                    parsed_detail = {"message": raw_detail}
+            parsed_detail.setdefault("message", f"movement upstream HTTP {exc.code}")
+            parsed_detail.setdefault("code", "movement_upstream_error")
+            parsed_detail.setdefault("retryable", exc.code >= 500)
+            safe_detail = json.dumps(parsed_detail, ensure_ascii=False)
             finish_call(ctx, False, exc.code, safe_detail)
-            raise MovementClientError(safe_detail, status_code=exc.code) from exc
+            raise MovementClientError(
+                str(parsed_detail["message"]), status_code=exc.code, detail=parsed_detail
+            ) from exc
         except URLError as exc:
             finish_call(ctx, False, "unreachable", "movement unreachable")
             raise MovementClientError("movement unreachable") from exc

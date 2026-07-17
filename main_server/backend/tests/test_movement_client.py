@@ -98,7 +98,8 @@ class HttpMovementClientTest(unittest.TestCase):
             with self.assertRaises(MovementClientError) as ctx:
                 self.client.robot_command("tb3_1", {"command_id": "c", "kind": "dock_transfer"})
         self.assertEqual(ctx.exception.status_code, 409)
-        self.assertNotIn("gate: ARRIVED required", str(ctx.exception))
+        self.assertIn("gate: ARRIVED required", str(ctx.exception))
+        self.assertEqual(ctx.exception.api_detail()["message"], "gate: ARRIVED required")
 
     def test_rejects_invalid_base_url(self) -> None:
         with self.assertRaises(ValueError):

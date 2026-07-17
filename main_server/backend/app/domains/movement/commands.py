@@ -264,11 +264,14 @@ def normalize_dock_transfer_params(
 
 def _map_movement_client_error(exc: MovementClientError, *, kind: str) -> HTTPException:
     """Movement HTTP 오류를 Main 응답으로 매핑한다(409 게이트·404 미구현 구분)."""
-    detail = str(exc)
+    detail: str | dict[str, Any] = exc.api_detail()
+    detail_text = str(exc)
     code = exc.status_code
     if code == 409:
         return HTTPException(status_code=409, detail=detail)
-    if kind in {"dock_transfer", "aruco_align"} and (code == 404 or "404" in detail or "Not Found" in detail):
+    if kind in {"dock_transfer", "aruco_align"} and (
+        code == 404 or "404" in detail_text or "Not Found" in detail_text
+    ):
         return HTTPException(
             status_code=501,
             detail=(

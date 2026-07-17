@@ -6,6 +6,7 @@ steps/step_index 상태는 evidence_events ORCHESTRATION_STATE에 저장한다.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -65,9 +66,7 @@ def _normalize_movement_event(event: dict[str, Any]) -> str:
     return SCENARIO_EVENT_NAMES.get(raw, raw)
 
 
-def _update_scenario_progress(
-    orch: dict[str, Any], step: dict[str, Any], event: dict[str, Any]
-) -> dict[str, Any]:
+def _update_scenario_progress(orch: dict[str, Any], step: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
     previous = step.get("scenario_progress") or {}
     progress = dict(previous) if isinstance(previous, dict) else {}
     for field in SCENARIO_PROGRESS_FIELDS:
@@ -156,7 +155,6 @@ def _scenario_event_contract_errors(step: dict[str, Any], event: dict[str, Any])
     if old_last is not None and new_last is not None and int(new_last) < int(old_last):
         errors.append("last_completed_step_index")
     return errors
-
 
 
 def _orchestration_phase(conn, task_id: int) -> str | None:
@@ -267,7 +265,11 @@ def start_task_orchestration(
     robots.set_task(conn, robot_id, "RUNNING", task_id)
     tasks.add_history(conn, task_id, "ASSIGNED", "RUNNING", "orchestrator started", source)
 
-    command_id = dispatch_current_step(conn, task_id)
+    try:
+        command_id = dispatch_current_step(conn, task_id)
+    except HTTPException as exc:
+        _handle_step_dispatch_exception(conn, task_id, exc, source)
+        raise
     operational_events.append(
         conn,
         event_type="TASK_ORCHESTRATION_STARTED",
@@ -326,12 +328,14 @@ def dispatch_current_step(conn, task_id: int) -> str:
         cargo_state = orch_state.cargo_state_after_steps(steps)
         if cargo_state == "LOADED":
             orch_state.set_phase(orch, orch_state.PHASE_AWAITING_OPERATOR)
-            orch_state.RobotTaskExecutionState.wrap(orch).replace_recovery({
-                "reason": "movement_dispatch_rejected_loaded_cargo",
-                "robot_id": robot_id,
-                "cargo_state": cargo_state,
-                "failed_step_index": step_index,
-            })
+            orch_state.RobotTaskExecutionState.wrap(orch).replace_recovery(
+                {
+                    "reason": "movement_dispatch_rejected_loaded_cargo",
+                    "robot_id": robot_id,
+                    "cargo_state": cargo_state,
+                    "failed_step_index": step_index,
+                }
+            )
         else:
             orch_state.set_phase(orch, orch_state.PHASE_FAILED)
             tasks.set_status(conn, task_id, "FAILED", clear_robot=True)
@@ -390,13 +394,15 @@ def _handle_step_dispatch_exception(conn, task_id: int, exc: HTTPException, sour
         result = finalize_running_task_as_done(conn, task_id, source=source)
     elif cargo_state == "LOADED":
         execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
-        execution.replace_recovery({
-            "reason": "movement_dispatch_failed_loaded_cargo",
-            "robot_id": robot_id,
-            "cargo_state": cargo_state,
-            "failed_step_index": step_index,
-            "detail": str(exc.detail),
-        })
+        execution.replace_recovery(
+            {
+                "reason": "movement_dispatch_failed_loaded_cargo",
+                "robot_id": robot_id,
+                "cargo_state": cargo_state,
+                "failed_step_index": step_index,
+                "detail": str(exc.detail),
+            }
+        )
         evidence.save_orchestration(conn, task_id, orch)
         result = _task(conn, task_id)
     else:
@@ -410,7 +416,11 @@ def _handle_step_dispatch_exception(conn, task_id: int, exc: HTTPException, sour
 
     operational_events.append(
         conn,
-        event_type=(orch_state.EVENT_AWAITING_OPERATOR if cargo_state == "LOADED" and not execution.business_completed else "TASK_STEP_DISPATCH_FAILED"),
+        event_type=(
+            orch_state.EVENT_AWAITING_OPERATOR
+            if cargo_state == "LOADED" and not execution.business_completed
+            else "TASK_STEP_DISPATCH_FAILED"
+        ),
         task_id=task_id,
         robot_id=robot_id,
         message=f"task {task_id} step {step_index} dispatch failed ({cargo_state})",
@@ -504,11 +514,13 @@ def advance_on_command_event(
                 result = finalize_running_task_as_done(conn, task_id, source=source)
             elif cargo_state == "LOADED":
                 execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
-                execution.replace_recovery({
-                    "reason": "operator_safe_stop",
-                    "robot_id": robot_id,
-                    "cargo_state": cargo_state,
-                })
+                execution.replace_recovery(
+                    {
+                        "reason": "operator_safe_stop",
+                        "robot_id": robot_id,
+                        "cargo_state": cargo_state,
+                    }
+                )
                 evidence.save_orchestration(conn, task_id, orch)
                 result = _task(conn, task_id)
             else:
@@ -594,25 +606,29 @@ def advance_on_command_event(
             )
             return finished
         event_payload = event.get("event") if isinstance(event.get("event"), dict) else event
-        reason = str(
-            (event_payload or {}).get("reason_code") or (event_payload or {}).get("reason") or ""
-        ).lower()
+        reason = str((event_payload or {}).get("reason_code") or (event_payload or {}).get("reason") or "").lower()
         cargo_state = str(scenario_progress.get("cargo_state") or "").upper()
         if cargo_state not in {"EMPTY", "LOADED"}:
-            cargo_state = "UNKNOWN" if str(step.get("kind")) == "inout_scenario" else orch_state.cargo_state_after_steps(steps)
+            cargo_state = (
+                "UNKNOWN" if str(step.get("kind")) == "inout_scenario" else orch_state.cargo_state_after_steps(steps)
+            )
         estop_failure = event_name == "ABORTED" and "estop" in reason
         awaiting_operator = cargo_state in {"LOADED", "UNKNOWN"} or estop_failure
         if awaiting_operator:
-            recovery_reason = "movement_failure_loaded_cargo" if cargo_state in {"LOADED", "UNKNOWN"} else "movement_estop"
+            recovery_reason = (
+                "movement_failure_loaded_cargo" if cargo_state in {"LOADED", "UNKNOWN"} else "movement_estop"
+            )
             execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
-            execution.replace_recovery({
-                "reason": recovery_reason,
-                "robot_id": task.get("assigned_robot_id"),
-                "cargo_state": cargo_state,
-                "failed_step_index": step_index,
-                "failed_command_id": event_command_id,
-                "movement_state": event_name,
-            })
+            execution.replace_recovery(
+                {
+                    "reason": recovery_reason,
+                    "robot_id": task.get("assigned_robot_id"),
+                    "cargo_state": cargo_state,
+                    "failed_step_index": step_index,
+                    "failed_command_id": event_command_id,
+                    "movement_state": event_name,
+                }
+            )
             evidence.save_orchestration(conn, task_id, orch)
             robot_id = task.get("assigned_robot_id")
             operational_events.append(
@@ -679,9 +695,7 @@ def advance_on_command_event(
         except Exception:
             logger.exception("lift-load evidence record-only hook failed")
 
-    transfer_action = str(
-        step.get("transfer_action") or (step.get("params") or {}).get("action") or ""
-    ).lower()
+    transfer_action = str(step.get("transfer_action") or (step.get("params") or {}).get("action") or "").lower()
     if transfer_action == "unload":
         inventory_ops.settle_inventory_for_completed_task(conn, task_id)
         execution.mark_business_completed(at_step=step_index)
@@ -800,6 +814,65 @@ def handle_command_event(conn, payload: dict[str, Any]) -> dict[str, Any] | None
     return advance_on_command_event(conn, int(task_id), payload)
 
 
+POLL_FAILURE_HOLD_THRESHOLD = 3
+
+
+def _record_status_poll_failure(
+    conn,
+    task: dict[str, Any],
+    orch: dict[str, Any],
+    steps: list[dict[str, Any]],
+    step_index: int,
+    exc: MovementClientError,
+) -> bool:
+    """Persist consecutive status lookup failures in orchestration JSON; no schema change."""
+    step = steps[step_index]
+    count = int(step.get("poll_failure_count") or 0) + 1
+    step["poll_failure_count"] = count
+    step.setdefault("poll_failure_first_at", datetime.now(timezone.utc).isoformat())
+    step["polling_error"] = str(exc)
+    orch_state.set_steps(orch, steps)
+    if count < POLL_FAILURE_HOLD_THRESHOLD:
+        evidence.save_orchestration(conn, int(task["task_id"]), orch)
+        return False
+    execution = orch_state.RobotTaskExecutionState.wrap(orch)
+    execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
+    execution.replace_recovery(
+        {
+            "reason": "movement_status_unreachable",
+            "robot_id": task.get("assigned_robot_id"),
+            "cargo_state": orch_state.cargo_state_after_steps(steps),
+            "failed_step_index": step_index,
+            "poll_failure_count": count,
+            "polling_error": str(exc),
+        }
+    )
+    evidence.save_orchestration(conn, int(task["task_id"]), orch)
+    operational_events.append(
+        conn,
+        event_type="TASK_MOVEMENT_CONNECTION_LOST",
+        task_id=int(task["task_id"]),
+        robot_id=task.get("assigned_robot_id"),
+        command_id=step.get("command_id"),
+        message="Movement status lookup failed repeatedly; operator reconciliation required.",
+        payload={"poll_failure_count": count, "error": str(exc)},
+    )
+    return True
+
+
+def _clear_status_poll_failure(
+    conn, task_id: int, orch: dict[str, Any], steps: list[dict[str, Any]], step_index: int
+) -> None:
+    step = steps[step_index]
+    keys = ("poll_failure_count", "poll_failure_first_at", "polling_error")
+    if not any(key in step for key in keys):
+        return
+    for key in keys:
+        step.pop(key, None)
+    orch_state.set_steps(orch, steps)
+    evidence.save_orchestration(conn, task_id, orch)
+
+
 def poll_running_tasks(conn) -> int:
     advanced = 0
     for task in evidence.list_orchestrated_running(conn):
@@ -821,8 +894,11 @@ def poll_running_tasks(conn) -> int:
                 status = movement_client.inout_scenario_status(robot_id, str(step["command_id"]))
             else:
                 status = movement_client.command_status(robot_id, str(step["command_id"]))
-        except MovementClientError:
+        except MovementClientError as exc:
+            if _record_status_poll_failure(conn, task, orch, steps, step_index, exc):
+                advanced += 1
             continue
+        _clear_status_poll_failure(conn, int(task["task_id"]), orch, steps, step_index)
         state = str(status.get("state") or status.get("status") or "").upper()
         done_events = _step_done_events(str(step.get("kind") or "move_to_point"))
         scenario_changed = False
@@ -842,7 +918,11 @@ def poll_running_tasks(conn) -> int:
                 )
                 if field in status
             )
-        if scenario_changed or state in done_events or state in {"FAILED", "ABORTED", "REJECTED", "CANCELLED", "CANCELED", "STOPPED"}:
+        if (
+            scenario_changed
+            or state in done_events
+            or state in {"FAILED", "ABORTED", "REJECTED", "CANCELLED", "CANCELED", "STOPPED"}
+        ):
             if advance_on_command_event(
                 conn,
                 int(task["task_id"]),

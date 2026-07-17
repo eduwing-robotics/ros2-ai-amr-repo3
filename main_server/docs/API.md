@@ -223,6 +223,8 @@ ESTOP 일괄 요청은 로봇마다 `request_id`를 만들고 `stop_requested �
 
 ## Work orders · recovery · waypoints · maps
 
+- **로봇 대표 상태:** `robots[].status`는 기존 작업 수명주기 호환값이며, 운영 화면은 `operational_status`를 사용한다. 우선순위는 `ESTOP > OFFLINE > FAULT > NOT_READY > RECOVERY > RUNNING > ASSIGNED > IDLE > UNKNOWN`이다. `task_status`는 연결 단절 중에도 기존 작업 상태를 보존하고, `operational_reason`은 보조 설명, `command_enabled`는 실행 UI 차단 기준이다.
+- **실시간 freshness:** pose fallback은 source age가 lost 임계값 이내일 때만 로봇 온라인 근거로 사용한다. 배터리는 `battery_stale` 또는 sample age 초과 시 미수신으로 표시한다. 실행 중 Movement 상태 조회가 3회 연속 실패하면 기존 orchestration JSON에 실패 문맥을 저장하고 `AWAITING_OPERATOR`로 전환한다. `last_seen_at`은 신선한 Movement status callback에서만 갱신한다. 카메라는 aggregate health와 별도로 source별 `status`·`last_frame_age_s`를 반환한다.
 - **입출고 요청:** `POST /work-orders/preview`는 DB에 쓰지 않고 계획만 보여준다. `POST /work-orders`는 요청 1건당 robot task 1건을 만들고, 완료 시점에 quantity만큼 재고를 증감한다(1회 상한 50). 가용 수량은 현 재고에서 진행 중 작업이 점유한 몫을 반영해 계산한다.
 - **응답 호환:** 내부 Work Order 조회는 `RobotTaskSummary`의 `requested_quantity`·`allocated_quantity`·`robot_task_id`·`active_command_id`를 사용한다. `/api/v1` 응답은 adapter가 기존 `quantity`·`tasks[]`·`task_id`·`command_id`를 유지한다.
 - **취소·우선순위:** `POST /work-orders/{id}/cancel`은 예약 상태의 요청을 취소하고, `/priority`는 디스패치 순서를 `tasks.priority`에 영속화한다.

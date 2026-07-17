@@ -158,6 +158,7 @@ class Settings:
     pose_poll_interval_sec: float = float(os.getenv("LMS_POSE_POLL_INTERVAL_SEC", "0.25"))
     pose_push_preferred_sec: float = float(os.getenv("LMS_POSE_PUSH_PREFERRED_SEC", "0.5"))
     pose_max_source_age_sec: float = float(os.getenv("LMS_POSE_MAX_SOURCE_AGE_SEC", "86400"))
+    battery_stale_sec: float = float(os.getenv("LMS_BATTERY_STALE_SEC", "30"))
     pose_jump_distance_m: float = float(os.getenv("LMS_POSE_JUMP_DISTANCE_M", "1.0"))
     pose_jump_speed_mps: float = float(os.getenv("LMS_POSE_JUMP_SPEED_MPS", "1.0"))
     pose_event_queue_size: int = int(os.getenv("LMS_POSE_EVENT_QUEUE_SIZE", "256"))

@@ -6,6 +6,7 @@ import { useCancelWorkOrder, useSetWorkOrderPriority, useStopWorkOrder, useWorkO
 import { useAdminMutations } from "../../hooks/useAdminData";
 import { useItems } from "../warehouse/useWarehouseData";
 import { useRobots } from "../../hooks/useScenarioData";
+import { useStatus } from "../../hooks/useStatus";
 import type { WorkOrder } from "../../types";
 import { useQueuedOrderReorder, QueueEditCommitBar } from "./WorkOrderQueueControls";
 import { WorkOrderQueueRow } from "./WorkOrderQueueRow";
@@ -26,6 +27,7 @@ export function WorkOrderQueueToolbar({
   reorderDirty,
   autoAssignPending,
   autoAssignAndStartPending,
+  readyRobotCount,
   onSegment,
   onAutoAssign,
   onAutoAssignAndStart,
@@ -35,14 +37,18 @@ export function WorkOrderQueueToolbar({
   reorderDirty: boolean;
   autoAssignPending: boolean;
   autoAssignAndStartPending: boolean;
+  readyRobotCount: number;
   onSegment: (segment: Segment) => void;
   onAutoAssign: () => void;
   onAutoAssignAndStart: () => void;
 }) {
   const noQueuedOrders = counts.queued === 0;
-  const autoDisabled = autoAssignPending || autoAssignAndStartPending || reorderDirty || noQueuedOrders;
+  const noReadyRobots = readyRobotCount === 0;
+  const autoDisabled = autoAssignPending || autoAssignAndStartPending || reorderDirty || noQueuedOrders || noReadyRobots;
   const disabledReason = noQueuedOrders
     ? "배정할 예약 작업이 없습니다"
+    : noReadyRobots
+      ? "실행 가능한 로봇이 없습니다"
     : reorderDirty
       ? "우선순위를 저장한 뒤 자동 배정하세요"
       : null;
@@ -98,6 +104,11 @@ export function WorkOrderQueue() {
   const { data: orders = [] } = useWorkOrders(50);
   const { data: items = [] } = useItems();
   const { data: robots = [] } = useRobots();
+  const { data: runtimeStatus } = useStatus();
+  const runnableRobotIds = useMemo(
+    () => new Set((runtimeStatus?.robots ?? []).filter((robot) => robot.command_enabled === true).map((robot) => robot.robot_id)),
+    [runtimeStatus?.robots],
+  );
   const { cancelTask, assignTask, autoAssignTasks, autoAssignAndStartTasks, startRobotTask } = useAdminMutations();
   const cancelWorkOrder = useCancelWorkOrder();
   const stopWorkOrder = useStopWorkOrder();
@@ -116,8 +127,8 @@ export function WorkOrderQueue() {
   // 유휴 로봇 목록. 배정 준비도(offline/E-stop/localized 등)는 배정 API가 판정하며,
   // 준비 안 된 로봇을 골라 배정하면 409 detail이 매핑된 토스트로 사유를 안내한다.
   const idleRobots = useMemo(
-    () => robots.filter((r) => String(r.status || "").toUpperCase() === "IDLE"),
-    [robots],
+    () => robots.filter((r) => String(r.status || "").toUpperCase() === "IDLE" && runnableRobotIds.has(r.robot_id)),
+    [robots, runnableRobotIds],
   );
 
   const queuedOrders = useMemo(
@@ -171,6 +182,7 @@ export function WorkOrderQueue() {
         reorderDirty={reorder.dirty}
         autoAssignPending={autoAssignTasks.isPending}
         autoAssignAndStartPending={autoAssignAndStartTasks.isPending}
+        readyRobotCount={runnableRobotIds.size}
         onSegment={setSegment}
         onAutoAssign={() => void autoAssignTasks.mutateAsync()}
         onAutoAssignAndStart={() => void autoAssignAndStartTasks.mutateAsync()}

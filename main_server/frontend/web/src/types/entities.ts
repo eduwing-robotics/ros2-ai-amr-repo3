@@ -13,6 +13,10 @@ export interface Robot {
   current_task_id?: number | null;
   last_command_id?: string | null;
   last_seen_at?: string | null;
+  operational_status?: string | null;
+  task_status?: string | null;
+  operational_reason?: string | null;
+  command_enabled?: boolean | null;
 }
 
 export interface RobotUpsert {
@@ -30,6 +34,7 @@ export interface CameraSource {
   robot_id?: string | null;
   status?: string;
   stream_url?: string | null;
+  last_frame_age_s?: number | null;
 }
 
 export type CameraSourceUpsert = CameraSource;

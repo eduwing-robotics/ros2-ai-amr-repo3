@@ -26,6 +26,17 @@ type TransportMode = "mjpeg" | "webrtc" | "idle";
 type TransportDisplay = "pending" | "webrtc" | "mjpeg" | "error";
 const WEBRTC_RETRY_DELAYS_MS = [5000, 15000, 30000, 60000] as const;
 
+type CameraRuntimeTone = "online" | "stale" | "offline" | "unknown";
+
+function cameraRuntimeDisplay(status?: string, lastFrameAgeSec?: number | null): { tone: CameraRuntimeTone; label: string } {
+  const value = String(status || "unknown").toLowerCase();
+  const delayed = typeof lastFrameAgeSec === "number" && lastFrameAgeSec >= MJPEG_STALE_THRESHOLD_SEC;
+  if (value === "stale" || (value === "online" && delayed)) return { tone: "stale", label: "지연" };
+  if (value === "online") return { tone: "online", label: "온라인" };
+  if (value === "offline" || value === "not_connected") return { tone: "offline", label: "오프라인" };
+  return { tone: "unknown", label: "확인 중" };
+}
+
 function transportBadgeLabel(display: TransportDisplay, mjpegPoll: boolean): string {
   switch (display) {
     case "webrtc": return "WebRTC";
@@ -44,6 +55,8 @@ export function CameraTile({
   onViewChange,
   compact = false,
   chrome = true,
+  runtimeStatus,
+  lastFrameAgeSec,
 }: {
   source: string;
   label: string;
@@ -55,6 +68,8 @@ export function CameraTile({
   compact?: boolean;
   /** CCTV 비디오 월에서는 카드 헤더와 푸터를 제거한다. */
   chrome?: boolean;
+  runtimeStatus?: string;
+  lastFrameAgeSec?: number | null;
 }) {
   const [status, setStatus] = useState("연결 중");
   const [mode, setMode] = useState<TransportMode>("mjpeg");
@@ -77,6 +92,7 @@ export function CameraTile({
   const mjpegActiveRef = useRef(false);
   const visibleRef = useRef(true);
   const viewOptions = viewsForSource(source);
+  const runtime = cameraRuntimeDisplay(runtimeStatus, lastFrameAgeSec);
 
   useEffect(() => {
     visibleRef.current = isVisible;
@@ -339,6 +355,7 @@ export function CameraTile({
       {chrome && !compact ? (
         <div className="cam-tile-head">
           <span>{label}</span>
+          <span className={`camera-runtime-status `}>{runtime.label}</span>
           <span className={badgeClass}>{badgeLabel}</span>
           <span className="mono">{source}</span>
           {viewOptions.length > 1 && onViewChange ? (
@@ -372,11 +389,20 @@ export function CameraTile({
       </div>
       {chrome && compact ? (
         <div className="cam-tile-foot">
+          <span className={`camera-runtime-status `}>{runtime.label}</span>
           <span className={badgeClass}>{badgeLabel}</span>
         </div>
       ) : null}
     </div>
   );
+}
+
+function cameraOptionStatus(status?: string) {
+  const value = String(status || "unknown").toLowerCase();
+  if (value === "online") return "● 정상";
+  if (value === "stale") return "▲ 지연";
+  if (value === "offline" || value === "not_connected") return "× 오프라인";
+  return "? 미확인";
 }
 
 function transportToolbarLabel(): string {
@@ -412,14 +438,14 @@ export function LiveCamera({ cameras }: { cameras: CameraSource[] }) {
         {mode === "single" && (
           <select className="filter" value={active} onChange={(e) => setSource(e.target.value)}>
             {cameras.length === 0 ? <option value="">카메라 없음</option> :
-              cameras.map((c) => <option key={c.source_id} value={c.source_id}>{c.label} ({c.source_id})</option>)}
+              cameras.map((c) => <option key={c.source_id} value={c.source_id}>{c.label} ({c.source_id}){" · " + cameraOptionStatus(c.status)}</option>)}
           </select>
         )}
         <select className="filter" value={kind} onChange={(e) => setKind(e.target.value as Kind)}>
           <option value="overlay">overlay</option>
           <option value="frame">frame</option>
         </select>
-        <span className="rowcount">{cameras.length}대</span>
+        <span className="rowcount">{cameras.filter((camera) => String(camera.status).toLowerCase() === "online").length}/{cameras.length} LIVE</span>
         <span className={transportToolbarClass()} title="빌드 정책">{transportToolbarLabel()}</span>
       </div>
 

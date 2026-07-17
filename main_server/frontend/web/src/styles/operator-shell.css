@@ -670,6 +670,12 @@
 .system-db-rows { min-width: 0; }
 
 .devices-admin .devices-panels { margin-bottom: 12px; }
+.camera-runtime-status { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; white-space: nowrap; }
+.camera-runtime-status.online { color: #16a34a; }
+.camera-runtime-status.stale { color: var(--amber); }
+.camera-runtime-status.offline { color: var(--red); }
+.camera-runtime-status.unknown { color: var(--text-muted); }
+.camera-frame-age { color: var(--text-muted); white-space: nowrap; }
 .devices-logs .table-wrap { max-height: 36vh; }
 
 .aruco-readout {

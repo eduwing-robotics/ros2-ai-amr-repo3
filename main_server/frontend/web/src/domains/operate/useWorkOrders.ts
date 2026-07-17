@@ -46,6 +46,7 @@ export const useWorkOrder = (orderId?: number) =>
     queryKey: ["work-orders", orderId],
     queryFn: () => apiGet<WorkOrder>(`/work-orders/${orderId}`),
     enabled: orderId != null,
+    refetchInterval: 2000,
   });
 
 export const useWorkOrderPreview = (body: WorkOrderPreviewRequest | null) =>

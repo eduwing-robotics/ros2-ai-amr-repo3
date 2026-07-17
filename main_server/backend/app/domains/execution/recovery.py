@@ -137,6 +137,48 @@ def preview_recovery_plan(
     }
 
 
+def reconcile_undispatched_task(conn, task_id: int) -> dict[str, Any]:
+    """Fail a RUNNING task that never obtained a Movement command."""
+    task = evidence.attach_orchestration(tasks.get_task(conn, task_id), conn)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
+    execution = orch_state.RobotTaskExecutionState.wrap(orch)
+    if task.get("status") != "RUNNING" or execution.phase != orch_state.PHASE_RUNNING:
+        raise HTTPException(status_code=409, detail="reconcile_requires_running_undispatched_task")
+    steps = execution.steps
+    if execution.step_index >= len(steps):
+        raise HTTPException(status_code=409, detail="reconcile_task_has_no_current_step")
+    step = steps[execution.step_index]
+    if step.get("command_id") or orch_state.is_dispatched_robot_task_step(step):
+        raise HTTPException(status_code=409, detail="reconcile_task_has_active_command")
+    if orch_state.cargo_state_after_steps(steps) != "EMPTY":
+        raise HTTPException(status_code=409, detail="reconcile_requires_empty_cargo")
+    robot_id = task.get("assigned_robot_id")
+    if not robot_id:
+        raise HTTPException(status_code=409, detail="task has no assigned robot")
+    try:
+        nav_state = movement_client.nav_state(str(robot_id))
+    except MovementClientError as exc:
+        raise HTTPException(status_code=409, detail="reconcile_movement_state_unavailable") from exc
+    if nav_state.get("active_commands") or nav_state.get("current_command_id"):
+        raise HTTPException(status_code=409, detail="reconcile_movement_command_active")
+    from app.domains.execution import orchestrator
+
+    failure = HTTPException(
+        status_code=502,
+        detail={
+            "code": "movement_command_not_dispatched",
+            "message": "Movement command was not accepted; stale RUNNING state reconciled.",
+            "retryable": False,
+        },
+    )
+    result = orchestrator._handle_step_dispatch_exception(
+        conn, task_id, failure, source="operator_reconcile"
+    )
+    return {"ok": True, "task_id": task_id, "status": (result or {}).get("status", "FAILED")}
+
+
 def save_recovery_decision(
     conn,
     task_id: int,

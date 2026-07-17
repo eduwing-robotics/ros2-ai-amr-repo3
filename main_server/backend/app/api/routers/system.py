@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request
 from app.core.config import settings
 from app.db.connection import transaction
 from app.db.postgres import cameras as postgres_cameras
-from app.db.postgres import operational_events
+from app.db.postgres import operational_events, runtime_records
 from app.db.postgres import robots as postgres_robots
 from app.db.postgres import tasks as postgres_tasks
 from app.domains.movement.client import movement_client
@@ -73,6 +73,72 @@ def _sync_battery_from_health(robots: list[Robot], health: dict) -> None:
             robot.battery = updates[robot.robot_id]
 
 
+def _apply_camera_runtime_states(cameras: list[CameraSource], camera_health: dict) -> None:
+    bridge = camera_health.get("bridge") or {}
+    response = bridge.get("response") or {}
+    runtime_sources = {
+        str(source.get("source_id")): source for source in response.get("sources") or [] if source.get("source_id")
+    }
+    for camera in cameras:
+        runtime = runtime_sources.get(camera.source_id)
+        if not runtime:
+            camera.status = "offline"
+            camera.last_frame_age_s = None
+            continue
+        camera.status = str(runtime.get("status") or "unknown").lower()
+        age = runtime.get("last_frame_age_s")
+        camera.last_frame_age_s = float(age) if age is not None else None
+
+
+ACTIVE_TASK_STATES = {"RUNNING", "ASSIGNED", "AWAITING_OPERATOR", "RECOVERY_REQUIRED"}
+RECOVERY_TASK_STATES = {"AWAITING_OPERATOR", "RECOVERY_REQUIRED"}
+
+
+def _derive_robot_operational_state(robot: Robot, snapshot: dict, estop_state: str | None) -> tuple[str, str, bool]:
+    """Derive the operator-facing state without overwriting the DB task state."""
+    task_state = str(robot.status or "UNKNOWN").upper()
+    if snapshot.get("is_emergency") or str(estop_state or "").startswith("stop_"):
+        return "ESTOP", "emergency_stop_active", False
+    if not snapshot or not snapshot.get("ok") or snapshot.get("robot_online") is False:
+        return "OFFLINE", "movement_or_robot_offline", False
+    if robot.enabled is False:
+        return "NOT_READY", "robot_disabled", False
+    if snapshot.get("localized") is False:
+        return "FAULT", "localization_lost", False
+    if snapshot.get("fault") or snapshot.get("error_code"):
+        return "FAULT", str(snapshot.get("error_code") or "movement_fault"), False
+    if snapshot.get("command_accepting") is False:
+        return "NOT_READY", "command_not_accepting", False
+    if snapshot.get("nav2_ready") is False:
+        return "NOT_READY", "nav2_not_ready", False
+    if task_state in RECOVERY_TASK_STATES:
+        return "RECOVERY", "task_recovery_required", False
+    if task_state == "RUNNING":
+        return "RUNNING", "task_running", True
+    if task_state == "ASSIGNED":
+        return "ASSIGNED", "task_assigned", True
+    if task_state == "IDLE":
+        return "IDLE", "ready_no_active_task", True
+    if task_state in ACTIVE_TASK_STATES:
+        return "RECOVERY", "task_state_requires_attention", False
+    return "UNKNOWN", "state_not_classified", False
+
+
+def _apply_robot_operational_states(
+    robots: list[Robot], health: dict, estop_states: dict[str, str], recovery_robot_ids: set[str]
+) -> None:
+    for robot in robots:
+        robot.task_status = str(robot.status or "UNKNOWN").upper()
+        state, reason, command_enabled = _derive_robot_operational_state(
+            robot, health.get(robot.robot_id) or {}, estop_states.get(robot.robot_id)
+        )
+        if robot.robot_id in recovery_robot_ids and state in {"RUNNING", "ASSIGNED", "IDLE"}:
+            state, reason, command_enabled = "RECOVERY", "task_recovery_required", False
+        robot.operational_status = state
+        robot.operational_reason = reason
+        robot.command_enabled = command_enabled
+
+
 @router.get("/system/external-config")
 def external_config(request: Request) -> dict:
     """현재 Main 서버가 사용하는 외부 API endpoint 설정을 반환한다."""
@@ -124,9 +190,20 @@ def status() -> ControlSystemStatusSnapshot:
         events = operational_events.list_operational_events(conn, limit=30)
         tasks = [RobotTask(**t) for t in postgres_tasks.list_tasks(conn, limit=30)]
         estop_states = operational_events.latest_estop_states(conn, [robot.robot_id for robot in robots])
+        recovery_robot_ids = {
+            str(task.assigned_robot_id)
+            for task in tasks
+            if task.assigned_robot_id
+            and task.status.value == "RUNNING"
+            and str((runtime_records.get_orchestration(conn, task.task_id) or {}).get("phase") or "").upper()
+            in {"AWAITING_OPERATOR", "RECOVERY_RUNNING"}
+        }
 
     movement_health = get_movement_health([robot.robot_id for robot in robots])
     _sync_battery_from_health(robots, movement_health)
+    _apply_robot_operational_states(robots, movement_health, estop_states, recovery_robot_ids)
+    camera_health = fetch_camera_health([c.source_id for c in cameras])
+    _apply_camera_runtime_states(cameras, camera_health)
 
     return ControlSystemStatusSnapshot(
         system={
@@ -135,7 +212,7 @@ def status() -> ControlSystemStatusSnapshot:
             "movement_mode": movement_client.mode,
             "camera_mode": "configured",
             "camera": camera_system_config(),
-            "camera_health": fetch_camera_health([c.source_id for c in cameras]),
+            "camera_health": camera_health,
             "vision": {
                 "api_base_url": settings.vision_api_base_url,
                 "stream_base_url": settings.vision_stream_base_url,

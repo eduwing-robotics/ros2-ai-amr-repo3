@@ -13,6 +13,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 from fastapi import HTTPException
 
 from app.domains.execution import orchestrator, tasks
+from app.domains.movement.client import MovementClientError
 
 
 class AdvanceTaskEstopTest(unittest.TestCase):
@@ -94,7 +95,9 @@ class AdvanceTaskEstopTest(unittest.TestCase):
         postgres_tasks.set_status.assert_not_called()
         person_hazard.on_robot_task_terminal.assert_not_called()
         operational_events.append.assert_called()
-        event_types = [c.kwargs.get("event_type") or c[1].get("event_type") for c in operational_events.append.call_args_list]
+        event_types = [
+            c.kwargs.get("event_type") or c[1].get("event_type") for c in operational_events.append.call_args_list
+        ]
         self.assertIn("TASK_AWAITING_OPERATOR", event_types)
 
     def test_failed_after_precision_load_keeps_task_for_operator_recovery(self) -> None:
@@ -200,7 +203,6 @@ class AdvanceTaskEstopTest(unittest.TestCase):
         evidence.save_orchestration.assert_not_called()
 
 
-
 class MovementOwnedScenarioTest(unittest.TestCase):
     @staticmethod
     def _task(*, business_completed: bool = False) -> dict:
@@ -243,8 +245,13 @@ class MovementOwnedScenarioTest(unittest.TestCase):
         task = self._task()
         patches = self._patches(task)
         with (
-            patches[0], patches[1], patches[2], patches[3], patches[4] as save,
-            patches[5], patches[6],
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4] as save,
+            patches[5],
+            patches[6],
             patch.object(orchestrator, "inventory_ops") as inventory,
         ):
             result = orchestrator.advance_on_command_event(
@@ -284,8 +291,13 @@ class MovementOwnedScenarioTest(unittest.TestCase):
         task = self._task(business_completed=True)
         patches = self._patches(task)
         with (
-            patches[0], patches[1], patches[2], patches[3], patches[4] as save,
-            patches[5] as events, patches[6],
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4] as save,
+            patches[5] as events,
+            patches[6],
             patch.object(orchestrator, "finalize_running_task_as_done") as finalize,
         ):
             result = orchestrator.advance_on_command_event(
@@ -317,8 +329,13 @@ class MovementOwnedScenarioTest(unittest.TestCase):
         task = self._task(business_completed=True)
         patches = self._patches(task)
         with (
-            patches[0], patches[1], patches[2], patches[3], patches[4] as save,
-            patches[5], patches[6],
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4] as save,
+            patches[5],
+            patches[6],
             patch.object(orchestrator, "finalize_running_task_as_done", return_value={"status": "DONE"}) as finalize,
         ):
             result = orchestrator.advance_on_command_event(
@@ -353,8 +370,13 @@ class MovementOwnedScenarioTest(unittest.TestCase):
         task = self._task()
         patches = self._patches(task)
         with (
-            patches[0], patches[1], patches[2], patches[3], patches[4] as save,
-            patches[5], patches[6],
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4] as save,
+            patches[5],
+            patches[6],
         ):
             result = orchestrator.advance_on_command_event(
                 conn,
@@ -399,6 +421,30 @@ class PollRunningTasksGateTest(unittest.TestCase):
             advanced = orchestrator.poll_running_tasks(conn)
         self.assertEqual(advanced, 0)
         advance.assert_not_called()
+
+    def test_three_status_poll_failures_transition_to_operator_hold(self) -> None:
+        conn = MagicMock()
+        task = {"task_id": 9, "assigned_robot_id": "robot1"}
+        orch = {
+            "phase": "RUNNING",
+            "step_index": 0,
+            "steps": [
+                {"kind": "inout_scenario", "status": "DISPATCHED", "command_id": "cmd-9", "poll_failure_count": 2}
+            ],
+        }
+        steps = orch["steps"]
+        with (
+            patch.object(orchestrator, "evidence") as evidence,
+            patch.object(orchestrator, "operational_events") as events,
+        ):
+            held = orchestrator._record_status_poll_failure(
+                conn, task, orch, steps, 0, MovementClientError("movement down")
+            )
+        self.assertTrue(held)
+        self.assertEqual(orch["phase"], "AWAITING_OPERATOR")
+        self.assertEqual(orch["recovery"]["reason"], "movement_status_unreachable")
+        evidence.save_orchestration.assert_called_once()
+        events.append.assert_called_once()
 
 
 class CancelRunningTaskTest(unittest.TestCase):

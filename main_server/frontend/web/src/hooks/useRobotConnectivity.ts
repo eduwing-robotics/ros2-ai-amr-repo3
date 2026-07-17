@@ -11,7 +11,8 @@ export function useRobotConnectivity(robots: Robot[]) {
     const p = poseByRobot.get(id);
     if (!p) return { online: false, ageSec: null as number | null };
     const { state, ageSec } = poseFreshness(p);
-    return { online: state === "live" || state === "stale", ageSec };
+    const operational = robots.find((robot) => robot.robot_id === id)?.operational_status;
+    return { online: state === "live" && operational !== "OFFLINE", ageSec, poseState: state };
   };
 
   const onlineCount = robots.filter((r) => robotFresh(r.robot_id).online).length;
@@ -19,7 +20,7 @@ export function useRobotConnectivity(robots: Robot[]) {
     ? robots.map((r) => {
         const f = robotFresh(r.robot_id);
         const operation = r.enabled ? "운용" : "미운용";
-        return `${r.robot_id}: ${f.online ? "온라인" : "오프라인"} · ${operation} · ${agoLabel(f.ageSec)}`;
+        return r.robot_id + ": " + (f.online ? "온라인" : f.poseState === "stale" ? "수신 지연" : "오프라인") + " · " + operation + " · " + agoLabel(f.ageSec);
       }).join("\n")
     : "등록된 로봇 없음";
 

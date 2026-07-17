@@ -21,6 +21,18 @@ from app.domains.movement.client import MovementClientError, robot_is_emergency,
 from app.main import app
 
 
+class MovementStatusFreshnessTest(unittest.TestCase):
+    def test_stale_pose_does_not_count_as_fresh_telemetry(self) -> None:
+        self.assertFalse(
+            callbacks.robot_status_is_fresh({"robot_online": True, "localized": True, "pose": {"age_sec": 30.0}})
+        )
+
+    def test_live_pose_counts_as_fresh_telemetry(self) -> None:
+        self.assertTrue(
+            callbacks.robot_status_is_fresh({"robot_online": True, "localized": True, "pose": {"age_sec": 0.2}})
+        )
+
+
 class MovementCallbackServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.conn = MagicMock()
@@ -63,9 +75,7 @@ class MovementCallbackServiceTest(unittest.TestCase):
     @patch("app.domains.movement.callbacks.advisory_xact_lock_for_key")
     @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
     @patch("app.domains.movement.callbacks.operational_events")
-    def test_event_id_is_locked_and_task_id_is_linked(
-        self, operational_events, handle_event, advisory_lock
-    ) -> None:
+    def test_event_id_is_locked_and_task_id_is_linked(self, operational_events, handle_event, advisory_lock) -> None:
         operational_events.callback_event_exists.return_value = False
         handle_event.return_value = None
         callbacks.ingest_command_event(

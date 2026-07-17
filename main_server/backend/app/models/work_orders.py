@@ -107,6 +107,7 @@ class WorkOrder(BaseModel):
     updated_at: str | None = None
     tasks: list[WorkOrderRobotTask] = Field(default_factory=list)
     mission_results: list[dict[str, Any]] = Field(default_factory=list)
+    start_failed: list[dict[str, Any]] = Field(default_factory=list)
     business_completed: bool = False
     return_status: str | None = None
     parking_error: dict[str, Any] | None = None

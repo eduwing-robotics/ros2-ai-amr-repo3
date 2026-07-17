@@ -34,7 +34,7 @@ def disable_block_reason(conn, robot_id: str) -> str | None:
 
 
 def set_task(conn, robot_id: str, status: str, task_id: int | None) -> None:
-    conn.execute("UPDATE robots SET status = %s, last_seen_at = now() WHERE id = %s", (status, robot_id))
+    conn.execute("UPDATE robots SET status = %s WHERE id = %s", (status, robot_id))
 
 
 def touch(conn, robot_id: str) -> None:
@@ -43,7 +43,7 @@ def touch(conn, robot_id: str) -> None:
 
 def set_battery(conn, robot_id: str, level: int) -> None:
     """배터리 잔량만 갱신한다(status는 건드리지 않음). movement /health 수신 값 반영용."""
-    conn.execute("UPDATE robots SET battery_level = %s, last_seen_at = now() WHERE id = %s", (int(level), robot_id))
+    conn.execute("UPDATE robots SET battery_level = %s WHERE id = %s", (int(level), robot_id))
 
 
 def upsert(conn, data: dict[str, Any]) -> None:
@@ -51,12 +51,11 @@ def upsert(conn, data: dict[str, Any]) -> None:
     conn.execute(
         """
             INSERT INTO robots (id, domain_id, status, enabled, battery_level, last_seen_at)
-            VALUES (%s, %s, %s, COALESCE(%s, TRUE), %s, now())
+            VALUES (%s, %s, %s, COALESCE(%s, TRUE), %s, NULL)
             ON CONFLICT (id) DO UPDATE SET
                 status = EXCLUDED.status,
                 enabled = COALESCE(%s, robots.enabled),
-                battery_level = COALESCE(EXCLUDED.battery_level, robots.battery_level),
-                last_seen_at = now()
+                battery_level = COALESCE(EXCLUDED.battery_level, robots.battery_level)
             """,
         (
             robot_id,
@@ -75,7 +74,7 @@ def delete_robot(conn, robot_id: str) -> bool:
 
 
 def update_last_command(conn, robot_id: str, command_id: str, status: str) -> None:
-    conn.execute("UPDATE robots SET status = %s, last_seen_at = now() WHERE id = %s", (status, robot_id))
+    conn.execute("UPDATE robots SET status = %s WHERE id = %s", (status, robot_id))
 
 
 def _map(conn, row: dict[str, Any]) -> dict[str, Any]:

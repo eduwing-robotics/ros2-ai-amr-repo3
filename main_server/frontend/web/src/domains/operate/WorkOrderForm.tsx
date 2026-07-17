@@ -101,7 +101,7 @@ export function WorkOrderResultNotice({
   const commandIds = (result.mission_results ?? [])
     .map((mission) => mission.command_id)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
-  const started = autoStart && (commandIds.length > 0 || result.status.toUpperCase() === "RUNNING");
+  const started = autoStart && !startFailed.length && commandIds.length > 0;
   const partialStart =
     autoStart && result.tasks.length > (result.mission_results?.length ?? 0) && !startFailed.length;
   const headline = startFailed.length
@@ -136,7 +136,7 @@ export function WorkOrderResultNotice({
         <div className="inline-alert warn mt-6">
           자동 시작 실패 {startFailed.length}건 — 작업 큐에서 수동으로 시작하세요.
           {startFailed.map((f) => (
-            <div key={f.task_id} className="muted">task #{f.task_id}: {String(f.detail)}</div>
+            <div key={f.task_id} className="muted">task #{f.task_id}: {typeof f.detail === "string" ? f.detail : JSON.stringify(f.detail)}</div>
           ))}
         </div>
       ) : null}
@@ -196,6 +196,7 @@ export function WorkOrderForm({
   onZoneFocus,
   disabled,
   emergencyRobots = [],
+  unavailableRobotIds = [],
   onSubmitted,
 }: {
   onClose?: () => void;
@@ -203,6 +204,7 @@ export function WorkOrderForm({
   onZoneFocus?: (waypointId: string | null) => void;
   disabled?: boolean;
   emergencyRobots?: string[];
+  unavailableRobotIds?: string[];
   /** 생성 성공 시 호출 — 예약이면 셸이 작업 큐를 열어 다음 행동을 잇는다. */
   onSubmitted?: (order: WorkOrder, autoStart: boolean) => void;
 }) {
@@ -227,7 +229,8 @@ export function WorkOrderForm({
   const [result, setResult] = useState<WorkOrder | null>(null);
 
   const selectedRobotEmergency = Boolean(robotId && emergencyRobots.includes(robotId));
-  const formBlocked = Boolean(disabled) || selectedRobotEmergency;
+  const selectedRobotUnavailable = Boolean(robotId && unavailableRobotIds.includes(robotId));
+  const formBlocked = Boolean(disabled) || selectedRobotEmergency || selectedRobotUnavailable;
 
   const qty = Number(quantity);
   const selectedFloor = Number(floor) === 2 ? 2 : 1;
@@ -250,7 +253,7 @@ export function WorkOrderForm({
 
   useEffect(() => {
     setManualSlotId("");
-  }, [operation, itemCode, requestedFloor]);
+  }, [operation, itemCode]);
 
   useEffect(() => {
     if (zoneOptions.length === 1) {
@@ -312,13 +315,15 @@ export function WorkOrderForm({
 
   useEffect(() => {
     onSlotFocus?.(focusedSlot?.waypoint_id ?? null);
-    return () => onSlotFocus?.(null);
   }, [focusedSlot?.waypoint_id, onSlotFocus]);
+
+  useEffect(() => () => onSlotFocus?.(null), [onSlotFocus]);
 
   useEffect(() => {
     onZoneFocus?.(zoneId || null);
-    return () => onZoneFocus?.(null);
   }, [zoneId, onZoneFocus]);
+
+  useEffect(() => () => onZoneFocus?.(null), [onZoneFocus]);
   const submitValidation = validationMessage({
     disabled,
     itemCode,
@@ -485,13 +490,16 @@ export function WorkOrderForm({
           <select value={robotId} onChange={(e) => setRobotId(e.target.value)}>
             <option value="">자동 배정</option>
             {robots.map((r) => (
-              <option key={r.robot_id} value={r.robot_id}>{r.display_name || r.robot_id}</option>
+              <option key={r.robot_id} value={r.robot_id} disabled={unavailableRobotIds.includes(r.robot_id)}>{r.display_name || r.robot_id}{unavailableRobotIds.includes(r.robot_id) ? " (실행 불가)" : ""}</option>
             ))}
           </select>
           {robotId && selectedRobotEmergency ? (
             <span className="pill err">선택한 로봇이 비상 정지 상태입니다</span>
           ) : null}
-          {robotId && !selectedRobotEmergency ? (
+          {robotId && selectedRobotUnavailable ? (
+            <span className="pill err">선택한 로봇은 현재 명령을 실행할 수 없습니다</span>
+          ) : null}
+          {robotId && !selectedRobotEmergency && !selectedRobotUnavailable ? (
             <span className="muted">생성 시 {robotId}에 즉시 배정 (유휴·localized·명령 수신 가능해야 함)</span>
           ) : null}
         </Field>

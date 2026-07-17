@@ -74,6 +74,39 @@ test("입출고 메뉴는 요청·참조 맵 복합 작업면으로 전환하고
   await page.screenshot({ path: testInfo.outputPath("operations-spatial-v4.png"), fullPage: true });
 });
 
+test("2층 입고 슬롯 선택은 폼 갱신 후에도 맵 강조를 유지한다", async ({ page }) => {
+  await mockMainApi(page);
+  await page.goto("/operate/control?drawer=inout");
+  const workspace = page.getByRole("region", { name: "입출고 요청과 위치 확인 맵" });
+  const referenceMap = page.getByRole("region", { name: "입출고 위치 확인 맵" });
+  await workspace.getByRole("button", { name: "직접 지정" }).click();
+  await workspace.getByLabel("품목").selectOption("bolt");
+  await workspace.getByLabel(/^층/).selectOption("2");
+  await workspace.getByLabel(/^보관 슬롯/).selectOption("S01");
+  await expect(workspace.getByLabel(/^보관 슬롯/)).toHaveValue("S01");
+  await expect(referenceMap.locator(".zone-marker.work-order-focused.zone-storage")).toHaveCount(1);
+  await page.waitForTimeout(1800);
+  await expect(workspace.getByLabel(/^보관 슬롯/)).toHaveValue("S01");
+  await expect(referenceMap.locator(".zone-marker.work-order-focused.zone-storage")).toHaveCount(1);
+});
+
+test("2층 출고 슬롯 선택은 폼 갱신 후에도 맵 강조를 유지한다", async ({ page }) => {
+  await mockMainApi(page, { inventory: [{ slot_id: "S01", item_code: "bolt", item_name: "볼트", quantity: 3, floor: 2 }] });
+  await page.goto("/operate/control?drawer=inout");
+  const workspace = page.getByRole("region", { name: "입출고 요청과 위치 확인 맵" });
+  const referenceMap = page.getByRole("region", { name: "입출고 위치 확인 맵" });
+  await workspace.getByRole("button", { name: "출고 재고 반출", exact: true }).click();
+  await workspace.getByRole("button", { name: "직접 지정" }).click();
+  await workspace.getByLabel("품목").selectOption("bolt");
+  await workspace.getByLabel(/^층/).selectOption("2");
+  await workspace.getByLabel(/^보관 슬롯/).selectOption("S01");
+  await expect(workspace.getByLabel(/^보관 슬롯/)).toHaveValue("S01");
+  await expect(referenceMap.locator(".zone-marker.work-order-focused.zone-storage")).toHaveCount(1);
+  await page.waitForTimeout(1800);
+  await expect(workspace.getByLabel(/^보관 슬롯/)).toHaveValue("S01");
+  await expect(referenceMap.locator(".zone-marker.work-order-focused.zone-storage")).toHaveCount(1);
+});
+
 test("1440x900에서도 맵과 전역 카메라가 나란히 보이고 작업 바가 뷰포트에 유지된다", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await mockMainApi(page, { cameraOnline: true, cameraSources: [globalCamera], workOrders: [runningOrder] });
@@ -508,4 +541,74 @@ test("관리 기록은 운영 이력 4개 영역과 공통 관리 사이드바�
   await page.getByRole("button", { name: "시스템 상태" }).click();
   await expect(page.getByRole("combobox", { name: "서비스 필터" })).toBeVisible();
   await expect(page.getByText("통신 기록", { exact: true })).toHaveCount(0);
+});
+
+
+test("Movement OFFLINE이 DB RUNNING보다 우선하고 조작을 차단한다", async ({ page }) => {
+  await mockMainApi(page, {
+    movementOk: true,
+    robots: [{
+      robot_id: "tb3_2",
+      display_name: "AMR 2",
+      status: "RUNNING",
+      battery: 64,
+      operational_status: "OFFLINE",
+      task_status: "RUNNING",
+      operational_reason: "movement_or_robot_offline",
+      command_enabled: false,
+    }],
+    tasks: [{ task_id: 57, task_type: "INBOUND", status: "RUNNING", assigned_robot_id: "tb3_2" }],
+  });
+  await page.goto("/operate/control");
+
+  const fleet = page.locator(".operator-fleet-card").filter({ hasText: "tb3_2" });
+  await expect(fleet.locator(".pill[title=OFFLINE]")).toHaveText("오프라인");
+  await expect(fleet.getByText("입고 작업 수행 중 연결 끊김")).toBeVisible();
+  await expect(fleet.getByText("명령 실행 불가")).toBeVisible();
+  await expect(fleet.getByRole("button", { name: "조작 →" })).toBeDisabled();
+  await expect(fleet.locator(".pill[title=RUNNING]")).toHaveCount(0);
+});
+
+
+test("실행 가능한 로봇이 없으면 작업 큐 배정 시작을 차단한다", async ({ page }) => {
+  await mockMainApi(page, {
+    movementOk: false,
+    robots: [{
+      robot_id: "tb3_2", display_name: "AMR 2", status: "IDLE", battery: 64,
+      operational_status: "OFFLINE", task_status: "IDLE", command_enabled: false,
+    }],
+    workOrders: [{
+      order_id: 88, operation: "inbound", item_code: "bolt", quantity: 1, status: "QUEUED",
+      tasks: [{ order_id: 88, task_id: 88, quantity: 1, status: "QUEUED", assigned_robot_id: null }],
+    }],
+  });
+  await page.goto("/operate/tasks");
+  await expect(page.getByText("실행 가능한 로봇이 없습니다")).toBeVisible();
+  await expect(page.getByRole("button", { name: "▶ 배정·시작" })).toBeDisabled();
+});
+
+
+test("카메라 전체 연결이 개별 stale source를 가리지 않는다", async ({ page }) => {
+  await mockMainApi(page, {
+    cameraOnline: true,
+    cameraSources: [
+      { source_id: "cam_live", label: "정상 카메라", robot_id: null, status: "online" },
+      { source_id: "cam_stale", label: "지연 카메라", robot_id: "tb3_2", status: "stale", last_frame_age_s: 120 },
+    ],
+  });
+  await page.goto("/operate/control");
+  await expect(page.locator(".operator-camera-state")).toHaveText("1/2 LIVE · 1 STALE");
+  await expect(page.locator(".operator-global-camera").getByText("1/2 LIVE", { exact: true })).toBeVisible();
+  await page.locator(".operator-global-camera").getByRole("button", { name: "단일" }).click();
+  const cameraSelect = page.locator(".operator-global-camera").getByRole("combobox").first();
+  await expect(cameraSelect.locator("option").nth(0)).toHaveText("정상 카메라 (cam_live) · ● 정상");
+  await expect(cameraSelect.locator("option").nth(1)).toHaveText("지연 카메라 (cam_stale) · ▲ 지연");
+
+  await page.goto("/admin/devices");
+  const liveRow = page.locator("table tr").filter({ hasText: "cam_live" });
+  const staleRow = page.locator("table tr").filter({ hasText: "cam_stale" });
+  await expect(liveRow.getByText("● 정상")).toBeVisible();
+  await expect(liveRow.getByText("스트림 정상")).toBeVisible();
+  await expect(staleRow.getByText("▲ 지연")).toBeVisible();
+  await expect(staleRow.getByText("2분 전")).toBeVisible();
 });

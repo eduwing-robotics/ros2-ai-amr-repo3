@@ -7,11 +7,24 @@ import { Panel } from "../../components/Panel";
 import { Field } from "../../components/Field";
 import { Button } from "../../components/Button";
 import { ApiError } from "../../lib/api";
-import { cell } from "../../lib/format";
+import { agoLabel, cell } from "../../lib/format";
 import type { CameraSource, Robot } from "../../types";
 
 const EMPTY_ROBOT = { robot_id: "", display_name: "", status: "IDLE", enabled: true, battery: "" };
 const EMPTY_CAMERA = { source_id: "", label: "", robot_id: "", status: "not_connected", stream_url: "" };
+
+const cameraRuntimeStatus = (status?: string) => {
+  const value = String(status || "unknown").toLowerCase();
+  if (value === "online") return { marker: "●", label: "정상", className: "online" };
+  if (value === "stale") return { marker: "▲", label: "지연", className: "stale" };
+  if (value === "offline" || value === "not_connected") return { marker: "×", label: "오프라인", className: "offline" };
+  return { marker: "?", label: "미확인", className: "unknown" };
+};
+
+const cameraFrameAge = (camera: CameraSource) => {
+  if (camera.last_frame_age_s != null) return agoLabel(camera.last_frame_age_s);
+  return String(camera.status || "").toLowerCase() === "online" ? "스트림 정상" : "수신 없음";
+};
 
 export function DevicesAdmin() {
   const { data } = useStatus();
@@ -164,12 +177,14 @@ export function DevicesAdmin() {
           </div>
           <div className="table-wrap clean-table">
             <table>
-              <thead><tr><th>source_id</th><th>label</th><th>robot</th><th></th></tr></thead>
+              <thead><tr><th>source_id</th><th>label</th><th>robot</th><th>실시간 상태</th><th>마지막 프레임</th><th></th></tr></thead>
               <tbody>
-                {cameras.length === 0 ? <tr><td colSpan={4} className="empty">카메라 없음</td></tr> :
+                {cameras.length === 0 ? <tr><td colSpan={6} className="empty">카메라 없음</td></tr> :
                   cameras.map((c) => (
                     <tr key={c.source_id}>
                       <td className="mono">{c.source_id}</td><td>{c.label}</td><td>{cell(c.robot_id)}</td>
+                      <td><span className={"camera-runtime-status " + cameraRuntimeStatus(c.status).className}><span aria-hidden="true">{cameraRuntimeStatus(c.status).marker}</span> {cameraRuntimeStatus(c.status).label}</span></td>
+                      <td className="camera-frame-age">{cameraFrameAge(c)}</td>
                       <td>
                         <Button variant="row" onClick={() => editCamera(c)}>수정</Button>
                         {pendingDelete?.kind === "camera" && pendingDelete.id === c.source_id ? (

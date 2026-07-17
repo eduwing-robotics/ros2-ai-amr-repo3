@@ -13,7 +13,7 @@ const STATUS_TONES: Record<StatusTone, ReadonlySet<string>> = {
   success: new Set(["online", "ok", "done", "completed", "complete", "success", "succeeded", "connected", "available"]),
   progress: new Set(["running", "active", "moving", "in_progress", "dispatched", "sent", "recovery_running", "charging"]),
   waiting: new Set(["idle", "created", "queued", "reserved", "assigned", "pending", "waiting", "planned", "accepted"]),
-  warning: new Set(["stale", "warn", "warning", "not_connected", "dry_run", "degraded", "awaiting_operator", "recovery_required", "cancel_requested", "low_battery", "unknown"]),
+  warning: new Set(["not_ready", "recovery", "stale", "warn", "warning", "not_connected", "dry_run", "degraded", "awaiting_operator", "recovery_required", "cancel_requested", "low_battery", "unknown"]),
   danger: new Set(["error", "failed", "fault", "estop", "offline", "rejected", "aborted", "critical", "lost"]),
   cancelled: new Set(["cancelled", "canceled", "stopped", "disabled", "inactive"]),
 };
@@ -91,7 +91,7 @@ export function eventDotClass(ev: { event_type?: string; message?: string; paylo
     }
   }
   const s = `${ev.event_type ?? ""} ${ev.message ?? ""}`.toLowerCase();
-  if (/(error|fail|fault|estop|critical|alarm|reject)/.test(s)) return "err";
+  if (/(error|fail|fault|estop|critical|alarm|reject|disconnect)/.test(s)) return "err";
   if (/(warn|stale|timeout|retry|degrad|pending)/.test(s)) return "warn";
   return "off";
 }
@@ -181,12 +181,14 @@ const STATUS_LABELS: Record<string, string> = {
   aborted: "중단 실패",
   critical: "심각",
   lost: "연결 소실",
-  fault: "고장",
-  estop: "비상 정지",
+  fault: "장애",
+  estop: "비상정지",
   offline: "오프라인",
   stale: "지연",
   warn: "주의",
   warning: "주의",
+  not_ready: "준비 안 됨",
+  recovery: "복구 필요",
   degraded: "성능 저하",
   awaiting_operator: "운영자 확인",
   recovery_required: "복구 필요",

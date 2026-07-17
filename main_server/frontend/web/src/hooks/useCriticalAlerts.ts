@@ -39,6 +39,7 @@ export function useCriticalAlerts({
   const seenEvents = useRef<Set<string>>(new Set());
   const emergencySeen = useRef<Set<string>>(new Set());
   const batteryBuckets = useRef<Map<string, BatteryBucket>>(new Map());
+  const operationalStates = useRef<Map<string, string>>(new Map());
   const initialized = useRef(false);
 
   // 최초 사용자 제스처에 오디오 언락(브라우저 autoplay 정책).
@@ -68,7 +69,17 @@ export function useCriticalAlerts({
     }
     emergencySeen.current = new Set(emergencyRobots);
 
-    // 3) 배터리 등급 악화(저전력·방전 임박으로 처음 떨어질 때).
+    // 3) 로봇 대표 상태 OFFLINE 신규 진입.
+    for (const r of robots) {
+      const next = String(r.operational_status || "UNKNOWN").toUpperCase();
+      const prev = operationalStates.current.get(r.robot_id);
+      if (ready && next === "OFFLINE" && prev && prev !== "OFFLINE") {
+        messages.push(r.robot_id + " 연결 끊김");
+      }
+      operationalStates.current.set(r.robot_id, next);
+    }
+
+    // 4) 배터리 등급 악화(저전력·방전 임박으로 처음 떨어질 때).
     for (const r of robots) {
       const next = batteryBucket(r.battery);
       const prev = batteryBuckets.current.get(r.robot_id) ?? "ok";

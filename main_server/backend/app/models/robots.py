@@ -16,6 +16,12 @@ class Robot(BaseModel):
     current_task_id: int | None = None
     last_command_id: str | None = None
     last_seen_at: str | None = None
+    # DB status is the task lifecycle compatibility field; the operator UI uses
+    # the Movement-prioritized operational_status as the primary state.
+    operational_status: str | None = None
+    task_status: str | None = None
+    operational_reason: str | None = None
+    command_enabled: bool | None = None
 
 
 class RobotUpsert(BaseModel):

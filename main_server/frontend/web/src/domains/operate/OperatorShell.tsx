@@ -18,10 +18,10 @@ import { InventoryView } from "./InventoryView";
 import { Records } from "../records/Records";
 import { GotoTargetProvider } from "./GotoTargetContext";
 import { FleetMissionDock } from "./FleetMissionDock";
-import { RobotStatusDetails } from "./RobotStatusCard";
+import { primaryRobotStatus, RobotStatusDetails } from "./RobotStatusCard";
 import { BatteryIndicator } from "../../components/BatteryIndicator";
 import { Pill } from "../../components/Pill";
-import type { CameraHealth, MovementHealth } from "../../types";
+import type { MovementHealth } from "../../types";
 import { taskLifecycleOf } from "./taskLifecycle";
 
 
@@ -165,6 +165,8 @@ export function OperatorShell() {
   const selectedRobotParam = searchParams.get("robot");
   const selectedRobot = robots.find((robot) => robot.robot_id === selectedRobotParam) ?? robots[0] ?? null;
   const selectedRobotId = selectedRobot?.robot_id ?? "";
+  const selectedRobotCommandBlocked = selectedRobot?.command_enabled === false;
+  const unavailableRobotIds = robots.filter((robot) => robot.command_enabled === false).map((robot) => robot.robot_id);
   const [cameraRobotId, setCameraRobotId] = useState<string | null>(null);
   const [focusedWaypointId, setFocusedWaypointId] = useState<string | null>(null);
   const [focusedZoneId, setFocusedZoneId] = useState<string | null>(null);
@@ -174,7 +176,9 @@ export function OperatorShell() {
   const cameraRobotSources = cameraRobotId ? cameras.filter((camera) => camera.robot_id === cameraRobotId) : [];
   const tasks = useMemo(() => data?.tasks ?? [], [data?.tasks]);
   const events = useMemo(() => data?.events ?? [], [data?.events]);
-  const cameraOnline = Boolean(((data?.system ?? {}) as { camera_health?: CameraHealth }).camera_health?.ok);
+  const cameraOnline = cameras.some((camera) => String(camera.status).toLowerCase() === "online");
+  const cameraStaleCount = cameras.filter((camera) => String(camera.status).toLowerCase() === "stale").length;
+  const cameraRuntimeLabel = cameraOnline ? cameras.filter((camera) => String(camera.status).toLowerCase() === "online").length + "/" + cameras.length + " LIVE" + (cameraStaleCount ? " · " + cameraStaleCount + " STALE" : "") : "OFFLINE";
   const { onlineCount } = useRobotConnectivity(robots);
 
   const workspaceSection = trayPanel === "tasks"
@@ -380,8 +384,9 @@ export function OperatorShell() {
                   onClose={closeDrawer}
                   onSlotFocus={setFocusedWaypointId}
                   onZoneFocus={setFocusedZoneId}
-                  disabled={allRobotsEmergency}
+                  disabled={allRobotsEmergency || (robots.length > 0 && robots.every((robot) => robot.command_enabled === false))}
                   emergencyRobots={emergencyRobots}
+                  unavailableRobotIds={unavailableRobotIds}
                   onSubmitted={(order, autoStart) => {
                             void refetch();
                             if (!autoStart) navigate(`/operate/tasks?order=${order.order_id}`);
@@ -398,11 +403,11 @@ export function OperatorShell() {
                   <div className="operator-control-bar-inner">
                     <Teleop
                       robots={selectedRobot ? [selectedRobot] : []}
-                      disabled={!movementAvailable}
+                      disabled={!movementAvailable || selectedRobotCommandBlocked}
                       isRobotEmergency={isRobotEmergency}
                       keyboardEnabled={drawer === "control"}
                     />
-                    <MapGotoOperate robots={selectedRobot ? [selectedRobot] : []} disabled={!movementAvailable} isRobotEmergency={isRobotEmergency} />
+                    <MapGotoOperate robots={selectedRobot ? [selectedRobot] : []} disabled={!movementAvailable || selectedRobotCommandBlocked} isRobotEmergency={isRobotEmergency} />
                   </div>
                 </>
               ) : null}
@@ -451,8 +456,9 @@ export function OperatorShell() {
                           onClose={closeDrawer}
                           onSlotFocus={setFocusedWaypointId}
                           onZoneFocus={setFocusedZoneId}
-                          disabled={allRobotsEmergency}
+                          disabled={allRobotsEmergency || (robots.length > 0 && robots.every((robot) => robot.command_enabled === false))}
                           emergencyRobots={emergencyRobots}
+                          unavailableRobotIds={unavailableRobotIds}
                           onSubmitted={(order, autoStart) => {
                           void refetch();
                           if (!autoStart) navigate(`/operate/tasks?order=${order.order_id}`);
@@ -506,7 +512,7 @@ export function OperatorShell() {
                 <Resizer className="operator-live-resizer" orientation="horizontal" storageKey="lms.layout.operator-map-width" cssVar="--operator-map-w" containerRef={liveSplitRef} defaultSize={720} min={420} max={1100} adjacent="leading" />
                 <section className="operator-global-camera panel" aria-label="전역 카메라 및 전체 카메라 Grid">
                   <div className="operator-global-camera-head">
-                    <div><h2>카메라 관제</h2><span className={`operator-camera-state ${cameraOnline ? "online" : "offline"}`}>{cameraOnline ? "LIVE" : "OFFLINE"}</span></div>
+                    <div><h2>카메라 관제</h2><span className={`operator-camera-state ${cameraOnline ? "online" : "offline"}`}>{cameraRuntimeLabel}</span></div>
                     <span className="muted">Grid = 전체 소스</span>
                   </div>
                   <div className="operator-global-camera-body">
@@ -535,15 +541,15 @@ export function OperatorShell() {
                     <article className={`operator-fleet-card${selected ? " selected" : ""}${robotEmergency(robot.robot_id) ? " emergency" : ""}`} key={robot.robot_id} onClick={selectRobotCamera}>
                       <button type="button" className="operator-fleet-select" onClick={selectRobotCamera}>
                         <span><strong>{robot.display_name || robot.robot_id}</strong><small className="mono">{robot.robot_id}</small></span>
-                        {robotEmergency(robot.robot_id) ? <span className="pill err">ESTOP</span> : <Pill status={robot.status} />}
+                        <Pill status={primaryRobotStatus(robot, data?.movement_health?.[robot.robot_id] as MovementHealth | undefined, robotEmergency(robot.robot_id))} />
                         <BatteryIndicator value={robot.battery} />
                       </button>
                       <RobotStatusDetails robot={robot} health={data?.movement_health?.[robot.robot_id] as MovementHealth | undefined} tasks={tasks} />
                       <button
                         type="button"
                         className="rowbtn operator-robot-command"
-                        disabled={!movementAvailable || robotEmergency(robot.robot_id) || workspaceSection !== "control"}
-                        title={workspaceSection !== "control" ? "수동 조작은 관제 목적지에서 사용합니다" : !movementAvailable ? "Movement 서버 오프라인" : `${robot.robot_id} 수동 조작`}
+                        disabled={!movementAvailable || robot.command_enabled === false || robotEmergency(robot.robot_id) || workspaceSection !== "control"}
+                        title={workspaceSection !== "control" ? "수동 조작은 관제 목적지에서 사용합니다" : robot.command_enabled === false ? "현재 대표 상태에서는 명령을 실행할 수 없습니다" : !movementAvailable ? "Movement 서버 오프라인" : robot.robot_id + " 수동 조작"}
                         onClick={(event) => { event.stopPropagation(); openRobotControl(robot.robot_id); }}
                       >
                         조작 →

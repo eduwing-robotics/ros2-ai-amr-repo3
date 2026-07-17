@@ -29,7 +29,7 @@
 .work-order-map-reference{display:flex;align-items:center;gap:6px;margin-top:7px;padding:7px 9px;border:1px solid color-mix(in srgb,var(--operator) 35%,var(--border));border-radius:7px;background:var(--operator-soft);color:var(--operator-dark);font-size:10px;font-weight:700}
 .zone-marker.work-order-focused .zone-dot{stroke:var(--operator);stroke-width:4;filter:drop-shadow(0 0 5px color-mix(in srgb,var(--operator) 65%,transparent));animation:work-order-slot-pulse 1.4s ease-in-out infinite}
 .zone-marker.work-order-focused .zone-center{fill:#fff;stroke:var(--operator);stroke-width:1.5}
-@keyframes work-order-slot-pulse{50%{opacity:.55}}
+@keyframes work-order-slot-pulse{50%{stroke-width:5;filter:drop-shadow(0 0 7px color-mix(in srgb,var(--operator) 75%,transparent))}}
 @media(prefers-reduced-motion:reduce){.zone-marker.work-order-focused .zone-dot{animation:none}}
 
 /* Desktop work requests replace the primary map surface with a form + reference-map workspace. */

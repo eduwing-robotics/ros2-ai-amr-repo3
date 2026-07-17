@@ -24,7 +24,12 @@ type State = {
   cameraOnline?: boolean;
   events?: unknown[];
   robotBattery?: number | null;
-  robots?: Array<typeof robot>;
+  robots?: Array<typeof robot & {
+    operational_status?: string;
+    task_status?: string;
+    operational_reason?: string;
+    command_enabled?: boolean;
+  }>;
   navMissionStatus?: string;
 };
 
@@ -38,9 +43,15 @@ export async function mockMainApi(page: Page, state: State = {}) {
     const path = new URL(req.url()).pathname.replace("/api/v1", "");
     const responseRobot = { ...robot, battery: state.robotBattery === undefined ? robot.battery : state.robotBattery };
     const responseRobots = state.robots ?? [responseRobot];
+    const runtimeRobots = responseRobots.map((entry) => ({
+      ...entry,
+      operational_status: entry.operational_status ?? ((state.movementOk ?? true) ? entry.status : "OFFLINE"),
+      task_status: entry.task_status ?? entry.status,
+      command_enabled: entry.command_enabled ?? (state.movementOk ?? true),
+    }));
     const movementHealth = Object.fromEntries(responseRobots.map((entry) => [
       entry.robot_id,
-      { ok: state.movementOk ?? true, is_emergency: Boolean(state.emergency) },
+      { ok: state.movementOk ?? true, robot_online: state.movementOk ?? true, command_accepting: state.movementOk ?? true, nav2_ready: state.movementOk ?? true, is_emergency: Boolean(state.emergency) },
     ]));
     if (path === "/status" && state.statusError) return json(route, { detail: "status unavailable" }, 503);
     if (path === "/status") return json(route, {
@@ -48,7 +59,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
         ...(state.cameraOnline ? { camera_health: { ok: true } } : {}),
         ...(state.estopUnknown ? { estop_summary: { state: "unknown", active_robots: [], unknown_robots: [responseRobot.robot_id] } } : {}),
       },
-      robots: responseRobots,
+      robots: runtimeRobots,
       camera_sources: state.cameraSources ?? [],
       tasks: state.tasks ?? [],
       events: state.events ?? [],

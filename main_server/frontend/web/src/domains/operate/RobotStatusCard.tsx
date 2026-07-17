@@ -4,7 +4,30 @@ import { taskStatusLabel } from "./workOrderLabels";
 import type { MovementHealth, Robot, RobotTask } from "../../types";
 import { isActiveTaskStatus } from "./taskLifecycle";
 
-const healthState = (h: MovementHealth) => (h.ok ? (h.dry_run ? "dry_run" : "online") : "offline");
+export const primaryRobotStatus = (robot: Robot, health?: MovementHealth, emergency = false) => {
+  if (emergency) return "ESTOP";
+  if (robot.operational_status) return robot.operational_status;
+  if (!health) return "UNKNOWN";
+  if (!health.ok || health.robot_online === false) return "OFFLINE";
+  if (health.localized === false) return "FAULT";
+  if (health.command_accepting === false || health.nav2_ready === false) return "NOT_READY";
+  return robot.status || "UNKNOWN";
+};
+
+const REASON_LABELS: Record<string, string> = {
+  emergency_stop_active: "비상정지 활성",
+  movement_or_robot_offline: "로봇 통신 끊김",
+  robot_disabled: "운용 비활성",
+  localization_lost: "위치 추정 상실",
+  movement_fault: "이동 시스템 장애",
+  command_not_accepting: "명령 수락 불가",
+  nav2_not_ready: "Nav2 준비 안 됨",
+  task_recovery_required: "작업 복구 필요",
+  task_running: "작업 실행 중",
+  task_assigned: "작업 배정됨",
+  ready_no_active_task: "활성 작업 없음",
+  state_not_classified: "상태 확인 필요",
+};
 
 const taskTypeLabel = (t?: string | null) => {
   const v = String(t ?? "").toLowerCase();
@@ -33,13 +56,16 @@ export function RobotStatusDetails({
   showBattery?: boolean;
 }) {
   const task = taskForRobot(tasks, robot.robot_id, robot.current_task_id);
+  const primaryStatus = primaryRobotStatus(robot, health);
+  const disconnectedDuringTask = primaryStatus === "OFFLINE" && Boolean(task);
+  const reason = REASON_LABELS[robot.operational_reason || ""] || robot.operational_reason;
 
   return (
     <>
       {task ? (
         <div className="robot-task-ctx">
           <span className="pill run">#{task.task_id}</span>
-          <span>{taskTypeLabel(task.task_type)}</span>
+          <span>{disconnectedDuringTask ? taskTypeLabel(task.task_type) + " 작업 수행 중 연결 끊김" : taskTypeLabel(task.task_type)}</span>
           {task.to_location ? <span className="mono">→ {task.to_location}</span> : null}
           <span className="muted">({taskStatusLabel(task.status)})</span>
         </div>
@@ -47,8 +73,8 @@ export function RobotStatusDetails({
         <div className="muted">작업 없음</div>
       )}
       <div className="robot-card-meta">
-        이동 서버: {health ? <Pill status={healthState(health)} /> : <Pill status="unknown" />}
-        {health && !health.ok && health.error ? <span className="muted"> · {String(health.error)}</span> : null}
+        <span>{robot.command_enabled === false ? "명령 실행 불가" : primaryStatus === "IDLE" ? "명령 실행 가능" : "상태 확인 중"}</span>
+        {reason ? <span className="muted"> · {reason}</span> : null}
       </div>
       {showBattery ? (
         <BatteryIndicator value={robot.battery} showLabel className="robot-battery" />
@@ -72,8 +98,7 @@ export function RobotStatusCard({
     <div className={`card robot-status-card${emergency ? " emergency" : ""}`}>
       <div className="robot-card-head">
         <strong>{robot.robot_id}</strong>
-        {emergency ? <span className="pill err">ESTOP</span> : null}
-        <Pill status={robot.status} />
+        <Pill status={primaryRobotStatus(robot, health, emergency)} />
       </div>
       <div>{robot.display_name}</div>
       <RobotStatusDetails robot={robot} health={health} tasks={tasks} showBattery />

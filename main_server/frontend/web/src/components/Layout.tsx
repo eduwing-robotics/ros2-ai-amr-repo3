@@ -52,10 +52,10 @@ export function Layout() {
 
   const cameraHealth = ((status?.system ?? {}) as { camera_health?: CameraHealth }).camera_health;
   const cameraOnline = !!cameraHealth?.ok;
-  const cameraLabel = cameraOnline ? "연결" : cameraHealth ? "오프라인" : "대기";
+  const cameraLabel = cameraOnline ? "서버 연결" : cameraHealth ? "서버 오프라인" : "서버 대기";
   const cameraBadge = cameraOnline ? "quiet" : cameraHealth ? "warn" : "off";
   const cameraIcon = cameraOnline ? "●" : cameraHealth ? "⚠" : "·";
-  const cameraAttn = cameraLabel === "대기" || cameraLabel === "오프라인";
+  const cameraAttn = !cameraOnline;
 
   const retryMovement = () => {
     if (probeMovement.isPending) return;

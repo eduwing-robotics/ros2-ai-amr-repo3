@@ -134,3 +134,10 @@ def recovery_execute(task_id: int, request: Request, body: dict) -> dict:
             checks=body.get("checks") or {},
             callback_base_url=callback_base_url(request),
         )
+
+
+@router.post("/tasks/{task_id}/reconcile-undispatched")
+def reconcile_undispatched_task(task_id: int) -> dict:
+    """Safely fail a RUNNING task that has no Movement command."""
+    with transaction() as conn:
+        return recovery.reconcile_undispatched_task(conn, task_id)
