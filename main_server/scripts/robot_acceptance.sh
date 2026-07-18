@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Real-robot acceptance pipeline. Hazardous actions remain operator-driven.
+# 책임: 실로봇 사전점검과 HW-01~12 증적 수집을 운영자에게 안내한다.
+# 소유: 검증 기록. 비책임: 로봇 이동·ESTOP·서버 재시작 같은 위험 동작 실행.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -96,6 +97,7 @@ need() {
 need curl
 need python3
 
+# API 실패도 증적으로 남기며 snapshot 수집 자체는 판정을 변경하지 않는다.
 snapshot() {
   local label="$1" dir path name
   dir="$EVIDENCE_DIR/$label"
@@ -112,6 +114,7 @@ snapshot() {
   done
 }
 
+# PASS는 운영자 판정 집계이며 물리 동작의 자동 검증 결과를 의미하지 않는다.
 write_report() {
   [[ -f "$RESULTS" ]] || return 0
   local report="$EVIDENCE_DIR/report.txt" pass fail unverified recorded
@@ -188,6 +191,7 @@ for row in "${SCENARIOS[@]}"; do
     HW-09) echo "시험 화물 적재 상태에서 안전 중단 후 복구 패널의 cargo 확인·preview·execute 순서를 확인하십시오." ;;
     HW-10) echo "진행 중 안전한 구간에서 승인된 절차로 Main만 재시작하고 task/command 재동기화를 확인하십시오." ;;
     HW-11) echo "Vision 입력을 stale 상태로 만들고 UI·evidence 오류를 확인한 뒤 Vision을 복구하십시오." ;;
+    HW-12) echo "자동 입출고 payload와 command trace에서 중복 dock_transfer 및 ARRIVED 전 조기 전송이 없는지 확인하십시오." ;;
   esac
 
   snapshot "${id}-before"

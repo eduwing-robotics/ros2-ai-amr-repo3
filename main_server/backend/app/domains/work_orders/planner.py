@@ -1,4 +1,5 @@
-"""Work-order slot/floor planning policy."""
+"""책임: 품목·수량·층 조건을 단일 슬롯 Work Order 계획으로 검증한다.
+비책임: task 영속화, 로봇 배정, 재고 변경."""
 
 from __future__ import annotations
 
@@ -26,6 +27,7 @@ MOVEMENT_V1_INBOUND_STORAGE_BY_ZONE = {
 
 
 def preview_work_order(conn, payload: dict[str, Any]) -> dict[str, Any]:
+    """현재 재고·슬롯 계획을 반환하며 DB 예약이나 로봇 명령은 생성하지 않는다."""
     item_code = payload["item_code"]
     validated_quantity(int(payload["quantity"]))
     if not items.exists(conn, item_code):
@@ -36,6 +38,7 @@ def preview_work_order(conn, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def plan_work_order(conn, payload: dict[str, Any]) -> dict[str, Any]:
+    """한 슬롯에서 처리 가능한 계획만 만들며 반환 시점에는 재고를 변경하지 않는다."""
     operation = payload["operation"]
     item_code = payload["item_code"]
     quantity = validated_quantity(int(payload["quantity"]))

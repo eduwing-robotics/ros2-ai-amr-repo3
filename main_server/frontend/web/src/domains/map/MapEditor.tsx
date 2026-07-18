@@ -171,6 +171,7 @@ export function MapEditor() {
           <MapStage map={activeMap} zones={zones} zoneMode={zoneMode}
             linkMode={linkMode}
             linkScanId={linkScanId}
+            selectedZoneId={selectedZoneId}
             dockPairs={mapDockPairs}
             onAddZoneAt={(w) => actions.createZoneAt(w).catch(actions.notifyError)}
             onMoveZone={(id, w) => actions.moveZone(id, w).catch(actions.notifyError)}

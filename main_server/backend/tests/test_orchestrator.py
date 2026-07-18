@@ -1,3 +1,4 @@
+# 기능 책임: task step dispatch와 callback 진행 상태 전이을 검증한다. 비책임: 실장비의 물리 동작.
 """Orchestrator step planning — characterization tests."""
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ class OrchestratorStepPlanningTest(unittest.TestCase):
             locations.list_map_markers.return_value = [
                 {"waypoint_id": "wp1", "x": 1.0, "y": 2.0, "yaw": 0.0, "name": "A"},
             ]
-            steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
+            steps = evidence.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
         self.assertEqual(len(steps), 1)
         self.assertEqual(steps[0]["kind"], "move_to_point")
         self.assertEqual(steps[0]["params"], {"waypoint_id": "wp1"})
@@ -45,13 +46,13 @@ class OrchestratorStepPlanningTest(unittest.TestCase):
             ],
         }
         with patch.object(evidence, "locations"):
-            steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
+            steps = evidence.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
         self.assertEqual(steps[0]["kind"], "dock_transfer")
 
     def test_missing_map_id_raises_409(self) -> None:
         conn = MagicMock()
         with self.assertRaises(HTTPException) as ctx:
-            orchestrator.plan_command_steps(conn, {"steps": []}, task_id=1, robot_id="r1")
+            evidence.plan_command_steps(conn, {"steps": []}, task_id=1, robot_id="r1")
         self.assertEqual(ctx.exception.status_code, 409)
 
 
@@ -61,7 +62,7 @@ class ExecutionStateTest(unittest.TestCase):
         view = state.RobotTaskExecutionState.wrap(raw)
         self.assertEqual(view.steps, raw["steps"])
         self.assertEqual(view.step_index, 2)
-        self.assertEqual(view.phase, state.PHASE_AWAITING_OPERATOR)
+        self.assertEqual(view.phase, state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
 
         view.steps = [{"kind": "dock_transfer"}]
         view.step_index = 1
@@ -83,7 +84,7 @@ class ExecutionStateTest(unittest.TestCase):
         raw = {"phase": "RUNNING", "step_index": 0, "recovery": {"reason": "estop"}}
         view = state.RobotTaskExecutionState.wrap(raw)
 
-        self.assertEqual(view.transition_to(state.PHASE_RECOVERY_RUNNING), "RECOVERY_RUNNING")
+        self.assertEqual(view.transition_to(state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING), "RECOVERY_RUNNING")
         view.update_recovery(active_command_id="cmd-1")
         self.assertEqual(view.advance_step(), 1)
         view.mark_business_completed(at_step=0)

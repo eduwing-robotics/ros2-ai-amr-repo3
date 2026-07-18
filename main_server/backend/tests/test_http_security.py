@@ -1,3 +1,4 @@
+# 기능 책임: LAN upstream URL·응답 크기 제한을 검증한다. 비책임: 실장비의 물리 동작.
 from __future__ import annotations
 
 from io import BytesIO

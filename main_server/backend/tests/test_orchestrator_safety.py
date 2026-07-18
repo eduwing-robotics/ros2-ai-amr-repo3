@@ -1,3 +1,4 @@
+# 기능 책임: 중단·복구·terminal 전이의 안전 gate을 검증한다. 비책임: 실장비의 물리 동작.
 """Orchestrator safety / recovery state transitions (UX audit P0)."""
 
 from __future__ import annotations
@@ -52,8 +53,8 @@ class AdvanceTaskEstopTest(unittest.TestCase):
         ):
             postgres_tasks.get_task.return_value = task
             evidence.attach_orchestration.side_effect = lambda row, _conn: row
-            evidence.resolve_command_def_id.return_value = 2
-            orchestrator.advance_task(conn, 12, {"event": "DONE", "command_id": "cmd-unload"})
+            evidence.resolve_command_definition_id.return_value = 2
+            orchestrator.advance_on_command_event(conn, 12, {"event": "DONE", "command_id": "cmd-unload"})
 
         inventory_ops.settle_inventory_for_completed_task.assert_called_once_with(conn, 12)
         saved_orch = evidence.save_orchestration.call_args[0][2]
@@ -83,9 +84,9 @@ class AdvanceTaskEstopTest(unittest.TestCase):
         ):
             postgres_tasks.get_task.return_value = task
             evidence.attach_orchestration.side_effect = lambda row, _conn: row
-            evidence.resolve_command_def_id.return_value = "cmddef"
+            evidence.resolve_command_definition_id.return_value = "cmddef"
             event = {"event": "ABORTED", "reason": "operator_estop", "command_id": "cmd-1"}
-            result = orchestrator.advance_task(conn, 42, event)
+            result = orchestrator.advance_on_command_event(conn, 42, event)
 
         self.assertIsNotNone(result)
         evidence.save_orchestration.assert_called_once()
@@ -130,8 +131,8 @@ class AdvanceTaskEstopTest(unittest.TestCase):
         ):
             postgres_tasks.get_task.return_value = task
             evidence.attach_orchestration.side_effect = lambda row, _conn: row
-            evidence.resolve_command_def_id.return_value = "cmddef"
-            result = orchestrator.advance_task(
+            evidence.resolve_command_definition_id.return_value = "cmddef"
+            result = orchestrator.advance_on_command_event(
                 conn,
                 43,
                 {"event": "FAILED", "reason": "nav2_failed", "command_id": "cmd-storage"},
@@ -169,8 +170,8 @@ class AdvanceTaskEstopTest(unittest.TestCase):
         ):
             postgres_tasks.get_task.return_value = task
             evidence.attach_orchestration.side_effect = lambda row, _conn: row
-            evidence.resolve_command_def_id.return_value = "cmddef"
-            orchestrator.advance_task(conn, 7, {"event": "ABORTED", "reason": "path_blocked", "command_id": "cmd-1"})
+            evidence.resolve_command_definition_id.return_value = "cmddef"
+            orchestrator.advance_on_command_event(conn, 7, {"event": "ABORTED", "reason": "path_blocked", "command_id": "cmd-1"})
 
         postgres_tasks.set_status.assert_called_once_with(conn, 7, "FAILED", clear_robot=True)
         postgres_robots.set_task.assert_called_once_with(conn, "robot1", "IDLE", None)
@@ -198,7 +199,7 @@ class AdvanceTaskEstopTest(unittest.TestCase):
         ):
             postgres_tasks.get_task.return_value = task
             evidence.attach_orchestration.side_effect = lambda row, _conn: row
-            result = orchestrator.advance_task(conn, 3, {"event": "DONE"})
+            result = orchestrator.advance_on_command_event(conn, 3, {"event": "DONE"})
         self.assertIsNone(result)
         evidence.save_orchestration.assert_not_called()
 
@@ -233,7 +234,7 @@ class MovementOwnedScenarioTest(unittest.TestCase):
         return (
             patch.object(orchestrator.tasks, "get_task", return_value=task),
             patch.object(orchestrator.evidence, "attach_orchestration", side_effect=lambda row, _conn: row),
-            patch.object(orchestrator.evidence, "resolve_command_def_id", return_value=None),
+            patch.object(orchestrator.evidence, "resolve_command_definition_id", return_value=None),
             patch.object(orchestrator.evidence, "record_movement_evidence"),
             patch.object(orchestrator.evidence, "save_orchestration"),
             patch.object(orchestrator, "operational_events"),

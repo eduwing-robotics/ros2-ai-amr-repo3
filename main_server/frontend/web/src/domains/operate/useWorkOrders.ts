@@ -2,10 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useFeedback } from "../../components/FeedbackProvider";
 import { ApiError, apiGet, apiSend } from "../../lib/api";
 import { describeApiError, parseApiDetail } from "../../lib/apiErrors";
-import type { WorkOrder, WorkOrderCreate, WorkOrderPreview, WorkOrderPreviewRequest } from "../../types";
+import type { RobotTask, WorkOrder, WorkOrderCreate, WorkOrderPreview, WorkOrderPreviewRequest } from "../../types";
 
 function commandIds(order: WorkOrder): string[] {
-  return (order.mission_results ?? [])
+  return (order.execution_results ?? [])
     .map((result) => result.command_id)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 }
@@ -34,6 +34,13 @@ function createResultMessage(order: WorkOrder, request: WorkOrderCreate): { mess
 }
 
 // --- 조회 ---
+export const useTasks = (limit = 30) =>
+  useQuery({
+    queryKey: ["tasks", limit],
+    queryFn: () => apiGet<RobotTask[]>(`/tasks?limit=`),
+    refetchInterval: 2000,
+  });
+
 export const useWorkOrders = (limit = 50) =>
   useQuery({
     queryKey: ["work-orders", limit],
@@ -46,7 +53,10 @@ export const useWorkOrder = (orderId?: number) =>
     queryKey: ["work-orders", orderId],
     queryFn: () => apiGet<WorkOrder>(`/work-orders/${orderId}`),
     enabled: orderId != null,
-    refetchInterval: 2000,
+    refetchInterval: (query) => {
+      const status = String(query.state.data?.status ?? "").toUpperCase();
+      return ["COMPLETED", "FAILED", "CANCELLED", "CANCELED"].includes(status) ? false : 2000;
+    },
   });
 
 export const useWorkOrderPreview = (body: WorkOrderPreviewRequest | null) =>

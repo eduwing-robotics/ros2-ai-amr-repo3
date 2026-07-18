@@ -1,8 +1,8 @@
 /* Left-origin work request navigation and compact transaction form. */
 @media (min-width:1201px){
-  .operator-stage>.context-preserving-drawer{left:12px;right:auto;top:12px;bottom:12px;width:390px;max-height:none;border-radius:10px;box-shadow:12px 0 28px rgb(16 47 58 / 16%)}
+  .operator-stage>.inout-drawer{left:12px;right:auto;top:12px;bottom:12px;width:390px;max-height:none;border-radius:10px;box-shadow:12px 0 28px rgb(16 47 58 / 16%)}
   .operator-stage.drawer-open .operator-context-area{visibility:visible}
-  .operator-stage.drawer-open:has(.context-preserving-drawer) .operator-primary-workspace{margin-left:402px}
+  .operator-stage.drawer-open:has(.inout-drawer) .operator-primary-workspace{margin-left:402px}
 }
 .inout-drawer{border-color:var(--border-strong);background:var(--surface)}
 .inout-drawer .drawer-head{min-height:52px;padding:0 14px;border-bottom:1px solid var(--border);background:var(--surface-2)}

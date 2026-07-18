@@ -90,7 +90,7 @@ Work Order 내부 read model은 `RobotTaskSummary`와 canonical 필드(`requeste
 
 | 항목 | 결정 | 재검토 트리거 |
 | --- | --- | --- |
-| `GET /status` | 종합 스냅샷 유지 | 관제가 더 이상 쓰지 않을 때 |
+| `GET /status` | 로봇·비상·외부 연동 대표 상태 유지 | 관제가 더 이상 쓰지 않을 때 |
 | 감사 API | `/events`·`/movement-commands`·`/evidence-events` 분리 | 네 번째 projection 필요 시 |
 | probe | `/comm/probe/movement`·`/camera` 분리 | 공통 구조가 생길 때 |
 

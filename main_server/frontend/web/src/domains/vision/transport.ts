@@ -1,3 +1,7 @@
+/**
+ * 책임: Main proxy를 통한 Vision transport 발견·WebRTC 연결·MJPEG fallback 판단.
+ * 비책임: Vision frame 생성, 인식 결과 판정, 카메라 상태 정본.
+ */
 /** Vision stream transport discovery + WebRTC signaling (Main proxy only). */
 
 import { apiGet, apiSend } from "../../lib/api";
@@ -115,6 +119,7 @@ export function isOfferFallbackResponse(answer: WebRtcOfferResponse): boolean {
   return !answer.sdp;
 }
 
+/** 반환은 signaling answer이며 peer 연결이나 첫 frame 수신 성공을 의미하지 않는다. */
 export async function postWebRtcOffer(
   source: string,
   view: string,

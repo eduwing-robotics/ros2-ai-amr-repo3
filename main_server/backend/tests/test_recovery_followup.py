@@ -1,3 +1,4 @@
+# 기능 책임: 운영자 복구 command 후속 상태 전이을 검증한다. 비책임: 실장비의 물리 동작.
 """Follow-up UX remediation tests (recovery state close, held task guards)."""
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 from fastapi import HTTPException
 
-from app.domains.execution import orchestrator, recovery, tasks
+from app.domains.execution import orchestrator, recovery
 
 
 class RecoveryPhaseGuardTest(unittest.TestCase):
@@ -113,19 +114,6 @@ class ListRecoveryTasksTest(unittest.TestCase):
             out = recovery.list_awaiting_operator_tasks(conn)
         self.assertEqual(len(out), 1)
         get_ctx.assert_called_once_with(conn, 9)
-
-
-class HeldCompleteTaskTest(unittest.TestCase):
-    def test_complete_blocked_in_recovery_running(self) -> None:
-        conn = MagicMock()
-        with (
-            patch.object(orchestrator, "tasks") as postgres_tasks,
-            patch.object(orchestrator, "_orchestration_phase", return_value="RECOVERY_RUNNING"),
-        ):
-            postgres_tasks.get_task.return_value = {"task_id": 1, "status": "RUNNING"}
-            with self.assertRaises(HTTPException) as ctx:
-                tasks.complete_task(conn, 1)
-        self.assertEqual(ctx.exception.detail, "held_task_complete_blocked_use_recovery")
 
 
 class ActiveCommandProjectionTest(unittest.TestCase):

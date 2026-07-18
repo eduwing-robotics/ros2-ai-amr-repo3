@@ -15,7 +15,7 @@ export function useRobotConnectivity(robots: Robot[]) {
     return { online: state === "live" && operational !== "OFFLINE", ageSec, poseState: state };
   };
 
-  const onlineCount = robots.filter((r) => robotFresh(r.robot_id).online).length;
+  const onlineCount = robots.filter((robot) => robot.enabled !== false && robotFresh(robot.robot_id).online).length;
   const robotTitle = robots.length
     ? robots.map((r) => {
         const f = robotFresh(r.robot_id);

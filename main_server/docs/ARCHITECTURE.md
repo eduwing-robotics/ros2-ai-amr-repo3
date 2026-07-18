@@ -143,7 +143,7 @@ flowchart TD
 용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **robot task**와 callback으로 추적하는 9개 **업무 단계**로 분해된다(§6).
 
 Work Order 조회는 Task·실행 상태·계획·위치 정보를 읽기 전용 projection으로 조립한다. 내부 canonical 필드와
-기존 `/api/v1` 필드의 차이는 API compatibility adapter에서 변환한다.
+`/api/v1`도 내부 모델과 같은 canonical 필드명을 사용한다.
 
 ## 6. 작업 실행 흐름
 
@@ -235,7 +235,7 @@ flowchart LR
 
 ## 8. 용어 안내
 
-공식 계층 `Work Order → Task → Step → Robot Command`, 상태 축, Evidence, Mission과 deprecated `leg`의
+공식 계층 `Work Order → Task → Step → Robot Command`, 상태 축, Evidence와 금지 동의어의
 정의는 [GLOSSARY](GLOSSARY.md)만 정본으로 삼는다. 이 문서의 흐름도에 쓰인 용어도 그 정의를 따른다.
 
 ## 9. 레포 트리 (요약)
@@ -316,10 +316,8 @@ latch를 복원하며 기존 Task는 `AWAITING_OPERATOR`에 유지하고 자동 
   `record_execution_evidence`처럼 대상을 포함한다. private helper는 module 문맥이 분명하면 간결하게 둔다.
 - DB 함수도 호출부에서 대상을 잃지 않게 이름을 붙인다. 물리 table 이름과 Python capability 이름은 별도로
   검수하며, DB table의 참조·소유 의미를 지우기 위해 일괄 축약하지 않는다.
-- 외부 payload의 `robot_name`, command `event/status/result`, `mission_id` 같은 변형은 compatibility adapter에서
-  canonical `robot_id`, `state`, `task_id`로 바꾼 뒤 domain logic에 전달한다.
-- `leg`는 deprecated이며 신규 내부 코드에서 사용하지 않는다. `Mission`은 Movement와 기존 공개 API 호환
-  경계에서만 허용한다. 제거 조건은 [GLOSSARY](GLOSSARY.md)를 따른다.
+- 동일한 개념은 API와 내부 모델에서 같은 필드명을 사용하며 계층별 alias를 만들지 않는다.
+- Task 실행은 `steps`, `step_index`, `command_id`만 사용하며 `leg`와 Mission 표현은 사용하지 않는다.
 - class는 호출 간 상태, lifecycle, invariant, 교체 가능한 외부 경계 중 하나를 실제로 소유할 때 도입한다.
   상태 없는 계산·조립은 명확한 module function을 우선하며, 추상 계층 자체를 목적으로 만들지 않는다.
 

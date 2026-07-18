@@ -65,6 +65,7 @@ pg_native_url() {
   echo "postgresql://lms:lms@localhost:5432/lms_mvp"
 }
 
+# 연결 성공 시 선택 URL을 export하며 포트 open만으로 readiness를 인정하지 않는다.
 pg_ensure_running() {
   pg_ensure_url
   if pg_probe_url "$LMS_DATABASE_URL"; then

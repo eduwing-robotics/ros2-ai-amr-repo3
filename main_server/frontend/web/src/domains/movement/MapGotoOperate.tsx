@@ -5,7 +5,7 @@ import { useAdminMutations } from "../../hooks/useAdminData";
 import { useFeedback } from "../../components/FeedbackProvider";
 import { useGotoTarget } from "../operate/GotoTargetContext";
 import { radToDeg, degToRad } from "../../lib/coords";
-import { missionGoto, movementMapState, robotLocalization, robotNavState } from "../../lib/missions";
+import { moveToPoint, movementMapState, robotLocalization, robotNavState } from "../../lib/movementApi";
 import { isMapRuntimeMismatch, mapAssetWarning, runtimeBadgeLabel } from "../../lib/mapRuntime";
 import { shortId } from "../../lib/format";
 import type { Robot } from "../../types";
@@ -84,7 +84,7 @@ export function MapGotoOperate({
     if (!mapId || !target) { setStatus("맵에서 목적지를 클릭하세요."); return; }
     setBusy(true);
     try {
-      const r = await missionGoto({
+      const r = await moveToPoint({
         robot_id: robot,
         map_id: mapId,
         x: target.x,

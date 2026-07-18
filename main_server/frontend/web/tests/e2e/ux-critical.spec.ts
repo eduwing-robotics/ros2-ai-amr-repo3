@@ -1,3 +1,4 @@
+// 기능 책임: WEB-01~22 핵심 운영 흐름과 접근성 결과를 검증한다. 비책임: 실장비·실서버 통합.
 import { expect, test } from "@playwright/test";
 import { item, mockMainApi, robot, slot } from "../support/mainApi";
 
@@ -23,7 +24,7 @@ test("WEB-01 자동 시작 성공은 로봇과 command ID를 표시한다", asyn
       quantity: 1,
       status: "RUNNING",
       tasks: [{ task_id: 102, status: "RUNNING", assigned_robot_id: robot.robot_id, command_id: "cmd-102" }],
-      mission_results: [{ command_id: "cmd-102", robot_id: robot.robot_id }],
+      execution_results: [{ command_id: "cmd-102", robot_id: robot.robot_id }],
     }),
   }));
   await page.goto("/operate/control?drawer=inout");
@@ -83,8 +84,8 @@ test("WEB-01 자동 시작 OFF는 예약을 생성하고 해당 작업 큐로 �
   await expect(page).toHaveURL(/\/operate\/tasks\?order=101$/);
   await expect(page.getByText(/작업 #101 예약 완료 · 작업 큐에서 배정 후 시작하세요/)).toBeVisible();
   await expect(page.getByRole("tab", { name: /^예약/ })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("row", { name: /#101/ })).toHaveClass(/work-order-highlight/);
-  await expect(page.getByText(/task 101/)).toBeVisible();
+  await expect(page.getByRole("row", { name: /접기.*#101/ })).toHaveClass(/work-order-highlight/);
+  await expect(page.getByRole("row", { name: /Task #101 슬롯 S01/ })).toBeVisible();
 });
 
 test("WEB-02 재고 부족 오류는 입력과 재고 보기 동작을 유지한다", async ({ page }) => {
@@ -233,7 +234,8 @@ test("WEB-10 맵 편집 액션은 선택한 구역에만 표시한다", async ({
   await mockMainApi(page);
   await page.goto("/admin/map");
   await expect(page.getByRole("button", { name: "수정" })).toHaveCount(0);
-  await page.getByRole("row", { name: /입고/ }).click();
+  await page.getByRole("row", { name: /입고 입고장\(helper\)/ }).click();
+  await expect(page.locator('[data-zone-id="in_1"]')).toHaveClass(/zone-selected/);
   await expect(page.getByRole("button", { name: "수정" })).toHaveCount(1);
   await expect(page.getByText(/구역을 선택하면 상세 작업/)).toHaveCount(0);
 });
@@ -281,7 +283,7 @@ test("WEB-12 좌측 입출고 메뉴는 요청·위치 확인 작업면을 열�
 });
 
 test("WEB-13 좁은 화면 드로어는 배경을 차단하는 모달로 동작한다", async ({ page }) => {
-  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.setViewportSize({ width: 900, height: 800 });
   await mockMainApi(page);
   await page.goto("/operate/control?drawer=inout");
   const dialog = page.getByRole("dialog", { name: "입출고" });
@@ -350,18 +352,11 @@ test("WEB-17 KPI는 읽기 전용이고 이벤트 명령은 현재 경고 문맥
   await expect(alarmTile).not.toHaveClass(/err|warn/);
   await expect(alarmTile.locator(".kpi-value")).toHaveText("0");
 });
-test("WEB-18 운영 지도와 관리자 Goto는 공통 런타임 캔버스를 사용한다", async ({ page }) => {
+test("WEB-18 운영 지도는 공통 런타임 캔버스를 사용한다", async ({ page }) => {
   await mockMainApi(page);
-
   await page.goto("/operate/control");
   const operatorMap = page.locator(".operator-map-wrap .map-stage");
   await expect(operatorMap.locator(":scope > .map-zoom-layer")).toHaveCount(1);
-
-  await page.goto("/admin/devices");
-  const adminGotoMap = page.locator(".goto-stage");
-  await expect(adminGotoMap.locator(":scope > .map-zoom-layer")).toHaveCount(1);
-  await adminGotoMap.click();
-  await expect(adminGotoMap.locator("[data-goto-target]")).toHaveCount(1);
 });
 
 test("WEB-19 배터리 미수신은 대시와 회색 게이지로 표시한다", async ({ page }) => {

@@ -1,3 +1,4 @@
+# 기능 책임: Work Order 안전 중단과 자동 재개 차단을 검증한다. 비책임: 실장비의 물리 동작.
 """Immediate work-order safe-stop request and callback policy."""
 
 from __future__ import annotations

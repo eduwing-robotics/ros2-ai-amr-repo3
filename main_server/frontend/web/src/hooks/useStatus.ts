@@ -1,3 +1,7 @@
+/**
+ * 책임: Main 운영 snapshot을 2초 주기로 공유 cache에 갱신한다.
+ * 소유: UI cache. 비책임: 서버·로봇 상태의 정본.
+ */
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api";
 import type { ControlSystemStatusSnapshot } from "../types";

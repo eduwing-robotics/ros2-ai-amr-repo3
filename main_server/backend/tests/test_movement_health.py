@@ -1,3 +1,4 @@
+# 기능 책임: health endpoint·pose fallback·stale 판정을 검증한다. 비책임: 실장비의 물리 동작.
 """Movement health probe tests."""
 
 from __future__ import annotations

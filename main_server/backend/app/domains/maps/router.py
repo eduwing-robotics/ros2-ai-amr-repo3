@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Response
 from fastapi.responses import FileResponse
 
-from app.domains.maps.assets import find_map_asset, import_map_assets, list_map_asset_records, pgm_to_png
+from app.domains.maps.assets import cached_pgm_to_png, find_map_asset, import_map_assets, list_map_asset_records
 from app.domains.movement.navigation import get_runtime_map_context, overlay_nav_dims
 from app.models.maps import MapRecord
 
@@ -38,7 +38,11 @@ def import_maps_from_folder() -> dict:
 def map_asset_image(map_id: str) -> Response:
     """PGM 맵 이미지를 브라우저 표시용 PNG로 변환해 반환한다."""
     asset = find_map_asset(map_id)
-    return Response(content=pgm_to_png(asset.image_path), media_type="image/png", headers={"Cache-Control": "no-store"})
+    return Response(
+        content=cached_pgm_to_png(asset.image_path),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 @router.get("/map-assets/{map_id}/map.pgm")

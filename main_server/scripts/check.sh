@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Repository verification dispatcher.
+# 책임: 정적 검사·단위·UX·전용 PostgreSQL 검증 gate를 일관된 순서로 실행한다.
+# 소유: 검증 프로세스와 test fixture. 비책임: 실장비 안전 판정과 운영 DB 변경.
 set -euo pipefail
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -28,6 +29,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "$PYTHON" -m pytest -q
 
 }
 
+# 운영 DB를 직접 사용하지 않고 파생된 _test DB에 fixture를 적용해 통합 계약을 검증한다.
 check_db() {
 
 ROOT="$SCRIPT_ROOT"
@@ -54,7 +56,7 @@ cd "$ROOT/backend"
 TEST_DATABASE_URL="$("$PYTHON" tests/prepare_test_db.py)"
 export LMS_DATABASE_URL="$TEST_DATABASE_URL"
 export DATABASE_URL="$TEST_DATABASE_URL"
-check_pg
+LMS_PG_PREPARE_ONLY=1 check_pg
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "$PYTHON" -m pytest -q
 
 }
@@ -77,7 +79,7 @@ warn() { echo "[docs] WARN: $*" >&2; }
 while IFS= read -r file; do
   case "$file" in
     ./README.md|./AGENTS.md) ;;
-    ./docs/*|./worklog/*|./frontend/web/docs/*|./frontend/web/ADMIN_DATA_WORKSPACE.md) ;;
+    ./docs/*|./worklog/*|./frontend/web/docs/*) ;;
     *) err "Markdown file outside allowed roots: $file" ;;
   esac
 done < <(find . \
@@ -108,7 +110,7 @@ done < <(find docs -maxdepth 1 -name '*.md' -type f -print)
 required_meta=("상태:" "주 독자:" "보조 독자:" "난이도:" "소유:" "최종 갱신:" "구현 기준:" "목적:")
 should_check_meta() {
   case "$1" in
-    ./README.md|./docs/*.md|./frontend/web/docs/*.md|./frontend/web/ADMIN_DATA_WORKSPACE.md) return 0 ;;
+    ./README.md|./docs/*.md|./frontend/web/docs/*.md) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -137,7 +139,7 @@ while IFS= read -r file; do
   fi
 done < <(
   find docs frontend/web/docs -name '*.md' -type f -print 2>/dev/null | sed 's#^#./#'
-  printf '%s\n' './README.md' './frontend/web/ADMIN_DATA_WORKSPACE.md'
+  printf '%s\n' './README.md'
 )
 
 while IFS= read -r file; do
@@ -216,6 +218,7 @@ check_ux() {
   npm run test:ux
 }
 
+# 기본은 read-only이며 변경 검증은 두 개의 명시적 opt-in이 모두 필요하다.
 check_operator() {
 # Default mode is read-only. Set LMS_VERIFY_MUTATING=1 only against a test/disposable
 # server if you want to create a sample work order and verify robot_id assignment.
@@ -330,6 +333,7 @@ pass "work order $order_id honors robot_id=$target_robot"
 
 }
 
+#  _test URL 또는 폐기 가능 DB opt-in 없이는 fixture 적용을 거부한다.
 check_pg() {
 set -euo pipefail
 
@@ -370,6 +374,10 @@ cd "$ROOT/backend"
 "$PYTHON" -c "from app.db.connection import init_db; from tests.support.postgres import apply_demo_fixture; init_db(); apply_demo_fixture()"
 "$PYTHON" -m app.db.cli status
 "$PYTHON" -m app.db.cli reference-sync
+  if [[ "${LMS_PG_PREPARE_ONLY:-0}" == "1" ]]; then
+    echo "[check_pg_mvp] fixture prepared for pytest"
+    return 0
+  fi
 "$PYTHON" -m unittest tests.test_postgres_inout tests.test_pg_ddl_smoke tests.test_command_evidence_runtime tests.test_seed_persistence -v
 echo "[check_pg_mvp] ok"
 

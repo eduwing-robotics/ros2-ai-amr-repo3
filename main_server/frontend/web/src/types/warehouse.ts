@@ -16,7 +16,7 @@ export interface ItemUpsert {
   unit?: string;
 }
 
-// --- 보관 슬롯 — API alias for locations(type=storage) ---
+// --- 보관 슬롯 — locations(type=storage)의 보관 슬롯 projection ---
 export interface StorageSlot {
   slot_id: string;
   location_id?: string;
@@ -47,7 +47,7 @@ export interface StorageLocation {
   floor_capacity_policy?: number;
 }
 
-// --- 재고 (location_id + floor) — slot_id/item_code는 UI alias ---
+// --- 재고 (location_id + floor) — 화면 식별자는 slot_id/item_code ---
 export interface InventoryRecord {
   slot_id: string;
   item_code: string;
@@ -141,7 +141,7 @@ export interface WorkOrder {
   created_at?: string | null;
   updated_at?: string | null;
   tasks: WorkOrderRobotTask[];
-  mission_results?: JsonObject[];
+  execution_results?: JsonObject[];
   start_failed?: Array<{ task_id: number; detail: string | unknown }>;
   business_completed?: boolean;
   return_status?: "RETURNING_HOME" | "PARKING" | "PARKED" | "PARK_FAILED" | null;

@@ -1,3 +1,4 @@
+# 기능 책임: Movement callback URL의 SSRF·prefix 보호을 검증한다. 비책임: 실장비의 물리 동작.
 from __future__ import annotations
 
 from dataclasses import replace

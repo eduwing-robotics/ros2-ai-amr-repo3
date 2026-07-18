@@ -1,3 +1,4 @@
+# 기능 책임: 실 PostgreSQL 입출고·재고 transaction을 검증한다. 비책임: 실장비의 물리 동작.
 """PostgreSQL MVP in/out integration tests."""
 
 from __future__ import annotations
@@ -21,8 +22,6 @@ from app.db.postgres import DEFAULT_FLOOR, inventory, tasks
 from app.domains.warehouse import inventory as inventory_ops
 from app.domains.work_orders import service as work_orders
 from tests.support.postgres import apply_demo_fixture
-
-MAX_QTY = work_orders.MAX_WORK_ORDER_QUANTITY
 
 
 @unittest.skipUnless(_PG_URL, "LMS_DATABASE_URL or DATABASE_URL required")
@@ -147,6 +146,33 @@ class PostgresInOutTest(unittest.TestCase):
             after = inventory.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
         self.assertEqual(after, qty)
 
+    def test_outbound_completion_decrements_inventory_once(self) -> None:
+        """출고 성공 — 재고를 감소시키고 같은 task의 중복 완료는 반영하지 않는다."""
+        with write_transaction() as conn:
+            before = inventory.get_quantity(conn, "STORAGE_S1", "BOX-A", DEFAULT_FLOOR)
+            order = work_orders.create_work_order(
+                conn,
+                {"operation": "outbound", "item_code": "BOX-A", "quantity": 2, "slot_id": "STORAGE_S1"},
+            )
+            task_id = order["tasks"][0]["task_id"]
+            tasks.assign(conn, task_id, "tb3_1")
+            tasks.set_status(conn, task_id, "RUNNING")
+
+            self.assertTrue(inventory_ops.settle_inventory_for_completed_task(conn, task_id))
+            self.assertFalse(inventory_ops.settle_inventory_for_completed_task(conn, task_id))
+            after = inventory.get_quantity(conn, "STORAGE_S1", "BOX-A", DEFAULT_FLOOR)
+            log = conn.execute(
+                "SELECT event_type, quantity_change, quantity_before, quantity_after "
+                "FROM item_change_logs WHERE task_id = %s",
+                (task_id,),
+            ).fetchone()
+
+        self.assertEqual(after, before - 2)
+        self.assertEqual(log["event_type"], "OUTBOUND_COMPLETE")
+        self.assertEqual(log["quantity_change"], -2)
+        self.assertEqual(log["quantity_before"], before)
+        self.assertEqual(log["quantity_after"], after)
+
     def test_inventory_completion_is_idempotent(self) -> None:
         """Unload callback and final parking completion may both request apply; inventory changes once."""
         with write_transaction() as conn:
@@ -224,7 +250,7 @@ class PostgresInOutTest(unittest.TestCase):
             with self.assertRaises(HTTPException) as ctx:
                 work_orders.create_work_order(
                     conn,
-                    {"operation": "outbound", "item_code": "BOX-A", "quantity": MAX_QTY + 1},
+                    {"operation": "outbound", "item_code": "BOX-A", "quantity": work_orders.MAX_WORK_ORDER_QUANTITY + 1},
                 )
             self.assertEqual(ctx.exception.status_code, 400)
             self.assertEqual(ctx.exception.detail, "quantity_exceeds_limit")
@@ -235,7 +261,7 @@ class PostgresInOutTest(unittest.TestCase):
             with self.assertRaises(HTTPException) as ctx:
                 work_orders.create_work_order(
                     conn,
-                    {"operation": "outbound", "item_code": "BOX-A", "quantity": min(on_hand + 1, MAX_QTY)},
+                    {"operation": "outbound", "item_code": "BOX-A", "quantity": min(on_hand + 1, work_orders.MAX_WORK_ORDER_QUANTITY)},
                 )
             self.assertEqual(ctx.exception.status_code, 409)
             self.assertEqual(ctx.exception.detail, "insufficient_inventory")

@@ -1,3 +1,4 @@
+# 기능 책임: command·orchestration 증적과 단일 scenario 영속 계약을 검증한다. 비책임: 실장비의 물리 동작.
 """runtime tests — commands seed, evidence, safety stops, task_logs."""
 
 from __future__ import annotations
@@ -114,19 +115,19 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
         with transaction() as conn:
             task_id = self._make_task(conn, {"task_type": "MOVE", "status": "RUNNING", "quantity": 1})
             task = tasks.get_task(conn, task_id) or {}
-            cmd_id = evidence.resolve_command_def_id(conn, task, 0, "move_to_point")
-            self.assertIsNotNone(cmd_id)
+            command_definition_id = evidence.resolve_command_definition_id(conn, task, 0, "move_to_point")
+            self.assertIsNotNone(command_definition_id)
             runtime_records.append(
                 conn,
                 task_id=task_id,
-                command_id=cmd_id,
+                command_id=command_definition_id,
                 event_type="ARRIVED",
                 source="test",
                 trusted=True,
             )
             progress = robot_command_definitions.progress_for_task(conn, task_id, "MOVE")
             self.assertEqual(progress[0]["status"], "DONE")
-            self.assertEqual(progress[0]["command_id"], cmd_id)
+            self.assertEqual(progress[0]["command_id"], command_definition_id)
 
     def test_orchestration_state_in_evidence(self) -> None:
         with transaction() as conn:
@@ -137,7 +138,7 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             self.assertEqual(orch.get("phase"), "RUNNING")
             self.assertEqual(orch.get("step_index"), 1)
 
-    def test_inbound_scenario_uses_precision_waypoint_steps(self) -> None:
+    def test_inbound_builds_one_movement_owned_scenario(self) -> None:
         with transaction() as conn:
             task_id = self._make_task(
                 conn,
@@ -152,21 +153,15 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                 },
             )
             task = tasks.get_task(conn, task_id) or {}
-            scenario = evidence.build_scenario_from_task(conn, task)
-            steps = scenario.get("steps") or []
-            self.assertEqual(len(steps), 5)
-            self.assertEqual(steps[0].get("action_type"), "leave_dock")
-            self.assertEqual(steps[1].get("action_type"), "move")
-            self.assertEqual(steps[1].get("transfer_action"), "load")
-            self.assertEqual(steps[2].get("action_type"), "move")
-            self.assertEqual(steps[2].get("transfer_action"), "unload")
-            self.assertFalse(any(step.get("action_type") == "dock_transfer" for step in steps))
-            self.assertEqual(steps[3].get("action_type"), "move")
-            self.assertEqual(steps[4].get("action_type"), "aruco_align")
-            self.assertEqual(steps[4]["params"]["final"], "park")
-            self.assertIsInstance(steps[4]["params"]["aruco_marker_id"], int)
+            steps = (evidence.build_scenario_from_task(conn, task).get("steps") or [])
+            self.assertEqual(len(steps), 1)
+            self.assertEqual(steps[0].get("action_type"), "inout_scenario")
+            params = steps[0].get("params") or {}
+            self.assertEqual(params.get("scenario_type"), "inbound")
+            self.assertIn("waypoint_id", params["pickup"]["approach"])
+            self.assertIn("waypoint_id", params["dropoff"]["approach"])
 
-    def test_outbound_scenario_step_order(self) -> None:
+    def test_outbound_builds_one_movement_owned_scenario(self) -> None:
         with transaction() as conn:
             task_id = self._make_task(
                 conn,
@@ -181,14 +176,13 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                 },
             )
             task = tasks.get_task(conn, task_id) or {}
-            scenario = evidence.build_scenario_from_task(conn, task)
-            steps = scenario.get("steps") or []
-            self.assertEqual(len(steps), 5)
-            self.assertEqual(steps[0].get("action_type"), "leave_dock")
-            self.assertEqual(steps[1].get("transfer_action"), "load")
-            self.assertEqual(steps[2].get("transfer_action"), "unload")
-            self.assertEqual(steps[3].get("action_type"), "move")
-            self.assertEqual(steps[4].get("action_type"), "aruco_align")
+            steps = (evidence.build_scenario_from_task(conn, task).get("steps") or [])
+            self.assertEqual(len(steps), 1)
+            self.assertEqual(steps[0].get("action_type"), "inout_scenario")
+            params = steps[0].get("params") or {}
+            self.assertEqual(params.get("scenario_type"), "outbound")
+            self.assertIn("waypoint_id", params["pickup"]["approach"])
+            self.assertIn("waypoint_id", params["dropoff"]["approach"])
 
 
 if __name__ == "__main__":

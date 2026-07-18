@@ -1,3 +1,4 @@
+# 기능 책임: DB 상태와 live health를 결합한 조작 가능 정책을 검증한다. 비책임: 실장비의 물리 동작.
 """Operational enablement, ESTOP partial-clear, and latest-pose policy tests."""
 
 from unittest.mock import MagicMock, patch
@@ -8,6 +9,15 @@ from app.api.routers.system import _estop_summary
 from app.db.postgres import robots as robot_repository
 from app.domains.movement import router
 from app.models.robots import Robot, RobotPoseUpdate, RobotUpsert
+
+
+def test_disabled_robot_is_not_in_use_even_if_health_reports_estop() -> None:
+    from app.api.routers.system import _derive_robot_operational_state
+
+    robot = Robot(robot_id="r3", display_name="r3", status="IDLE", enabled=False)
+    assert _derive_robot_operational_state(
+        robot, {"ok": True, "robot_online": True, "is_emergency": True}, "stop_confirmed"
+    ) == ("NOT_IN_USE", "robot_disabled", False)
 
 
 def test_estop_summary_separates_offline_from_unconfirmed_estop() -> None:

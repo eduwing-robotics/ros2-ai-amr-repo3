@@ -1,3 +1,4 @@
+# 기능 책임: 업무 marker 참조 보호·강제 삭제 정책을 검증한다. 비책임: 실장비의 물리 동작.
 """Map marker delete policy tests."""
 
 from __future__ import annotations

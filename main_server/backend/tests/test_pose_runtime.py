@@ -1,3 +1,4 @@
+# 기능 책임: process-local pose 품질 상태기계을 검증한다. 비책임: 실장비의 물리 동작.
 """Deterministic tests for the process-local realtime pose state machine."""
 
 from datetime import datetime, timedelta, timezone

@@ -3,11 +3,11 @@
 .operator-live-split{grid-template-columns:var(--operator-map-w,720px) 6px minmax(320px,1fr);gap:0}
 .operator-live-resizer{grid-column:2;grid-row:1;margin:0 6px}
 .operator-dock-resizer{grid-row:2;margin:0 0}
-.operator-main-workbench>.fleet-mission-dock{grid-row:3;margin-top:8px}
+.operator-main-workbench>.fleet-task-dock{grid-row:3;margin-top:8px}
 .operator-global-camera{margin-left:6px}
-.fleet-mission-columns,.fleet-mission-row{min-width:780px;display:grid;grid-template-columns:210px 160px minmax(320px,1fr) 104px;align-items:center;gap:12px}
-.fleet-mission-columns{flex:none;padding:6px 12px;border-bottom:1px solid var(--border-light);background:var(--surface-2);color:var(--text-dim);font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
-.fleet-mission-row{min-height:78px;padding:8px 12px}
+.fleet-task-columns,.fleet-task-row{min-width:780px;display:grid;grid-template-columns:210px 160px minmax(320px,1fr) 104px;align-items:center;gap:12px}
+.fleet-task-columns{flex:none;padding:6px 12px;border-bottom:1px solid var(--border-light);background:var(--surface-2);color:var(--text-dim);font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+.fleet-task-row{min-height:78px;padding:8px 12px}
 .fleet-task-summary small{color:var(--text-dim);font-size:9px}
 .fleet-assignee{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 6px;align-items:center;padding:7px 8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface-2);color:inherit;text-align:left;cursor:pointer}
 .fleet-assignee:hover{border-color:var(--operator)}.fleet-assignee strong,.fleet-assignee span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}.fleet-assignee .pill{grid-column:1/-1;justify-self:start}
@@ -20,9 +20,9 @@
 @media(max-width:900px){.operator-live-split{grid-template-columns:1fr;grid-template-rows:minmax(420px,1fr) 280px}.operator-live-resizer{display:none}.operator-global-camera{margin:8px 0 0}.operator-main-workbench{grid-template-rows:minmax(720px,1fr) 6px var(--operator-dock-h,220px)}}
 
 /* State-aware mission cards: waiting work stays one row; running work alone gets a timeline row. */
-.fleet-mission-columns{display:none}
-.fleet-mission-row{min-width:0;grid-template-columns:minmax(0,1fr) minmax(120px,180px) auto;grid-template-areas:"summary assignee action" "progress progress progress";align-items:center;gap:6px 10px;min-height:74px;padding:7px 10px}
-.fleet-mission-row:not(.is-running){min-height:68px}
+.fleet-task-columns{display:none}
+.fleet-task-row{min-width:0;grid-template-columns:minmax(0,1fr) minmax(120px,180px) auto;grid-template-areas:"summary assignee action" "progress progress progress";align-items:center;gap:6px 10px;min-height:74px;padding:7px 10px}
+.fleet-task-row:not(.is-running){min-height:68px}
 .fleet-task-summary{grid-area:summary;display:flex;min-width:0;flex-direction:row;align-items:center;gap:7px}
 .fleet-task-summary>.pill{flex:none}
 .fleet-task-summary strong{flex:none;white-space:nowrap;font-size:10px}
@@ -36,4 +36,4 @@
 .fleet-unassigned strong,.fleet-unassigned span{display:inline;margin:0}
 .fleet-task-progress{grid-area:progress;min-width:0;padding-left:2px}
 .fleet-safe-stop{grid-area:action;min-width:96px;justify-self:end;white-space:nowrap}
-@media(max-width:700px){.fleet-mission-row,.fleet-mission-row:not(.is-running){grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"summary action" "assignee assignee" "progress progress"}.fleet-mission-row:not(.is-running){min-height:104px}.fleet-assignee,.fleet-unassigned{max-width:none}}
+@media(max-width:700px){.fleet-task-row,.fleet-task-row:not(.is-running){grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"summary action" "assignee assignee" "progress progress"}.fleet-task-row:not(.is-running){min-height:104px}.fleet-assignee,.fleet-unassigned{max-width:none}}

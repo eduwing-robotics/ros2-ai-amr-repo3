@@ -138,7 +138,6 @@ export interface RobotNavState {
   command_accepting?: boolean | null;
   nav2_ready?: boolean | null;
   navigator_status?: string | null;
-  mission_status?: string | null;
   is_emergency?: boolean | null;
   localized?: boolean | null;
   reason?: string | null;

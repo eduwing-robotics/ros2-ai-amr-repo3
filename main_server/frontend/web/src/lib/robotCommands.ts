@@ -1,3 +1,7 @@
+/**
+ * 책임: 로봇 명령 envelope와 Main API 호출 계약을 소유한다.
+ * 비책임: Movement 실행 및 물리 동작 성공 판정.
+ */
 // Robot command envelope — 이동·수동조작·estop 단일 API.
 import { apiGet, apiSend } from "./api";
 import type { JsonObject, TeleopRequest, TeleopResponse } from "../types";
@@ -95,6 +99,7 @@ export function buildRobotCommandParams(kind: RobotCommandKind, v: RobotCommandF
   return { op: v.estopOp };
 }
 
+/** UI 값을 Main command envelope로 만들며 네트워크 호출이나 실행은 하지 않는다. */
 export function buildRobotCommandRequest(
   robotId: string,
   kind: RobotCommandKind,
@@ -133,6 +138,7 @@ export const ROBOT_COMMAND_GATE_KINDS: RobotCommandKind[] = ["dock_transfer", "a
 export const robotCommandGateHint =
   "선행 move_to_point가 ARRIVED 상태여야 실행됩니다. gate 없으면 Movement가 409로 거절합니다.";
 
+/** 반환은 Main·Movement 접수 결과이며 로봇의 물리 동작 완료가 아니다. */
 export const postRobotCommand = (body: RobotCommandRequest) =>
   apiSend<RobotCommandResponse>("/robot-commands", "POST", body);
 

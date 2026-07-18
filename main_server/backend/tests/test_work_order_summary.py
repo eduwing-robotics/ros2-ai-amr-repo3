@@ -1,3 +1,4 @@
+# 기능 책임: Work Order canonical·legacy 응답 조립을 검증한다. 비책임: 실장비의 물리 동작.
 from datetime import UTC, datetime
 
 from app.domains.execution.state import RobotTaskExecutionState

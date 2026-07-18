@@ -48,7 +48,7 @@ export interface MapImportResult {
   removed?: { map_id: string }[];
 }
 
-export interface MissionGotoRequest {
+export interface MoveToPointRequest {
   robot_id: string;
   map_id: string;
   x: number;
@@ -57,44 +57,4 @@ export interface MissionGotoRequest {
   command_id?: string | null;
   callback_base_url?: string | null;
   options?: JsonObject;
-}
-
-export interface MissionStatusResponse {
-  robot_id: string;
-  command_id?: string | null;
-  response: JsonObject;
-}
-
-// build_mission_from_scenario 가 만드는 Movement mission payload (핵심 필드).
-export interface MissionPayload {
-  command_id: string;
-  task_id?: number | null;
-  robot_name: string;
-  mission_type: string;
-  map: {
-    map_id: string;
-    map_version: string;
-    frame_id: string;
-    resolution: number;
-    origin: { x: number; y: number; yaw: number };
-  };
-  scenario: { preset_id: string; snapshot_id: string; name: string; version: number };
-  steps: MissionStep[];
-  options: JsonObject;
-  callback?: {
-    base_url: string;
-    events_path: string;
-    pose_path: string;
-    result_path: string;
-  };
-}
-
-export interface MissionStep {
-  step_id: string;
-  seq: number;
-  waypoint_id: string;
-  name: string;
-  action_type: string;
-  pose: { x: number; y: number; yaw: number };
-  params: JsonObject;
 }

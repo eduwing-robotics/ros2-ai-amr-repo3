@@ -5,6 +5,7 @@ import type { MovementHealth, Robot, RobotTask } from "../../types";
 import { isActiveTaskStatus } from "./taskLifecycle";
 
 export const primaryRobotStatus = (robot: Robot, health?: MovementHealth, emergency = false) => {
+  if (robot.enabled === false) return "NOT_IN_USE";
   if (emergency) return "ESTOP";
   if (robot.operational_status) return robot.operational_status;
   if (!health) return "UNKNOWN";

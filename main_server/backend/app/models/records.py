@@ -4,9 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.models.movement import RobotCommandRecord
 from app.models.robots import Robot
-from app.models.tasks import RobotTask
 
 
 class CameraSource(BaseModel):
@@ -99,6 +97,3 @@ class ControlSystemStatusSnapshot(BaseModel):
     movement_health: dict[str, dict[str, Any]] = Field(default_factory=dict)
     robots: list[Robot]
     camera_sources: list[CameraSource]
-    movement_commands: list[RobotCommandRecord]
-    events: list[dict[str, Any]]
-    tasks: list[RobotTask] = Field(default_factory=list)

@@ -1,3 +1,4 @@
+# 기능 책임: pose polling backoff와 issue event queue을 검증한다. 비책임: 실장비의 물리 동작.
 """Tests for pose fallback polling and issue-only persistence queue."""
 
 from unittest.mock import MagicMock, patch

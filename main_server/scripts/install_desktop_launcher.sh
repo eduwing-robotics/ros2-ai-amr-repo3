@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Install a per-PC desktop launcher for the LMS real server.
+# 책임: 현재 checkout을 가리키는 사용자별 desktop launcher를 설치한다.
+# 소유: desktop entry 파일. 비책임: 서버 실행 상태와 시스템 전역 설치.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,7 +22,7 @@ cat > "$target" <<EOF2
 [Desktop Entry]
 Type=Application
 Name=LMS Real Server
-Comment=Prepare dependencies and start LMS real FastAPI server and Vite UI
+Comment=Prepare dependencies and start LMS real FastAPI server with production UI
 Path=$ROOT
 Exec=$ROOT/scripts/launch_main_terminal.sh
 Terminal=false

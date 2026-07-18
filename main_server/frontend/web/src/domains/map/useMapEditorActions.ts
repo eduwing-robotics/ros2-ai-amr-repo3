@@ -1,3 +1,7 @@
+/**
+ * 책임: map 구역 편집 요청과 Dock–Scan 연결 변경을 조정한다.
+ * 비책임: 좌표 측정, Movement map 동기화, DB transaction.
+ */
 import { useCallback } from "react";
 import type { ToastKind } from "../../components/Toast";
 import type { Waypoint, ZoneType } from "../../types";
@@ -36,6 +40,7 @@ interface UseMapEditorActionsOptions {
   feedback: Feedback;
 }
 
+/** mutation 성공은 Main 저장 완료이며 Movement runtime map 반영 완료를 뜻하지 않는다. */
 export function useMapEditorActions({
   selectedMapId,
   zones,

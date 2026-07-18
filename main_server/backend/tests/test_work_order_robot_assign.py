@@ -1,3 +1,4 @@
+# 기능 책임: 수동 robot 지정과 배정 보존을 검증한다. 비책임: 실장비의 물리 동작.
 """— work order manual robot_id assignment."""
 
 from __future__ import annotations

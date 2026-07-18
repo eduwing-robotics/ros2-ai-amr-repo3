@@ -89,3 +89,12 @@ class RobotTaskAssign(BaseModel):
     """Robot task assignment request."""
 
     robot_id: str
+
+
+class RobotTaskStartResponse(BaseModel):
+    """Task 실행 시작 접수 결과이며 로봇 동작 완료를 의미하지 않는다."""
+
+    task: RobotTask
+    robot_id: str
+    command_id: str
+    step_count: int = Field(ge=1)

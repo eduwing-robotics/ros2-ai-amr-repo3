@@ -1,3 +1,4 @@
+# 기능 책임: PostgreSQL URL 격리와 공통 pytest 환경을 검증한다. 비책임: 실장비의 물리 동작.
 """Shared pytest safety guards."""
 
 import os

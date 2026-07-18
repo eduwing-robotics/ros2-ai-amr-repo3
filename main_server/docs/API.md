@@ -5,7 +5,7 @@
 보조 독자: QA·연동 개발자
 난이도: 개발
 소유: Backend
-최종 갱신: 2026-07-16 20:50 KST
+최종 갱신: 2026-07-18 14:46 KST
 구현 기준: 실행 서버의 OpenAPI와 backend/app/api route
 목적: Main `/api/v1` **작성 규칙 + 엔드포인트 카탈로그**. 외부 계약: [INTERFACES](INTERFACES.md).
 
@@ -66,7 +66,6 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | --- | --- | --- |
 | Movement가 `/robot-commands`를 지원하지 않음 | 501 | `movement_robot_commands_api_missing` |
 | 도킹 게이트 위반 | 409 | Movement passthrough |
-| held task 완료 (`AWAITING_OPERATOR`) | 409 | `held_task_complete_blocked_use_recovery` |
 | 마커 참조 중 삭제 | 409 | `marker_in_use` |
 | 재고/슬롯 부족 | 409 | `insufficient_inventory` / `no_available_slot` |
 
@@ -81,7 +80,7 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | Browser → Main | 운영·관리 UI | `/status`, `/robots`, `/tasks`, `/work-orders` | OpenAPI request schema → response schema |
 | Browser → Main | 운영 UI | `/teleop`, `/robot-commands`, ESTOP | `TeleopRequest` / `RobotCommandRequest` → 해당 response |
 | Browser → Main | 관리 UI | `/maps`, `/waypoints`, warehouse, devices | 각 Upsert schema → record 또는 `ApiMessage` |
-| Movement → Main | Movement | `/movement/command-events`, results, status, mission pose | typed callback → `MovementCallbackAck`/`ApiMessage` |
+| Movement → Main | Movement | `/movement/command-events`, command event, status, pose | typed callback → `MovementCallbackAck`/`ApiMessage` |
 | ROS bridge → Main | `tools/ros_pose_bridge` | `/robots/{id}/pose` | `RobotPoseUpdate → ApiMessage` |
 | Main → Movement/Vision | Main 내부 서비스 | 외부 upstream | [INTERFACES](INTERFACES.md)의 계약 |
 
@@ -95,7 +94,7 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | 호출자 | Method | Path | 데이터 형식 | 설명 |
 | --- | --- | --- | --- | --- |
 | Browser | GET | `/system/external-config` | `— → JSON · object` | 외부 서버 연동 설정 조회 |
-| Browser | GET | `/status` | `— → JSON · ControlSystemStatusSnapshot` | 로봇·비상·작업 종합 스냅샷 |
+| Browser | GET | `/status` | `— → JSON · ControlSystemStatusSnapshot` | 로봇·비상·Movement·카메라 대표 상태 |
 
 ### Robots · 수동 조작
 
@@ -132,8 +131,8 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | 호출자 | Method | Path | 데이터 형식 | 설명 |
 | --- | --- | --- | --- | --- |
 | Browser / Main | GET/POST | `/tasks` | `— → RobotTask[]` / `RobotTaskCreate → RobotTask` | 작업 조회·생성 |
-| Browser / Main | POST | `/tasks/{id}/assign\|start-mission\|complete\|cancel` | `RobotTaskAssign/— → RobotTask/JSON object` | 작업 상태 전이 |
-| Main / Browser | POST | `/tasks/auto-assign` · `/tasks/auto-assign-and-start` | `— → JSON · object` | 자동 배정 (+mission 시작 일괄) |
+| Browser / Main | POST | `/tasks/{id}/assign\|start\|cancel` | `RobotTaskAssign/— → RobotTask/RobotTaskStartResponse` | 작업 배정·실행 시작·미실행 취소 |
+| Main / Browser | POST | `/tasks/auto-assign` · `/tasks/auto-assign-and-start` | `— → JSON · object` | 자동 배정 (+Task 실행 시작 일괄) |
 | Browser | GET | `/tasks/recovery/awaiting-operator` | `— → JSON · object[]` | 운영자 복구 대상 목록 |
 | Browser | GET | `/tasks/{id}/recovery/context` | `— → JSON · object` | 복구 컨텍스트 조회 |
 | Browser | POST | `/tasks/{id}/recovery/{preview\|decision\|execute}` | `JSON · RecoveryBody → object` | 복구 실행 흐름 |
@@ -230,7 +229,7 @@ ESTOP 일괄 요청은 로봇마다 `request_id`를 만들고 `stop_requested �
 - **취소·우선순위:** `POST /work-orders/{id}/cancel`은 예약 상태의 요청을 취소하고, `/priority`는 디스패치 순서를 `tasks.priority`에 영속화한다.
 - **실행 중 안전 중단:** `POST /work-orders/{id}/stop`은 현재 Movement command 취소를 즉시 요청한다. 빈 로봇은 취소 callback 후 `CANCELLED`, 적재 상태는 `AWAITING_OPERATOR`, 하역 완료 후 복귀·주차 중단은 물류 `DONE`을 유지하고 `PARK_FAILED`로 기록한다.
 - **완료·복귀:** 모든 입출고는 DB 접근 waypoint 좌표를 포함한 Scenario v1 명령 한 건으로 실행한다. `UNLOAD + STEP_COMPLETED + EMPTY`에서 재고를 한 번 반영하고, PARK 안전 Gate 이후 Task를 완료한다.
-- **배정·복구:** `POST /tasks/auto-assign-and-start`는 로봇 배정과 mission 시작을 한 번에 처리한다. 비상정지 후 복구는 awaiting-operator 목록 → context 조회 → preview → execute 순서로 진행한다. 운영 UI는 명시된 HOME 안전 위치 이동과 정지 확인 후 수동 회수만 제공하며 자동 하역·자동 작업 재개는 지원하지 않는다. 운영 절차는 [OPERATIONS §3](OPERATIONS.md).
+- **배정·복구:** `POST /tasks/auto-assign-and-start`는 로봇 배정과 Task 실행 시작을 한 번에 처리한다. 비상정지 후 복구는 awaiting-operator 목록 → context 조회 → preview → execute 순서로 진행한다. 운영 UI는 명시된 HOME 안전 위치 이동과 정지 확인 후 수동 회수만 제공하며 자동 하역·자동 작업 재개는 지원하지 않는다. 운영 절차는 [OPERATIONS §3](OPERATIONS.md).
 - **waypoints:** `map_id`로 필터·저장한다. 다른 데이터가 참조 중이면 삭제가 `409 marker_in_use`로 거부되며, usage 확인 → disable 또는 force-delete로 처리한다. 도킹용 필드로 `scan_waypoint_id`·`aruco_marker_id`·`dock_mode`를 가진다.
 - **pose:** canonical push는 `POST /robots/{robot_id}/pose` 하나만 사용한다. Main은 최신 pose를 단일 worker 프로세스 메모리에 즉시 반영하고 `GET /robot-poses`는 DB·Movement 호출 없이 메모리 snapshot을 반환한다. 수신 지연, localization 상실, 맵 경계 이탈, 연결 단절의 발생/복구 전이만 운영 이벤트 DB에 기록한다. 재시작 시 이전 위치를 복원하지 않고 새 pose 수신 전까지 `수신 대기`로 표시한다.
 - **maps:** 표시용 메타와 Nav2 runtime 상태(`runtime_*`, `asset_status`, `runtime_match`)를 분리해 담는다. import는 기존 메타를 보존하고, sync는 runtime 정보만 새로 고친다. 에셋 파일은 `image.png`·`map.pgm`·`map.yaml`로 제공하며 로봇 pose 응답에는 맵 경계 안 여부(`in_bounds`)가 포함된다. YAML·PGM은 map root 이탈과 symlink 이탈, 과대 파일·pixel 선언을 거부한다.

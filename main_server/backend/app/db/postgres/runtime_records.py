@@ -70,7 +70,7 @@ def find_task_id_by_robot_command(conn, command_id: str) -> int | None:
             import json
 
             data = json.loads(data)
-        steps = data.get("steps") if isinstance(data.get("steps"), list) else data.get("legs") or []
+        steps = data.get("steps") or []
         for step in steps:
             if str(step.get("command_id") or "") == command_id:
                 return int(row["task_id"])
@@ -91,6 +91,21 @@ def list_runtime_records(conn, limit: int = 50) -> list[dict[str, Any]]:
     for r in rows:
         out.append(_map_row(conn, r))
     return out
+
+
+def list_movement_command_evidence(conn, limit: int = 50) -> list[dict[str, Any]]:
+    """Movement 명령 ID가 있는 runtime evidence만 최신순으로 반환한다."""
+    rows = conn.execute(
+        """
+        SELECT * FROM evidence_events
+        WHERE source IN ('movement', 'orchestrator', 'runtime')
+          AND NULLIF(data_json ->> 'command_id', '') IS NOT NULL
+        ORDER BY observed_at DESC, id DESC
+        LIMIT %s
+        """,
+        (max(1, limit),),
+    ).fetchall()
+    return [_map_row(conn, row) for row in rows]
 
 
 def _map_row(conn, r: dict[str, Any]) -> dict[str, Any]:

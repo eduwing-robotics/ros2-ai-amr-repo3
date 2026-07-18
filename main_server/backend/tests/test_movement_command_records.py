@@ -1,3 +1,4 @@
+# 기능 책임: Movement command trace 조립과 정렬을 검증한다. 비책임: 실장비의 물리 동작.
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -30,10 +31,10 @@ def test_projection_keeps_command_contract_and_drops_unrelated_payload() -> None
         },
     ]
     conn = MagicMock()
-    with patch.object(movement_commands.runtime_records, "list_runtime_records", return_value=rows) as read:
+    with patch.object(movement_commands.runtime_records, "list_movement_command_evidence", return_value=rows) as read:
         result = movement_commands.list_movement_command_records(conn, limit=10)
 
-    read.assert_called_once_with(conn, limit=50)
+    read.assert_called_once_with(conn, limit=10)
     assert result == [
         {
             "command_id": "cmd-9",
@@ -63,7 +64,7 @@ def test_projection_uses_result_payload_without_exposing_message() -> None:
             "result_payload": {"distance": 1.2},
         },
     }
-    with patch.object(movement_commands.runtime_records, "list_runtime_records", return_value=[row]):
+    with patch.object(movement_commands.runtime_records, "list_movement_command_evidence", return_value=[row]):
         result = movement_commands.list_movement_command_records(MagicMock(), limit=1)
 
     assert result[0]["status"] == "DONE"

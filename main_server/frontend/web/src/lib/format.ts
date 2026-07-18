@@ -15,7 +15,7 @@ const STATUS_TONES: Record<StatusTone, ReadonlySet<string>> = {
   waiting: new Set(["idle", "created", "queued", "reserved", "assigned", "pending", "waiting", "planned", "accepted"]),
   warning: new Set(["not_ready", "recovery", "stale", "warn", "warning", "not_connected", "dry_run", "degraded", "awaiting_operator", "recovery_required", "cancel_requested", "low_battery", "unknown"]),
   danger: new Set(["error", "failed", "fault", "estop", "offline", "rejected", "aborted", "critical", "lost"]),
-  cancelled: new Set(["cancelled", "canceled", "stopped", "disabled", "inactive"]),
+  cancelled: new Set(["cancelled", "canceled", "stopped", "disabled", "inactive", "not_in_use"]),
 };
 
 export function statusTone(status: unknown): StatusTone {
@@ -204,6 +204,7 @@ const STATUS_LABELS: Record<string, string> = {
   stopped: "중단됨",
   disabled: "비활성",
   inactive: "비활성",
+  not_in_use: "미사용",
 };
 
 export function statusLabel(status: unknown): string {

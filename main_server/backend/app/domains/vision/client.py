@@ -1,16 +1,5 @@
-"""Vision/AI 서버 image/metadata 프록시 경계.
-
-실시간 영상은 AI 서버(`settings.vision_api_base_url`) 또는 stream bridge
-(`settings.vision_stream_base_url`)가 source별 latest frame/overlay를 내보낸다.
-Main이 이를 중계(proxy)해서, AI/stream 서버를 외부에 노출하거나 CORS를
-열지 않고도 LAN의 브라우저가 Main 단일 origin으로 영상을 볼 수 있게 한다.
-
-이미지 bytes는 DB에 저장하지 않는다(문서 "image pull" 원칙). Main은 통과만 시킨다.
-
-base 주소는 호스트명(.local) 우선이고, 해석/연결 실패(URLError) 시 설정된
-IP 폴백 base로 1회 더 시도한다. upstream이 HTTP 상태를 주면(이름해석 성공)
-폴백하지 않고 그대로 전달한다.
-"""
+"""책임: Vision API·stream을 Main 단일 origin으로 제한 중계하고 fallback한다.
+비책임: image 저장, 인식 판정, 브라우저 재생 성공."""
 
 from __future__ import annotations
 
@@ -69,12 +58,8 @@ def _safe_http_error(code: int, *, stream: bool = False) -> str:
 
 
 def fetch_image(kind: str, source: str) -> tuple[bytes, str]:
-    """AI 서버에서 source의 latest frame/overlay image를 가져온다.
-
-    kind: "frame" 또는 "overlay".
-    반환: (image_bytes, content_type).
-    upstream 4xx(unknown source/no frame)는 그대로 status_code를 담아 raise한다.
-    """
+    """frame/overlay 최신 이미지를 `(bytes, content_type)`으로 반환한다.
+    upstream 4xx는 상태 코드를 보존한 채 전달한다."""
     path = f"/api/v1/vision/{kind}/latest/image"
     return _get_binary(path, {"source": source}, _api_bases())
 

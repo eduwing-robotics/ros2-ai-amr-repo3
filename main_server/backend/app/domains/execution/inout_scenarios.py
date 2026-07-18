@@ -1,4 +1,5 @@
-"""Main-owned Scenario API v1 contract assembly for inbound/outbound tasks."""
+"""책임: Main 업무 위치를 Movement Scenario API v1 계약으로 조립한다.
+비책임: Nav2 경로·리프트 tuning과 시나리오 실행."""
 
 from __future__ import annotations
 

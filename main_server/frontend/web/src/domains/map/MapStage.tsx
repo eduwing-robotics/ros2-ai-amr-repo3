@@ -24,6 +24,7 @@ interface MapStageProps {
   zoneMode: boolean;
   linkMode?: boolean;
   linkScanId?: string | null;
+  selectedZoneId?: string;
   dockPairs?: DockPair[];
   onAddZoneAt: (world: { x: number; y: number }) => void;
   onMoveZone: (zoneId: string, world: { x: number; y: number }) => void;
@@ -37,7 +38,7 @@ interface MapStageProps {
 type Drag = { id: string; mode: "move" | "yaw"; x: number; y: number; yaw: number };
 
 export function MapStage({
-  map, zones, zoneMode, linkMode = false, linkScanId = null, dockPairs = [],
+  map, zones, zoneMode, linkMode = false, linkScanId = null, selectedZoneId = "", dockPairs = [],
   onAddZoneAt, onMoveZone, onSetZoneYaw, onDeleteZone,
   onLinkMarkerClick, isTypeVisible = () => true, showArrows = true,
 }: MapStageProps) {
@@ -160,7 +161,8 @@ export function MapStage({
   };
 
   const renderApproachMarker = (z: Waypoint, p: { x: number; y: number }, paired: boolean) => {
-    const selected = linkScanId === z.waypoint_id;
+    const linkSelected = linkScanId === z.waypoint_id;
+    const zoneSelected = selectedZoneId === z.waypoint_id;
     const helper = helperForScan(z.waypoint_id, zones);
     const displayYaw = helper ? yawScanToDock(z, helper) : (z.yaw || 0);
     const hx = SCAN_YAW_LEN * Math.cos(displayYaw);
@@ -168,7 +170,7 @@ export function MapStage({
     return (
       <g
         key={z.waypoint_id}
-        className={`zone-marker zone-approach scan-marker${selected ? " link-selected" : ""}`}
+        className={["zone-marker", "zone-approach", "scan-marker", linkSelected && "link-selected", zoneSelected && "zone-selected"].filter(Boolean).join(" ")}
         data-zone-id={z.waypoint_id}
         transform={`translate(${p.x} ${p.y}) scale(${u})`}
         style={{ cursor: linkMode ? "crosshair" : zoneMode ? "grab" : "default" }}
@@ -216,10 +218,10 @@ export function MapStage({
         ) : null}
         {zones.map((z) => {
           const linkRelevant = linkMode && (z.waypoint_type === "approach" || z.waypoint_type === "transit" || isHelperWaypoint(z));
-          if (!isTypeVisible(z.waypoint_type) && !linkRelevant) return null;
+          if (!isTypeVisible(z.waypoint_type) && !linkRelevant && selectedZoneId !== z.waypoint_id) return null;
           const isApproach = z.waypoint_type === "approach";
           const paired = isApproach && pairedScanIds.has(z.waypoint_id);
-          if (paired && !zoneMode && !linkMode) return null;
+          if (paired && !zoneMode && !linkMode && selectedZoneId !== z.waypoint_id) return null;
 
           const p0 = zonePos(z);
           const p = worldToPixel(map, p0.x, p0.y);
@@ -230,12 +232,13 @@ export function MapStage({
           const hx = ZONE_YAW_LEN * Math.cos(yaw);
           const hy = -ZONE_YAW_LEN * Math.sin(yaw);
           const linked = linkScanId === z.waypoint_id;
+          const selected = selectedZoneId === z.waypoint_id;
           const isHelper = isHelperWaypoint(z);
           const showYaw = !isHelper;
           return (
             <g
               key={z.waypoint_id}
-              className={`zone-marker zone-${z.waypoint_type}${linked ? " link-selected" : ""}${linkMode && isHelper ? " link-target" : ""}`}
+              className={["zone-marker", "zone-" + z.waypoint_type, linked && "link-selected", linkMode && isHelper && "link-target", selected && "zone-selected"].filter(Boolean).join(" ")}
               data-zone-id={z.waypoint_id}
               transform={`translate(${p.x} ${p.y}) scale(${u})`}
               style={{ cursor: linkMode ? "crosshair" : zoneMode ? "grab" : "default" }}

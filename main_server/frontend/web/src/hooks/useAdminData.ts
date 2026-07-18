@@ -41,11 +41,9 @@ export const useDbRows = (table: string | undefined, limit: number) =>
 
 export interface RobotTaskStartResult {
   task: RobotTask;
-  mission: {
-    robot_id: string;
-    command_id?: string | null;
-    response: Record<string, unknown>;
-  };
+  robot_id: string;
+  command_id: string;
+  step_count: number;
 }
 
 // --- 변경 동작 (성공 시 /status 스냅샷 + 관련 쿼리 무효화) ---
@@ -127,7 +125,7 @@ export function useAdminMutations() {
     onError: onMutError("자동 배정 후 시작"),
   });
   const startRobotTask = useMutation({
-    mutationFn: (taskId: number) => apiSend<RobotTaskStartResult>(`/tasks/${taskId}/start-mission`, "POST"),
+    mutationFn: (taskId: number) => apiSend<RobotTaskStartResult>(`/tasks/${taskId}/start`, "POST"),
     onSuccess: () => {
       void Promise.all([
         refresh(),
@@ -137,10 +135,6 @@ export function useAdminMutations() {
       onMutOk("로봇 작업 시작")();
     },
     onError: onMutError("로봇 작업 시작"),
-  });
-  const completeTask = useMutation({
-    mutationFn: (taskId: number) => apiSend(`/tasks/${taskId}/complete`, "POST"),
-    onSuccess: refresh,
   });
   const cancelTask = useMutation({
     mutationFn: (taskId: number) => apiSend(`/tasks/${taskId}/cancel`, "POST"),
@@ -152,5 +146,5 @@ export function useAdminMutations() {
     onSuccess: refresh,
   });
 
-  return { saveRobot, deleteRobot, saveCamera, deleteCamera, createTask, assignTask, autoAssignTasks, autoAssignAndStartTasks, startRobotTask, completeTask, cancelTask, teleop };
+  return { saveRobot, deleteRobot, saveCamera, deleteCamera, createTask, assignTask, autoAssignTasks, autoAssignAndStartTasks, startRobotTask, cancelTask, teleop };
 }

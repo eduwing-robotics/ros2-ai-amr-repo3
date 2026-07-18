@@ -1,4 +1,5 @@
-"""Characterization tests for public and persisted compatibility contracts."""
+# 기능 책임: canonical API·저장 계약을 검증한다. 비책임: 실장비의 물리 동작.
+"""Contract tests for canonical public and persisted representations."""
 
 from __future__ import annotations
 
@@ -10,36 +11,19 @@ from app.db.postgres import runtime_records
 from app.domains.execution import router as execution_router
 from app.domains.execution import state as orchestration_state
 from app.main import app
-from app.models import schemas
-from app.models.movement import RobotCommandEvent, RobotCommandRecord
-from app.models.records import ControlSystemStatusSnapshot
-from app.models.tasks import RobotTask, RobotTaskAssign, RobotTaskCreate
-from app.models.work_orders import WorkOrder, WorkOrderOperation, WorkOrderRobotTask
+from app.models.tasks import RobotTask
+from app.models.work_orders import WorkOrder, WorkOrderOperation
 
 
 def _operation(path: str, method: str) -> dict:
     return app.openapi()["paths"][path][method]
 
 
-def test_legacy_python_schema_aliases_point_to_canonical_models() -> None:
-    assert schemas.MovementCommand is RobotCommandRecord
-    assert schemas.MovementCommandEvent is RobotCommandEvent
-    assert schemas.StatusSnapshot is ControlSystemStatusSnapshot
-    assert schemas.Task is RobotTask
-    assert schemas.TaskAssign is RobotTaskAssign
-    assert schemas.TaskCreate is RobotTaskCreate
-    assert schemas.WorkOrderTask is WorkOrderRobotTask
-
-
 def test_openapi_operation_ids_and_response_models_remain_compatible() -> None:
     expected = {
-        ("/api/v1/tasks/{task_id}/start-mission", "post"): (
-            "start_task_execution_api_v1_tasks__task_id__start_mission_post",
-            None,
-        ),
-        ("/api/v1/tasks/{task_id}/complete", "post"): (
-            "complete_task_api_v1_tasks__task_id__complete_post",
-            "#/components/schemas/RobotTask",
+        ("/api/v1/tasks/{task_id}/start", "post"): (
+            "start_task_execution_api_v1_tasks__task_id__start_post",
+            "#/components/schemas/RobotTaskStartResponse",
         ),
         ("/api/v1/tasks/{task_id}/cancel", "post"): (
             "cancel_task_api_v1_tasks__task_id__cancel_post",
@@ -62,7 +46,7 @@ def test_openapi_operation_ids_and_response_models_remain_compatible() -> None:
             assert response_schema == {"$ref": response_ref}
 
 
-def test_start_mission_response_keeps_mission_and_leg_count() -> None:
+def test_start_task_response_uses_canonical_execution_fields() -> None:
     result = {
         "task": {
             "task_id": 17,
@@ -86,32 +70,29 @@ def test_start_mission_response_keeps_mission_and_leg_count() -> None:
 
     encoded = jsonable_encoder(response)
     assert encoded["task"]["task_id"] == 17
-    assert encoded["mission"] == {
+    assert encoded == {
+        "task": encoded["task"],
         "robot_id": "tb3_1",
         "command_id": "cmd-17",
-        "response": {
-            "leg_count": 3,
-            "step_count": 3,
-            "command_id": "cmd-17",
-        },
+        "step_count": 3,
     }
 
 
-def test_work_order_keeps_mission_results_field() -> None:
+def test_work_order_keeps_execution_results_field() -> None:
     work_order = WorkOrder(
         order_id=21,
         operation=WorkOrderOperation.INBOUND,
         item_code="ITEM-A",
         quantity=2,
         status="RUNNING",
-        mission_results=[{"task_id": 21, "command_id": "cmd-21"}],
+        execution_results=[{"task_id": 21, "command_id": "cmd-21"}],
     )
 
     payload = work_order.model_dump(mode="json")
-    assert payload["mission_results"] == [{"task_id": 21, "command_id": "cmd-21"}]
+    assert payload["execution_results"] == [{"task_id": 21, "command_id": "cmd-21"}]
 
 
-def test_new_orchestration_keeps_canonical_and_legacy_keys() -> None:
+def test_new_orchestration_uses_only_canonical_keys() -> None:
     steps = [{"kind": "move_to_point", "status": "PENDING"}]
 
     orchestration = orchestration_state.new_orchestration(
@@ -121,8 +102,8 @@ def test_new_orchestration_keeps_canonical_and_legacy_keys() -> None:
 
     assert orchestration["steps"] == steps
     assert orchestration["step_index"] == 0
-    assert orchestration["legs"] == steps
-    assert orchestration["cursor"] == 0
+    assert "legs" not in orchestration
+    assert "cursor" not in orchestration
     assert orchestration["callback_base_url"] == "http://main.example/api/v1"
 
 
@@ -139,18 +120,17 @@ def test_orchestration_lookup_breaks_same_timestamp_ties_by_id() -> None:
     assert result == {"phase": "RUNNING", "step_index": 1}
 
 
-def test_command_lookup_reads_legacy_legs() -> None:
+def test_command_lookup_reads_canonical_steps() -> None:
     conn = MagicMock()
     conn.execute.return_value.fetchall.return_value = [
         {
             "task_id": 31,
             "data_json": {
-                "legs": [
-                    {"kind": "move_to_point", "command_id": "legacy-command-31"},
+                "steps": [
+                    {"kind": "move_to_point", "command_id": "command-31"},
                 ],
-                "cursor": 0,
             },
         }
     ]
 
-    assert runtime_records.find_task_id_by_robot_command(conn, "legacy-command-31") == 31
+    assert runtime_records.find_task_id_by_robot_command(conn, "command-31") == 31

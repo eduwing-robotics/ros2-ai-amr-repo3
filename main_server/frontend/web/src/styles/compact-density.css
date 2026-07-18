@@ -16,11 +16,11 @@
 .operator-fleet-head{flex-basis:38px;padding:0 9px}
 .operator-fleet-head h2{font-size:12px}
 .operator-fleet-head .operator-eyebrow{display:none}
-.fleet-mission-head{flex-basis:34px;padding:0 8px}
-.fleet-mission-head h2{font-size:11px}
-.fleet-mission-head p{display:none}
-.fleet-mission-columns{padding:3px 10px;font-size:8px}
-.fleet-mission-row{padding:5px 9px}.fleet-mission-row:not(.is-running){min-height:64px}
+.fleet-task-head{flex-basis:34px;padding:0 8px}
+.fleet-task-head h2{font-size:11px}
+.fleet-task-head p{display:none}
+.fleet-task-columns{padding:3px 10px;font-size:8px}
+.fleet-task-row{padding:5px 9px}.fleet-task-row:not(.is-running){min-height:64px}
 .fleet-dock-tabs{padding:2px;border:0;background:transparent}
 .fleet-dock-tabs button{min-height:24px;padding:3px 8px}
 

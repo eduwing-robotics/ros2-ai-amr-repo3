@@ -17,7 +17,7 @@ function batteryBucket(b: number | null | undefined): BatteryBucket {
 }
 
 /**
- * 관제 능동 경보 훅. `/status` 스냅샷(2초 폴링)을 감시해 아래 전이가 처음 나타날 때
+ * 관제 능동 경보 훅. 운영 이벤트와 로봇 상태(2초 폴링)를 감시해 아래 전이가 처음 나타날 때
  * 경보음 + 탭 타이틀 점멸 + 토스트로 운영자에게 능동적으로 알린다.
  *  - 신규 위험 이벤트(`eventDotClass === "err"`: error/fail/estop/critical/alarm/reject …)
  *  - 로봇 비상 정지 신규 진입

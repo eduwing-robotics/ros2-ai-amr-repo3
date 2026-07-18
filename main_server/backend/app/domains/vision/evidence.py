@@ -1,4 +1,5 @@
-"""Main-side record-only lift/load evidence integration."""
+"""책임: lift/load Vision 응답을 record-only evidence로 남긴다.
+비책임: 작업 단계 진행·재고 반영·물리 적재 판정."""
 
 from __future__ import annotations
 
@@ -56,7 +57,7 @@ def _operation_and_zone(task: dict[str, Any], step: dict[str, Any]) -> tuple[str
 
 
 def build_lift_load_evidence_request(
-    task: dict[str, Any], step: dict[str, Any], command_def_id: int | str | None
+    task: dict[str, Any], step: dict[str, Any], command_definition_id: int | str | None
 ) -> dict[str, object]:
     """Build the Main-facing AI Server request from task + dock_transfer step context."""
 
@@ -75,7 +76,7 @@ def build_lift_load_evidence_request(
         "source": settings.lift_load_evidence_source or "global_cam_01",
         "robot_id": str(robot_id),
         "task_id": task.get("task_id"),
-        "command_id": command_def_id,
+        "command_id": command_definition_id,
         "operation": operation,
         "expected_item_id": item_id,
         "expected_marker_id": marker_id,
@@ -138,20 +139,20 @@ def _append(
     conn,
     *,
     task_id: int | None,
-    command_def_id: int | str | None,
+    command_definition_id: int | str | None,
     event_type: str,
     data_json: dict[str, Any],
     confidence: float | None = None,
 ) -> int:
-    command_id: int | None
+    db_command_definition_id: int | None
     try:
-        command_id = int(command_def_id) if command_def_id is not None else None
+        db_command_definition_id = int(command_definition_id) if command_definition_id is not None else None
     except (TypeError, ValueError):
-        command_id = None
+        db_command_definition_id = None
     return runtime_records.append(
         conn,
         task_id=task_id,
-        command_id=command_id,
+        command_id=db_command_definition_id,
         event_type=event_type,
         source=LIFT_LOAD_SOURCE,
         confidence=confidence,
@@ -161,12 +162,12 @@ def _append(
 
 
 def record_lift_load_evidence_skip(
-    conn, *, task: dict[str, Any], command_def_id: int | str | None, reason: str
+    conn, *, task: dict[str, Any], command_definition_id: int | str | None, reason: str
 ) -> int:
     return _append(
         conn,
         task_id=task.get("task_id"),
-        command_def_id=command_def_id,
+        command_definition_id=command_definition_id,
         event_type=SKIP_EVENT,
         data_json={"reason": reason, "robot_id": task.get("assigned_robot_id"), "item_id": _item_id(task)},
     )
@@ -176,7 +177,7 @@ def record_lift_load_evidence_error(
     conn,
     *,
     task: dict[str, Any],
-    command_def_id: int | str | None,
+    command_definition_id: int | str | None,
     request_payload: dict[str, object] | None,
     error: str,
     status_code: int | None = None,
@@ -184,7 +185,7 @@ def record_lift_load_evidence_error(
     return _append(
         conn,
         task_id=task.get("task_id"),
-        command_def_id=command_def_id,
+        command_definition_id=command_definition_id,
         event_type=ERROR_EVENT,
         data_json={
             "error": error,
@@ -195,7 +196,7 @@ def record_lift_load_evidence_error(
 
 
 def evaluate_lift_load_evidence_and_record(
-    conn, task: dict[str, Any], step: dict[str, Any], command_def_id: int | str | None
+    conn, task: dict[str, Any], step: dict[str, Any], command_definition_id: int | str | None
 ) -> int | None:
     """Call AI lift-load evidence and record the advisory result.
 
@@ -209,9 +210,9 @@ def evaluate_lift_load_evidence_and_record(
         return None
 
     try:
-        request_payload = build_lift_load_evidence_request(task, step, command_def_id)
+        request_payload = build_lift_load_evidence_request(task, step, command_definition_id)
     except LiftLoadEvidenceSkip as exc:
-        return record_lift_load_evidence_skip(conn, task=task, command_def_id=command_def_id, reason=str(exc))
+        return record_lift_load_evidence_skip(conn, task=task, command_definition_id=command_definition_id, reason=str(exc))
 
     try:
         response = post_lift_load_evaluate(request_payload)
@@ -219,7 +220,7 @@ def evaluate_lift_load_evidence_and_record(
         return record_lift_load_evidence_error(
             conn,
             task=task,
-            command_def_id=command_def_id,
+            command_definition_id=command_definition_id,
             request_payload=request_payload,
             error=str(exc),
             status_code=exc.status_code,
@@ -229,7 +230,7 @@ def evaluate_lift_load_evidence_and_record(
         return record_lift_load_evidence_error(
             conn,
             task=task,
-            command_def_id=command_def_id,
+            command_definition_id=command_definition_id,
             request_payload=request_payload,
             error=str(exc),
         )
@@ -243,7 +244,7 @@ def evaluate_lift_load_evidence_and_record(
     return _append(
         conn,
         task_id=task.get("task_id"),
-        command_def_id=command_def_id,
+        command_definition_id=command_definition_id,
         event_type=event_type,
         confidence=float(confidence) if confidence is not None else None,
         data_json=_response_data(response, request_payload, task)

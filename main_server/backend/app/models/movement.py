@@ -1,4 +1,4 @@
-"""Movement command, mission, and callback schemas."""
+"""Movement command and callback schemas."""
 
 from datetime import datetime
 from typing import Any, Self
@@ -17,14 +17,6 @@ class RobotCommandRecord(BaseModel):
     request_payload: dict[str, Any] = Field(default_factory=dict)
     response_payload: dict[str, Any] = Field(default_factory=dict)
     created_at: str
-
-
-class MissionStatusResponse(BaseModel):
-    """Movement mission API 응답 wrapper."""
-
-    robot_id: str
-    command_id: str | None = None
-    response: dict[str, Any] = Field(default_factory=dict)
 
 
 class RobotCommandEvent(BaseModel):
@@ -128,10 +120,12 @@ class RobotCommandEvent(BaseModel):
                 raise ValueError("scenario current_step_index/code mismatch")
         if event == "STEP_COMPLETED" and self.current_step_code == "LOAD" and self.cargo_state != "LOADED":
             raise ValueError("scenario LOAD completion requires LOADED cargo")
-        if event == "STEP_COMPLETED" and self.current_step_code == "UNLOAD" and not (
-            self.cargo_state == "EMPTY"
-            and self.business_completed is True
-            and self.last_completed_step_index == 6
+        if (
+            event == "STEP_COMPLETED"
+            and self.current_step_code == "UNLOAD"
+            and not (
+                self.cargo_state == "EMPTY" and self.business_completed is True and self.last_completed_step_index == 6
+            )
         ):
             raise ValueError("scenario UNLOAD completion requires EMPTY completed cargo")
         if self.business_completed:
@@ -181,7 +175,13 @@ class MovementRobotStatusCallback(BaseModel):
 
     @model_validator(mode="after")
     def validate_status_content(self) -> Self:
-        if self.state is None and self.current_command_id is None and self.localized is None and self.pose is None and self.is_emergency is None:
+        if (
+            self.state is None
+            and self.current_command_id is None
+            and self.localized is None
+            and self.pose is None
+            and self.is_emergency is None
+        ):
             raise ValueError("status callback has no state fields")
         return self
 

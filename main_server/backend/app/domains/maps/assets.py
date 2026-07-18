@@ -6,6 +6,7 @@ import binascii
 import struct
 import zlib
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,7 @@ class MapAsset:
         return {
             "map_id": self.map_id,
             "name": self.name,
-            "image_url": f"{settings.api_prefix}/map-assets/{self.map_id}/image.png",
+            "image_url": f"{settings.api_prefix}/map-assets/{self.map_id}/image.png?v={map_asset_version(self.image_path)}",
             "resolution": self.resolution,
             "origin_x": self.origin_x,
             "origin_y": self.origin_y,
@@ -84,38 +85,49 @@ def _read_simple_yaml(path: Path) -> dict[str, Any]:
 
 
 def _pgm_header(path: Path) -> tuple[str, int, int, int, int]:
-    """PGM magic/width/height/maxval과 픽셀 시작 offset을 읽는다."""
+    """PGM 전체를 적재하지 않고 header와 pixel 시작 offset만 읽는다."""
     if path.stat().st_size > MAX_MAP_PGM_BYTES:
         raise HTTPException(status_code=400, detail=f"PGM file is too large: {path.name}")
-    raw = path.read_bytes()
     tokens: list[bytes] = []
-    i = 0
-    while len(tokens) < 4 and i < len(raw):
-        byte = raw[i]
-        if byte == 35:
-            while i < len(raw) and raw[i] not in {10, 13}:
-                i += 1
-            continue
-        if chr(byte).isspace():
-            i += 1
-            continue
-        start = i
-        while i < len(raw) and not chr(raw[i]).isspace():
-            i += 1
-        tokens.append(raw[start:i])
-    while i < len(raw) and chr(raw[i]).isspace():
-        i += 1
+    token = bytearray()
+    in_comment = False
+    with path.open("rb") as stream:
+        while len(tokens) < 4:
+            byte = stream.read(1)
+            if not byte:
+                break
+            value = byte[0]
+            if in_comment:
+                if value in {10, 13}:
+                    in_comment = False
+                continue
+            if value == 35 and not token:
+                in_comment = True
+                continue
+            if chr(value).isspace():
+                if token:
+                    tokens.append(bytes(token))
+                    token.clear()
+                continue
+            token.append(value)
+        while True:
+            byte = stream.read(1)
+            if not byte or not chr(byte[0]).isspace():
+                if byte:
+                    stream.seek(-1, 1)
+                break
+        offset = stream.tell()
     if len(tokens) != 4 or tokens[0] not in {b"P5", b"P2"}:
         raise HTTPException(status_code=400, detail=f"unsupported PGM file: {path.name}")
     try:
-        width, height, maxval = (int(token) for token in tokens[1:])
+        width, height, maxval = (int(value) for value in tokens[1:])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"invalid PGM header: {path.name}") from exc
     if width <= 0 or height <= 0 or maxval <= 0:
         raise HTTPException(status_code=400, detail=f"invalid PGM dimensions: {path.name}")
     if width * height > MAX_MAP_PIXELS:
         raise HTTPException(status_code=400, detail=f"PGM dimensions exceed safety limit: {path.name}")
-    return tokens[0].decode("ascii"), width, height, maxval, i
+    return tokens[0].decode("ascii"), width, height, maxval, offset
 
 
 def _pgm_size(path: Path) -> tuple[int, int]:
@@ -126,6 +138,24 @@ def _pgm_size(path: Path) -> tuple[int, int]:
 def _png_chunk(kind: bytes, data: bytes) -> bytes:
     crc = binascii.crc32(kind + data) & 0xFFFFFFFF
     return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc)
+
+
+def map_asset_version(path: Path) -> str:
+    """파일 내용 변경 시 브라우저 캐시 URL을 갱신할 버전을 반환한다."""
+    stat = path.stat()
+    return f"{stat.st_mtime_ns:x}-{stat.st_size:x}"
+
+
+@lru_cache(maxsize=8)
+def _cached_pgm_to_png(path_text: str, version: str) -> bytes:
+    """동일 버전 PGM의 PNG 변환 결과를 프로세스 안에서 재사용한다."""
+    del version
+    return pgm_to_png(Path(path_text))
+
+
+def cached_pgm_to_png(path: Path) -> bytes:
+    """파일 버전을 캐시 키로 사용해 변경된 PGM만 다시 변환한다."""
+    return _cached_pgm_to_png(str(path), map_asset_version(path))
 
 
 def pgm_to_png(path: Path) -> bytes:
@@ -148,7 +178,7 @@ def pgm_to_png(path: Path) -> bytes:
     return b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", ihdr) + _png_chunk(b"IDAT", zlib.compress(scanlines)) + _png_chunk(b"IEND", b"")
 
 
-def scan_map_assets_with_skips() -> tuple[list[MapAsset], list[dict[str, str]]]:
+def _scan_map_assets_uncached() -> tuple[list[MapAsset], list[dict[str, str]]]:
     """maps 폴더의 .yaml/.yml 맵을 찾고, 무시된 yaml은 {yaml, reason}으로 함께 반환한다.
 
     잘못된 맵을 조용히 버리지 않고 이유를 남겨, 불러오기 UI가 사용자에게 알릴 수 있게 한다.
@@ -215,6 +245,26 @@ def scan_map_assets_with_skips() -> tuple[list[MapAsset], list[dict[str, str]]]:
     return assets, skipped
 
 
+def _map_asset_signature() -> tuple[tuple[str, int, int], ...]:
+    root = _asset_root()
+    if not root.exists():
+        return ()
+    paths = sorted([*root.glob("*.yaml"), *root.glob("*.yml"), *root.glob("*.pgm")])
+    return tuple((path.name, path.stat().st_mtime_ns, path.stat().st_size) for path in paths)
+
+
+@lru_cache(maxsize=4)
+def _scan_map_assets_cached(signature: tuple[tuple[str, int, int], ...]) -> tuple[list[MapAsset], list[dict[str, str]]]:
+    """파일 집합 버전이 같으면 파싱된 맵 메타데이터를 재사용한다."""
+    del signature
+    return _scan_map_assets_uncached()
+
+
+def scan_map_assets_with_skips() -> tuple[list[MapAsset], list[dict[str, str]]]:
+    assets, skipped = _scan_map_assets_cached(_map_asset_signature())
+    return list(assets), [dict(item) for item in skipped]
+
+
 def scan_map_assets() -> list[MapAsset]:
     """maps 폴더 아래의 모든 유효한 .yaml/.yml 맵을 찾는다."""
     return scan_map_assets_with_skips()[0]
@@ -242,6 +292,7 @@ def find_map_asset(map_id: str) -> MapAsset:
 
 def import_map_assets(conn=None) -> dict[str, list[dict[str, Any]]]:
     """Validate and reload the only filesystem map; no map metadata is persisted."""
+    _scan_map_assets_cached.cache_clear()
     assets, skipped = scan_map_assets_with_skips()
     if not assets:
         raise HTTPException(status_code=409, detail={"error": "single_map_asset_unavailable", "skipped": skipped})

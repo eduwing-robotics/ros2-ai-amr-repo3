@@ -11,6 +11,7 @@ T = TypeVar("T")
 
 _LOCK = threading.Lock()
 _CACHE: dict[str, tuple[float, object]] = {}
+_REFRESHING: set[str] = set()
 _DEFAULT_TTL_SEC = 2.5
 
 
@@ -28,16 +29,24 @@ def get_cached_swr(key: str, fetcher: Callable[[], T], ttl: float = _DEFAULT_TTL
                 stale = value  # type: ignore[assignment]
 
     if stale is not None:
+        with _LOCK:
+            should_refresh = key not in _REFRESHING
+            if should_refresh:
+                _REFRESHING.add(key)
 
-        def _refresh() -> None:
-            try:
-                fresh = fetcher()
-            except Exception:
-                return
-            with _LOCK:
-                _CACHE[key] = (time.monotonic(), fresh)
+        if should_refresh:
+            def _refresh() -> None:
+                try:
+                    fresh = fetcher()
+                    with _LOCK:
+                        _CACHE[key] = (time.monotonic(), fresh)
+                except Exception:
+                    pass
+                finally:
+                    with _LOCK:
+                        _REFRESHING.discard(key)
 
-        threading.Thread(target=_refresh, daemon=True).start()
+            threading.Thread(target=_refresh, daemon=True, name=f"health-refresh-{key}").start()
         return stale
 
     value = fetcher()
@@ -50,3 +59,4 @@ def clear_cache() -> None:
     """Test helper — drop all cached health snapshots."""
     with _LOCK:
         _CACHE.clear()
+        _REFRESHING.clear()

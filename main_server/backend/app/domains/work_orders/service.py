@@ -1,4 +1,5 @@
-"""Work order API adapter over PG MVP tasks."""
+"""책임: Work Order 생성·취소·중단과 응답 조립을 transaction 안에서 조정한다.
+비책임: Movement 실행 방식과 물리 완료 판정."""
 
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ from app.models.work_orders import WorkOrderOperation
 
 
 def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | None = None) -> dict[str, Any]:
+    """task를 영속화하고 선택적으로 시작하며 생성 성공과 시작 실패를 분리한다."""
     item_code = payload["item_code"]
     operation = payload["operation"]
     quantity = validated_quantity(int(payload["quantity"]))
@@ -76,14 +78,14 @@ def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | No
     elif auto_start:
         tasks.auto_assign(conn, source="work_order")
 
-    mission_results: list[dict[str, Any]] = []
+    execution_results: list[dict[str, Any]] = []
     start_failed: list[dict[str, Any]] = []
     if auto_start:
         for task_id in task_ids:
             task = postgres_tasks.get_task(conn, task_id)
             if task and task.get("status") == tasks.ASSIGNED_STATUS:
                 try:
-                    mission_results.append(
+                    execution_results.append(
                         tasks.start_task_execution(
                             conn,
                             task_id,
@@ -94,7 +96,7 @@ def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | No
                 except HTTPException as exc:
                     start_failed.append({"task_id": task_id, "detail": exc.detail})
 
-    order = _response(conn, batch_id or task_ids[0], mission_results=mission_results or None)
+    order = _response(conn, batch_id or task_ids[0], execution_results=execution_results or None)
     if start_failed:
         order["start_failed"] = start_failed
     return order
@@ -105,6 +107,7 @@ def get_work_order(conn, order_id: int) -> dict[str, Any]:
 
 
 def cancel_work_order(conn, order_id: int) -> dict[str, Any]:
+    """미실행 작업만 취소하며 활성 command는 안전 중단 경로를 사용해야 한다."""
     task = postgres_tasks.get_task(conn, order_id)
     if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
         raise HTTPException(status_code=404, detail="work order not found")
@@ -206,7 +209,7 @@ def _active_command_id(conn, task_id: int) -> str | None:
     orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
     execution = orch_state.RobotTaskExecutionState.wrap(orch)
     recovery = execution.recovery
-    if execution.phase == orch_state.PHASE_RECOVERY_RUNNING and recovery.get("active_command_id"):
+    if execution.phase == orch_state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING and recovery.get("active_command_id"):
         return str(recovery["active_command_id"])
     steps = orch_state.get_steps(orch)
     step_index = orch_state.get_step_index(orch)
@@ -217,7 +220,7 @@ def _active_command_id(conn, task_id: int) -> str | None:
     return None
 
 
-def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _response(conn, order_id: int, execution_results: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     task = postgres_tasks.get_task(conn, order_id)
     if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
         raise HTTPException(status_code=404, detail="work order not found")
@@ -256,8 +259,8 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
         return_status=return_status,
         parking_error=parking_error,
     )
-    if mission_results is not None:
-        order["mission_results"] = mission_results
+    if execution_results is not None:
+        order["execution_results"] = execution_results
     return order
 
 

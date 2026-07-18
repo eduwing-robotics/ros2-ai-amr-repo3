@@ -1,3 +1,4 @@
+# 기능 책임: 운영 DB에서 파생한 _test DB 준비·보호을 검증한다. 비책임: 실장비의 물리 동작.
 """Create/select a dedicated PostgreSQL database for mutable integration tests."""
 
 from __future__ import annotations

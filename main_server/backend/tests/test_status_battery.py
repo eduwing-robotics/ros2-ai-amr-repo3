@@ -1,3 +1,4 @@
+# 기능 책임: battery 미수신·stale 상태 표현을 검증한다. 비책임: 실장비의 물리 동작.
 """Runtime status battery must distinguish missing telemetry from 100%."""
 
 from unittest.mock import MagicMock

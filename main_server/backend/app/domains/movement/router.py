@@ -13,7 +13,7 @@ from app.core.health_cache import clear_cache
 from app.db.connection import transaction
 from app.db.postgres import operational_events
 from app.db.postgres import robots as postgres_robots
-from app.domains.movement import callbacks, missions
+from app.domains.movement import callbacks, command_status
 from app.domains.movement.client import MovementClientError, movement_client, set_robot_emergency
 from app.domains.movement.commands import dispatch_robot_command, get_command_status
 from app.domains.movement.health import base_url_for, get_movement_health
@@ -224,7 +224,7 @@ def movement_command_trace(command_id: str, robot_id: str | None = Query(default
     polling_error: str | None = None
     if resolved_robot_id:
         try:
-            polling = missions.command_status(resolved_robot_id, command_id)
+            polling = command_status.fetch(resolved_robot_id, command_id)
         except HTTPException as exc:
             polling_error = str(exc.detail)
     state = None

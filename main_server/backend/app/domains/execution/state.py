@@ -23,15 +23,7 @@ class RobotTaskOrchestrationPhase(StrEnum):
     CANCELLED = "CANCELLED"
 
 
-PHASE_RUNNING = RobotTaskOrchestrationPhase.RUNNING
-PHASE_CANCEL_REQUESTED = RobotTaskOrchestrationPhase.CANCEL_REQUESTED
-PHASE_DONE = RobotTaskOrchestrationPhase.DONE
-PHASE_FAILED = RobotTaskOrchestrationPhase.FAILED
-PHASE_CANCELLED = RobotTaskOrchestrationPhase.CANCELLED
-PHASE_AWAITING_OPERATOR = RobotTaskOrchestrationPhase.AWAITING_OPERATOR
-PHASE_RECOVERY_RUNNING = RobotTaskOrchestrationPhase.RECOVERY_RUNNING
-
-HOLD_PHASES = {PHASE_AWAITING_OPERATOR, PHASE_RECOVERY_RUNNING}
+HOLD_PHASES = {RobotTaskOrchestrationPhase.AWAITING_OPERATOR, RobotTaskOrchestrationPhase.RECOVERY_RUNNING}
 
 EVENT_AWAITING_OPERATOR = "TASK_AWAITING_OPERATOR"
 
@@ -185,7 +177,7 @@ def set_phase(orch: dict[str, Any], phase: str) -> None:
 
 def is_hold_phase(phase: str | None) -> bool:
     return (
-        normalize_phase(phase) in {PHASE_AWAITING_OPERATOR, PHASE_RECOVERY_RUNNING} or str(phase or "") in HOLD_PHASES
+        normalize_phase(phase) in {RobotTaskOrchestrationPhase.AWAITING_OPERATOR, RobotTaskOrchestrationPhase.RECOVERY_RUNNING} or str(phase or "") in HOLD_PHASES
     )
 
 
@@ -193,8 +185,6 @@ def new_orchestration(steps: list[dict[str, Any]], *, callback_base_url: str | N
     return {
         "steps": steps,
         "step_index": 0,
-        "legs": steps,
-        "cursor": 0,
-        "phase": PHASE_RUNNING,
+        "phase": RobotTaskOrchestrationPhase.RUNNING,
         "callback_base_url": callback_base_url,
     }

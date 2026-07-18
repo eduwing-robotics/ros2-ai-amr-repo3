@@ -1,3 +1,4 @@
+# 기능 책임: Vision person advisory의 신선도·dedup·ESTOP 정책을 검증한다. 비책임: 실장비의 물리 동작.
 """Unit tests for person hazard policy."""
 
 from __future__ import annotations

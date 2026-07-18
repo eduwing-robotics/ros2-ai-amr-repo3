@@ -65,7 +65,7 @@ def preview_work_order(payload: WorkOrderPreviewRequest) -> WorkOrderPreview:
 
 @router.post("/work-orders", response_model=WorkOrder)
 def create_work_order(payload: WorkOrderCreate, request: Request) -> WorkOrder:
-    """품목/수량 기반 입고/출고 요청을 task/mission으로 변환한다."""
+    """품목/수량 기반 입고/출고 요청을 task/execution으로 변환한다."""
     resolved_callback = callback_base_url(request, payload.callback_base_url)
     with write_transaction() as conn:
         return WorkOrder(

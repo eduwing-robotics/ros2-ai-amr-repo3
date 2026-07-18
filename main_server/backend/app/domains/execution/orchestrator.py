@@ -1,7 +1,5 @@
-"""콜백 구동 task 오케스트레이터.
-
-steps/step_index 상태는 evidence_events ORCHESTRATION_STATE에 저장한다.
-"""
+"""책임: task orchestration과 callback 기반 상태 전이를 소유한다.
+비책임: Movement 주행 방식과 운영자의 복구 판단."""
 
 from __future__ import annotations
 
@@ -28,7 +26,6 @@ from app.models.tasks import RobotTaskStepStatus
 logger = logging.getLogger(__name__)
 
 TERMINAL_STEP_STATES = {"DONE", "FAILED", "ABORTED", "CANCELLED"}
-ORCHESTRATION_HOLD_PHASES = orch_state.HOLD_PHASES
 
 SCENARIO_EVENT_NAMES = {
     "COMMAND_ACCEPTED": "ACCEPTED",
@@ -169,17 +166,19 @@ def _orchestration_phase(conn, task_id: int) -> str | None:
 
 
 def finalize_running_task_as_done(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
+    """RUNNING task만 DONE으로 확정하며 재고·종료 증적을 같은 transaction에 기록한다."""
     task = tasks.get_task(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     if task["status"] != "RUNNING":
         raise HTTPException(status_code=409, detail=f"task is not running (status={task['status']})")
-    if _orchestration_phase(conn, task_id) in ORCHESTRATION_HOLD_PHASES:
+    if _orchestration_phase(conn, task_id) in orch_state.HOLD_PHASES:
         raise HTTPException(status_code=409, detail="held_task_complete_blocked_use_recovery")
     return _finish_task(conn, task_id, "DONE", source)
 
 
 def finalize_non_running_task_as_cancelled(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
+    """미실행 task만 CANCELLED로 확정하며 활성 작업의 안전 중단에는 사용하지 않는다."""
     task = tasks.get_task(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
@@ -225,7 +224,6 @@ def _task(conn, task_id: int) -> dict[str, Any] | None:
     return evidence.attach_orchestration(tasks.get_task(conn, task_id), conn)
 
 
-plan_command_steps = evidence.plan_command_steps
 
 
 def _orch(task: dict[str, Any]) -> dict[str, Any]:
@@ -248,6 +246,7 @@ def _seed_step_index(steps: list[dict[str, Any]], step_index: int) -> int:
 def start_task_orchestration(
     conn, task_id: int, callback_base_url: str | None = None, source: str = "operator"
 ) -> dict[str, Any]:
+    """task lock 후 단일 Movement scenario를 전송하며 반환은 시작 접수이지 완료가 아니다."""
     advisory_xact_lock_for_key(conn, TASK_EVENT_LOCK_NAMESPACE, task_id)
     task = _task(conn, task_id)
     if not task:
@@ -281,7 +280,7 @@ def start_task_orchestration(
         )
 
     scenario = evidence.build_scenario_from_task(conn, task)
-    steps = plan_command_steps(conn, scenario, task_id, robot_id)
+    steps = evidence.plan_command_steps(conn, scenario, task_id, robot_id)
     orchestration = orch_state.new_orchestration(steps, callback_base_url=callback_base_url)
     evidence.save_orchestration(conn, task_id, orchestration)
 
@@ -310,6 +309,7 @@ def start_task_orchestration(
 
 
 def dispatch_current_step(conn, task_id: int) -> str:
+    """현재 미전송 step 하나만 전송·영속화하며 중복 dispatch를 거부한다."""
     task = _task(conn, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
@@ -325,7 +325,7 @@ def dispatch_current_step(conn, task_id: int) -> str:
 
     step = steps[step_index]
     task = _task(conn, task_id) or {}
-    command_def_id = evidence.resolve_command_def_id(
+    command_definition_id = evidence.resolve_command_definition_id(
         conn,
         task,
         _seed_step_index(steps, step_index),
@@ -351,7 +351,7 @@ def dispatch_current_step(conn, task_id: int) -> str:
         step["status"] = "FAILED"
         cargo_state = orch_state.cargo_state_after_steps(steps)
         if cargo_state == "LOADED":
-            orch_state.set_phase(orch, orch_state.PHASE_AWAITING_OPERATOR)
+            orch_state.set_phase(orch, orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
             orch_state.RobotTaskExecutionState.wrap(orch).replace_recovery(
                 {
                     "reason": "movement_dispatch_rejected_loaded_cargo",
@@ -361,7 +361,7 @@ def dispatch_current_step(conn, task_id: int) -> str:
                 }
             )
         else:
-            orch_state.set_phase(orch, orch_state.PHASE_FAILED)
+            orch_state.set_phase(orch, orch_state.RobotTaskOrchestrationPhase.FAILED)
             tasks.set_status(conn, task_id, "FAILED", clear_robot=True)
             robots.set_task(conn, robot_id, "IDLE", None)
             person_hazard.on_robot_task_terminal(robot_id)
@@ -379,13 +379,13 @@ def dispatch_current_step(conn, task_id: int) -> str:
     evidence.record_movement_evidence(
         conn,
         task_id=task_id,
-        command_def_id=command_def_id,
+        command_definition_id=command_definition_id,
         event_type="DISPATCHED",
         data_json={
             "command_id": result.command_id,
             "robot_id": robot_id,
             "kind": step["kind"],
-            "commands_id": command_def_id,
+            "command_definition_id": command_definition_id,
         },
     )
     if step["kind"] == "move_to_point":
@@ -394,7 +394,7 @@ def dispatch_current_step(conn, task_id: int) -> str:
 
 
 def _handle_step_dispatch_exception(conn, task_id: int, exc: HTTPException, source: str) -> dict[str, Any] | None:
-    """Persist the completed cursor and stop safely when the next dispatch fails."""
+    """완료된 step_index를 저장하고 다음 명령 전송 실패 시 안전하게 중단한다."""
 
     task = _task(conn, task_id)
     if not task or task.get("status") != "RUNNING":
@@ -413,11 +413,11 @@ def _handle_step_dispatch_exception(conn, task_id: int, exc: HTTPException, sour
     if execution.business_completed:
         execution.return_status = "PARK_FAILED"
         orch["parking_error"] = {"state": "DISPATCH_FAILED", "reason": str(exc.detail)}
-        execution.transition_to(orch_state.PHASE_DONE)
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.DONE)
         evidence.save_orchestration(conn, task_id, orch)
         result = finalize_running_task_as_done(conn, task_id, source=source)
     elif cargo_state == "LOADED":
-        execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
         execution.replace_recovery(
             {
                 "reason": "movement_dispatch_failed_loaded_cargo",
@@ -430,7 +430,7 @@ def _handle_step_dispatch_exception(conn, task_id: int, exc: HTTPException, sour
         evidence.save_orchestration(conn, task_id, orch)
         result = _task(conn, task_id)
     else:
-        execution.transition_to(orch_state.PHASE_FAILED)
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.FAILED)
         evidence.save_orchestration(conn, task_id, orch)
         tasks.set_status(conn, task_id, "FAILED", clear_robot=True)
         if robot_id:
@@ -456,6 +456,7 @@ def _handle_step_dispatch_exception(conn, task_id: int, exc: HTTPException, sour
 def advance_on_command_event(
     conn, task_id: int, event: dict[str, Any], source: str = "callback"
 ) -> dict[str, Any] | None:
+    """일치하는 callback만 반영하며 역순·중복 event가 업무를 중복 진행시키지 않는다."""
     advisory_xact_lock_for_key(conn, TASK_EVENT_LOCK_NAMESPACE, task_id)
     task = _task(conn, task_id)
     if not task or task["status"] not in {"RUNNING"}:
@@ -513,7 +514,7 @@ def advance_on_command_event(
         scenario_progress = _update_scenario_progress(orch, step, event)
         _update_route_timeline(step, event, event_name)
 
-    if orch_state.normalize_phase(orch.get("phase")) == orch_state.PHASE_CANCEL_REQUESTED:
+    if orch_state.normalize_phase(orch.get("phase")) == orch_state.RobotTaskOrchestrationPhase.CANCEL_REQUESTED:
         stop_request = orch.get("stop_request") or {}
         if event_name in {"CANCELLED", "CANCELED", "STOPPED", "ABORTED"}:
             step["status"] = "CANCELLED"
@@ -533,11 +534,11 @@ def advance_on_command_event(
             if business_completed:
                 execution.return_status = "PARK_FAILED"
                 orch["parking_error"] = {"state": event_name, "reason": "operator_safe_stop", "event": event}
-                execution.transition_to(orch_state.PHASE_DONE)
+                execution.transition_to(orch_state.RobotTaskOrchestrationPhase.DONE)
                 evidence.save_orchestration(conn, task_id, orch)
                 result = finalize_running_task_as_done(conn, task_id, source=source)
             elif cargo_state == "LOADED":
-                execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
+                execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
                 execution.replace_recovery(
                     {
                         "reason": "operator_safe_stop",
@@ -548,7 +549,7 @@ def advance_on_command_event(
                 evidence.save_orchestration(conn, task_id, orch)
                 result = _task(conn, task_id)
             else:
-                execution.transition_to(orch_state.PHASE_CANCELLED)
+                execution.transition_to(orch_state.RobotTaskOrchestrationPhase.CANCELLED)
                 evidence.save_orchestration(conn, task_id, orch)
                 tasks.set_status(conn, task_id, "CANCELLED", clear_robot=True)
                 if robot_id:
@@ -565,14 +566,14 @@ def advance_on_command_event(
             )
             return result
         if event_name in _step_done_events(str(step.get("kind") or "move_to_point")):
-            execution.transition_to(orch_state.PHASE_RUNNING)
+            execution.transition_to(orch_state.RobotTaskOrchestrationPhase.RUNNING)
             orch.pop("stop_request", None)
             evidence.save_orchestration(conn, task_id, orch)
         else:
             return None
 
     task = _task(conn, task_id) or {}
-    command_def_id = evidence.resolve_command_def_id(
+    command_definition_id = evidence.resolve_command_definition_id(
         conn,
         task,
         _seed_step_index(steps, step_index),
@@ -581,9 +582,9 @@ def advance_on_command_event(
     evidence.record_movement_evidence(
         conn,
         task_id=task_id,
-        command_def_id=command_def_id,
+        command_definition_id=command_definition_id,
         event_type=event_name or "MOVEMENT_EVENT",
-        data_json={"command_id": event_command_id, "event": event, "commands_id": command_def_id},
+        data_json={"command_id": event_command_id, "event": event, "command_definition_id": command_definition_id},
     )
 
     raw_event = str(event.get("event") or event.get("state") or "").upper()
@@ -617,7 +618,7 @@ def advance_on_command_event(
                 "command_id": event_command_id,
                 "event": event,
             }
-            execution.transition_to(orch_state.PHASE_DONE)
+            execution.transition_to(orch_state.RobotTaskOrchestrationPhase.DONE)
             evidence.save_orchestration(conn, task_id, orch)
             finished = finalize_running_task_as_done(conn, task_id, source=source)
             operational_events.append(
@@ -642,7 +643,7 @@ def advance_on_command_event(
             recovery_reason = (
                 "movement_failure_loaded_cargo" if cargo_state in {"LOADED", "UNKNOWN"} else "movement_estop"
             )
-            execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
+            execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
             execution.replace_recovery(
                 {
                     "reason": recovery_reason,
@@ -665,7 +666,6 @@ def advance_on_command_event(
                     "task_id": task_id,
                     "event": event,
                     "step_index": step_index,
-                    "cursor": step_index,
                     "cargo_state": cargo_state,
                     "reason": recovery_reason,
                 },
@@ -685,7 +685,7 @@ def advance_on_command_event(
             task_id=task_id,
             robot_id=robot_id,
             message=f"task {task_id} step {step_index} {event_name}",
-            payload={"task_id": task_id, "event": event, "step_index": step_index, "cursor": step_index},
+            payload={"task_id": task_id, "event": event, "step_index": step_index},
         )
         return _task(conn, task_id)
 
@@ -715,7 +715,7 @@ def advance_on_command_event(
 
     if str(step.get("kind")) == "dock_transfer":
         try:
-            lift_load_evidence.evaluate_lift_load_evidence_and_record(conn, task, step, command_def_id)
+            lift_load_evidence.evaluate_lift_load_evidence_and_record(conn, task, step, command_definition_id)
         except Exception:
             logger.exception("lift-load evidence record-only hook failed")
 
@@ -739,7 +739,7 @@ def advance_on_command_event(
     if step_index >= len(steps):
         if execution.business_completed:
             execution.return_status = "PARKED"
-        execution.transition_to(orch_state.PHASE_DONE)
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.DONE)
         evidence.save_orchestration(conn, task_id, orch)
         finished = finalize_running_task_as_done(conn, task_id, source=source)
         operational_events.append(
@@ -763,12 +763,11 @@ def advance_on_command_event(
         task_id=task_id,
         robot_id=task.get("assigned_robot_id"),
         message=f"task {task_id} step advanced to {step_index}",
-        payload={"task_id": task_id, "step_index": step_index, "cursor": step_index, "event": event},
+        payload={"task_id": task_id, "step_index": step_index, "event": event},
     )
     return _task(conn, task_id)
 
 
-advance_task = advance_on_command_event
 
 
 def _bind_missing_callback_command(conn, task_id: int, task: dict[str, Any], payload: dict[str, Any]) -> bool:
@@ -778,7 +777,7 @@ def _bind_missing_callback_command(conn, task_id: int, task: dict[str, Any], pay
         return False
     orch = _orch(task)
     execution = orch_state.RobotTaskExecutionState.wrap(orch)
-    if execution.phase != orch_state.PHASE_RUNNING:
+    if execution.phase != orch_state.RobotTaskOrchestrationPhase.RUNNING:
         return False
     steps = execution.steps
     step_index = execution.step_index
@@ -813,6 +812,7 @@ def _bind_missing_callback_command(conn, task_id: int, task: dict[str, Any], pay
 
 
 def handle_command_event(conn, payload: dict[str, Any]) -> dict[str, Any] | None:
+    """Movement event를 task lock 안에서 적용하며 terminal 전이는 안전 gate를 요구한다."""
     task_id = payload.get("task_id")
     if task_id is None:
         command_id = payload.get("command_id")
@@ -831,7 +831,7 @@ def handle_command_event(conn, payload: dict[str, Any]) -> dict[str, Any] | None
     _bind_missing_callback_command(conn, int(task_id), task, payload)
     orch = _orch(task)
     recovery_state = orch.get("recovery") or {}
-    if str(orch.get("phase") or "") == orch_state.PHASE_RECOVERY_RUNNING and recovery_state.get("active_command_id"):
+    if str(orch.get("phase") or "") == orch_state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING and recovery_state.get("active_command_id"):
         result = recovery.handle_recovery_command_event(conn, int(task_id), payload)
         if result is not None:
             return result
@@ -860,7 +860,7 @@ def _record_status_poll_failure(
         evidence.save_orchestration(conn, int(task["task_id"]), orch)
         return False
     execution = orch_state.RobotTaskExecutionState.wrap(orch)
-    execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
+    execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
     execution.replace_recovery(
         {
             "reason": "movement_status_unreachable",
@@ -898,6 +898,7 @@ def _clear_status_poll_failure(
 
 
 def poll_running_tasks(conn) -> int:
+    """유실 callback을 status polling으로 보정하며 새 command를 임의 생성하지 않는다."""
     advanced = 0
     for task in evidence.list_orchestrated_running(conn):
         orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}

@@ -1,4 +1,5 @@
-"""Person hazard advisory polling and Main-owned E-stop policy."""
+"""책임: Vision person advisory를 Main 소유 ESTOP·task hold 정책에 적용한다.
+비책임: 사람 검출과 통신 불능 로봇의 물리 정지."""
 
 from __future__ import annotations
 
@@ -91,6 +92,7 @@ def reconcile_active_monitors(conn, *, force: bool = False) -> int:
 
 
 def enable_monitor(robot_id: str, task_id: int, *, command_id: str | None = None) -> None:
+    """주행 task의 Vision 감시를 켜며 Vision ACK 전에는 준비를 확정하지 않는다."""
     if not settings.person_hazard_enabled:
         return
     source = robot_source(robot_id)
@@ -121,6 +123,7 @@ def enable_monitor(robot_id: str, task_id: int, *, command_id: str | None = None
 
 
 def disable_monitor(robot_id: str, *, remote: bool = True) -> None:
+    """감시를 해제하지만 로봇 정지 상태나 task hold는 변경하지 않는다."""
     runtime = _runtime.get(robot_id)
     if remote and runtime:
         body = {
@@ -150,12 +153,13 @@ def on_robot_task_terminal(robot_id: str) -> None:
 
 
 def mark_task_awaiting_operator(conn, task_id: int, *, reason: str, robot_id: str | None = None) -> None:
+    """task를 운영자 대기로 고정하며 위험 해소 후에도 자동 재개하지 않는다."""
     orch = runtime_records.get_orchestration(conn, task_id)
     if not orch:
         return
     orch = dict(orch)
     execution = orch_state.RobotTaskExecutionState.wrap(orch)
-    execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
+    execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
     execution.replace_recovery({
         "reason": reason,
         "robot_id": robot_id,
@@ -169,7 +173,7 @@ def mark_running_tasks_awaiting_operator(conn, *, reason: str) -> int:
     for task in evidence.list_orchestrated_running(conn):
         task_id = int(task["task_id"])
         orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
-        if orch_state.RobotTaskExecutionState.wrap(orch).phase == orch_state.PHASE_AWAITING_OPERATOR:
+        if orch_state.RobotTaskExecutionState.wrap(orch).phase == orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR:
             continue
         mark_task_awaiting_operator(conn, task_id, reason=reason, robot_id=task.get("assigned_robot_id"))
         robot_id = task.get("assigned_robot_id")
@@ -384,6 +388,7 @@ def poll_robot_person_hazard(conn, runtime: PersonHazardMonitorRuntime) -> None:
 
 
 def poll_person_hazards_once(conn) -> int:
+    """활성 monitor를 한 번 조회하며 외부 실패 시 작업을 fail-open 재개하지 않는다."""
     if not settings.person_hazard_enabled:
         return 0
     reconcile_active_monitors(conn)

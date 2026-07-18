@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# PostgreSQL lifecycle commands.
+# 책임: 로컬 PostgreSQL schema·snapshot·reference data 생명주기를 관리한다.
+# 소유: 지정 DB의 구조 변경. 비책임: PostgreSQL 서비스 설치와 운영 백업 정책.
 set -euo pipefail
 
 usage() {
@@ -7,6 +8,7 @@ usage() {
   exit 2
 }
 
+# 연결 가능한 DB에 schema·seed를 적용하며 필요 시 로컬 lms DB 생성을 시도한다.
 db_setup() {
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -139,6 +141,7 @@ main "$@"
 
 }
 
+#  지정 DB의 public schema를 삭제 후 재생성하므로 사전 백업이 필요하다.
 db_reset() {
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -168,6 +171,7 @@ echo "[reset_local_db] done"
 
 }
 
+#  snapshot을 지정 DB에 clean restore하여 동일 이름 객체를 교체한다.
 db_restore() {
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -211,6 +215,7 @@ echo "[restore_db] done"
 
 }
 
+# 지정 DB의 재현 가능한 custom-format snapshot과 checksum을 갱신한다.
 db_dump() {
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

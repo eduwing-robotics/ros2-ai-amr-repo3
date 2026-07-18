@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Run the Main server: FastAPI + PostgreSQL (:8088), with real Movement/Camera/Vision hosts.
+# 책임: Main·PostgreSQL·UI 실행 생명주기와 현장 외부 endpoint 설정을 관리한다.
+# 소유: 로컬 Main/Vite PID. 비책임: Movement·Vision·로봇 프로세스와 물리 안전.
 #
 # 사용법:
 #   ./scripts/run_main.sh              # Main만 (:8088, dist 있으면 정적 서빙)
@@ -29,6 +30,9 @@ BUILD=0
 DEV=0
 RELOAD=0
 STOP=0
+STATE_DIR="$ROOT/.bootstrap"
+MAIN_PID_FILE="$STATE_DIR/main-server.pid"
+VITE_PID_FILE="$STATE_DIR/vite-dev.pid"
 for arg in "$@"; do
   case "$arg" in
     --build) BUILD=1 ;;
@@ -46,28 +50,33 @@ for arg in "$@"; do
   esac
 done
 
-kill_port() {
-  local port="$1" label="$2"
-  if command -v fuser >/dev/null 2>&1 && fuser -n tcp "$port" >/dev/null 2>&1; then
-    echo "[real] $label :$port 종료"
-    fuser -k "${port}/tcp" >/dev/null 2>&1 || true
+# PID와 command signature가 모두 일치할 때만 종료하며 임의 포트 사용자는 건드리지 않는다.
+stop_owned_process() {
+  local pid_file="$1" label="$2" expected="$3"
+  if [[ ! -f "$pid_file" ]]; then
+    echo "[real] $label - 기록된 실행 프로세스 없음"
     return
   fi
-  if command -v lsof >/dev/null 2>&1; then
-    local pids
-    pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
-    if [[ -n "$pids" ]]; then
-      echo "[real] $label :$port 종료 (pid $pids)"
-      kill $pids 2>/dev/null || true
-      return
-    fi
+  local pid command_line
+  pid="$(<"$pid_file")"
+  command_line="$(tr "\0" " " <"/proc/$pid/cmdline" 2>/dev/null || true)"
+  if [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+    echo "[real] $label - 오래된 PID 기록 제거 ($pid)"
+    rm -f "$pid_file"
+    return
   fi
-  echo "[real] $label :$port - 실행 중 프로세스 없음"
+  if [[ "$command_line" != *"$expected"* ]]; then
+    echo "[real] ERROR: PID $pid 는 $label 프로세스가 아니다. 종료하지 않는다: $command_line" >&2
+    return 1
+  fi
+  echo "[real] $label 종료 (pid $pid)"
+  kill "$pid"
+  rm -f "$pid_file"
 }
 
 if [[ "$STOP" -eq 1 ]]; then
-  kill_port "$PORT" "Main API"
-  kill_port "$VITE_PORT" "Vite dev"
+  stop_owned_process "$MAIN_PID_FILE" "Main API :$PORT" "app.main:app"
+  stop_owned_process "$VITE_PID_FILE" "Vite dev :$VITE_PORT" "vite"
   echo "[real] done"
   exit 0
 fi
@@ -85,6 +94,11 @@ fi
 
 read_env_var() {
   local key="$1" default="${2:-}"
+  # 명시적으로 전달한 프로세스 환경변수가 .env보다 우선한다.
+  if [[ -n "${!key+x}" ]]; then
+    echo "${!key}"
+    return
+  fi
   if [[ -f "$ROOT/.env" ]]; then
     local line
     line="$(grep -E "^${key}=" "$ROOT/.env" | tail -n1 || true)"
@@ -101,6 +115,7 @@ is_placeholder() {
   [[ -z "$v" ]] || [[ "$v" == *"<"* ]] || [[ "$v" == *"host-or-name"* ]] || [[ "$v" == *"<movement"* ]] || [[ "$v" == *"<camera"* ]]
 }
 
+# process env→.env→현장 기본값 순으로 유효한 외부 host를 선택한다.
 resolve_host() {
   local from_env="$1" site_default="$2"
   if is_placeholder "$from_env"; then
@@ -110,6 +125,7 @@ resolve_host() {
   fi
 }
 
+# health 응답이 있는 기존 Main을 발견하면 중복 실행 대신 실패한다.
 guard_existing_api() {
   local health
   health="$(curl -sf -m 0.5 "http://127.0.0.1:${PORT}/health" 2>/dev/null || true)"
@@ -140,10 +156,6 @@ VISION_API="$(read_env_var LMS_VISION_API_BASE_URL "http://${SITE_VISION_HOST}:8
 if is_placeholder "$VISION_API" || [[ "$VISION_API" == *"<vision"* ]]; then
   VISION_API="http://${SITE_VISION_HOST}:8100"
 fi
-if [[ "$VISION_STREAM" == *"<"* ]]; then
-  VISION_STREAM="http://${SITE_VISION_HOST}:8090"
-fi
-
 export LMS_MOVEMENT_CLIENT_MODE="$MOVEMENT_MODE"
 export LMS_MOVEMENT_HOST="$MOVEMENT_HOST"
 export LMS_CAMERA_HOST="$CAMERA_HOST"
@@ -168,8 +180,8 @@ pg_ensure_running
 
 echo "[real] PostgreSQL $LMS_DATABASE_URL"
 echo "  Movement  http://${MOVEMENT_HOST}:8001|8002/movement-api/v1  map=${MAP_ID}"
-echo "  Camera    http://${CAMERA_HOST}:$(read_env_var LMS_CAMERA_API_PORT 8080)  ros ws://$(read_env_var LMS_CAMERA_STREAM_PORT 9090)"
-echo "  Vision    $(read_env_var LMS_VISION_STREAM_BASE_URL "http://${SITE_VISION_HOST}:8090")"
+echo "  Camera    http://${CAMERA_HOST}:$(read_env_var LMS_CAMERA_API_PORT 8080)  ros ws://${CAMERA_HOST}:$(read_env_var LMS_CAMERA_STREAM_PORT 9090)"
+echo "  Vision    $VISION_STREAM"
 
 probe() {
   local label="$1" url="$2"
@@ -194,8 +206,10 @@ fi
 VITE_PID=""
 cleanup() {
   [[ -n "$VITE_PID" ]] && kill "$VITE_PID" 2>/dev/null || true
+  rm -f "$MAIN_PID_FILE" "$VITE_PID_FILE"
 }
 trap cleanup EXIT INT TERM
+mkdir -p "$STATE_DIR"
 
 if [[ "$DEV" -eq 1 ]]; then
   if [[ ! -d "$FRONTEND/node_modules" ]]; then
@@ -209,10 +223,12 @@ if [[ "$DEV" -eq 1 ]]; then
     npm run dev -- --host "$HOST" --port "$VITE_PORT"
   ) &
   VITE_PID=$!
+  echo "$VITE_PID" >"$VITE_PID_FILE"
 fi
 
 echo "[real] Main 서버 http://localhost:$PORT"
 UVICORN_ARGS=(app.main:app --host "$HOST" --port "$PORT")
 [[ "$RELOAD" -eq 1 ]] && UVICORN_ARGS+=(--reload)
 cd "$BACKEND"
+echo "$$" >"$MAIN_PID_FILE"
 exec ./.venv/bin/python -m uvicorn "${UVICORN_ARGS[@]}"

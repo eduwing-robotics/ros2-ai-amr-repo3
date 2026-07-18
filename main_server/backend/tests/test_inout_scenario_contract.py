@@ -1,3 +1,4 @@
+# 기능 책임: Main–Movement 단일 입출고 scenario 공개 계약을 검증한다. 비책임: 실장비의 물리 동작.
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -18,16 +19,31 @@ def _rows() -> dict[str, dict]:
         "STORAGE_02": {"location_id": "STORAGE_02", "type": "storage", "enabled": True},
         "OUTBOUND_02": {"location_id": "OUTBOUND_02", "type": "outbound", "enabled": True},
         "inbound_slot_2_approach": {
-            "location_id": "inbound_slot_2_approach", "waypoint_id": "inbound_slot_2_approach",
-            "type": "scan", "enabled": True, "x": 0.234, "y": 0.006, "yaw": 1.571,
+            "location_id": "inbound_slot_2_approach",
+            "waypoint_id": "inbound_slot_2_approach",
+            "type": "scan",
+            "enabled": True,
+            "x": 0.234,
+            "y": 0.006,
+            "yaw": 1.571,
         },
         "warehouse_a_approach": {
-            "location_id": "warehouse_a_approach", "waypoint_id": "warehouse_a_approach",
-            "type": "scan", "enabled": True, "x": 0.019, "y": -0.618, "yaw": -0.0248,
+            "location_id": "warehouse_a_approach",
+            "waypoint_id": "warehouse_a_approach",
+            "type": "scan",
+            "enabled": True,
+            "x": 0.019,
+            "y": -0.618,
+            "yaw": -0.0248,
         },
         "outbound_slot_2_approach": {
-            "location_id": "outbound_slot_2_approach", "waypoint_id": "outbound_slot_2_approach",
-            "type": "scan", "enabled": True, "x": 1.45, "y": 0.006, "yaw": 1.571,
+            "location_id": "outbound_slot_2_approach",
+            "waypoint_id": "outbound_slot_2_approach",
+            "type": "scan",
+            "enabled": True,
+            "x": 1.45,
+            "y": 0.006,
+            "yaw": 1.571,
         },
     }
 
@@ -68,9 +84,7 @@ def test_task_builds_one_scenario_command_with_db_approach_snapshot(task_type: s
     raw = scenario["steps"][0]
     assert raw["action_type"] == "inout_scenario"
     assert raw["params"]["map"] == {"map_id": "robot2_map", "frame_id": "map"}
-    assert raw["params"]["pickup"]["approach"]["waypoint_id"] in {
-        "inbound_slot_2_approach", "warehouse_a_approach"
-    }
+    assert raw["params"]["pickup"]["approach"]["waypoint_id"] in {"inbound_slot_2_approach", "warehouse_a_approach"}
     planned = evidence.plan_command_steps(MagicMock(), scenario, 355, "tb3_2")
     assert len(planned) == 1
     assert planned[0]["kind"] == "inout_scenario"
@@ -90,11 +104,21 @@ def test_scenario_request_contains_no_item_or_physical_tuning() -> None:
     )
     assert body["contract_version"] == "1.0"
     assert body["pickup"]["approach"] == {
-        "waypoint_id": "inbound_slot_2_approach", "x": 0.234, "y": 0.006, "yaw": 1.571
+        "waypoint_id": "inbound_slot_2_approach",
+        "x": 0.234,
+        "y": 0.006,
+        "yaw": 1.571,
     }
     forbidden = {
-        "item_id", "quantity", "aruco_marker_id", "lift_height_mm", "skip_lift",
-        "speed", "tolerance", "timeout", "return_waypoint",
+        "item_id",
+        "quantity",
+        "aruco_marker_id",
+        "lift_height_mm",
+        "skip_lift",
+        "speed",
+        "tolerance",
+        "timeout",
+        "return_waypoint",
     }
     assert forbidden.isdisjoint(body)
     assert forbidden.isdisjoint(body["pickup"])
@@ -132,9 +156,7 @@ def test_scenario_dispatch_posts_exact_contract_once() -> None:
         "scenario_type": "inbound",
         "authority_owner": "MOVEMENT",
     }
-    with patch.object(
-        commands.movement_client, "inout_scenario_command", return_value=accepted
-    ) as send:
+    with patch.object(commands.movement_client, "inout_scenario_command", return_value=accepted) as send:
         result = commands._dispatch_inout_scenario(
             payload, payload.command_id or "", "http://smartfactory-main.local:8088/api/v1/movement/command-events"
         )
@@ -143,19 +165,33 @@ def test_scenario_dispatch_posts_exact_contract_once() -> None:
     assert send.call_count == 1
     sent = send.call_args.args[1]
     assert set(sent) == {
-        "contract_version", "command_id", "task_id", "robot_name", "scenario_type",
-        "map", "pickup", "dropoff", "callback_url",
+        "contract_version",
+        "command_id",
+        "task_id",
+        "robot_name",
+        "scenario_type",
+        "map",
+        "pickup",
+        "dropoff",
+        "callback_url",
     }
 
 
 def test_uncertain_post_retries_same_body_only_after_status_404() -> None:
     payload = RobotCommandRequest(
-        robot_id="tb3_2", kind="inout_scenario", command_id="cmd-355", task_id=355,
+        robot_id="tb3_2",
+        kind="inout_scenario",
+        command_id="cmd-355",
+        task_id=355,
         params=_scenario_params(),
     )
     accepted = {
-        "accepted": True, "command_id": "cmd-355", "task_id": 355,
-        "execution_id": "exec-355", "state": "ACCEPTED", "scenario_type": "inbound",
+        "accepted": True,
+        "command_id": "cmd-355",
+        "task_id": 355,
+        "execution_id": "exec-355",
+        "state": "ACCEPTED",
+        "scenario_type": "inbound",
         "authority_owner": "MOVEMENT",
     }
     with (
@@ -197,16 +233,61 @@ def test_legacy_route_and_scenario_kinds_are_rejected() -> None:
             RobotCommandRequest.model_validate({"robot_id": "tb3_2", "kind": kind})
 
 
+def _initial_scenario_callback(event: str) -> dict:
+    payload = {
+        "contract_version": "1.0",
+        "event_id": f"evt-{event.lower()}",
+        "sequence": 0,
+        "command_id": "cmd-355",
+        "task_id": 355,
+        "robot_name": "tb3_2",
+        "event": event,
+        "last_completed_step_index": None,
+        "cargo_state": "EMPTY",
+        "business_completed": False,
+        "message": event.lower(),
+        "reported_at": "2026-07-18T06:01:28Z",
+    }
+    if event == "STEP_STARTED":
+        payload.update(current_step_index=0, current_step_code="LEAVE_HOME")
+    return payload
+
+
+@pytest.mark.parametrize("event", ["COMMAND_ACCEPTED", "COMMAND_RUNNING", "STEP_STARTED"])
+def test_initial_scenario_callback_requires_explicit_null_last_completed_step(event: str) -> None:
+    callback = RobotCommandEvent.model_validate(_initial_scenario_callback(event))
+    assert callback.last_completed_step_index is None
+
+    missing = _initial_scenario_callback(event)
+    missing.pop("last_completed_step_index")
+    with pytest.raises(ValidationError, match="last_completed_step_index"):
+        RobotCommandEvent.model_validate(missing)
+
+
+def test_callback_schema_exposes_nullable_last_completed_step() -> None:
+    schema = RobotCommandEvent.model_json_schema()
+    variants = schema["properties"]["last_completed_step_index"]["anyOf"]
+    assert {variant.get("type") for variant in variants} == {"integer", "null"}
+
+
 def test_scenario_callback_model_rejects_step_code_mismatch() -> None:
     with pytest.raises(ValidationError):
         RobotCommandEvent.model_validate(
             {
-                "contract_version": "1.0", "event_id": "evt-1", "sequence": 1,
-                "command_id": "cmd-355", "task_id": 355, "robot_name": "tb3_2",
-                "event": "STEP_STARTED", "current_step_index": 3,
-                "current_step_code": "UNLOAD", "last_completed_step_index": 2,
-                "cargo_state": "EMPTY", "business_completed": False,
-                "message": "start", "reported_at": "2026-07-16T10:20:00Z",
+                "contract_version": "1.0",
+                "event_id": "evt-1",
+                "sequence": 1,
+                "command_id": "cmd-355",
+                "task_id": 355,
+                "robot_name": "tb3_2",
+                "event": "STEP_STARTED",
+                "current_step_index": 3,
+                "current_step_code": "UNLOAD",
+                "last_completed_step_index": 2,
+                "cargo_state": "EMPTY",
+                "business_completed": False,
+                "message": "start",
+                "reported_at": "2026-07-16T10:20:00Z",
             }
         )
 

@@ -1,3 +1,4 @@
+// 기능 책임: ESTOP unknown·active 표시와 요청/확인 왕복을 검증한다. 비책임: 물리 정지.
 import { expect, test } from "@playwright/test";
 import { mockMainApi } from "../support/mainApi";
 

@@ -1,4 +1,5 @@
-"""Compatibility adapters for the existing /api/v1 work-order payload."""
+"""책임: Work Order 조회 모델을 공개 API 응답 구조로 조립한다.
+비책임: 식별자 별칭과 상태 전이 정책."""
 
 from __future__ import annotations
 

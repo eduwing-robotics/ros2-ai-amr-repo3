@@ -21,7 +21,7 @@ PostgreSQL과 업무 상태를 소유하고, Movement·Vision 서버는 HTTP 계
 - Movement callback과 polling을 결합한 멱등 작업 진행
 - ESTOP, 안전 중단, 적재 상태 확인과 운영자 복구
 - WebRTC 영상과 MJPEG fallback, 연결·저전력·위험 경보
-- Backend·PostgreSQL 통합 gate, 브라우저 UX 자동화와 실로봇 HW-01~11 인수 파이프라인
+- Backend·PostgreSQL 통합 gate, 브라우저 UX 자동화와 실로봇 HW-01~12 인수 파이프라인
 
 ## 설계 원칙
 
@@ -119,7 +119,7 @@ bash ./scripts/check.sh robot --dry-run # 실로봇 인수 시나리오 확인
 `bootstrap.sh`와 검증 환경은 정확한 전이 버전을 고정한 `backend/requirements.lock.txt`를 설치한다.
 `check.sh db`는 현재 PostgreSQL 접속정보로 `<database>_test` 전용 DB를 선택해 mutable fixture가 개발 DB를 건드리지 않게 한다.
 실로봇이 준비되면 `check.sh robot --robot-id <ID> --operator <이름>`으로 로컬 gate, 외부 서버 사전점검,
-HW-01~11 현장 시나리오와 증적 보고서를 한 흐름으로 실행한다. 위험 동작은 자동 실행하지 않는다.
+HW-01~12 현장 시나리오와 증적 보고서를 한 흐름으로 실행한다. 위험 동작은 자동 실행하지 않는다.
 
 ## 주요 경로
 

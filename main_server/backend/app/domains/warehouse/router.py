@@ -1,4 +1,5 @@
-"""Inventory, item, and storage slot routes (PostgreSQL DBML, )."""
+"""책임: 품목·재고·보관 슬롯 HTTP 계약을 PostgreSQL 서비스에 연결한다.
+비책임: 입출고 계획과 물리 재고 변경 판정."""
 
 from __future__ import annotations
 
@@ -58,7 +59,7 @@ def delete_item(item_code: str) -> ApiMessage:
 
 @router.get("/storage-slots", response_model=list[StorageSlot])
 def list_storage_slots() -> list[StorageSlot]:
-    """보관 슬롯 목록 — API alias for locations(type=storage). 단일 맵 기준 전체 반환."""
+    """보관 슬롯 목록 — locations(type=storage)의 보관 슬롯 projection. 단일 맵 기준 전체 반환."""
     with transaction() as conn:
         return [StorageSlot(**slot) for slot in locations.list_locations(conn, "storage")]
 

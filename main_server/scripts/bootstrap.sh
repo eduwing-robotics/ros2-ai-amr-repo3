@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Prepare this repo on a new PC: .env, Python venv, npm deps, PostgreSQL schema.
+# 책임: 새 PC의 .env·의존성·개발 DB를 반복 실행 가능하게 준비한다.
+# 소유: 로컬 준비 상태. 비책임: PostgreSQL 서비스 설치와 현장 endpoint 승인.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

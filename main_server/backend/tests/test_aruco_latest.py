@@ -1,3 +1,4 @@
+# 기능 책임: 로봇별 최신 ArUco 조회 경계을 검증한다. 비책임: 실장비의 물리 동작.
 """ArUco latest readout proxy tests."""
 
 from __future__ import annotations

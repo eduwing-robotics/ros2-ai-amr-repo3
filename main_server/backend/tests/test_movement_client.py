@@ -1,3 +1,4 @@
+# 기능 책임: Movement HTTP 요청·fallback·오류 변환을 검증한다. 비책임: 실장비의 물리 동작.
 """HttpMovementClient unit tests (no live Movement server)."""
 
 from __future__ import annotations
@@ -36,6 +37,15 @@ class HttpMovementClientTest(unittest.TestCase):
             HttpMovementClient._api_origin("http://nav.local:8001/movement-api/v1"),
             "http://nav.local:8001",
         )
+
+    def test_estop_commands_post_to_movement_server_root(self) -> None:
+        with patch("app.domains.movement.client.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value.read.return_value = b'{"ok": true}'
+            self.client.estop("tb3_2")
+            self.client.clear_estop("tb3_2")
+
+        self.assertEqual(urlopen.call_args_list[0].args[0].full_url, "http://nav.local:8002/robot/estop")
+        self.assertEqual(urlopen.call_args_list[1].args[0].full_url, "http://nav.local:8002/robot/clear_estop")
 
     def test_robot_command_posts_to_root_robot_commands(self) -> None:
         envelope = {"command_id": "cmd-1", "kind": "move_to_point", "params": {}}

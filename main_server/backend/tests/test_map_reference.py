@@ -1,3 +1,4 @@
+# 기능 책임: map manifest와 DB reference 정합성을 검증한다. 비책임: 실장비의 물리 동작.
 from __future__ import annotations
 
 import json

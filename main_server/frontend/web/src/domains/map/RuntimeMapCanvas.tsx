@@ -1,3 +1,7 @@
+/**
+ * 책임: map pixel 좌표계의 공통 렌더 계층과 로봇·목표 marker를 제공한다.
+ * 비책임: map 선택, pose 품질 정책, 사용자 명령 전송.
+ */
 import type { CSSProperties, PointerEventHandler, ReactNode, RefObject } from "react";
 import { worldToPixel } from "../../lib/coords";
 import { poseFreshness } from "../../lib/format";

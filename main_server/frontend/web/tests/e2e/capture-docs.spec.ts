@@ -1,3 +1,4 @@
+// 기능 책임: 문서용 production 화면을 명시 실행 시에만 캡처한다. 비책임: UX pass/fail 판정.
 import path from "node:path";
 import { test } from "@playwright/test";
 

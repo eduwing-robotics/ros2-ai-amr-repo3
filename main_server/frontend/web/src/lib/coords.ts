@@ -1,3 +1,7 @@
+/**
+ * 책임: ROS map 좌표(m)와 이미지 pixel 좌표를 상호 변환한다.
+ * 비책임: map 선택, pose 신선도, 경로 유효성 판정.
+ */
 // ROS map.yaml 좌표 변환 (레거시 scenario_editor.js 와 동일 규약).
 import type { MapRecord } from "../types";
 
@@ -6,6 +10,7 @@ export interface Pixel {
   y: number;
 }
 
+/** map frame 좌표(m)를 좌상단 원점 image pixel로 변환한다. */
 export function worldToPixel(map: MapRecord, x: number, y: number): Pixel {
   const height = map.height || 800;
   const resolution = map.resolution || 0.05;
@@ -15,6 +20,7 @@ export function worldToPixel(map: MapRecord, x: number, y: number): Pixel {
   };
 }
 
+/** 좌상단 원점 image pixel을 map frame 좌표(m)로 변환한다. */
 export function pixelToWorld(map: MapRecord, px: number, py: number): Pixel {
   const height = map.height || 800;
   const resolution = map.resolution || 0.05;
@@ -33,6 +39,7 @@ export const yawFromPixel = (cx: number, cy: number, px: number, py: number): nu
   Math.atan2(-(py - cy), px - cx);
 
 // 화면 클릭 좌표 → 맵 픽셀 좌표. 맵 영역 밖이면 null.
+/** pointer client 좌표를 현재 zoom·pan이 제거된 map image pixel로 변환한다. */
 export function clientToPixel(
   stage: HTMLElement,
   map: MapRecord,

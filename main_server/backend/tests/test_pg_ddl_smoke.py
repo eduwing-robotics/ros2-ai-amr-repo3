@@ -1,3 +1,4 @@
+# 기능 책임: PostgreSQL DDL·constraint·seed 구조을 검증한다. 비책임: 실장비의 물리 동작.
 """PostgreSQL DDL smoke — DBML tables exist after init_db."""
 
 from __future__ import annotations

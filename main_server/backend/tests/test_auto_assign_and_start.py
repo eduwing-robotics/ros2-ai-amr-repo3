@@ -1,3 +1,4 @@
+# 기능 책임: 가용 로봇 자동 배정과 개별 시작 실패 격리을 검증한다. 비책임: 실장비의 물리 동작.
 """auto_assign_and_start — offline unit tests (no PostgreSQL required)."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# 기능 책임: robot-command envelope 검증·dispatch 오류을 검증한다. 비책임: 실장비의 물리 동작.
 """Robot command envelope unit tests (no external movement server)."""
 
 from __future__ import annotations
@@ -212,7 +213,7 @@ class RobotCommandServiceTest(unittest.TestCase):
 
     def test_command_status_preserves_kind_when_available(self) -> None:
         with patch(
-            "app.domains.movement.commands.missions.command_status",
+            "app.domains.movement.commands.command_status.fetch",
             return_value={"state": "RUNNING", "kind": "aruco_align", "dry_run": True},
         ):
             result = commands.get_command_status("robot-a", "cmd-align-3")

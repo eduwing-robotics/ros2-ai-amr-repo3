@@ -2,9 +2,7 @@
 import type {
   CameraSource,
   JsonObject,
-  RobotCommandRecord,
   Robot,
-  RobotTask,
 } from "./entities";
 
 // Movement 서버 health probe 결과 (robot_id -> health).
@@ -28,7 +26,6 @@ export interface AppEvent {
   created_at?: string;
   event_type?: string;
   message?: string;
-  [key: string]: unknown;
 }
 
 export interface ControlSystemStatusSnapshot {
@@ -36,7 +33,4 @@ export interface ControlSystemStatusSnapshot {
   movement_health: Record<string, MovementHealth>;
   robots: Robot[];
   camera_sources: CameraSource[];
-  movement_commands: RobotCommandRecord[];
-  events: AppEvent[];
-  tasks: RobotTask[];
 }

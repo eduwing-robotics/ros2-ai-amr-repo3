@@ -1,4 +1,5 @@
-"""Execution coordinator for an immediate Work Order safe-stop request."""
+"""책임: 실행 중 Work Order의 안전 중단 요청과 hold 전이를 조정한다.
+비책임: 통신 불능 로봇의 물리 정지와 자동 복구."""
 
 from __future__ import annotations
 
@@ -56,7 +57,7 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
         raise HTTPException(status_code=409, detail="work_order_has_no_active_command")
 
     if not command_id or not orch_state.is_dispatched_robot_task_step(step):
-        if execution.phase == orch_state.PHASE_AWAITING_OPERATOR:
+        if execution.phase == orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR:
             return _response(
                 order_id,
                 command_id=None,
@@ -70,7 +71,7 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
         except MovementClientError as exc:
             raise HTTPException(status_code=409, detail="work_order_stop_unconfirmed") from exc
 
-        execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
         execution.replace_recovery({
             "reason": "operator_safe_stop_no_active_command",
             "robot_id": str(robot_id),
@@ -95,7 +96,7 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
         )
 
     previous = orch.get("stop_request") or {}
-    if execution.phase == orch_state.PHASE_CANCEL_REQUESTED and str(previous.get("command_id") or "") == str(command_id):
+    if execution.phase == orch_state.RobotTaskOrchestrationPhase.CANCEL_REQUESTED and str(previous.get("command_id") or "") == str(command_id):
         return _response(
             order_id,
             command_id=str(command_id),
@@ -143,7 +144,7 @@ def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
             or response_state != "STOP_REQUESTED"
         ):
             raise HTTPException(status_code=502, detail="movement_safe_stop_acceptance_contract_mismatch")
-    execution.transition_to(orch_state.PHASE_CANCEL_REQUESTED)
+    execution.transition_to(orch_state.RobotTaskOrchestrationPhase.CANCEL_REQUESTED)
     orch["stop_request"] = {
         "command_id": str(command_id),
         "robot_id": str(robot_id),

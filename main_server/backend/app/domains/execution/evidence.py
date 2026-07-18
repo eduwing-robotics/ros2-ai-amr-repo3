@@ -1,4 +1,5 @@
-"""DBML evidence_events / safety_stops runtime helpers."""
+"""책임: orchestration snapshot과 command·안전 증적의 영속 계약을 제공한다.
+비책임: command 실행, Vision 판정, 물리 경로 생성."""
 
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from app.domains.movement.commands import normalize_dock_transfer_params
 CRITICAL_SEVERITIES = {"CRITICAL", "HIGH"}
 
 def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: str) -> list[dict[str, Any]]:
+    """업무 scenario를 영속 command 계획으로 바꾸며 물리 주행 경로는 생성하지 않는다."""
     map_id = scenario.get("map_id")
     if not map_id:
         raise HTTPException(status_code=409, detail="scenario missing map_id")
@@ -114,6 +116,7 @@ def attach_orchestration(task: dict[str, Any] | None, conn) -> dict[str, Any] | 
 
 
 def save_orchestration(conn, task_id: int, orchestration: dict[str, Any]) -> None:
+    """task 진행 snapshot을 evidence event로 추가하며 기존 증적을 덮어쓰지 않는다."""
     runtime_records.save_orchestration(conn, task_id, orchestration)
 
 
@@ -128,6 +131,7 @@ def list_orchestrated_running(conn, limit: int = 50) -> list[dict[str, Any]]:
 
 
 def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
+    """DB 위치 snapshot으로 Movement 소유 scenario를 만들며 물리 tuning은 제외한다."""
     snap = task.get("preset_snapshot") or {}
     if snap.get("steps") or snap.get("map_id"):
         return snap
@@ -177,7 +181,7 @@ def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
     return {"map_id": map_id, "steps": steps}
 
 
-def resolve_command_def_id(conn, task: dict[str, Any], step_index: int, step_kind: str) -> int | None:
+def resolve_command_definition_id(conn, task: dict[str, Any], step_index: int, step_kind: str) -> int | None:
     """Map the orchestration step index to static commands.id."""
     task_type = str(task.get("task_type") or "MOVE").upper()
     return robot_command_definitions.resolve_for_step(conn, task_type, step_index + 1, step_kind)
@@ -187,17 +191,18 @@ def record_movement_evidence(
     conn,
     *,
     task_id: int | None,
-    command_def_id: int | None,
+    command_definition_id: int | None,
     event_type: str,
     source: str = "movement",
     data_json: dict[str, Any] | None = None,
     severity: str | None = None,
     trusted: bool = True,
 ) -> int:
+    """callback 증적을 append-only로 저장하며 업무 반영 여부는 orchestrator가 결정한다."""
     ev_id = runtime_records.append(
         conn,
         task_id=task_id,
-        command_id=command_def_id,
+        command_id=command_definition_id,
         event_type=event_type,
         source=source,
         severity=severity,
@@ -217,6 +222,7 @@ def finalize_task_log(
     error_reason: str | None = None,
     summary: str | None = None,
 ) -> None:
+    """최종 task snapshot과 제한된 증적을 기록하며 원본 event history는 유지한다."""
     task_id = int(task["task_id"])
     task_type = str(task.get("task_type") or "MOVE")
     evidence = runtime_records.list_for_task(conn, task_id, limit=50)

@@ -79,9 +79,10 @@ function EventsTab({ rows }: { rows: TimelineEvent[] }) {
   );
 }
 
-function TasksTab({ movements }: { movements: RobotCommandRecord[] }) {
+function TasksTab() {
   const [view, setView] = useState<"tasks" | "movement">("tasks");
-  const { data: rows = [], isLoading } = useTaskLogs(200);
+  const { data: rows = [], isLoading } = useTaskLogs(200, view === "tasks");
+  const { data: movements = [] } = useMovementCommandRecords(200, view === "movement");
   const [page, setPage] = useState(1);
   const pageRows = paginate(rows, page);
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -262,8 +263,7 @@ export function Records({
   const tabParam = (searchParams.get("tab") ?? initialTab ?? "events") as TabKey;
   const tab = tabs.includes(tabParam) ? tabParam : tabs[0];
 
-  const { data: events = [], isLoading: eventsLoading } = useEvents();
-  const { data: movements = [] } = useMovementCommandRecords();
+  const { data: events = [], isLoading: eventsLoading } = useEvents(200, tab === "events");
 
   const setTab = (t: TabKey) => {
     const next = new URLSearchParams(searchParams);
@@ -290,7 +290,7 @@ export function Records({
       </div>
       <div className="panel records-panel">
         {tab === "events" && (eventsLoading ? <div className="empty">불러오는 중…</div> : <EventsTab rows={events} />)}
-        {tab === "tasks" && <TasksTab movements={movements} />}
+        {tab === "tasks" && <TasksTab />}
         {tab === "inventory" && <InventoryChangesTab />}
         {tab === "communications" && <CommunicationsTab />}
       </div>

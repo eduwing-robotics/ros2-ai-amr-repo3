@@ -77,7 +77,7 @@ Movement 내부 물리 step 수와 무관하게 Main에는 다음 index와 code�
 
 `current_step_action`에는 내부 물리 동작을 진단용으로 보낼 수 있지만 Main의 상태 전이에 사용되지 않는다.
 단계 callback은 `current_step_index`와 `current_step_code`가 정확히 일치해야 한다. `sequence`와
-`last_completed_step_index`는 감소할 수 없다.
+`last_completed_step_index`는 모든 callback에 반드시 포함한다. 완료된 단계가 없으면 명시적 `null`, 첫 완료 이후에는 `0..8`을 보내며 값은 감소할 수 없다.
 
 ## 4. 화물·완료·실패 보고
 

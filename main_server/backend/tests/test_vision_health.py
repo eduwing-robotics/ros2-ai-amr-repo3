@@ -1,3 +1,4 @@
+# 기능 책임: Vision bridge·AI health 결합 정책을 검증한다. 비책임: 실장비의 물리 동작.
 """Camera health and cache tests."""
 
 from __future__ import annotations

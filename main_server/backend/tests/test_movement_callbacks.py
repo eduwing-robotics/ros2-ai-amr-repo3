@@ -1,3 +1,4 @@
+# 기능 책임: Movement callback 멱등성·인증·ESTOP 상태 적용을 검증한다. 비책임: 실장비의 물리 동작.
 """Characterization tests for movement callback and estop wiring."""
 
 from __future__ import annotations

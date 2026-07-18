@@ -7,6 +7,7 @@ import { useProbes } from "../hooks/useCommLogs";
 import { useFeedback } from "./FeedbackProvider";
 import { useEmergency } from "../hooks/useEmergency";
 import { useCriticalAlerts } from "../hooks/useCriticalAlerts";
+import { useEvents } from "../domains/records/useEvents";
 import { Clock } from "./Clock";
 import { EstopControls } from "./EstopControls";
 import { AdminShell } from "./AdminShell";
@@ -27,6 +28,7 @@ export function Layout() {
   const currentRoute = areaKey === "records" ? `records/${recordsTab ?? "events"}` : `${areaKey}/${sectionKey}`;
   const operateShell = isOperateArea(areaKey);
   const { data: status, isError } = useStatus();
+  const { data: events = [] } = useEvents(30, true, 2000);
   const { emergencyRobots } = useEmergency();
   const { toast } = useFeedback();
   const { probeMovement, probeCamera } = useProbes();
@@ -35,7 +37,7 @@ export function Layout() {
   const robots = status?.robots ?? [];
 
   // 전역 능동 경보(소리·탭 타이틀 점멸·토스트) — 모든 화면에서 상시 동작.
-  useCriticalAlerts({ events: status?.events ?? [], robots, emergencyRobots });
+  useCriticalAlerts({ events, robots, emergencyRobots });
   const liveOk = !!status && !isError;
   const { onlineCount, robotTitle } = useRobotConnectivity(robots);
 

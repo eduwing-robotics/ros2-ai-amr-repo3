@@ -106,7 +106,7 @@ class WorkOrder(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     tasks: list[WorkOrderRobotTask] = Field(default_factory=list)
-    mission_results: list[dict[str, Any]] = Field(default_factory=list)
+    execution_results: list[dict[str, Any]] = Field(default_factory=list)
     start_failed: list[dict[str, Any]] = Field(default_factory=list)
     business_completed: bool = False
     return_status: str | None = None

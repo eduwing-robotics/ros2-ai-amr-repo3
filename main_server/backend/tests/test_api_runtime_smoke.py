@@ -1,3 +1,4 @@
+# 기능 책임: FastAPI lifecycle과 status runtime 응답을 검증한다. 비책임: 실장비의 물리 동작.
 """HTTP runtime smoke — health/status and basic API shape."""
 
 from __future__ import annotations
@@ -46,7 +47,6 @@ class ApiRuntimeSmokeTest(unittest.TestCase):
     @patch("app.api.routers.system.get_movement_health", return_value={})
     @patch("app.api.routers.system.postgres_tasks")
     @patch("app.api.routers.system.operational_events")
-    @patch("app.api.routers.system.movement_commands")
     @patch("app.api.routers.system.postgres_cameras")
     @patch("app.api.routers.system.postgres_robots")
     @patch("app.api.routers.system.transaction")
@@ -55,7 +55,6 @@ class ApiRuntimeSmokeTest(unittest.TestCase):
         transaction_ctx,
         robot_repo_fn,
         camera_repo_fn,
-        movement_repo_fn,
         event_repo_fn,
         task_repo_fn,
         *_mocks,
@@ -64,15 +63,16 @@ class ApiRuntimeSmokeTest(unittest.TestCase):
         transaction_ctx.return_value.__enter__.return_value = conn
         robot_repo_fn.list_robots.return_value = []
         camera_repo_fn.list_cameras.return_value = []
-        movement_repo_fn.list_movement_command_records.return_value = []
-        event_repo_fn.list_operational_events.return_value = []
-        task_repo_fn.list.return_value = []
+        event_repo_fn.latest_estop_states.return_value = {}
+        task_repo_fn.list_tasks.return_value = []
 
         res = self.client.get("/api/v1/status")
         self.assertEqual(res.status_code, 200)
         body = res.json()
-        for key in ("system", "robots", "camera_sources", "movement_commands", "events", "tasks"):
+        for key in ("system", "robots", "camera_sources", "movement_health"):
             self.assertIn(key, body)
+        for removed in ("movement_commands", "events", "tasks"):
+            self.assertNotIn(removed, body)
 
 
 if __name__ == "__main__":

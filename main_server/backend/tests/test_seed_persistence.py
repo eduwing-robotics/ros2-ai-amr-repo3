@@ -1,3 +1,4 @@
+# 기능 책임: 재기동 schema 초기화가 운영 좌표를 보존하는지을 검증한다. 비책임: 실장비의 물리 동작.
 """Bootstrap/demo seed persistence and single-map waypoint tests."""
 
 from __future__ import annotations

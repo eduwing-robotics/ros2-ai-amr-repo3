@@ -1,3 +1,4 @@
+-- 기능 책임: PostgreSQL 통합 테스트가 공유하는 최소 업무 fixture를 제공한다.
 -- Test-only fixture. Idempotent INSERT ... ON CONFLICT DO NOTHING.
 -- Apply ONLY via tests.support.postgres.apply_demo_fixture() against a dedicated test DB.
 -- WARNING: do not run against production databases.

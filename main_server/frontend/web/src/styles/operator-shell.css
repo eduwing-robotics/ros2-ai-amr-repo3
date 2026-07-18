@@ -422,7 +422,10 @@
 .rowbtn.ghost { background: transparent; color: var(--text-muted); padding: 4px 7px; }
 .rowbtn.ghost:hover { background: rgba(0, 0, 0, 0.07); }
 
-/* 수동 조작 — 드로어(세로 폼 존)에선 Teleop 위·맵 이동 아래로 쌓는다 */
+/* 조작 방식은 한 번에 하나만 노출해 오입력과 패널 내 시선 이동을 줄인다. */
+.operator-control-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; padding:4px; margin-bottom:10px; border-radius:var(--radius-sm); background:var(--surface-2); }
+.operator-control-tabs button { min-height:34px; border:0; border-radius:6px; background:transparent; color:var(--text-muted); font-weight:700; cursor:pointer; }
+.operator-control-tabs button.active { background:var(--surface-1); color:var(--text); box-shadow:var(--shadow-sm); }
 .operator-control-bar-inner {
   display: grid;
   grid-template-columns: 1fr;
@@ -1182,12 +1185,6 @@
   min-height: 0;
   max-height: none;
 }
-.operator-mission-summary {
-  min-height: 0;
-  margin: 0;
-  padding: 12px;
-  overflow: hidden;
-}
 .operator-section-head {
   display: flex;
   align-items: center;
@@ -1207,46 +1204,6 @@
   font-size: 10px;
 }
 .operator-section-head .rowbtn { margin-left: auto; white-space: nowrap; visibility: visible; }
-.operator-mission-cards {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-.operator-mission-card {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--operator);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-}
-.operator-mission-card > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.operator-mission-card > strong { font-size: 13px; }
-.operator-mission-card > span,
-.operator-mission-card > small {
-  overflow: hidden;
-  color: var(--text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 10px;
-}
-.operator-mission-empty {
-  grid-column: 1 / -1;
-  min-height: 86px;
-  display: grid;
-  place-content: center;
-  gap: 4px;
-  color: var(--text-muted);
-  text-align: center;
-}
-.operator-mission-empty strong { color: var(--text); }
 .operator-workspace {
   flex: 1 1 auto;
   min-height: 0;
@@ -1266,8 +1223,6 @@
 @media (max-width: 1400px) {
   .shell[data-mode="operate"] > .header { left: var(--operator-nav-w, 196px); }
   .operator-kpi-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .operator-mission-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .operator-mission-card:nth-child(n + 3) { display: none; }
 }
 
 @media (max-width: 1200px) {
@@ -1277,14 +1232,11 @@
     margin-top: 64px;
   }
   .operator-overview-workspace { grid-template-rows: minmax(420px, 1fr) auto; }
-  .operator-mission-summary { min-height: 176px; }
 }
 
 @media (max-width: 900px) {
   .operator-kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); flex-basis: auto; }
   .operator-kpi-strip .kpi-tile:nth-child(2) { border-right: 0; }
-  .operator-mission-cards { grid-template-columns: 1fr; }
-  .operator-mission-card:nth-child(n + 2) { display: none; }
 }
 
 /* workspace architecture v3 — destinations / commands / selection have one owner each */
@@ -1354,22 +1306,6 @@
 .operator-inspector-command-note { flex: none; margin: 8px 10px 0; padding: 8px 10px; border: 1px solid var(--warn-border); border-radius: var(--radius); background: var(--warn-bg); color: var(--warn-fg); font-size: 11px; }
 .operator-inspector-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px; }
 .operator-inspector-body > .robot-monitor-card { min-height: 100%; margin: 0; }
-
-.operator-mission-card {
-  color: inherit;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-}
-.operator-mission-card:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--operator) 48%, var(--border));
-  background: var(--surface-3);
-}
-.operator-mission-card.selected {
-  border-color: var(--operator);
-  box-shadow: 0 0 0 1px var(--operator);
-}
-.operator-mission-card:disabled { cursor: default; opacity: .72; }
 
 .map-pose.selectable { cursor: pointer; outline: none; }
 .map-pose.selectable:hover .map-robot,
@@ -1472,25 +1408,31 @@
 .operator-fleet-card:hover { border-color: var(--operator); }
 .operator-fleet-card.selected { border-left-color: var(--operator); background: var(--operator-soft); }
 .operator-fleet-card.emergency { border-color: var(--err-border); border-left-color: var(--red); }
+.operator-fleet-card.not-in-use { order:1; opacity:.58; filter:saturate(.35); }
+.operator-fleet-card.not-in-use:hover { border-color:var(--border); }
 .operator-fleet-select { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .operator-fleet-select strong, .operator-fleet-select small { display: block; }
 .operator-fleet-select strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .operator-fleet-select small { margin-top: 2px; color: var(--text-dim); font-size: 9px; }
 .operator-fleet-card .robot-task-ctx { margin-top: 8px; font-size: 10px; }
 .operator-fleet-card .robot-card-meta { margin-top: 6px; font-size: 9px; }
-.operator-fleet-card .operator-robot-command { display: block; margin: 7px 0 0 auto; visibility: visible; }
+.operator-command-tooltip { position:relative; display:block; width:max-content; margin:7px 0 0 auto; }
+.operator-fleet-card .operator-robot-command { display:block; margin:0; visibility:visible; }
+.operator-command-tooltip.disabled::after { position:absolute; z-index:var(--z-tooltip, 20); right:0; bottom:calc(100% + 7px); width:max-content; max-width:240px; padding:7px 9px; border:1px solid var(--border); border-radius:6px; background:var(--text); color:var(--surface-1); box-shadow:var(--shadow-md); content:attr(data-tooltip); font-size:11px; line-height:1.4; opacity:0; pointer-events:none; transform:translateY(3px); transition:opacity .15s ease, transform .15s ease; }
+.operator-command-tooltip.disabled:hover::after, .operator-command-tooltip.disabled:focus-visible::after { opacity:1; transform:translateY(0); }
+.operator-command-tooltip.disabled:focus-visible { outline:2px solid var(--operator); outline-offset:2px; border-radius:6px; }
 
-.fleet-mission-dock { min-height: 0; display: flex; flex-direction: column; margin: 0; padding: 0; overflow: hidden; border-radius: var(--radius-lg); }
-.fleet-mission-head { flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-bottom: 1px solid var(--border); }
-.fleet-mission-head h2 { margin: 0; font-size: 13px; }
-.fleet-mission-head p { margin: 2px 0 0; color: var(--text-muted); font-size: 9px; }
-.fleet-mission-legend { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 9px; }
-.fleet-mission-legend i { width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--operator); }
-.fleet-mission-legend i.is-failed { background: var(--red); }
-.fleet-mission-rows { min-height: 0; flex: 1; overflow: auto; }
-.fleet-mission-row { min-width: 760px; display: grid; grid-template-columns: 148px 132px minmax(280px, 1fr) 116px; align-items: center; gap: 10px; min-height: 70px; padding: 7px 10px; border-bottom: 1px solid var(--border-light); }
-.fleet-mission-row:last-child { border-bottom: 0; }
-.fleet-mission-row.selected { background: color-mix(in srgb, var(--operator-soft) 65%, transparent); box-shadow: inset 3px 0 0 var(--operator); }
+.fleet-task-dock { min-height: 0; display: flex; flex-direction: column; margin: 0; padding: 0; overflow: hidden; border-radius: var(--radius-lg); }
+.fleet-task-head { flex: 0 0 44px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-bottom: 1px solid var(--border); }
+.fleet-task-head h2 { margin: 0; font-size: 13px; }
+.fleet-task-head p { margin: 2px 0 0; color: var(--text-muted); font-size: 9px; }
+.fleet-task-legend { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 9px; }
+.fleet-task-legend i { width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--operator); }
+.fleet-task-legend i.is-failed { background: var(--red); }
+.fleet-task-rows { min-height: 0; flex: 1; overflow: auto; }
+.fleet-task-row { min-width: 760px; display: grid; grid-template-columns: 148px 132px minmax(280px, 1fr) 116px; align-items: center; gap: 10px; min-height: 70px; padding: 7px 10px; border-bottom: 1px solid var(--border-light); }
+.fleet-task-row:last-child { border-bottom: 0; }
+.fleet-task-row.selected { background: color-mix(in srgb, var(--operator-soft) 65%, transparent); box-shadow: inset 3px 0 0 var(--operator); }
 .fleet-robot-identity { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .fleet-robot-identity strong, .fleet-robot-identity small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet-robot-identity strong { font-size: 11px; }
@@ -1510,7 +1452,7 @@
 .fleet-timeline-steps small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet-timeline-steps .is-active { color: var(--operator); font-weight: 700; }
 .fleet-timeline-steps .is-failed { color: var(--err-fg); font-weight: 700; }
-.fleet-mission-empty, .fleet-idle-line { color: var(--text-dim); font-size: 9px; }
+.fleet-task-empty, .fleet-idle-line { color: var(--text-dim); font-size: 9px; }
 .fleet-idle-line { display: flex; align-items: center; gap: 7px; }
 .fleet-idle-line span { height: 5px; flex: 1; border-radius: 999px; background: var(--border-light); }
 .fleet-safe-stop { min-width: 0; padding-inline: 8px; font-size: 9px; }
@@ -1574,3 +1516,24 @@
 .nested-table .task-queue-actions select{width:142px;min-width:142px}
 .nested-table .task-progress{margin:0 8px 8px;padding:9px}
 @media(max-width:900px){.operator-workspace .clean-table table{min-width:640px}.operator-workspace .work-order-col-context,.operator-workspace .work-order-cell-context{display:none}.operator-workspace .work-order-col-actions{width:142px}.nested-table .task-queue-nested{grid-template-columns:1fr}.nested-table .task-queue-actions{justify-content:flex-end}}
+
+/* 조작 버튼의 위치와 패널 진입 방향을 일치시킨다. */
+@media (min-width: 1201px) {
+  .operator-stage > .operator-control-drawer {
+    left: auto;
+    right: 12px;
+    width: calc(var(--operator-rail-w, var(--operator-context-w)) - 24px);
+    box-shadow: -12px 0 28px rgb(16 47 58 / 16%);
+  }
+}
+
+@media (max-width: 1200px) {
+  .operator-stage > .operator-control-drawer {
+    inset: auto 12px 12px;
+    width: auto;
+    height: min(420px, calc(100% - 40px));
+    max-height: 62vh;
+    border-radius: var(--radius-lg);
+    box-shadow: 0 -12px 28px rgb(16 47 58 / 18%);
+  }
+}

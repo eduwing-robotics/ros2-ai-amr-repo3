@@ -227,7 +227,7 @@ export function WorkOrderQueue() {
                   robotPick={robotPick[o.order_id] ?? idleRobots[0]?.robot_id ?? ""}
                   onRobotPick={(robotId) => setRobotPick((cur) => ({ ...cur, [o.order_id]: robotId }))}
                   onAssign={(taskId, robotId) => void assignTask.mutateAsync({ taskId, robotId })}
-                  onStartMission={(taskId) => void startRobotTask.mutateAsync(taskId)}
+                  onStartTask={(taskId) => void startRobotTask.mutateAsync(taskId)}
                   assignPending={assignTask.isPending}
                   startPending={startRobotTask.isPending}
                   cancelPending={cancelWorkOrder.isPending || cancelTask.isPending}

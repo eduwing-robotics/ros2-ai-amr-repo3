@@ -116,12 +116,12 @@ export function WorkOrderResultNotice({
     floor: t.floor ?? requestedFloor,
   })));
   const startFailed = result.start_failed ?? [];
-  const commandIds = (result.mission_results ?? [])
-    .map((mission) => mission.command_id)
+  const commandIds = (result.execution_results ?? [])
+    .map((execution) => execution.command_id)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
   const started = autoStart && !startFailed.length && commandIds.length > 0;
   const partialStart =
-    autoStart && result.tasks.length > (result.mission_results?.length ?? 0) && !startFailed.length;
+    autoStart && result.tasks.length > (result.execution_results?.length ?? 0) && !startFailed.length;
   const headline = startFailed.length
     ? "작업 생성됨 · 자동 시작 실패"
     : started
@@ -144,7 +144,7 @@ export function WorkOrderResultNotice({
           ))}
         </div>
       ) : null}
-      {result.mission_results?.length ? ` · Movement 시작 ${result.mission_results.length}건` : ""}
+      {result.execution_results?.length ? ` · Movement 시작 ${result.execution_results.length}건` : ""}
       {commandIds.length ? <span className="mono"> · cmd {commandIds.join(", ")}</span> : null}
       {result.tasks.some((t) => t.assigned_robot_id) ? (
         <span> · 로봇 {result.tasks.map((t) => t.assigned_robot_id).filter(Boolean).join(", ")}</span>

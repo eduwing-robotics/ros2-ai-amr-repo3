@@ -1,4 +1,5 @@
-"""E-stop recovery plan and operator decision APIs."""
+"""책임: AWAITING_OPERATOR task의 복구 계획·결정·실행을 소유한다.
+비책임: cargo 추정, 자동 하역, 기존 작업 자동 재개."""
 
 from __future__ import annotations
 
@@ -21,8 +22,8 @@ from app.models.robot_commands import RobotCommandRequest
 CargoState = Literal["LOADED", "EMPTY", "UNKNOWN"]
 RecoveryStrategy = Literal["safe_move", "manual_abort"]
 ACTIVE_RECOVERY_PHASES = {
-    orch_state.PHASE_AWAITING_OPERATOR,
-    orch_state.PHASE_RECOVERY_RUNNING,
+    orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR,
+    orch_state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING,
 }
 RECOVERY_TERMINAL_EVENTS = {"ARRIVED", "DONE", "FAILED", "ABORTED", "REJECTED"}
 
@@ -37,11 +38,12 @@ def _orch_phase(task: dict[str, Any] | None) -> str:
 def _assert_awaiting_operator_phase(conn, task_id: int) -> None:
     task = evidence.attach_orchestration(tasks.get_task(conn, task_id), conn)
     phase = _orch_phase(task)
-    if phase != orch_state.PHASE_AWAITING_OPERATOR:
+    if phase != orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR:
         raise HTTPException(status_code=409, detail="recovery_requires_awaiting_operator_phase")
 
 
 def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
+    """영속 orchestration과 cargo 상태를 결합하며 실제 적재 상태를 추정하지 않는다."""
     task = evidence.attach_orchestration(tasks.get_task(conn, task_id), conn)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
@@ -58,8 +60,8 @@ def get_recovery_context(conn, task_id: int) -> dict[str, Any]:
         "orchestration_phase": phase,
         "awaiting_operator": phase
         in {
-            orch_state.PHASE_AWAITING_OPERATOR,
-            orch_state.PHASE_RECOVERY_RUNNING,
+            orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR,
+            orch_state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING,
         }
         or str(orch.get("phase") or "") in ACTIVE_RECOVERY_PHASES,
         "assigned_robot_id": task.get("assigned_robot_id"),
@@ -75,7 +77,7 @@ def list_awaiting_operator_tasks(conn, limit: int = 20) -> list[dict[str, Any]]:
         orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
         phase = orch_state.normalize_phase(str(orch.get("phase") or ""))
         if (
-            phase in {orch_state.PHASE_AWAITING_OPERATOR, orch_state.PHASE_RECOVERY_RUNNING}
+            phase in {orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR, orch_state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING}
             or str(orch.get("phase") or "") in ACTIVE_RECOVERY_PHASES
         ):
             out.append(get_recovery_context(conn, int(task["task_id"])))
@@ -99,6 +101,7 @@ def preview_recovery_plan(
     cargo_state: CargoState,
     strategy: RecoveryStrategy,
 ) -> dict[str, Any]:
+    """운영자 cargo 확인을 전제로 안전 이동 또는 수동 회수 단계만 반환한다."""
     if strategy not in {"safe_move", "manual_abort"}:
         raise HTTPException(status_code=422, detail="unsupported recovery strategy")
     if cargo_state == "UNKNOWN":
@@ -144,7 +147,7 @@ def reconcile_undispatched_task(conn, task_id: int) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="task not found")
     orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
     execution = orch_state.RobotTaskExecutionState.wrap(orch)
-    if task.get("status") != "RUNNING" or execution.phase != orch_state.PHASE_RUNNING:
+    if task.get("status") != "RUNNING" or execution.phase != orch_state.RobotTaskOrchestrationPhase.RUNNING:
         raise HTTPException(status_code=409, detail="reconcile_requires_running_undispatched_task")
     steps = execution.steps
     if execution.step_index >= len(steps):
@@ -187,6 +190,7 @@ def save_recovery_decision(
     strategy: RecoveryStrategy,
     checks: dict[str, bool],
 ) -> dict[str, Any]:
+    """운영자 결정을 증적으로 저장하며 저장 성공은 복구 명령 실행을 의미하지 않는다."""
     if not all(checks.values()):
         raise HTTPException(status_code=409, detail="recovery safety checks incomplete")
     if cargo_state == "UNKNOWN":
@@ -224,6 +228,7 @@ def execute_recovery(
     checks: dict[str, bool],
     callback_base_url: str | None = None,
 ) -> dict[str, Any]:
+    """Movement·map·hazard gate 통과 후 선택한 복구만 전송하고 기존 작업은 재개하지 않는다."""
     _assert_awaiting_operator_phase(conn, task_id)
     save_recovery_decision(conn, task_id, cargo_state=cargo_state, strategy=strategy, checks=checks)
     if strategy == "manual_abort":
@@ -271,7 +276,7 @@ def execute_recovery(
         active_command_id=result.command_id,
         active_command_kind="move_to_point",
     )
-    execution.transition_to(orch_state.PHASE_RECOVERY_RUNNING)
+    execution.transition_to(orch_state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING)
     evidence.save_orchestration(conn, task_id, orch)
     return {"task_id": task_id, "command_id": result.command_id, "accepted": result.accepted, "plan": plan}
 
@@ -288,7 +293,7 @@ def handle_recovery_command_event(
     if not task or task.get("status") != "RUNNING":
         return None
     orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
-    if orch_state.normalize_phase(orch.get("phase")) != orch_state.PHASE_RECOVERY_RUNNING:
+    if orch_state.normalize_phase(orch.get("phase")) != orch_state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING:
         return None
     recovery = dict(orch.get("recovery") or {})
     active_command_id = recovery.get("active_command_id")
@@ -304,7 +309,7 @@ def handle_recovery_command_event(
     recovery["last_recovery_at"] = datetime.now(timezone.utc).isoformat()
     orch = dict(orch)
     execution = orch_state.RobotTaskExecutionState.wrap(orch)
-    execution.transition_to(orch_state.PHASE_AWAITING_OPERATOR)
+    execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
     execution.replace_recovery(recovery)
     evidence.save_orchestration(conn, task_id, orch)
     runtime_records.append(
@@ -323,7 +328,7 @@ def poll_recovery_tasks(conn) -> int:
     advanced = 0
     for task in evidence.list_orchestrated_running(conn):
         orch = (task.get("preset_snapshot") or {}).get("_orchestration") or {}
-        if orch_state.normalize_phase(orch.get("phase")) != orch_state.PHASE_RECOVERY_RUNNING:
+        if orch_state.normalize_phase(orch.get("phase")) != orch_state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING:
             continue
         recovery = orch.get("recovery") or {}
         command_id = recovery.get("active_command_id")

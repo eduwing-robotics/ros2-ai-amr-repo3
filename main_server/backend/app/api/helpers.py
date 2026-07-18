@@ -20,7 +20,7 @@ def callback_base_url(request: Request, override: str | None = None) -> str:
 
 
 def with_callback(payload: dict, request: Request) -> dict:
-    """Inject callback_base_url into a mission payload when omitted."""
+    """Inject callback_base_url into a command payload when omitted."""
     if not payload.get("callback_base_url"):
         payload["callback_base_url"] = callback_base_url(request)
     return payload

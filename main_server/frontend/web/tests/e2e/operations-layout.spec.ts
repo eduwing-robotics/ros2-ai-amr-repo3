@@ -1,3 +1,4 @@
+// 기능 책임: 운영·관리 레이아웃과 조작 차단의 브라우저 계약을 검증한다. 비책임: 실제 Main 연동.
 import { expect, test } from "@playwright/test";
 import { mockMainApi } from "../support/mainApi";
 
@@ -161,6 +162,12 @@ test("좌측에는 목적지만, 우측에는 모든 로봇과 로봇별 명령�
   await expect(page.locator(".operator-fleet-card")).toHaveCount(3);
   await expect(page.locator(".operator-fleet-card").getByRole("button", { name: "조작 →" })).toHaveCount(3);
   await expect(page.getByRole("button", { name: "새 요청 만들기" })).toHaveCount(0);
+
+  await nav.getByRole("button", { name: "작업", exact: true }).click();
+  const unavailableControl = page.locator(".operator-command-tooltip").first();
+  await expect(unavailableControl.getByRole("button", { name: "조작 →" })).toBeDisabled();
+  await expect(unavailableControl).toHaveAttribute("data-tooltip", "수동 조작은 관제 화면에서 사용할 수 있습니다.");
+  await expect(unavailableControl).toHaveAttribute("tabindex", "0");
 });
 
 test("작업 워크스페이스는 요약 열을 통합하고 배정 입력을 확장 명령 바로 공개한다", async ({ page }) => {
@@ -217,7 +224,7 @@ test("좌측 작업 기록 행도 완료·진행·취소 상태 배경을 구분
   await page.goto("/operate/control");
   const dock = page.getByRole("region", { name: "작업 큐, 할당 로봇, 타임라인과 안전 중지" });
   await dock.getByRole("tab", { name: "작업 기록" }).click();
-  const bottomCancelledRow = dock.locator(".fleet-mission-row[data-status-tone=cancelled]");
+  const bottomCancelledRow = dock.locator(".fleet-task-row[data-status-tone=cancelled]");
   await expect(bottomCancelledRow).toHaveCount(1);
   const bottomCancelledStyle = await bottomCancelledRow.evaluate((element) => ({ background: getComputedStyle(element).backgroundColor, shadow: getComputedStyle(element).boxShadow }));
   expect(bottomCancelledStyle).toEqual(sideCancelledStyle);
@@ -231,7 +238,7 @@ test("하단 작업 큐는 할당 로봇과 실제 Movement 단계 및 안전 �
   await expect(dock.getByText("Task #9")).toBeVisible();
   await expect(dock.getByLabel("Task 9 진행도 1/3")).toBeVisible();
   await expect(dock.getByText("적재 이동")).toBeVisible();
-  const runningRow = dock.locator(".fleet-mission-row").first();
+  const runningRow = dock.locator(".fleet-task-row").first();
   await expect(runningRow).toHaveCSS("grid-template-areas", /summary.*assignee.*action.*progress/);
   const rowOverflow = await runningRow.evaluate((element) => element.scrollWidth - element.clientWidth);
   expect(rowOverflow).toBeLessThanOrEqual(1);
@@ -256,7 +263,7 @@ test("할당됐지만 시작 전인 작업은 실행 중과 구분하고 일반 
 
   const dock = page.getByRole("region", { name: "작업 큐, 할당 로봇, 타임라인과 안전 중지" });
   await expect(dock).toContainText("실행 중 0 · 할당 대기 1 · 미할당 0");
-  const assignedRow = dock.locator(".fleet-mission-row").first();
+  const assignedRow = dock.locator(".fleet-task-row").first();
   await expect(assignedRow).toContainText("Task #10");
   await expect(assignedRow.locator(".fleet-task-progress")).toContainText("실행 전 · 단계 대기");
   await expect(assignedRow).not.toContainText("우선순위");
@@ -356,14 +363,14 @@ test("하단 기본 큐는 진행·예약만 강조하고 종료 작업은 기�
   await expect(dock.getByText("Task #9")).toBeVisible();
   await expect(dock.getByText("작업 #42")).toBeVisible();
   await expect(dock.getByText("Task #8")).toHaveCount(0);
-  await expect(dock.locator(".fleet-mission-row.is-running")).toHaveCount(1);
+  await expect(dock.locator(".fleet-task-row.is-running")).toHaveCount(1);
   await expect(dock.getByText("LIVE")).toBeVisible();
 
   await dock.getByRole("tab", { name: "작업 기록" }).click();
   await expect(dock.getByText("Task #8")).toBeVisible();
   await expect(dock.getByLabel("Task 8 진행도 1/3")).toBeVisible();
   await expect(dock.getByText("Task #9")).toHaveCount(0);
-  const historyRows = dock.locator(".fleet-mission-row.is-history");
+  const historyRows = dock.locator(".fleet-task-row.is-history");
   await expect(historyRows).toHaveCount(2);
   const inboundCompleted = historyRows.filter({ hasText: "Task #8" });
   const outboundCancelled = historyRows.filter({ hasText: "Task #7" });
@@ -386,20 +393,19 @@ test("전체 로봇 선택은 큰 로봇 카메라 문맥을 열고 수동 조�
   const camera = page.getByRole("region", { name: "AMR 1 카메라" });
   await expect(camera).toBeVisible();
   await expect(camera.locator(".cam-name-overlay", { hasText: "AMR 1 전방" })).toBeVisible();
-  await camera.getByRole("button", { name: "로봇 카메라 닫기" }).click();
-  await expect(camera).toHaveCount(0);
-
   await page.getByRole("button", { name: "조작 →" }).click();
+  await expect(camera).toHaveCount(0);
   const manual = page.getByRole("region", { name: /수동 조작/ });
   await expect(manual.locator(".teleop-target")).toContainText("AMR 1");
   await expect(manual.locator(".teleop-target select")).toHaveCount(0);
 });
 
 test("맵 Goto 목표는 창을 닫아도 이동 중 임시 마커로 유지되고 도착 시 제거된다", async ({ page }) => {
-  const state = { movementOk: true, navMissionStatus: "" };
+  const state = { movementOk: true, navigatorStatus: "" };
   await mockMainApi(page, state);
   await page.goto("/operate/control");
   await page.getByRole("button", { name: "조작 →" }).click();
+  await page.getByRole("tab", { name: "맵 이동" }).click();
 
   const map = page.locator(".operator-map-stage-wrap .map-stage");
   const box = await map.boundingBox();
@@ -411,7 +417,7 @@ test("맵 Goto 목표는 창을 닫아도 이동 중 임시 마커로 유지되�
 
   await page.getByRole("region", { name: "수동 조작 · 맵 이동" }).getByRole("button", { name: "닫기" }).click();
   await expect(page.locator("[data-goto-phase='active']")).toBeVisible();
-  state.navMissionStatus = "SUCCEEDED";
+  state.navigatorStatus = "SUCCEEDED";
   await expect(page.locator("[data-goto-target]")).toHaveCount(0, { timeout: 7000 });
 });
 

@@ -1,3 +1,4 @@
+# 기능 책임: mutable 검증의 운영 DB 차단을 검증한다. 비책임: 실장비의 물리 동작.
 """Tests for the pytest database safety guard."""
 
 import pytest

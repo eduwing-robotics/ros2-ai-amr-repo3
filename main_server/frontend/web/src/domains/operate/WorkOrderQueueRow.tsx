@@ -27,7 +27,7 @@ export function WorkOrderQueueRow({
   robotPick,
   onRobotPick,
   onAssign,
-  onStartMission,
+  onStartTask,
   assignPending,
   startPending,
   cancelPending,
@@ -52,7 +52,7 @@ export function WorkOrderQueueRow({
   robotPick: string;
   onRobotPick: (robotId: string) => void;
   onAssign: (taskId: number, robotId: string) => void;
-  onStartMission: (taskId: number) => void;
+  onStartTask: (taskId: number) => void;
   assignPending: boolean;
   startPending: boolean;
   cancelPending: boolean;
@@ -105,7 +105,7 @@ export function WorkOrderQueueRow({
                 type="button"
                 className="rowbtn primary"
                 disabled={startPending}
-                onClick={() => onStartMission(primary.task_id)}
+                onClick={() => onStartTask(primary.task_id)}
               >
                 ▶ 시작
               </button>

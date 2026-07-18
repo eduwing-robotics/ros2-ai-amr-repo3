@@ -1,3 +1,4 @@
+# 기능 책임: task advisory lock의 상호 배제와 독립 key 동시성을 검증한다. 비책임: 실장비의 물리 동작.
 """PostgreSQL integration checks for transaction advisory lock behavior."""
 
 import os

@@ -1,4 +1,5 @@
-"""Process-local real-time robot pose store and quality state machine."""
+"""책임: process-local pose와 freshness·localization 품질 전이를 소유한다.
+비책임: DB 영속화, map 선택, 로봇 localization 수행."""
 
 from __future__ import annotations
 
@@ -520,4 +521,5 @@ pose_runtime = PoseRuntime()
 def ingest_pose_update(
     robot_id: str, payload: dict[str, Any], *, source_kind: str, localized: bool | None = None
 ) -> bool:
+    """map frame pose(m·rad)를 process-local store에 반영하고 품질 전이를 반환한다."""
     return pose_runtime.ingest(robot_id, payload, source_kind=source_kind, localized=localized)

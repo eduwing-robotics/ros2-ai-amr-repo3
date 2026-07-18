@@ -1,3 +1,4 @@
+# 기능 책임: Work Order progress·현재 단계 조립을 검증한다. 비책임: 실장비의 물리 동작.
 from app.domains.execution.state import RobotTaskExecutionState
 from app.domains.work_orders.adapters import robot_task_summary_to_v1
 from app.domains.work_orders.assembler import assemble_robot_task_summary

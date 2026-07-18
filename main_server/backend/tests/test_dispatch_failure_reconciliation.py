@@ -1,3 +1,4 @@
+# 기능 책임: 명령 전송 실패 시 task queue·상태 복원을 검증한다. 비책임: 실장비의 물리 동작.
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -20,7 +21,7 @@ def test_initial_dispatch_failure_enters_canonical_failure_handler() -> None:
             "pose": {"x": 0, "y": 0, "age_sec": 0.1},
         }}),
         patch.object(orchestrator.evidence, "build_scenario_from_task", return_value={"map_id": "map", "steps": [{}]}),
-        patch.object(orchestrator, "plan_command_steps", return_value=[{"kind": "inout_scenario"}]),
+        patch.object(orchestrator.evidence, "plan_command_steps", return_value=[{"kind": "inout_scenario"}]),
         patch.object(orchestrator, "dispatch_current_step", side_effect=HTTPException(status_code=409, detail={"code": "waypoint_location_mismatch"})),
         patch.object(orchestrator, "_handle_step_dispatch_exception") as handle,
     ):

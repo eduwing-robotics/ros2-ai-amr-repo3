@@ -105,7 +105,7 @@ bash ./scripts/check.sh robot \
 ```
 
 기본 실행은 로컬 전체 gate 후 Main `/health`·`/ready`, 운영 API, Movement와 Vision 강제 probe,
-callback token을 확인한다. 그 다음 [TEST_CASES](TEST_CASES.md)의 HW-01~11을 순서대로 안내하고
+callback token을 확인한다. 그 다음 [TEST_CASES](TEST_CASES.md)의 HW-01~12을 순서대로 안내하고
 각 단계 전후의 API snapshot을 `.bootstrap/robot-acceptance/`에 저장한다. 이 경로는 로컬 증적이므로 Git에
 추가하지 않는다. ESTOP·서버 단절·재시작·로봇 이동은 스크립트가 실행하지 않으며 현장 안전 책임자가 수행한다.
 

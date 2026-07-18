@@ -47,8 +47,8 @@
   .header,.shell[data-mode="operate"]>.header{height:56px;min-height:56px}
   .operator-main{padding:8px;gap:6px}
   .operator-main-workbench{grid-template-rows:minmax(340px,1fr) 164px;gap:8px}
-  .fleet-mission-head{flex-basis:38px}
-  .fleet-mission-row{min-height:58px}
+  .fleet-task-head{flex-basis:38px}
+  .fleet-task-row{min-height:58px}
 }
 @media(max-height:650px) and (min-width:761px){
   .operator-main-workbench{grid-template-rows:minmax(280px,1fr) 140px}

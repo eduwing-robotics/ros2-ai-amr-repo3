@@ -1,4 +1,5 @@
-"""Inventory adjustment on PG MVP task completion."""
+"""책임: 성공한 입출고 Task의 재고와 변경 이력을 한 transaction에서 반영한다.
+비책임: 물리 작업 완료 판정과 Task 상태 전이."""
 
 from __future__ import annotations
 

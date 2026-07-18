@@ -293,9 +293,15 @@
     .compact-table .pill { white-space: nowrap; }
     .compact-table tbody tr.selected { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
     .zone-selection-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding: 10px; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--accent-soft); font-size: 12px; }
-    .zone-selection-summary > div { display: flex; flex-direction: column; gap: 3px; }
+    .zone-selection-heading { display: flex; flex-direction: column; gap: 3px; }
     .zone-selection-summary strong { color: var(--text); }
     .zone-selection-summary span { color: var(--text-muted); overflow-wrap: anywhere; }
+    .zone-pose-editor { flex: 1 0 100%; display: grid; grid-template-columns: repeat(3, minmax(72px, 1fr)) auto; align-items: end; gap: 7px; padding-top: 9px; border-top: 1px solid var(--border); }
+    .zone-pose-editor label { display: flex; flex-direction: column; gap: 4px; color: var(--text-muted); font-size: 11px; font-weight: 700; }
+    .zone-pose-editor .search { width: 100%; min-width: 0; }
+    .zone-pose-editor input:disabled { opacity: .6; cursor: not-allowed; }
+    .zone-pose-editor .rowbtn { height: 32px; margin: 0; white-space: nowrap; }
+    .zone-pose-help { grid-column: 1 / -1; font-size: 11px; }
     .zone-selection-empty { margin: 10px 0 0; text-align: center; }
     .section-kicker { color: var(--text-muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; margin-bottom: 10px; }
     .scenario-form { grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -314,10 +320,6 @@
     .preset-item strong { display: block; font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
     .preset-item span { display: block; margin-top: 2px; color: var(--text-muted); font-size: 12px; }
     .preset-item > div:last-child { display: flex; gap: 4px; flex: none; }
-    .mission-test-card { border-style: dashed; }
-    .mission-test-card summary { cursor: pointer; color: var(--text); font-weight: 700; }
-    .mission-test-card[open] summary { margin-bottom: 10px; }
-    .mission-toolbar .filter, .mission-toolbar .search { width: auto; min-width: 130px; }
     @media (max-width: 1280px) {
       .scenario-layout { grid-template-columns: 1fr; }
       .scenario-layout .layout-resizer--scenario { display: none; }
@@ -434,6 +436,10 @@
     .zone-marker.link-selected .zone-dot { stroke: var(--amber); stroke-width: 2; }
     .zone-marker.link-selected .scan-dot { stroke: var(--amber); stroke-width: 1.2; }
     .zone-marker.link-target .zone-dot { stroke-dasharray: 2 2; }
+    /* 우측 목록 선택을 맵에 반영하며 타입 색상은 유지한다. */
+    .zone-marker.zone-selected .zone-dot { stroke: var(--accent); stroke-width: 4; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 75%, transparent)); }
+    .zone-marker.zone-selected .scan-dot { stroke: var(--accent); stroke-width: 3; filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 75%, transparent)); }
+    .zone-marker.zone-selected .marker-label-pill { stroke: var(--accent); stroke-width: 2; }
     /* 커서 위치 world 좌표 실시간 표시 */
     .stage-coords { position: absolute; left: 8px; bottom: 8px; background: rgba(17,24,39,.78); color: #fff; font-size: 11px; padding: 3px 8px; border-radius: var(--radius-sm); pointer-events: none; }
     /* 구역 타입 색상 범례 */

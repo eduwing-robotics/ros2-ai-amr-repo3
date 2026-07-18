@@ -1,3 +1,4 @@
+// 기능 책임: callback 기반 task 단계 타임라인 표현을 검증한다. 비책임: command 실행.
 import { expect, test } from "@playwright/test";
 import { item, mockMainApi, robot } from "../support/mainApi";
 

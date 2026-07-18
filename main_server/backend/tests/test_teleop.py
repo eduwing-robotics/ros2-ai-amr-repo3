@@ -1,3 +1,4 @@
+# 기능 책임: 수동 명령 정규화·readiness·기록을 검증한다. 비책임: 실장비의 물리 동작.
 """Teleop workflow characterization tests."""
 
 from __future__ import annotations

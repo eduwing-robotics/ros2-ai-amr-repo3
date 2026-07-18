@@ -1,3 +1,4 @@
+// 기능 책임: 브라우저 테스트의 단일 Main API mock 경계를 제공한다. 비책임: Backend 계약 검증.
 import type { Page, Route } from "@playwright/test";
 
 // Single reusable Main API test boundary for browser acceptance tests.
@@ -30,7 +31,7 @@ type State = {
     operational_reason?: string;
     command_enabled?: boolean;
   }>;
-  navMissionStatus?: string;
+  navigatorStatus?: string;
 };
 
 function json(route: Route, body: unknown, status = 200) {
@@ -61,8 +62,6 @@ export async function mockMainApi(page: Page, state: State = {}) {
       },
       robots: runtimeRobots,
       camera_sources: state.cameraSources ?? [],
-      tasks: state.tasks ?? [],
-      events: state.events ?? [],
       movement_health: movementHealth,
     });
     if (path === "/robots") return json(route, responseRobots);
@@ -109,7 +108,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
       robot_online: state.movementOk ?? true,
       command_accepting: state.movementOk ?? true,
       localized: true,
-      mission_status: state.navMissionStatus ?? null,
+      navigator_status: state.navigatorStatus ?? "",
     });
     if (path === "/robot-commands" && req.method() === "POST") return json(route, { robot_id: responseRobot.robot_id, command_id: "cmd-goto-1", response: { accepted: true } });
     if (path === "/vision/streams") return json(route, {
@@ -117,6 +116,7 @@ export async function mockMainApi(page: Page, state: State = {}) {
     });
     if (path === "/vision/overlay/latest") return json(route, { staleness_sec: 0 });
     if (path === "/vision/overlay/latest/image") return route.fulfill({ status: 404, body: "" });
+    if (path === "/tasks") return json(route, state.tasks ?? []);
     if (path === "/tasks/recovery/awaiting-operator") return json(route, state.recoveryTasks ?? []);
     if (/^\/tasks\/\d+\/recovery\/preview$/.test(path)) return json(route, {
       task_id: 1,

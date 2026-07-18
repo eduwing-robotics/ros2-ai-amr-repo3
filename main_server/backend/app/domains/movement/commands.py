@@ -1,8 +1,5 @@
-"""Robot command envelope dispatch.
-
-단일 POST /robot-commands + kind 로 이동·수동조작·estop 을 라우팅한다.
-DB robot_commands 테이블 저장은 Phase C 이후 — 기존 movement_commands 기록 경로는 유지한다.
-"""
+"""책임: Main robot-command envelope를 Movement 요청으로 dispatch한다.
+비책임: 물리 동작 완료와 task terminal 상태 확정."""
 
 from __future__ import annotations
 
@@ -14,11 +11,10 @@ from fastapi import HTTPException, Request
 from app.api.helpers import callback_base_url
 from app.db.postgres import operational_events, robots
 from app.domains.execution import inout_scenarios
-from app.domains.movement import missions
+from app.domains.movement import command_status
 from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
 from app.domains.movement.navigation import resolve_movement_map_id
 from app.domains.movement.teleop import execute_teleop
-from app.models.movement import MissionStatusResponse
 from app.models.robot_commands import RobotCommandRequest, RobotCommandResponse
 from app.models.robots import TeleopRequest
 
@@ -29,15 +25,8 @@ def default_command_id(task_id: int | None, robot_id: str, kind: str) -> str:
     return f"{prefix}-{robot_id}-{kind}-{stamp}"
 
 
-def to_mission_status(result: RobotCommandResponse) -> MissionStatusResponse:
-    return MissionStatusResponse(
-        robot_id=result.robot_id,
-        command_id=result.command_id,
-        response=result.response,
-    )
-
-
 def resolve_callback_url(request: Request | None, override: str | None) -> str:
+    """안전한 Main callback URL만 허용하며 override가 없으면 public base를 검증한다."""
     if override:
         base = override.rstrip("/")
         if base.endswith("/movement/command-events"):
@@ -49,6 +38,7 @@ def resolve_callback_url(request: Request | None, override: str | None) -> str:
 
 
 def dispatch_robot_command(conn, payload: RobotCommandRequest, request: Request | None = None) -> RobotCommandResponse:
+    """Movement 요청 응답을 반환하며 접수 성공은 실제 동작 완료가 아니다."""
     if not robots.exists(conn, payload.robot_id):
         raise HTTPException(status_code=404, detail="robot not found")
     robot = robots.get(conn, payload.robot_id)
@@ -457,7 +447,8 @@ def _dispatch_passthrough(payload: RobotCommandRequest, command_id: str, callbac
 
 
 def get_command_status(robot_id: str, command_id: str) -> RobotCommandResponse:
-    response = missions.command_status(robot_id, command_id)
+    """Movement의 현재 command 상태를 조회하며 callback 영속화는 수행하지 않는다."""
+    response = command_status.fetch(robot_id, command_id)
     state = str(response.get("state") or response.get("status") or "")
     kind = str(response.get("kind") or response.get("command_kind") or "move_to_point")
     return RobotCommandResponse(

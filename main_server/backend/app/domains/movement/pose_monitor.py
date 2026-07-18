@@ -1,4 +1,5 @@
-"""Background pose polling, quality watchdog, and issue-only DB writer."""
+"""책임: pose callback 공백 보정·품질 watchdog·issue event queue를 관리한다.
+비책임: pose 생성과 task 상태 전이."""
 
 from __future__ import annotations
 

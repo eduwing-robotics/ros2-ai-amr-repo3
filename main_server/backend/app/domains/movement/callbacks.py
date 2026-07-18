@@ -1,4 +1,5 @@
-"""Movement callback application coordinator."""
+"""책임: Movement callback의 인증 후 멱등 적용과 runtime pose 반영을 조정한다.
+비책임: Movement 상태 생성과 로봇 물리 제어."""
 
 from __future__ import annotations
 

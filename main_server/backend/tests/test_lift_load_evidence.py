@@ -1,3 +1,4 @@
+# 기능 책임: Vision lift/load 결과의 record-only 증적을 검증한다. 비책임: 실장비의 물리 동작.
 """Unit tests for Main-side lift/load evidence integration."""
 
 from __future__ import annotations
@@ -182,8 +183,8 @@ class LiftLoadOrchestratorHookTest(unittest.TestCase):
         ):
             tasks.get_task.return_value = task
             evidence.attach_orchestration.side_effect = lambda row, _conn: row
-            evidence.resolve_command_def_id.return_value = 12
-            result = orchestrator.advance_task(conn, 303, {"event": "DONE", "command_id": "cmd-1"})
+            evidence.resolve_command_definition_id.return_value = 12
+            result = orchestrator.advance_on_command_event(conn, 303, {"event": "DONE", "command_id": "cmd-1"})
 
         self.assertIsNotNone(result)
         dispatch.assert_called_once_with(conn, 303)

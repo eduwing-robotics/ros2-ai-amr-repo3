@@ -87,8 +87,8 @@ export function MapEditorZonePanel({
         </table>
       </div>
       {selectedZone ? (
-        <div className="zone-selection-summary" role="status">
-          <div>
+        <div className="zone-selection-summary">
+          <div className="zone-selection-heading">
             <strong>{selectedZone.name}</strong>
             <span>{typeLabel(selectedZone.waypoint_type)} · <span className="mono">{selectedZone.x.toFixed(2)}, {selectedZone.y.toFixed(2)}</span></span>
           </div>
@@ -106,10 +106,51 @@ export function MapEditorZonePanel({
                 }} />
             </label>
           ) : null}
+          <SelectedZonePoseEditor zone={selectedZone} onSave={onSave} onValidationError={onValidationError} />
         </div>
       ) : <p className="muted zone-selection-empty">구역을 선택하면 상세 작업이 표시됩니다.</p>}
     </section>
   </aside>
+  );
+}
+
+/** 선택한 마커의 map 좌표(m)와 방향(°)을 수치로 수정한다. */
+function SelectedZonePoseEditor({ zone, onSave, onValidationError }: {
+  zone: Waypoint;
+  onSave: MapEditorZonePanelProps["onSave"];
+  onValidationError: (message: string) => void;
+}) {
+  const [x, setX] = useState(String(zone.x));
+  const [y, setY] = useState(String(zone.y));
+  const [yawDeg, setYawDeg] = useState(String(Math.round(radToDeg(zone.yaw ?? 0))));
+  const yawIsDerived = zone.waypoint_type === "approach" || isHelperWaypoint(zone);
+
+  useEffect(() => {
+    setX(String(zone.x));
+    setY(String(zone.y));
+    setYawDeg(String(Math.round(radToDeg(zone.yaw ?? 0))));
+  }, [zone.waypoint_id, zone.x, zone.y, zone.yaw]);
+
+  const savePose = () => {
+    const nextX = Number(x), nextY = Number(y), nextYawDeg = Number(yawDeg);
+    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return onValidationError("x, y는 숫자여야 합니다.");
+    if (!yawIsDerived && !Number.isFinite(nextYawDeg)) return onValidationError("yaw는 숫자여야 합니다.");
+    onSave(zone, {
+      name: zone.name, x: nextX, y: nextY,
+      yaw: yawIsDerived ? (zone.yaw ?? 0) : degToRad(nextYawDeg),
+      waypoint_type: zone.waypoint_type, scan_waypoint_id: zone.scan_waypoint_id,
+      aruco_marker_id: zone.aruco_marker_id, dock_mode: zone.dock_mode ?? "none",
+    });
+  };
+
+  return (
+    <div className="zone-pose-editor" aria-label="선택 마커 좌표 편집">
+      <label>X (m)<input aria-label="선택 마커 X 좌표 (m)" className="search mono" type="number" step="0.01" value={x} onChange={(e) => setX(e.target.value)} /></label>
+      <label>Y (m)<input aria-label="선택 마커 Y 좌표 (m)" className="search mono" type="number" step="0.01" value={y} onChange={(e) => setY(e.target.value)} /></label>
+      <label title={yawIsDerived ? "연결된 마커 방향에서 자동 계산됩니다." : "map 좌표계 기준 방향"}>Yaw (°)<input aria-label="선택 마커 Yaw (도)" className="search mono" type="number" step="1" value={yawDeg} disabled={yawIsDerived} onChange={(e) => setYawDeg(e.target.value)} /></label>
+      <button className="rowbtn primary" type="button" onClick={savePose}>좌표 저장</button>
+      {yawIsDerived ? <span className="zone-pose-help">Yaw는 연결 방향에서 자동 계산</span> : null}
+    </div>
   );
 }
 
@@ -175,6 +216,7 @@ function ZoneRow({ z, editing, selected, dockPair, linkActive, linkedHelperName,
           ) : null}
         </td>
         <td>
+          {selected ? <>
           {(isDockWaypoint(z) || isTransit || isApproach) ? (
             <>
               <button className={`rowbtn${linkActive ? " primary" : ""}`} onClick={onStartLink}>연결</button>
@@ -184,6 +226,7 @@ function ZoneRow({ z, editing, selected, dockPair, linkActive, linkedHelperName,
           ) : null}
           <button className="rowbtn" onClick={onEdit}>수정</button>
           <ConfirmButton onConfirm={onDelete} title="이 구역을 삭제" />
+          </> : null}
         </td>
       </tr>
     );

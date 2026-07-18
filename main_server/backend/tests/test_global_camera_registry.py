@@ -1,3 +1,4 @@
+# 기능 책임: 전역·로봇 카메라 source registry와 stream proxy을 검증한다. 비책임: 실장비의 물리 동작.
 """global_cam_01 camera registry tests."""
 
 from __future__ import annotations

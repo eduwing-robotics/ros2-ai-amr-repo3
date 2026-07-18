@@ -1,3 +1,4 @@
+# 기능 책임: background worker의 단일 실행 lock을 검증한다. 비책임: 실장비의 물리 동작.
 """Background workers use non-blocking PostgreSQL advisory locks."""
 
 from __future__ import annotations

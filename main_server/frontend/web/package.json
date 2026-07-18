@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint src",
-    "test:ux": "playwright test"
+    "test:ux": "playwright test",
+    "capture:docs": "LMS_CAPTURE_DOCS=1 playwright test tests/e2e/capture-docs.spec.ts --workers=1"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",

@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
   reporter: "list",
+  testIgnore: process.env.LMS_CAPTURE_DOCS === "1" ? [] : "**/capture-docs.spec.ts",
   use: {
     baseURL: "http://127.0.0.1:4173",
     channel: "chrome",

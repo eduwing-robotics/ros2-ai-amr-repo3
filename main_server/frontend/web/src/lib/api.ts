@@ -1,3 +1,7 @@
+/**
+ * 책임: 브라우저의 Main API JSON 요청과 오류 변환을 소유한다.
+ * 비책임: 재시도 정책, 서버 상태, Movement 완료 판정.
+ */
 // 타입화 fetch 클라이언트. 레거시 app.js 의 api() 를 대체한다.
 // 기본 base 는 동일 origin 의 /api/v1 (dev 는 vite 프록시가 :8088 로 전달).
 export const API_BASE =
@@ -15,6 +19,7 @@ export class ApiError extends Error {
   }
 }
 
+/** HTTP 2xx JSON만 반환하며 실패 시 status를 보존한 ApiError를 던진다. */
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,

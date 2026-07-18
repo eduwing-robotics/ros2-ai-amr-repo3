@@ -12,10 +12,8 @@ from app.db.postgres import robots as postgres_robots
 from app.db.postgres import tasks as postgres_tasks
 from app.domains.movement.client import movement_client
 from app.domains.movement.health import battery_from_health, get_movement_health
-from app.domains.records import movement_commands
 from app.domains.vision.cameras import apply_camera_stream_defaults, camera_system_config
 from app.domains.vision.client import fetch_camera_health
-from app.models.movement import RobotCommandRecord
 from app.models.records import CameraSource, ControlSystemStatusSnapshot
 from app.models.robots import Robot
 from app.models.tasks import RobotTask
@@ -97,12 +95,12 @@ RECOVERY_TASK_STATES = {"AWAITING_OPERATOR", "RECOVERY_REQUIRED"}
 def _derive_robot_operational_state(robot: Robot, snapshot: dict, estop_state: str | None) -> tuple[str, str, bool]:
     """Derive the operator-facing state without overwriting the DB task state."""
     task_state = str(robot.status or "UNKNOWN").upper()
+    if robot.enabled is False:
+        return "NOT_IN_USE", "robot_disabled", False
     if snapshot.get("is_emergency") or str(estop_state or "").startswith("stop_"):
         return "ESTOP", "emergency_stop_active", False
     if not snapshot or not snapshot.get("ok") or snapshot.get("robot_online") is False:
         return "OFFLINE", "movement_or_robot_offline", False
-    if robot.enabled is False:
-        return "NOT_READY", "robot_disabled", False
     if snapshot.get("localized") is False:
         return "FAULT", "localization_lost", False
     if snapshot.get("fault") or snapshot.get("error_code"):
@@ -186,8 +184,6 @@ def status() -> ControlSystemStatusSnapshot:
                 )
             ]
         )
-        commands = [RobotCommandRecord(**c) for c in movement_commands.list_movement_command_records(conn, limit=20)]
-        events = operational_events.list_operational_events(conn, limit=30)
         tasks = [RobotTask(**t) for t in postgres_tasks.list_tasks(conn, limit=30)]
         estop_states = operational_events.latest_estop_states(conn, [robot.robot_id for robot in robots])
         recovery_robot_ids = {
@@ -221,7 +217,4 @@ def status() -> ControlSystemStatusSnapshot:
         movement_health=movement_health,
         robots=robots,
         camera_sources=cameras,
-        movement_commands=commands,
-        events=events,
-        tasks=tasks,
     )

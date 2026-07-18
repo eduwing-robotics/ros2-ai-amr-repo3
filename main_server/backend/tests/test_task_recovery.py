@@ -1,3 +1,4 @@
+# 기능 책임: cargo 확인 기반 복구 preview 정책을 검증한다. 비책임: 실장비의 물리 동작.
 """Tests for E-stop recovery plan APIs."""
 
 from __future__ import annotations

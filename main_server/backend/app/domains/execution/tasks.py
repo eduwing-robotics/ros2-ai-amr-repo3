@@ -115,10 +115,6 @@ def _assert_robot_ready_for_assignment(robot_id: str) -> None:
         raise HTTPException(status_code=409, detail=detail)
 
 
-def complete_task(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
-    return orchestrator.finalize_running_task_as_done(conn, task_id, source)
-
-
 def cancel_task(conn, task_id: int, source: str = "operator") -> dict[str, Any]:
     return orchestrator.finalize_non_running_task_as_cancelled(conn, task_id, source)
 

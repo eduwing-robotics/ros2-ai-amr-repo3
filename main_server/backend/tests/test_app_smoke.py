@@ -1,3 +1,4 @@
+# 기능 책임: 애플리케이션 route·DBML 기본 구조을 검증한다. 비책임: 실장비의 물리 동작.
 """Lightweight backend smoke tests without external test dependencies."""
 
 from __future__ import annotations

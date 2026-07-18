@@ -10,7 +10,7 @@ from app.db.postgres import runtime_records
 def list_movement_command_records(conn, limit: int = 50) -> list[dict[str, Any]]:
     """Return command-shaped records without exposing unrelated runtime payloads."""
 
-    rows = runtime_records.list_runtime_records(conn, limit=max(limit, 1) * 5)
+    rows = runtime_records.list_movement_command_evidence(conn, limit=max(limit, 1))
     out: list[dict[str, Any]] = []
     for row in rows:
         data = row.get("data_json") or {}

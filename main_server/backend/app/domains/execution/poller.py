@@ -1,4 +1,5 @@
-"""Robot task progress poller — recover missed callbacks and auto-assign."""
+"""책임: 유실 callback 보정과 자동 배정을 단일 process에서 주기 실행한다.
+비책임: 새로운 업무 정책과 외부 시스템 상태의 정본."""
 
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ def poll_task_progress_once() -> dict:
 
 
 async def poll_task_progress_loop() -> None:
+    """5초 주기로 누락 진행을 보정하며 실패는 기록 후 다음 주기에 재시도한다."""
     while True:
         await asyncio.sleep(POLL_INTERVAL_SEC)
         try:

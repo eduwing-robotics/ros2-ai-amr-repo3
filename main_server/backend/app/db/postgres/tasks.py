@@ -5,8 +5,6 @@ from typing import Any
 
 from app.db.postgres.common import ACTIVE_TASK_STATUSES, DEFAULT_FLOOR, row_timestamp
 
-ACTIVE = ACTIVE_TASK_STATUSES
-
 
 def create_task_record(conn, data: dict[str, Any]) -> int:
     row = conn.execute(

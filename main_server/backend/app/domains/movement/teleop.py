@@ -1,8 +1,5 @@
-"""수동조작(teleop) 비즈니스 흐름.
-
-API 라우트는 HTTP 입출력만 담당하고, 이 파일은 명령 정규화, Movement 요청 생성,
-외부 호출, DB 기록까지 하나의 수동조작 유스케이스로 묶어 처리한다.
-"""
+"""책임: 수동 명령 정규화·readiness gate·Movement 전송·DB 기록을 조정한다.
+비책임: 조작 UI와 물리 정지 보장."""
 
 from __future__ import annotations
 

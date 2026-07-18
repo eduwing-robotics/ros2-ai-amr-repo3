@@ -1,32 +1,22 @@
-// 미션 호출(명령형). 캐시 대상이 아니라 편집기에서 직접 호출하고 결과를 표시한다.
+/**
+ * 책임: UI의 이동·초기 자세 요청을 Main command API로 변환한다.
+ * 비책임: Nav2 실행, command 완료 판정, 서버 상태 소유.
+ */
 import { apiGet, apiSend } from "./api";
-import { getRobotCommand, postRobotCommand } from "./robotCommands";
-import type { InitialPoseRequest, MissionGotoRequest, MissionStatusResponse, MovementCommandTrace, MovementMapState, MovementSyncStatus, RobotLocalization, RobotNavState } from "../types";
+import { postRobotCommand } from "./robotCommands";
+import type { InitialPoseRequest, MoveToPointRequest, MovementCommandTrace, MovementMapState, MovementSyncStatus, RobotLocalization, RobotNavState } from "../types";
 
-const gotoEnvelope = (body: MissionGotoRequest, dryRun: boolean) =>
+const sendMoveToPoint = (body: MoveToPointRequest, dryRun: boolean) =>
   postRobotCommand({
     robot_id: body.robot_id,
     kind: "move_to_point",
     command_id: body.command_id,
     dry_run: dryRun,
     params: { map_id: body.map_id, x: body.x, y: body.y, yaw: body.yaw ?? 0 },
-  }).then((r) => ({
-    robot_id: r.robot_id,
-    command_id: r.command_id,
-    response: r.response,
-  } satisfies MissionStatusResponse));
+  });
 
-// 맵 위 임의 좌표 1지점 이동(Nav2 goToPose 테스트).
-export const missionGotoPreview = (body: MissionGotoRequest) => gotoEnvelope(body, true);
-
-export const missionGoto = (body: MissionGotoRequest) => gotoEnvelope(body, false);
-
-export const missionStatus = (commandId: string, robotId: string) =>
-  getRobotCommand(commandId, robotId).then((r) => ({
-    robot_id: r.robot_id,
-    command_id: r.command_id,
-    response: r.response,
-  } satisfies MissionStatusResponse));
+/** 반환은 Main의 이동 명령 접수 결과이며 Nav2 도착을 의미하지 않는다. */
+export const moveToPoint = (body: MoveToPointRequest) => sendMoveToPoint(body, false);
 
 export const robotLocalization = (robotId: string) =>
   apiGet<RobotLocalization>(`/robots/${encodeURIComponent(robotId)}/localization`);
@@ -44,6 +34,7 @@ export const movementCommandTrace = (commandId: string, robotId?: string) =>
 
 export const movementSyncStatus = () => apiGet<MovementSyncStatus>("/movement/sync-status");
 
+/** @param body `map` frame 기준 자세(m·rad); 반환은 Movement 접수 결과다. */
 export const setRobotInitialPose = (robotId: string, body: InitialPoseRequest) =>
   apiSend<{ ok: boolean; robot_id: string; response: Record<string, unknown> }>(
     `/robots/${encodeURIComponent(robotId)}/initial-pose`,

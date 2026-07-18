@@ -1,3 +1,4 @@
+# 기능 책임: Movement active map과 Main asset 동기화을 검증한다. 비책임: 실장비의 물리 동작.
 """Movement map sync and resolve unit tests."""
 
 from __future__ import annotations

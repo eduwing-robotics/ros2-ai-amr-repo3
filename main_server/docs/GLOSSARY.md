@@ -5,13 +5,12 @@
 보조 독자: QA·기획자
 난이도: 개발
 소유: Docs · Architecture
-최종 갱신: 2026-07-16 16:00 KST
+최종 갱신: 2026-07-18 14:46 KST
 구현 기준: 공개 API·DB·UI에서 사용하는 현재 canonical 용어
-목적: Main_Control의 업무 개념, 코드·API·DB·UI 표현과 호환·폐기 용어를 한 곳에서 연결한다.
+목적: Main_Control의 업무 개념과 코드·API·DB·UI의 단일 표준 표현을 정의한다.
 
 이 문서는 현재 구현을 기준으로 승인된 공식 용어 정본이다. 세부 함수와 모든 필드를 나열하지 않고 업무 흐름,
-상태 축, 도메인 책임과 외부 계약 경계를 정의한다. 공개 API 또는 저장 JSON의 호환 필드는 별도 migration 승인
-전까지 유지하며, 신규 내부 코드에서는 canonical 이름만 사용한다.
+상태 축과 도메인 책임을 정의한다. 같은 개념은 코드·API·저장 데이터에서 같은 이름을 사용한다.
 
 ## 1. 한눈에 보는 핵심 구조
 
@@ -30,31 +29,28 @@ flowchart TD
 공식 계층은 `Work Order → Task → Step → Robot Command`다. 업무 문서에서는 `Task`와
 `Step`을 사용하고, 코드에서 주체를 분명히 해야 할 때는 `RobotTask`, `RobotTaskStep`을 사용한다.
 
-## 2. 시스템과 호환 경계
+## 2. 시스템 경계
 
 ```mermaid
 flowchart LR
   UI["운영자 UI"] --> Main["Main_Control<br/>관제 서버"]
   Main --> Exec["Execution<br/>Task·Step 조율"]
-  Exec --> Canon["Canonical Robot Command"]
-  Canon --> Adapter["Movement compatibility adapter"]
-  Adapter --> Movement["Movement Server<br/>주행·도킹·리프트"]
-  Movement -->|"robot_name · event/status · CANCELED 허용"| Adapter
-  Adapter -->|"robot_id · state · CANCELLED"| Exec
+  Exec --> Command["Robot Command"]
+  Command --> Movement["Movement Server<br/>주행·도킹·리프트"]
   Main --> Vision["Vision<br/>영상·인식·Evidence 입력"]
 ```
 
-Main_Control 내부에서는 canonical 이름을 사용한다. 외부 서버나 기존 클라이언트의 다른 이름은 호환 경계에서 받고,
-도메인 로직에 전달하기 전에 내부 표현으로 변환하는 것을 목표로 한다.
+Main_Control과 연동 서버는 동일 개념에 동일한 필드명을 사용한다. 계약 변경은 한쪽에 alias를 추가하지 않고
+공동 계약과 양쪽 구현을 함께 변경한다.
 
 ## 3. 빠른 대조표
 
-| 공식 업무 용어 | 코드 대표명 | API·저장 표현 | 한국어 UI | 호환·deprecated 표현 |
+| 공식 업무 용어 | 코드 대표명 | API·저장 표현 | 한국어 UI | 주의할 표현 |
 | --- | --- | --- | --- | --- |
 | Work Order | `WorkOrder` | `/work-orders`, `order_id` | 업무 요청 | Task projection 기반 현행 read model |
-| Task | `RobotTask` | `/tasks`, `task_id`, DB `tasks` | 작업 | Mission(일부 route·response) |
-| Step | `RobotTaskStep` | `steps[]`, `step_index` | 단계 | `leg`, `legs`, `cursor`, `leg_count` |
-| Robot Command | `RobotCommandRequest` | `/robot-commands`, `command_id`, `kind` | 로봇 명령 | `MovementCommand`, mission command |
+| Task | `RobotTask` | `/tasks`, `task_id`, DB `tasks` | 작업 | 없음 |
+| Step | `RobotTaskStep` | `steps[]`, `step_index` | 단계 | 없음 |
+| Robot Command | `RobotCommandRequest` | `/robot-commands`, `command_id`, `kind` | 로봇 명령 | 없음 |
 | Waypoint | `Waypoint` | `waypoint_id`, DB `locations` | 지점 | 식별자 의미의 `waypoint` 필드 |
 | Storage Slot | `StorageSlot` | `slot_id`, `locations(type=storage)` | 보관 슬롯 | 별도 물리 slot table로 오해하는 표현 |
 | Evidence | 해당 업무를 관측한 도메인의 기록 모델 | `evidence_events` | 증거·판정 기록 | 일반 event·조회 projection과 구분 |
@@ -86,7 +82,7 @@ Main_Control 내부에서는 canonical 이름을 사용한다. 외부 서버나 
 - 코드: `RobotTask`, `RobotTaskStatus`, `RobotTaskKind`
 - API·DB: `/tasks`, `task_id`, DB `tasks`
 - UI: 작업
-- 공개 호환 표현: 기존 `/start-mission` route의 Mission. 내부 함수명에는 사용하지 않는다.
+- 실행 API: `POST /tasks/{task_id}/start`
 
 ### Step
 
@@ -99,7 +95,7 @@ Task 시작 시 계획되어 `steps[]`에 저장되는 이동·정렬·도킹 �
 - 코드: `RobotTaskStep`, `RobotTaskStepStatus`
 - 저장 표현: `steps[]`, `step_index`
 - canonical 저장 표현: `steps`, `step_index`, `step_count`
-- 저장·공개 호환 표현: `legs`, `cursor`, `leg_count` (migration 승인 전 read/response 경계에만 유지)
+- 저장 표현은 `steps`, `step_index`, `step_count`로 단일화하며 migration `0007`이 구형 JSON을 변환한다.
 - 검수 필요: Command 재시도를 별도 Command Attempt 개념으로 공식화할지 결정해야 한다.
 
 ### Robot Command
@@ -114,24 +110,9 @@ Main이 로봇의 한 가지 동작을 요청하기 위해 Movement로 보내는
 - 현재 kind: `move_to_point`, `dock_transfer`, `manual_drive`, `estop`, `aruco_align`, `leave_dock`
 - 기록 projection: `RobotCommandRecord`, movement command 기록
 
-### Movement Command
+### 명칭 일관성
 
-Movement 서버로 전송되거나 Movement 응답에서 관찰되는 명령 표현이다. 현재 `MovementCommand`는
-`RobotCommandRecord`의 호환 alias이며, Main_Control 내부의 별도 업무 계층으로 취급하지 않는다.
-
-- 권장 사용처: Movement client·adapter·연동 문서
-- 내부 canonical 개념: Robot Command
-- deprecated 코드 alias: `MovementCommand`
-
-### Mission
-
-Main_Control의 도메인 개념이 아니다. 기존 Task 시작 route, Movement Server API, 응답 wrapper와
-`mission_results`에 남은 공개 계약 용어다.
-
-- 현행 표현: `/tasks/{id}/start-mission`, `MissionStatusResponse`, `mission_results`, Movement mission route
-- 확정 기준: 내부 함수·변수에는 사용하지 않고 Movement Server·기존 공개 API 경계에서만 허용
-- 현재 내부 이름: `start_task_execution`, Step, Robot Command
-- 후속 승인 필요: `/start-mission`, `MissionStatusResponse`, `mission_results` 제거는 공개 계약 변경으로 별도 수행
+Task 실행과 로봇 동작은 각각 Task, Step, Robot Command로만 표현한다. 같은 개념의 API·모델·저장 필드는 동일한 이름을 사용한다.
 
 ## 5. 위치와 물류 용어
 
@@ -213,8 +194,8 @@ DB는 현재 `DONE` 대신 `COMPLETED`를 저장해 repository 경계에서 변�
 
 - 소유 경계: Movement가 발생시키고 Main의 movement adapter가 정규화
 - canonical 철자: `state`, `CANCELLED`
-- 호환 입력: `event`, `status`, `result`, `CANCELED`, `ABORTED`, `REJECTED`
-- normalization: `ABORTED`, `REJECTED` → `FAILED`; `STOPPED`, `CANCELED` → `CANCELLED`
+- callback `event`와 조회 `state`는 계약별 역할을 유지하되 동일 상태 값은 같은 철자를 사용한다.
+- 실패 종료는 `FAILED`, 취소 종료는 `CANCELLED`로 기록한다.
 
 ### Orchestration Phase
 
@@ -274,52 +255,17 @@ Movement 실행 결과와 안전 관련 사건 등이 `evidence_events`에 기�
 - 관련 식별자: `task_id`, `command_id`, `event_type`, `source`, `observed_at`
 - 경계: `records`는 현재 조회 projection을 제공하며 다른 도메인의 기록 생성 정책을 소유하지 않는다.
 
-## 9. canonical 필드와 호환 입력
+## 9. 금지 동의어
 
-```mermaid
-flowchart LR
-  Raw["External payload<br/>호환 표현 허용"] --> Adapter["Compatibility adapter<br/>검증·정규화"]
-  Adapter --> Canon["Canonical internal model<br/>단일 이름"]
-  Canon --> Domain["Domain logic"]
-```
+`Mission`, `MovementCommand`, `leg`, `legs`, `cursor`, `leg_count`, `mission_id`는 신규·기존 코드 모두에서 사용하지 않는다.
+동일 개념의 계층별 alias를 만들지 않으며 기존 orchestration JSON은 migration `0007`로 변환한다.
 
-| 의미 | 내부 canonical | 외부 호환 입력 | 비고 |
-| --- | --- | --- | --- |
-| 로봇 ID | `robot_id` | `robot_name` | adapter 직후 `robot_id`만 유지 |
-| 명령 ID | `command_id` | mission 관련 ID는 별도 검수 | 재전송 멱등 키 |
-| 명령 상태 | `state` | `event`, `status`, `result` | 상태 축의 `status` 명칭과 구분 |
-| 명령 종류 | `kind` | `command_type` | 기록 projection은 호환 가능 |
-| Task ID | `task_id` | `mission_id` | Mission 호환 경계만 허용 |
-| 발생 시각 | `reported_at` | 서버 수신 시각 | 외부 사건 시각과 저장 시각 구분 |
-| Waypoint ID | `waypoint_id` | `waypoint` | 식별자 의미일 때만 변환 |
-| 취소 철자 | `CANCELLED` | `CANCELED` | 영국식 철자를 canonical로 사용 |
-
-## 10. deprecated·금지 동의어
-
-아래 규칙은 신규 내부 코드에 적용한다. 외부 compatibility adapter, migration, 기존 저장 데이터 read와
-공개 API 호환은 예외로 두며, 실제 제거는 소비자와 저장 데이터 확인 후 별도로 진행한다.
-
-| 공식 표현 | 신규 내부 코드에서 피할 표현 | 현재 허용 위치 | 제거 조건 |
-| --- | --- | --- | --- |
-| Step | `leg` | 기존 orchestration JSON과 alias | 저장 데이터 migration과 소비자 전환 |
-| Robot Command | `MovementCommand`, mission command | Movement adapter·기록 projection | 외부 연동과 기록 타입 전환 |
-| Task | Mission | Movement route·기존 API response | API deprecation 정책 승인 |
-| Main_Control | Main, LMS, main server 식별자 | `LMS_*` 환경변수와 기존 배포 설정 | 설정 prefix migration 별도 승인 |
-| `robot_id` | `robot_name` | 외부 Movement 입력 | Movement 계약 전환 |
-| `state` | command `event/status/result` | callback input adapter | 외부 계약 전환 |
-| `task_id` | `mission_id` | Movement 호환 표면 | Mission 제거 조건 충족 |
-| `waypoint_id` | 식별자인 `waypoint` | 외부 입력 adapter | 소비자 전환 |
-| `CANCELLED` | `CANCELED` | 외부 입력 normalization | 외부 상태 철자 전환 |
-
-## 11. 확정 사항과 남은 공개 계약 검수
+## 10. 확정 사항
 
 이번 검수에서 확정한 항목:
 
 1. 공식 계층은 `Work Order → Task → Step → Robot Command`다.
 2. Work Order–Task는 현행 1:1이며 DB migration을 하지 않는다.
-3. 내부 canonical 용어는 Step이고 `leg`는 저장·공개 호환 경계만 허용한다.
+3. 실행 단계는 Step이며 저장 키는 `steps`와 `step_index`만 사용한다.
 4. Task 초기 상태는 `QUEUED`, 내부 완료는 `DONE`, DB 완료는 `COMPLETED`다.
 5. 시스템 표준 명칭은 `Main_Control`이다.
-
-남은 검수는 공개 계약 변경 두 가지다: Mission route/type/response 필드 제거 시점, 저장된 `legs/cursor` 제거를
-위한 데이터 migration 여부. 둘 다 현재 소비자와 저장 데이터 확인 후 별도 변경한다.

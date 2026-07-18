@@ -1,3 +1,4 @@
+# 기능 책임: runtime map 선택과 mismatch 보호을 검증한다. 비책임: 실장비의 물리 동작.
 """ — RuntimeMapContext unit tests."""
 
 from __future__ import annotations

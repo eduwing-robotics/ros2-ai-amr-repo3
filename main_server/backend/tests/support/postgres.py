@@ -1,3 +1,4 @@
+# 기능 책임: PostgreSQL fixture 적용·정리 transaction을 검증한다. 비책임: 실장비의 물리 동작.
 """Test-only PostgreSQL fixture loader.
 
 Demo data (BOX-A/BOX-B, demo locations/markers) lives only under tests/support/

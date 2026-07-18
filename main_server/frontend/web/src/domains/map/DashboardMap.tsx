@@ -1,3 +1,7 @@
+/**
+ * 책임: map asset 위 로봇·구역·Goto overlay와 pointer 좌표 변환을 표시한다.
+ * 비책임: pose 정본, 경로 생성, 로봇 이동 승인.
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useMaps, useRobots, useWaypoints } from "../../hooks/useScenarioData";
@@ -5,7 +9,7 @@ import { useInventory } from "../warehouse/useWarehouseData";
 import { pairsFromWaypoints, isHelperWaypoint } from "../../lib/dockPairs";
 import { pairedScanWaypointIds, ZONE_DOT_R, ZONE_YAW_LEN } from "../../lib/scanMarker";
 import { MAP_POSE_REFETCH_MS, useRobotPoses } from "../../hooks/useRobotPoses";
-import { movementSyncStatus } from "../../lib/missions";
+import { movementSyncStatus } from "../../lib/movementApi";
 import { isMapRuntimeMismatch, mapAssetWarning, poseOutOfBounds, runtimeBadgeLabel } from "../../lib/mapRuntime";
 import { clientToPixel, pixelToWorld, worldToPixel, yawFromPixel } from "../../lib/coords";
 import { agoLabel, poseFreshness } from "../../lib/format";
@@ -20,6 +24,7 @@ import { ApproachRouteOverlay } from "./ApproachRouteOverlay";
 import { GotoTargetMarker, RobotPoseMarkers, RuntimeMapCanvas } from "./RuntimeMapCanvas";
 import { useGotoTargetOptional } from "../operate/GotoTargetContext";
 
+/** pointer 목표는 map frame(m·rad)으로 변환되며 실제 이동은 별도 명시 명령이 필요하다. */
 export function DashboardMap({
   gotoMode = false,
   selectedRobotId,

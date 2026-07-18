@@ -1,8 +1,5 @@
-"""Movement 서버 전달 경계.
-
-Main/LMS 서버는 docs/reference/MAIN_SERVER_COMMUNICATION_SPEC.md의 Movement 수동 조작 API를 호출한다.
-로봇별 Nav API 포트가 다르므로 robot_id에 따라 base URL을 선택한다.
-"""
+"""책임: 로봇별 Movement HTTP endpoint 선택과 제한된 요청·응답 변환을 소유한다.
+비책임: 재시도 업무 정책과 로봇 주행 상태의 정본."""
 
 from __future__ import annotations
 
@@ -80,14 +77,6 @@ class MovementClient:
 
     def manual_stop(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """진행 중인 수동 조작을 정지한다."""
-        raise NotImplementedError
-
-    def mission_preview(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Movement 서버에 mission preview를 요청한다."""
-        raise NotImplementedError
-
-    def mission_start(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """Movement 서버에 mission 실행을 요청한다."""
         raise NotImplementedError
 
     def dock_transfer(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -225,12 +214,6 @@ class HttpMovementClient(MovementClient):
     def manual_stop(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return self._post_json_for_robot(robot_id, "/manual/stop", body, kind="manual_stop")
 
-    def mission_preview(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        return self._post_json_for_robot(robot_id, "/missions/preview", body, kind="mission_preview")
-
-    def mission_start(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        return self._post_json_for_robot(robot_id, "/missions", body, kind="mission_start")
-
     def command_status(self, robot_id: str, command_id: str) -> dict[str, Any]:
         """GET /robot-commands/{id} from the canonical Movement API root."""
         last_error: MovementClientError | None = None
@@ -277,12 +260,12 @@ class HttpMovementClient(MovementClient):
         return self._get_json_for_robot(target_robot, "/map-state", kind="map_state")
 
     def estop(self, robot_id: str) -> dict[str, Any]:
-        result = self._post_json_for_robot(robot_id, "/robot/estop", {}, kind="estop")
+        result = self._post_json_to_api_origin_for_robot(robot_id, "/robot/estop", {}, kind="estop")
         set_robot_emergency(robot_id, True)
         return result
 
     def clear_estop(self, robot_id: str) -> dict[str, Any]:
-        result = self._post_json_for_robot(robot_id, "/robot/clear_estop", {}, kind="clear_estop")
+        result = self._post_json_to_api_origin_for_robot(robot_id, "/robot/clear_estop", {}, kind="clear_estop")
         set_robot_emergency(robot_id, False)
         return result
 
@@ -370,6 +353,21 @@ class HttpMovementClient(MovementClient):
         for base in self._bases_for(robot_id):
             try:
                 return self._get_json(f"{base}{rel}", robot_id, kind=kind)
+            except MovementClientError as exc:
+                if exc.status_code is not None:
+                    raise
+                last_error = exc
+        raise last_error or MovementClientError("movement unreachable")
+
+    def _post_json_to_api_origin_for_robot(
+        self, robot_id: str, path: str, payload: dict[str, Any], *, kind: str
+    ) -> dict[str, Any]:
+        """Movement 서버 루트에 공개된 안전 명령을 로봇별 endpoint로 전송한다."""
+        last_error: MovementClientError | None = None
+        relative_path = path if path.startswith("/") else f"/{path}"
+        for base in self._bases_for(robot_id):
+            try:
+                return self._post_json(f"{self._api_origin(base)}{relative_path}", payload, kind=kind)
             except MovementClientError as exc:
                 if exc.status_code is not None:
                     raise
