@@ -1,4 +1,4 @@
-"""Scenario API v1 validation and expansion into validated physical steps."""
+"""Scenario API v1 validation and expansion into canonical physical steps."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from typing import Any, Dict, Iterable, List, Tuple
 
 from nav_app.models import MovementStep, ScenarioCommandRequest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_VERSION = "1.0"
 ACTIVE_MAP_ID = "robot2_map"
@@ -18,73 +17,66 @@ COORDINATE_TOLERANCE_M = 0.05
 YAW_TOLERANCE_RAD = 0.20
 
 BUSINESS_STEPS: Tuple[Tuple[str, str], ...] = (
-    ("LEAVE_HOME", "leave_home"),
-    ("PICKUP_APPROACH", "pickup_approach"),
-    ("PICKUP_ALIGN", "pickup_align"),
-    ("LOAD", "load"),
-    ("TRANSPORT", "transport"),
-    ("DROPOFF_ALIGN", "dropoff_align"),
-    ("UNLOAD", "unload"),
-    ("RETURN_HOME", "return_home"),
-    ("PARK", "park"),
+    ("LEAVE_HOME", "leave_home"), ("PICKUP_APPROACH", "pickup_approach"),
+    ("PICKUP_ALIGN", "pickup_align"), ("LOAD", "load"), ("TRANSPORT", "transport"),
+    ("DROPOFF_ALIGN", "dropoff_align"), ("UNLOAD", "unload"),
+    ("RETURN_HOME", "return_home"), ("PARK", "park"),
 )
 
-_PROFILES = {
-    "inbound": {
-        "template": ROOT / "docs" / "main_inbound2_storage_a_level1_return_wait2_20260716.json",
-        "pickup": ("INBOUND_02", "inbound_slot_2_approach", 1),
-        "dropoff": ("STORAGE_02", "warehouse_a_approach", 1),
-        "route_type": "inbound2_storage_a_return_wait2",
-    },
-    "outbound": {
-        "template": ROOT / "docs" / "main_storage_a_outbound2_level1_return_wait2_20260716.json",
-        "pickup": ("STORAGE_02", "warehouse_a_approach", 1),
-        "dropoff": ("OUTBOUND_02", "outbound_slot_2_approach", 1),
-        "route_type": "storage_a_outbound2_return_wait2",
-    },
+_TEMPLATES = {
+    "inbound": ROOT / "docs" / "main_inbound2_storage_a_level1_return_wait2_20260716.json",
+    "outbound": ROOT / "docs" / "main_storage_a_outbound2_level1_return_wait2_20260716.json",
+}
+_BASE_ENDPOINTS = {
+    "inbound": ("inbound_slot_2_approach", "warehouse_a_approach"),
+    "outbound": ("warehouse_a_approach", "outbound_slot_2_approach"),
+}
+_LOCATION_WAYPOINTS = {
+    "INBOUND_01": "inbound_slot_1_approach", "INBOUND_02": "inbound_slot_2_approach",
+    "OUTBOUND_01": "outbound_slot_1_approach", "OUTBOUND_02": "outbound_slot_2_approach",
+    "STORAGE_01": "warehouse_a_approach", "STORAGE_02": "warehouse_a_approach",
+    "STORAGE_A": "warehouse_a_approach", "STORAGE_B": "warehouse_b_approach",
+    "STORAGE_C": "warehouse_c_approach", "STORAGE_D": "warehouse_d_approach",
+}
+_ROLE_PREFIXES = {
+    "inbound": ("INBOUND_", "STORAGE_"),
+    "outbound": ("STORAGE_", "OUTBOUND_"),
 }
 
 
 class ScenarioContractError(ValueError):
     def __init__(self, code: str, message: str):
         super().__init__(message)
-        self.code = code
-        self.message = message
+        self.code, self.message = code, message
 
 
 def error_detail(exc: ScenarioContractError) -> Dict[str, Any]:
     return {"code": exc.code, "message": exc.message, "retryable": False}
 
 
-def _load_template(path: Path) -> Dict[str, Any]:
+def _load_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _validate_endpoint(label: str, endpoint, expected: Tuple[str, str, int], template: Dict[str, Any]) -> None:
-    location_id, waypoint_id, floor = expected
-    if endpoint.location_id != location_id or endpoint.approach.waypoint_id != waypoint_id:
-        raise ScenarioContractError(
-            "waypoint_location_mismatch",
-            f"{label} must use {location_id} with {waypoint_id} for the validated v1 profile.",
-        )
-    if endpoint.floor != floor:
-        raise ScenarioContractError("floor_profile_missing", f"{label} floor {endpoint.floor} is not configured.")
-    expected_goal = next(
-        goal
-        for step in template["steps"]
-        for goal in (step.get("payload", {}).get("goals") or [])
-        if goal.get("waypoint") == waypoint_id
-    )
-    distance = math.hypot(endpoint.approach.x - float(expected_goal["x"]), endpoint.approach.y - float(expected_goal["y"]))
-    yaw_error = abs(math.atan2(
-        math.sin(endpoint.approach.yaw - float(expected_goal["yaw"])),
-        math.cos(endpoint.approach.yaw - float(expected_goal["yaw"])),
-    ))
+def _waypoint_profiles() -> Dict[str, Dict[str, Any]]:
+    return _load_json(ROOT / "config" / "lms_nav_waypoint_map_tb3_2.json")["nav_waypoints"]
+
+
+def _resolve_endpoint(label: str, endpoint, expected_prefix: str) -> Tuple[str, Dict[str, Any]]:
+    location_id = endpoint.location_id.upper()
+    if not location_id.startswith(expected_prefix):
+        raise ScenarioContractError("waypoint_location_mismatch", f"{label} must be a {expected_prefix.rstrip('_')} location.")
+    waypoint_id = _LOCATION_WAYPOINTS.get(location_id)
+    if waypoint_id is None or endpoint.approach.waypoint_id != waypoint_id:
+        raise ScenarioContractError("waypoint_location_mismatch", f"{label} location {location_id} is not paired with {endpoint.approach.waypoint_id}.")
+    profile = _waypoint_profiles().get(waypoint_id)
+    if profile is None:
+        raise ScenarioContractError("waypoint_profile_missing", f"No canonical profile for {waypoint_id}.")
+    distance = math.hypot(endpoint.approach.x - profile["x"], endpoint.approach.y - profile["y"])
+    yaw_error = abs(math.atan2(math.sin(endpoint.approach.yaw - profile["yaw"]), math.cos(endpoint.approach.yaw - profile["yaw"])))
     if distance > COORDINATE_TOLERANCE_M or yaw_error > YAW_TOLERANCE_RAD:
-        raise ScenarioContractError(
-            "coordinate_mismatch",
-            f"{label} approach differs from the approved profile (xy={distance:.3f}m yaw={yaw_error:.3f}rad).",
-        )
+        raise ScenarioContractError("coordinate_mismatch", f"{label} approach differs from canonical profile (xy={distance:.3f}m yaw={yaw_error:.3f}rad).")
+    return waypoint_id, profile
 
 
 def _annotate(steps: List[Dict[str, Any]], indexes: Iterable[int], business_index: int) -> None:
@@ -92,15 +84,12 @@ def _annotate(steps: List[Dict[str, Any]], indexes: Iterable[int], business_inde
     code, action = BUSINESS_STEPS[business_index]
     for offset, physical_index in enumerate(indexes):
         payload = steps[physical_index].setdefault("payload", {})
-        payload["business_step_index"] = business_index
-        payload["business_step_code"] = code
-        payload["business_step_action"] = action
-        payload["business_step_start"] = offset == 0
-        payload["business_step_complete"] = offset == len(indexes) - 1
+        payload.update(business_step_index=business_index, business_step_code=code,
+                       business_step_action=action, business_step_start=offset == 0,
+                       business_step_complete=offset == len(indexes) - 1)
 
 
 def _apply_business_steps(steps: List[Dict[str, Any]]) -> None:
-    # The two validated templates intentionally share this 18-step physical shape.
     mapping = ((1,), (2,), (3, 4, 5, 6), (7,), (8,), (9, 10, 11, 12), (13,), (14,), (15, 16, 17))
     if len(steps) != 18:
         raise ScenarioContractError("waypoint_profile_missing", "Validated scenario template must contain 18 physical steps.")
@@ -108,45 +97,61 @@ def _apply_business_steps(steps: List[Dict[str, Any]]) -> None:
         _annotate(steps, physical_indexes, business_index)
 
 
+def _replace_endpoint(steps: List[Dict[str, Any]], old_wp: str, new_wp: str, profile: Dict[str, Any]) -> None:
+    old_marker = _waypoint_profiles()[old_wp].get("aruco_marker_id")
+    new_marker = profile.get("aruco_marker_id")
+    old_token, new_token = old_wp.removesuffix("_approach"), new_wp.removesuffix("_approach")
+    for step in steps:
+        payload = step.setdefault("payload", {})
+        if payload.get("aruco_marker_id") == old_marker:
+            payload["aruco_marker_id"] = new_marker
+        if isinstance(payload.get("stage"), str):
+            payload["stage"] = payload["stage"].replace(old_token, new_token)
+        for goal in payload.get("goals") or []:
+            if goal.get("waypoint") == old_wp:
+                goal.update(waypoint=new_wp, x=profile["x"], y=profile["y"], yaw=profile["yaw"])
+
+
+def _apply_floor(steps: List[Dict[str, Any]], scenario_type: str, storage_floor: int) -> None:
+    if storage_floor not in (1, 2):
+        raise ScenarioContractError("floor_profile_missing", f"Storage floor {storage_floor} is not configured.")
+    if scenario_type == "inbound":
+        steps[11]["payload"]["target_height_mm"] = 6 if storage_floor == 1 else 50
+        steps[13]["payload"]["level"] = storage_floor
+    else:
+        steps[5]["payload"]["target_height_mm"] = 0 if storage_floor == 1 else 50
+        steps[7]["payload"]["level"] = storage_floor
+
+
 def build_scenario_command(req: ScenarioCommandRequest) -> Tuple[List[MovementStep], Dict[str, Any]]:
     if req.contract_version != CONTRACT_VERSION:
         raise ScenarioContractError("invalid_request", "contract_version must be exactly 1.0.")
     if req.map.map_id != ACTIVE_MAP_ID or req.map.frame_id != "map":
         raise ScenarioContractError("map_mismatch", f"Active map is {ACTIVE_MAP_ID} with frame_id map.")
-    profile = _PROFILES.get(req.scenario_type)
-    if not profile:
-        raise ScenarioContractError("invalid_request", f"Unsupported scenario_type: {req.scenario_type}")
-    template = _load_template(profile["template"])
-    _validate_endpoint("pickup", req.pickup, profile["pickup"], template)
-    _validate_endpoint("dropoff", req.dropoff, profile["dropoff"], template)
 
-    steps = copy.deepcopy(template["steps"])
-    request_goals = {
-        req.pickup.approach.waypoint_id: req.pickup.approach,
-        req.dropoff.approach.waypoint_id: req.dropoff.approach,
-    }
+    pickup_wp, pickup_profile = _resolve_endpoint("pickup", req.pickup, _ROLE_PREFIXES[req.scenario_type][0])
+    dropoff_wp, dropoff_profile = _resolve_endpoint("dropoff", req.dropoff, _ROLE_PREFIXES[req.scenario_type][1])
+    steps = copy.deepcopy(_load_json(_TEMPLATES[req.scenario_type])["steps"])
+    old_pickup, old_dropoff = _BASE_ENDPOINTS[req.scenario_type]
+    _replace_endpoint(steps, old_pickup, pickup_wp, pickup_profile)
+    _replace_endpoint(steps, old_dropoff, dropoff_wp, dropoff_profile)
+    storage_floor = req.dropoff.floor if req.scenario_type == "inbound" else req.pickup.floor
+    _apply_floor(steps, req.scenario_type, storage_floor)
+    route_type = f"{pickup_wp.removesuffix('_approach')}_{dropoff_wp.removesuffix('_approach')}_return_wait2"
     for step in steps:
-        payload = step.setdefault("payload", {})
-        payload["route_type"] = profile["route_type"]
-        for goal in payload.get("goals") or []:
-            snapshot = request_goals.get(goal.get("waypoint"))
-            if snapshot:
-                goal.update(x=snapshot.x, y=snapshot.y, yaw=snapshot.yaw)
+        step.setdefault("payload", {})["route_type"] = route_type
     _apply_business_steps(steps)
+
+    canonical_pickup = req.pickup.model_dump()
+    canonical_pickup["approach"].update(pickup_profile)
+    canonical_dropoff = req.dropoff.model_dump()
+    canonical_dropoff["approach"].update(dropoff_profile)
     metadata = {
-        "contract_version": CONTRACT_VERSION,
-        "scenario_contract": True,
-        "scenario_type": req.scenario_type,
-        "execution_id": f"exec-{req.command_id}",
-        "authority_owner": "MOVEMENT",
-        "authority_released": False,
-        "cargo_state": "EMPTY",
-        "business_completed": False,
-        "current_step_code": None,
-        "last_completed_step_index": None,
-        "map_id": req.map.map_id,
-        "frame_id": req.map.frame_id,
-        "pickup": req.pickup.model_dump(),
-        "dropoff": req.dropoff.model_dump(),
+        "contract_version": CONTRACT_VERSION, "scenario_contract": True,
+        "scenario_type": req.scenario_type, "execution_id": f"exec-{req.command_id}",
+        "authority_owner": "MOVEMENT", "authority_released": False,
+        "cargo_state": "EMPTY", "business_completed": False, "current_step_code": None,
+        "last_completed_step_index": None, "map_id": req.map.map_id, "frame_id": req.map.frame_id,
+        "pickup": canonical_pickup, "dropoff": canonical_dropoff, "route_type": route_type,
     }
     return [MovementStep(**step) for step in steps], metadata

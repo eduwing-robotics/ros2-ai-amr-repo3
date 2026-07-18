@@ -179,3 +179,92 @@ def test_generic_preview_validates_without_creating_command():
         "warnings": [],
     }
     assert runtime.movement_commands == before
+
+
+@pytest.mark.parametrize(
+    "scenario_type,pickup_id,pickup_wp,pickup_xyz,dropoff_id,dropoff_wp,dropoff_xyz,marker",
+    [
+        ("inbound", "INBOUND_01", "inbound_slot_1_approach", (-0.085, 0.006, 1.571),
+         "STORAGE_B", "warehouse_b_approach", (0.033, -0.376, 0.0), 8),
+        ("outbound", "STORAGE_02", "warehouse_a_approach", (0.019, -0.618, 0.0),
+         "OUTBOUND_01", "outbound_slot_1_approach", (1.131, 0.006, 1.571), 5),
+        ("outbound", "STORAGE_D", "warehouse_d_approach", (1.225, -0.377, 3.141592653589793),
+         "OUTBOUND_02", "outbound_slot_2_approach", (1.45, 0.006, 1.571), 6),
+    ],
+)
+def test_scenario_compiles_registered_location_combinations(
+    scenario_type, pickup_id, pickup_wp, pickup_xyz, dropoff_id, dropoff_wp, dropoff_xyz, marker
+):
+    payload = request_payload(scenario_type)
+    payload["pickup"] = {
+        "location_id": pickup_id, "floor": 1,
+        "approach": {"waypoint_id": pickup_wp, "x": pickup_xyz[0], "y": pickup_xyz[1], "yaw": pickup_xyz[2]},
+    }
+    payload["dropoff"] = {
+        "location_id": dropoff_id, "floor": 1,
+        "approach": {"waypoint_id": dropoff_wp, "x": dropoff_xyz[0], "y": dropoff_xyz[1], "yaw": dropoff_xyz[2]},
+    }
+    steps, metadata = build_scenario_command(ScenarioCommandRequest(**payload))
+    assert len(steps) == 18
+    destination_step = steps[8]
+    assert destination_step.payload["goals"][0]["waypoint"] == dropoff_wp
+    assert steps[9].payload["aruco_marker_id"] == marker
+    assert steps[13].payload["aruco_marker_id"] == marker
+    assert metadata["dropoff"]["approach"]["waypoint_id"] == dropoff_wp
+
+
+def test_scenario_uses_canonical_coordinates_after_tolerance_validation():
+    payload = request_payload("outbound")
+    payload["dropoff"] = {
+        "location_id": "OUTBOUND_01", "floor": 1,
+        "approach": {"waypoint_id": "outbound_slot_1_approach", "x": 1.14, "y": 0.01, "yaw": 1.58},
+    }
+    steps, metadata = build_scenario_command(ScenarioCommandRequest(**payload))
+    goal = steps[8].payload["goals"][0]
+    assert (goal["x"], goal["y"], goal["yaw"]) == (1.131, 0.006, 1.571)
+    assert metadata["dropoff"]["approach"]["x"] == 1.131
+
+
+@pytest.mark.parametrize("scenario_type", ["inbound", "outbound"])
+def test_scenario_compiles_storage_floor_two(scenario_type):
+    payload = request_payload(scenario_type)
+    storage = payload["dropoff"] if scenario_type == "inbound" else payload["pickup"]
+    storage["floor"] = 2
+    steps, _ = build_scenario_command(ScenarioCommandRequest(**payload))
+    assert steps[13 if scenario_type == "inbound" else 7].payload["level"] == 2
+    assert steps[11 if scenario_type == "inbound" else 5].payload["target_height_mm"] == 50
+
+
+def test_all_registered_route_and_floor_combinations_compile():
+    profiles = {
+        "INBOUND_01": ("inbound_slot_1_approach", -0.085, 0.006, 1.571),
+        "INBOUND_02": ("inbound_slot_2_approach", 0.234, 0.006, 1.571),
+        "STORAGE_A": ("warehouse_a_approach", 0.019, -0.618, 0.0),
+        "STORAGE_B": ("warehouse_b_approach", 0.033, -0.376, 0.0),
+        "STORAGE_C": ("warehouse_c_approach", 1.239, -0.631, 3.141592653589793),
+        "STORAGE_D": ("warehouse_d_approach", 1.225, -0.377, 3.141592653589793),
+        "OUTBOUND_01": ("outbound_slot_1_approach", 1.131, 0.006, 1.571),
+        "OUTBOUND_02": ("outbound_slot_2_approach", 1.45, 0.006, 1.571),
+    }
+    def endpoint(location_id, floor):
+        wp, x, y, yaw = profiles[location_id]
+        return {"location_id": location_id, "floor": floor,
+                "approach": {"waypoint_id": wp, "x": x, "y": y, "yaw": yaw}}
+
+    compiled = 0
+    for floor in (1, 2):
+        for inbound in ("INBOUND_01", "INBOUND_02"):
+            for storage in ("STORAGE_A", "STORAGE_B", "STORAGE_C", "STORAGE_D"):
+                payload = request_payload("inbound")
+                payload["pickup"], payload["dropoff"] = endpoint(inbound, 1), endpoint(storage, floor)
+                steps, _ = build_scenario_command(ScenarioCommandRequest(**payload))
+                assert len(steps) == 18
+                compiled += 1
+        for storage in ("STORAGE_A", "STORAGE_B", "STORAGE_C", "STORAGE_D"):
+            for outbound in ("OUTBOUND_01", "OUTBOUND_02"):
+                payload = request_payload("outbound")
+                payload["pickup"], payload["dropoff"] = endpoint(storage, floor), endpoint(outbound, 1)
+                steps, _ = build_scenario_command(ScenarioCommandRequest(**payload))
+                assert len(steps) == 18
+                compiled += 1
+    assert compiled == 32
