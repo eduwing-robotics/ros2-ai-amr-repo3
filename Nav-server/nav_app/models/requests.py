@@ -83,7 +83,7 @@ class ScenarioApproachSnapshot(BaseModel):
     waypoint_id: str
     x: float
     y: float
-    yaw: float = Field(ge=-3.141592653589793, le=3.141592653589793)
+    yaw: float = Field(ge=-3.142, le=3.142)
 
 
 class ScenarioLocationSnapshot(BaseModel):
