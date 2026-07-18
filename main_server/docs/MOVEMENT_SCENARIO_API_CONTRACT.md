@@ -238,7 +238,7 @@ X-Movement-Callback-Token: <shared-secret>
 | `reason_code` | string/null | 실패 시 | 기계 판독 가능한 원인 코드 |
 | `reported_at` | string | 예 | RFC 3339 UTC |
 
-필드 자체는 생략할 수 없다. `COMMAND_ACCEPTED`, 첫 `COMMAND_RUNNING`, 첫 `STEP_STARTED`처럼 완료된 단계가 없는 callback은 `last_completed_step_index: null`을 명시한다.
+Movement는 원칙적으로 필드를 생략하지 않는다. 단, `COMMAND_ACCEPTED`, 첫 `COMMAND_RUNNING`, 첫 `STEP_STARTED`처럼 완료된 단계가 없는 초기 callback은 `last_completed_step_index` 생략을 `null`과 동일하게 수신한다. 이후 callback에는 필수다.
 
 `current_step_action`은 운영 로그용이며 Main은 이 값으로 step·Task·재고 상태를 변경하지 않는다.
 

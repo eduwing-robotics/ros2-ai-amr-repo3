@@ -66,7 +66,6 @@ class RobotCommandEvent(BaseModel):
             "task_id",
             "robot_name",
             "event",
-            "last_completed_step_index",
             "cargo_state",
             "business_completed",
             "message",
@@ -99,6 +98,11 @@ class RobotCommandEvent(BaseModel):
             "COMMAND_CANCELLED",
         }
         event = str(self.event or "").upper()
+        initial_without_completion = event in {"COMMAND_ACCEPTED", "COMMAND_RUNNING"} or (
+            event == "STEP_STARTED" and self.current_step_index == 0
+        )
+        if "last_completed_step_index" not in self.model_fields_set and not initial_without_completion:
+            raise ValueError("scenario callback missing fields: last_completed_step_index")
         if event not in events:
             raise ValueError("invalid scenario callback event")
         if self.cargo_state not in {"EMPTY", "LOADED", "UNKNOWN"}:

@@ -254,14 +254,22 @@ def _initial_scenario_callback(event: str) -> dict:
 
 
 @pytest.mark.parametrize("event", ["COMMAND_ACCEPTED", "COMMAND_RUNNING", "STEP_STARTED"])
-def test_initial_scenario_callback_requires_explicit_null_last_completed_step(event: str) -> None:
+def test_initial_scenario_callback_allows_omitted_last_completed_step(event: str) -> None:
     callback = RobotCommandEvent.model_validate(_initial_scenario_callback(event))
     assert callback.last_completed_step_index is None
 
     missing = _initial_scenario_callback(event)
     missing.pop("last_completed_step_index")
+    callback = RobotCommandEvent.model_validate(missing)
+    assert callback.last_completed_step_index is None
+
+
+def test_later_scenario_callback_still_requires_last_completed_step() -> None:
+    payload = _initial_scenario_callback("STEP_STARTED")
+    payload.update(current_step_index=1, current_step_code="PICKUP_APPROACH")
+    payload.pop("last_completed_step_index")
     with pytest.raises(ValidationError, match="last_completed_step_index"):
-        RobotCommandEvent.model_validate(missing)
+        RobotCommandEvent.model_validate(payload)
 
 
 def test_callback_schema_exposes_nullable_last_completed_step() -> None:
