@@ -250,6 +250,7 @@ X-Movement-Callback-Token: <shared-secret>
 | `COMMAND_RUNNING` | 전체 시나리오 실행 시작 |
 | `STEP_STARTED` | `current_step_code` 실행 시작 |
 | `STEP_COMPLETED` | `current_step_code` 완료 |
+| `BUSINESS_COMPLETED` | UNLOAD 완료 후 Movement가 보내는 정보성 확인; Task·재고는 앞선 UNLOAD `STEP_COMPLETED`로만 전진 |
 | `COMMAND_DONE` | PARK 포함 전체 성공 |
 | `COMMAND_FAILED` | 복구 없는 실행 실패 |
 | `COMMAND_ABORTED` | ESTOP·제어 중단으로 종료 |

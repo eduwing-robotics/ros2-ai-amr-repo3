@@ -91,6 +91,7 @@ class RobotCommandEvent(BaseModel):
             "COMMAND_RUNNING",
             "STEP_STARTED",
             "STEP_COMPLETED",
+            "BUSINESS_COMPLETED",
             "COMMAND_DONE",
             "COMMAND_FAILED",
             "COMMAND_ABORTED",
@@ -128,6 +129,14 @@ class RobotCommandEvent(BaseModel):
             )
         ):
             raise ValueError("scenario UNLOAD completion requires EMPTY completed cargo")
+        if event == "BUSINESS_COMPLETED" and not (
+            self.current_step_index == 6
+            and self.current_step_code == "UNLOAD"
+            and self.last_completed_step_index == 6
+            and self.cargo_state == "EMPTY"
+            and self.business_completed is True
+        ):
+            raise ValueError("scenario BUSINESS_COMPLETED requires completed UNLOAD and EMPTY cargo")
         if self.business_completed:
             if self.cargo_state != "EMPTY" or (self.last_completed_step_index or -1) < 6:
                 raise ValueError("business_completed requires UNLOAD and EMPTY cargo")

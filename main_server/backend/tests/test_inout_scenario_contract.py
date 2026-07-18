@@ -270,6 +270,28 @@ def test_callback_schema_exposes_nullable_last_completed_step() -> None:
     assert {variant.get("type") for variant in variants} == {"integer", "null"}
 
 
+def test_observed_business_completed_callback_is_accepted_as_informational() -> None:
+    callback = RobotCommandEvent.model_validate(
+        {
+            "contract_version": "1.0",
+            "event_id": "tb3_2:cmd-355:16",
+            "sequence": 16,
+            "command_id": "cmd-355",
+            "task_id": 355,
+            "robot_name": "tb3_2",
+            "event": "BUSINESS_COMPLETED",
+            "current_step_index": 6,
+            "current_step_code": "UNLOAD",
+            "last_completed_step_index": 6,
+            "cargo_state": "EMPTY",
+            "business_completed": True,
+            "message": "storage unload complete",
+            "reported_at": "2026-07-18T08:01:01Z",
+        }
+    )
+    assert callback.event == "BUSINESS_COMPLETED"
+
+
 def test_scenario_callback_model_rejects_step_code_mismatch() -> None:
     with pytest.raises(ValidationError):
         RobotCommandEvent.model_validate(

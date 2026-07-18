@@ -27,6 +27,7 @@ def test_duplicate_location_ids_are_rejected(tmp_path: Path) -> None:
 
 def test_default_manifest_ships_approved_movement_locations() -> None:
     manifest = load_manifest(DEFAULT_MANIFEST)
+    assert manifest["revision"] == "2026-07-18-tb3_2-validated-level1"
     locations = {row["id"]: row for row in manifest["locations"]}
     assert len(locations) == 11
     assert locations["inbound_slot_1_pre_approach"] == {
@@ -38,6 +39,20 @@ def test_default_manifest_ships_approved_movement_locations() -> None:
         "yaw": 1.571,
     }
     assert locations["inbound_slot_1_approach"]["marker_id"] == 0
+    assert {
+        key: (locations[key]["x"], locations[key]["y"], locations[key]["yaw"])
+        for key in (
+            "inbound_slot_2_approach",
+            "warehouse_a_approach",
+            "outbound_slot_2_approach",
+            "vehicle_2_approach",
+        )
+    } == {
+        "inbound_slot_2_approach": (0.234, 0.006, 1.571),
+        "warehouse_a_approach": (0.019, -0.618, 0.0),
+        "outbound_slot_2_approach": (1.45, 0.006, 1.571),
+        "vehicle_2_approach": (0.816, 0.006, 1.571),
+    }
     assert locations["warehouse_c_approach"]["marker_id"] == 10
     assert {row["type"] for row in locations.values()} == {"scan", "transit"}
     assert not ({"INBOUND_01", "STORAGE_A", "HOME", "scan_INBOUND_01"} & locations.keys())

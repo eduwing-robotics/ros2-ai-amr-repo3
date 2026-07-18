@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "map_id": "robot2_map",
-  "revision": "2026-07-09-movement-json-2-scan-only",
+  "revision": "2026-07-18-tb3_2-validated-level1",
   "frame_id": "map",
   "assets": {
     "yaml": "maps/robot2_map.yaml",
