@@ -213,6 +213,17 @@ def test_scenario_compiles_registered_location_combinations(
     assert metadata["dropoff"]["approach"]["waypoint_id"] == dropoff_wp
 
 
+@pytest.mark.parametrize("location_id,waypoint_id", [
+    ("STORAGE_01", "warehouse_b_approach"),
+    ("STORAGE_02", "warehouse_a_approach"),
+    ("STORAGE_03", "warehouse_c_approach"),
+    ("STORAGE_04", "warehouse_d_approach"),
+])
+def test_numeric_storage_locations_use_physical_warehouse_mapping(location_id, waypoint_id):
+    from nav_app.services.scenario_contract import _LOCATION_WAYPOINTS
+    assert _LOCATION_WAYPOINTS[location_id] == waypoint_id
+
+
 def test_scenario_uses_canonical_coordinates_after_tolerance_validation():
     payload = request_payload("outbound")
     payload["dropoff"] = {
