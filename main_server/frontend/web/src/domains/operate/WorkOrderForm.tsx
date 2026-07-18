@@ -22,10 +22,6 @@ import {
 } from "../../types/warehouse";
 type AssignMode = "auto" | "manual";
 
-const MOVEMENT_V1_INBOUND_STORAGE_BY_ZONE: Record<string, string> = {
-  INBOUND_02: "STORAGE_02",
-};
-
 const ROBOT_BLOCK_GUIDANCE: Record<string, string> = {
   amcl_pose_not_received: "초기 위치를 설정하고 AMCL pose 수신을 확인하세요.",
   localization_lost: "맵에서 초기 위치를 다시 지정하세요.",
@@ -299,11 +295,10 @@ export function WorkOrderForm({
   const quantityOverStock = operation === "outbound" && itemCode && qty > stockOnHand;
   const noEmptySlot = operation === "inbound" && !!itemCode && emptySlots < 1;
 
-  const slotCandidates = useMemo(() => {
-    const candidates = slotCandidatesForOperation(operation, slots, inventory, itemCode, qty, selectedFloor);
-    const requiredSlotId = operation === "inbound" ? MOVEMENT_V1_INBOUND_STORAGE_BY_ZONE[zoneId] : undefined;
-    return requiredSlotId ? candidates.filter((candidate) => candidate.slot_id === requiredSlotId) : candidates;
-  }, [operation, slots, inventory, itemCode, qty, selectedFloor, zoneId]);
+  const slotCandidates = useMemo(
+    () => slotCandidatesForOperation(operation, slots, inventory, itemCode, qty, selectedFloor),
+    [operation, slots, inventory, itemCode, qty, selectedFloor],
+  );
 
   const manualSlotReady = assignMode === "manual" && manualSlotId.length > 0;
   const selectedZoneMissingScan = !!zoneId && !linkedDockPairs.some((p) => p.dock_waypoint_id === zoneId && p.dock_mode === "aruco");
