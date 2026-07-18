@@ -473,9 +473,12 @@ GET /movement-api/v1/health
 - `robot_online`
 - `cmd_vel_subscribers`
 - `command_accepting`
-- `navigator_status`
+- `nav2_ready` (boolean)
 - `localized`
+- `navigator_status`
 - `simulation_mode`
+
+Main은 `ok=true`만으로 작업을 전송하지 않는다. 실제 명령 전에는 `dry_run=false`, `robot_online=true`, `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false`를 모두 확인한다. URL과 명령 JSON 계약은 그대로이며 상세 변경점은 `docs/handoff/MAIN_MOVEMENT_READINESS_2026-07-17.md`를 따른다.
 
 ### Robot status
 

@@ -46,7 +46,7 @@ def movement_health():
     robot_online = robot_context.active_robot_online()
     cmd_vel_subscribers = robot_context.cmd_vel_subscriber_count()
     command_accepting = robot_context.command_accepting(is_emergency)
-    nav2_ready = None if command_accepting and not dry_run else False
+    nav2_ready = bool(runtime.navigator and getattr(runtime.navigator, "nav2_ready", False)) if not dry_run else True
     pose = runtime.navigator.get_current_pose() if runtime.navigator else None
     return {
         "ok": True,

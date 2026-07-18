@@ -150,7 +150,11 @@ def _report_initial_acceptance(command: Dict[str, Any], callback_payload: Option
     if callback_url and callback_payload:
         if runtime.state_store:
             runtime.state_store.enqueue_callback(callback_url, callback_payload)
-        delivered = post_json_callback(callback_url, callback_payload, label="CommandCallback")
+        delivered = post_json_callback(
+            callback_url, callback_payload, label="CommandCallback",
+            on_failure=(lambda outcome: runtime.state_store.record_callback_failure(callback_payload["event_id"], outcome))
+            if runtime.state_store else None,
+        )
         if delivered and runtime.state_store:
             runtime.state_store.mark_callback_delivered(callback_payload["event_id"])
     robot_context.report_movement_robot_status(command["robot_name"], command["command_id"], "busy")
@@ -413,13 +417,16 @@ def movement_robot_pose(robot_name: str):
     if not runtime.navigator:
         raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
     robot_context.assert_active_bridge_robot(robot_name, "위치 조회")
-    pose = runtime.navigator.get_current_pose()
+    is_emergency = bool(runtime.navigator.safety.estop)
+    readiness = robot_context.readiness_snapshot(is_emergency)
     return {
         "robot_name": robot_name,
         "robot_id": ACTIVE_ROBOT_ID,
         "ros_domain_id": current_ros_domain_id(),
-        "localized": pose is not None,
-        "pose": pose,
+        "localized": readiness["localized"],
+        "pose_fresh": readiness["pose_fresh"],
+        "pose_in_map": readiness["pose_in_map"],
+        "pose": readiness["pose"],
         "reported_at": _utc_now(),
     }
 
@@ -466,11 +473,12 @@ def movement_robot_nav_state(robot_name: str):
     if not runtime.navigator or not runtime.mission_manager:
         raise HTTPException(status_code=503, detail="시스템 초기화 중입니다.")
     robot_context.assert_active_bridge_robot(robot_name, "nav-state 조회")
-    pose = runtime.navigator.get_current_pose()
-    online = robot_context.active_robot_online()
-    cmd_vel_subscribers = robot_context.cmd_vel_subscriber_count()
     is_emergency = bool(runtime.navigator.safety.estop)
-    command_accepting = robot_context.command_accepting(is_emergency)
+    readiness = robot_context.readiness_snapshot(is_emergency)
+    pose = readiness["pose"]
+    online = readiness["robot_online"]
+    cmd_vel_subscribers = robot_context.cmd_vel_subscriber_count()
+    command_accepting = readiness["command_accepting"]
     pose_age = pose.get("age_sec") if pose else None
     return {
         "robot_name": robot_name,
@@ -484,7 +492,7 @@ def movement_robot_nav_state(robot_name: str):
         "cmd_vel_subscribers": cmd_vel_subscribers,
         "cmd_vel_subscriber_nodes": robot_context.cmd_vel_subscribers(),
         "command_accepting": command_accepting,
-        "nav2_ready": None if command_accepting and not runtime.mission_manager.dry_run else False,
+        "nav2_ready": readiness["nav2_ready"],
         "navigator_status": runtime.navigator.status,
         "mission_status": runtime.mission_manager.mission_status,
         "is_emergency": is_emergency,
@@ -496,7 +504,7 @@ def movement_robot_nav_state(robot_name: str):
         "amcl_pose_received": bool(runtime.navigator.has_amcl_pose()),
         "simulated_pose_received": bool(runtime.navigator.has_simulated_pose()),
         "initial_pose_required": pose is None and online and not is_simulation_mode(),
-        "reason": robot_context.localization_reason(pose, online),
+        "reason": readiness["reason"],
         "active_commands": [
             command_id for command_id, command in runtime.movement_commands.items()
             if command.get("robot_name") == robot_name and command.get("state") in ("ACCEPTED", "RUNNING")
@@ -732,7 +740,10 @@ def movement_preview_route(req: MovementRouteRequest):
     }
 
 
-@router.post("/movement-api/v1/scenarios/inbound2-storage-b/preview")
+@router.post(
+    "/movement-api/v1/scenarios/inbound2-storage-b/preview",
+    description="Fixed legacy inbound2-storage-b profile preview; not a validator for generic ScenarioCommandRequest payloads.",
+)
 def movement_preview_inbound2_storage_b(req: Inbound2StorageBScenarioRequest):
     """Preview the fixed tb3_2 inbound2 load -> storage B unload -> wait2 park scenario."""
     return _inbound2_storage_b_preview(req)

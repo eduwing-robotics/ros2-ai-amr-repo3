@@ -20,6 +20,8 @@ class NavRuntime:
         self.outbox_stop = threading.Event()
         self.status_heartbeat_thread: Optional[threading.Thread] = None
         self.status_heartbeat_stop = threading.Event()
+        self.nav2_readiness_thread: Optional[threading.Thread] = None
+        self.nav2_readiness_stop = threading.Event()
         self.movement_commands: Dict[str, Dict[str, Any]] = {}
         self.last_arrived_gate_by_robot: Dict[str, Dict[str, Any]] = {}
         self.command_state_lock = threading.Lock()

@@ -29,7 +29,7 @@ if [[ "${1:-}" == "--list" || -z "${1:-}" ]]; then
     exit 0
   fi
   find "$SNAP_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '  %f\n' | sort
-  [[ -n "${1:-}" ]] || exit 0
+  exit 0
 fi
 
 NAME="$1"

@@ -21,7 +21,7 @@ class Picamera2CompressedPublisher(Node):
         super().__init__('camera')
         self.declare_parameter('width', 320)
         self.declare_parameter('height', 240)
-        self.declare_parameter('jpeg_quality', 90)
+        self.declare_parameter('jpeg_quality', 75)
         self.declare_parameter('brightness', -0.05)
         self.declare_parameter('contrast', 1.15)
         self.declare_parameter('saturation', 0.80)
@@ -42,9 +42,9 @@ class Picamera2CompressedPublisher(Node):
         self._quality = quality
 
         qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
-            depth=5,
+            depth=1,
             durability=DurabilityPolicy.VOLATILE,
         )
         self._pub = self.create_publisher(CompressedImage, topic, qos)
@@ -65,7 +65,7 @@ class Picamera2CompressedPublisher(Node):
             'Sharpness': sharpness,
         })
         self._picam.start()
-        period = float(os.environ.get('CAMERA_PUBLISH_PERIOD_SEC', '0.1'))
+        period = float(os.environ.get('CAMERA_PUBLISH_PERIOD_SEC', '0.2'))
         self._timer = self.create_timer(period, self._publish)
         self.get_logger().info(
             f'picamera2 publisher {width}x{height} → {topic} (q={quality}, '

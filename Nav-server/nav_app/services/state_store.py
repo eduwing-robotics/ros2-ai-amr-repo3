@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 import os
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List
+
+from nav_app.settings import CALLBACK_MAX_ATTEMPTS
 
 
 class MovementStateStore:
@@ -58,12 +61,38 @@ class MovementStateStore:
                 "event_id": event_id,
                 "callback_url": callback_url,
                 "payload": payload,
+                "delivery_state": "pending",
+                "retry_count": 0,
+                "first_failure_at": None,
+                "last_failure_at": None,
+                "last_http_status": None,
+                "last_response_body": None,
             })
             self._write()
 
     def pending_callbacks(self) -> List[Dict[str, Any]]:
         with self.lock:
-            return json.loads(json.dumps(self.data["outbox"]))
+            return json.loads(json.dumps([
+                item for item in self.data["outbox"] if item.get("delivery_state", "pending") == "pending"
+            ]))
+
+    def record_callback_failure(self, event_id: str, outcome: Dict[str, Any]) -> None:
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        with self.lock:
+            for item in self.data["outbox"]:
+                if item.get("event_id") != event_id:
+                    continue
+                item["retry_count"] = int(item.get("retry_count", 0)) + 1
+                item["first_failure_at"] = item.get("first_failure_at") or now
+                item["last_failure_at"] = now
+                item["last_http_status"] = outcome.get("status")
+                item["last_response_body"] = outcome.get("response_body")
+                if not outcome.get("retryable", False):
+                    item["delivery_state"] = "terminal_failure"
+                elif item["retry_count"] >= CALLBACK_MAX_ATTEMPTS:
+                    item["delivery_state"] = "retry_exhausted"
+                self._write()
+                return
 
     def mark_callback_delivered(self, event_id: str) -> None:
         with self.lock:

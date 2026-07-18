@@ -162,3 +162,20 @@ def test_app_exposes_v1_routes_and_schema_error_envelope():
             "retryable": False,
         }
     }
+
+
+def test_generic_preview_validates_without_creating_command():
+    from fastapi.testclient import TestClient
+    from nav_app.app import create_app
+    payload = request_payload()
+    before = copy.deepcopy(runtime.movement_commands)
+    response = TestClient(create_app()).post("/movement-api/v1/scenario-commands/preview", json=payload)
+    assert response.status_code == 200
+    assert response.json() == {
+        "valid": True,
+        "validation_only": True,
+        "resolved_profiles": {"pickup": "inbound_slot_2_approach", "dropoff": "warehouse_a_approach"},
+        "blocking_reasons": [],
+        "warnings": [],
+    }
+    assert runtime.movement_commands == before

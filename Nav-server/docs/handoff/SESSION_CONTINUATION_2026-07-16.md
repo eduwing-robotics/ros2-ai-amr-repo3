@@ -114,3 +114,4 @@ curl -fsS http://127.0.0.1:8002/robot/status
 ```
 
 ROS 점검 시 domain 5 설정을 먼저 로드한다. `/cmd_vel`, route, scenario, dock, lift command topic에는 사용자의 새 지시 전까지 publish/post하지 않는다.
+

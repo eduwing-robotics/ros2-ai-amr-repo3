@@ -19,6 +19,7 @@ import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import String
 from camera_calibration import load_calibration
@@ -113,7 +114,7 @@ class ArucoDetectorNode(Node):
                 raise ValueError(f"invalid camera calibration file {calibration_file}: {exc}") from exc
 
         self.publisher = self.create_publisher(String, self.detection_topic, 10)
-        self.subscription = self.create_subscription(CompressedImage, self.image_topic, self._image_callback, 10)
+        self.subscription = self.create_subscription(CompressedImage, self.image_topic, self._image_callback, qos_profile_sensor_data)
         self.frames_seen = 0
         self.detections_seen = 0
         self.last_log_time = 0.0

@@ -5,7 +5,7 @@
 보조 독자: 통합 QA·현장 운영 담당자
 난이도: 연동
 소유: Main·Movement Integration
-최종 갱신: 2026-07-16 19:40 KST
+최종 갱신: 2026-07-18 KST
 구현 기준: 2026-07-16 확정된 Scenario API v1.0 목표 계약; 현재 구현과 다른 항목은 이 계약으로 전환
 목적: Main이 업무 위치와 실제 접근 좌표를 한 번 전송하고 Movement가 전체 입출고를 실행하면서 공통 업무 단계로 진행도를 callback하는 양방향 정본 계약.
 
@@ -117,7 +117,7 @@ profile의 연결, 해당 층의 리프트 profile 존재 여부를 확인한다
 
 ### 3.5 평문 JSON 예시
 
-아래 좌표는 형식을 설명하는 snapshot이며 실행 시 Main DB의 현재 값을 사용한다.
+아래 좌표는 tb3_2 1층 실차 성공본과 일치하는 승인 snapshot이다. Main DB도 이 값을 정본으로 저장하고, 실행 시 임의 보정하거나 반올림하지 않는다.
 
 ```json
 {
@@ -147,7 +147,7 @@ profile의 연결, 해당 층의 리프트 profile 존재 여부를 확인한다
       "waypoint_id": "warehouse_a_approach",
       "x": 0.019,
       "y": -0.618,
-      "yaw": -0.02480715457412523
+      "yaw": 0.0
     }
   },
   "callback_url": "http://smartfactory-main.local:8088/api/v1/movement/command-events"
@@ -550,3 +550,12 @@ Main은 `COMMAND_DONE`만으로 Task를 완료하지 않고 다음을 모두 확
 - 양쪽 배포 전 contract fixture와 callback fixture를 같은 테스트 데이터로 검증한다.
 - Movement 물리 튜닝 변경은 API version을 올리지 않지만, 동일 waypoint·floor의 안전 의미가 바뀌면 공동 실기
   검증 기록을 남긴다.
+
+
+## Generic scenario preview
+
+`POST /movement-api/v1/scenario-commands/preview`는 실행 API와 동일한 `ScenarioCommandRequest`를 검증한다. command 생성, authority 획득, Nav2/lift/docking 동작과 callback 전송은 하지 않는다.
+
+응답은 `valid`, `validation_only`, `resolved_profiles`, `blocking_reasons`, `warnings`를 포함한다. 기존 `/movement-api/v1/scenarios/inbound2-storage-b/preview`는 fixed legacy profile 전용이며 generic payload 검증 API가 아니다.
+
+Terminal event(`COMMAND_FAILED`, `COMMAND_ABORTED`, `COMMAND_STOPPED`, `COMMAND_CANCELLED`)의 필수 진단 키는 값이 없더라도 명시적 `null`로 유지한다. Callback `401/404/422`는 영구 실패로 보존하고 재전송하지 않으며 timeout/5xx만 제한적으로 재시도한다.

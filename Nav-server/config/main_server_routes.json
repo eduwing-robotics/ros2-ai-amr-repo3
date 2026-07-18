@@ -8,7 +8,7 @@
     "tb3_burger_02": "192.168.30.102",
     "tb3_2": "192.168.30.102"
   },
-  "webhook_endpoint": "http://127.0.0.1:8088/api/v1/movement/command-events",
+  "webhook_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
   "robots": [
     {
       "robot_id": "tb3_burger_01",
@@ -38,15 +38,15 @@
     }
   ],
   "nav_pc_fallback_host": "192.168.30.4",
-  "webhook_fallback_endpoint": "http://127.0.0.1:8088/api/v1/movement/command-events",
-  "main_public_base_url": "http://127.0.0.1:8088",
-  "main_api_base": "http://127.0.0.1:8088/api/v1",
-  "command_events_endpoint": "http://127.0.0.1:8088/api/v1/movement/command-events",
-  "movement_results_endpoint": "http://127.0.0.1:8088/api/v1/movement/results",
-  "robot_status_endpoint_template": "http://127.0.0.1:8088/api/v1/movement/robots/{robot_name}/status",
-  "main_public_fallback_base_url": "http://127.0.0.1:8088",
-  "main_api_fallback_base": "http://127.0.0.1:8088/api/v1",
-  "command_events_fallback_endpoint": "http://127.0.0.1:8088/api/v1/movement/command-events",
-  "movement_results_fallback_endpoint": "http://127.0.0.1:8088/api/v1/movement/results",
-  "robot_status_fallback_endpoint_template": "http://127.0.0.1:8088/api/v1/movement/robots/{robot_name}/status"
+  "webhook_fallback_endpoint": "http://192.168.30.9:8088/api/v1/movement/command-events",
+  "main_public_base_url": "http://smartfactory-main.local:8088",
+  "main_api_base": "http://smartfactory-main.local:8088/api/v1",
+  "command_events_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/command-events",
+  "movement_results_endpoint": "http://smartfactory-main.local:8088/api/v1/movement/results",
+  "robot_status_endpoint_template": "http://smartfactory-main.local:8088/api/v1/movement/robots/{robot_name}/status",
+  "main_public_fallback_base_url": "http://192.168.30.9:8088",
+  "main_api_fallback_base": "http://192.168.30.9:8088/api/v1",
+  "command_events_fallback_endpoint": "http://192.168.30.9:8088/api/v1/movement/command-events",
+  "movement_results_fallback_endpoint": "http://192.168.30.9:8088/api/v1/movement/results",
+  "robot_status_fallback_endpoint_template": "http://192.168.30.9:8088/api/v1/movement/robots/{robot_name}/status"
 }

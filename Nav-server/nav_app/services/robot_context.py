@@ -64,7 +64,11 @@ def active_robot_online():
 def command_accepting(is_emergency: bool = False):
     if not runtime.navigator:
         return False
-    return bool(not is_emergency and active_robot_online())
+    return bool(
+        not is_emergency
+        and active_robot_online()
+        and getattr(runtime.navigator, "nav2_ready", False)
+    )
 
 
 def current_battery_percent():
@@ -107,6 +111,48 @@ def localization_reason(pose, online: bool):
     if pose is None:
         return "amcl_pose_not_received"
     return "ok"
+
+
+def readiness_snapshot(is_emergency: bool = False):
+    """Return one consistent navigation/localization readiness snapshot."""
+    pose = runtime.navigator.get_current_pose() if runtime.navigator else None
+    online = active_robot_online()
+    dry_run = bool(runtime.mission_manager and runtime.mission_manager.dry_run)
+    nav2_ready = bool(runtime.navigator and getattr(runtime.navigator, "nav2_ready", False)) or dry_run
+    pose_age = pose.get("age_sec") if pose else None
+    try:
+        pose_fresh = pose is not None and (pose_age is None or float(pose_age) <= 5.0)
+    except (TypeError, ValueError, OverflowError):
+        pose_fresh = False
+    pose_in_map = bool(pose and pose.get("frame_id", "map") == "map")
+
+    if not runtime.navigator or not runtime.mission_manager:
+        reason = "system_initializing"
+    elif is_emergency:
+        reason = "estop_latched"
+    elif not online and not dry_run:
+        reason = "robot_offline"
+    elif pose is None and not dry_run:
+        reason = "initial_pose_required"
+    elif not pose_fresh and not dry_run:
+        reason = "pose_stale"
+    elif not pose_in_map and not dry_run:
+        reason = "pose_not_in_map"
+    elif not nav2_ready:
+        reason = "nav2_not_ready"
+    else:
+        reason = "ok"
+
+    return {
+        "pose": pose,
+        "robot_online": online,
+        "localized": pose is not None,
+        "pose_fresh": pose_fresh,
+        "pose_in_map": pose_in_map,
+        "nav2_ready": nav2_ready,
+        "command_accepting": command_accepting(is_emergency),
+        "reason": reason,
+    }
 
 
 def localization_payload(robot_name: str):

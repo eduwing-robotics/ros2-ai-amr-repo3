@@ -1,0 +1,13 @@
+{
+  "schema_version": "2026-07-18",
+  "robot_name": "tb3_2",
+  "map_id": "robot2_map",
+  "frame_id": "map",
+  "floor": 1,
+  "waypoints": {
+    "INBOUND_02": {"waypoint_id": "inbound_slot_2_approach", "x": 0.234, "y": 0.006, "yaw": 1.571},
+    "STORAGE_02": {"waypoint_id": "warehouse_a_approach", "x": 0.019, "y": -0.618, "yaw": 0.0},
+    "OUTBOUND_02": {"waypoint_id": "outbound_slot_2_approach", "x": 1.45, "y": 0.006, "yaw": 1.571},
+    "HOME": {"waypoint_id": "vehicle_2_approach", "x": 0.816, "y": 0.006, "yaw": 1.571}
+  }
+}

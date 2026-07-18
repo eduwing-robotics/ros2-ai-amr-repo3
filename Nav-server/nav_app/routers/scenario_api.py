@@ -54,6 +54,25 @@ def _check_execution_gate(command_id: str) -> None:
         _error(409, "robot_not_ready", "Navigator is not IDLE.")
 
 
+@router.post(
+    "/movement-api/v1/scenario-commands/preview",
+    summary="Validate a generic scenario command without execution",
+    description="Uses ScenarioCommandRequest and performs profile validation only. It creates no command, authority, callback, or robot motion.",
+)
+def preview_scenario_command(req: ScenarioCommandRequest):
+    try:
+        _steps, metadata = build_scenario_command(req)
+    except ScenarioContractError as exc:
+        return {"valid": False, "validation_only": True, "resolved_profiles": {}, "blocking_reasons": [error_detail(exc)], "warnings": []}
+    return {
+        "valid": True,
+        "validation_only": True,
+        "resolved_profiles": {"pickup": metadata["pickup"]["approach"]["waypoint_id"], "dropoff": metadata["dropoff"]["approach"]["waypoint_id"]},
+        "blocking_reasons": [],
+        "warnings": [],
+    }
+
+
 @router.post("/movement-api/v1/scenario-commands", status_code=202)
 def accept_scenario_command(
     req: ScenarioCommandRequest,

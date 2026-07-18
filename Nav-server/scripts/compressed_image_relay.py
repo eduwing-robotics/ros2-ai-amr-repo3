@@ -5,6 +5,7 @@ import os
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
 
 
@@ -17,8 +18,8 @@ class CompressedImageRelay(Node):
         self.output_topic = self.declare_parameter(
             'output_topic', os.getenv('RELAY_OUTPUT_TOPIC', '/mission/tb3_1/camera/compressed')
         ).value
-        self.publisher = self.create_publisher(CompressedImage, self.output_topic, 10)
-        self.subscription = self.create_subscription(CompressedImage, self.input_topic, self._callback, 10)
+        self.publisher = self.create_publisher(CompressedImage, self.output_topic, qos_profile_sensor_data)
+        self.subscription = self.create_subscription(CompressedImage, self.input_topic, self._callback, qos_profile_sensor_data)
         self.frames = 0
         self.get_logger().info(f'relaying compressed images: {self.input_topic} -> {self.output_topic}')
 

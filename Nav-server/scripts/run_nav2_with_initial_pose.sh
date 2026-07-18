@@ -24,6 +24,7 @@ TURTLEBOT3_MODEL="${TURTLEBOT3_MODEL:-burger}"
 INITIAL_POSE_DELAY_SEC="${INITIAL_POSE_DELAY_SEC:-8}"
 INITIAL_POSE_REPEAT_SEC="${INITIAL_POSE_REPEAT_SEC:-6}"
 NAV2_STARTUP_RETRY_SEC="${NAV2_STARTUP_RETRY_SEC:-180}"
+NAV2_AUTOSTART_GRACE_SEC="${NAV2_AUTOSTART_GRACE_SEC:-30}"
 ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-0}"
 
 ROBOT_NAME="tb3_2"
@@ -140,34 +141,65 @@ PY
 }
 
 retry_navigation_startup() {
-  local deadline output
+  local deadline node state all_active all_inactive localization_active output
+  local startup_requested=0
   deadline=$((SECONDS + NAV2_STARTUP_RETRY_SEC))
 
-  while (( SECONDS < deadline )); do
-    output="$(
-      timeout 4 ros2 service call /lifecycle_manager_navigation/is_active \
-        std_srvs/srv/Trigger "{}" 2>&1 || true
-    )"
+  echo "[nav2_helper] waiting ${NAV2_AUTOSTART_GRACE_SEC}s for launch autostart"
+  sleep "$NAV2_AUTOSTART_GRACE_SEC"
 
-    if grep -q "success=True" <<<"$output"; then
-      echo "[nav2_helper] navigation lifecycle already active"
+  while (( SECONDS < deadline )); do
+    localization_active=1
+    for node in map_server amcl; do
+      state="$(
+        timeout --signal=INT --kill-after=2s 5s ros2 lifecycle get "/$node" 2>/dev/null || true
+      )"
+      if [[ "$state" != *"active [3]"* ]]; then
+        localization_active=0
+      fi
+    done
+
+    all_active=1
+    all_inactive=1
+    for node in controller_server planner_server behavior_server bt_navigator; do
+      state="$(
+        timeout --signal=INT --kill-after=2s 5s ros2 lifecycle get "/$node" 2>/dev/null || true
+      )"
+      if [[ "$state" != *"active [3]"* ]]; then
+        all_active=0
+      fi
+      if [[ "$state" != *"inactive [2]"* ]]; then
+        all_inactive=0
+      fi
+    done
+
+    if [[ "$localization_active" == "1" && "$all_active" == "1" ]]; then
+      echo "[nav2_helper] navigation lifecycle active"
+      if [[ -n "$INITIAL_X" && -n "$INITIAL_Y" && -n "$INITIAL_YAW" ]]; then
+        publish_initial_pose "$INITIAL_X" "$INITIAL_Y" "$INITIAL_YAW"
+      fi
       return 0
     fi
 
-    output="$(
-      timeout 8 ros2 service call /lifecycle_manager_navigation/manage_nodes \
-        nav2_msgs/srv/ManageLifecycleNodes "{command: 0}" 2>&1 || true
-    )"
-
-    if grep -q "success=True" <<<"$output"; then
-      echo "[nav2_helper] navigation lifecycle active"
-      return 0
+    if [[ "$localization_active" == "1" && "$all_inactive" == "1" && "$startup_requested" == "0" ]]; then
+      echo "[nav2_helper] navigation nodes configured; requesting one lifecycle activation"
+      output="$(
+        timeout 90 ros2 service call /lifecycle_manager_navigation/manage_nodes \
+          nav2_msgs/srv/ManageLifecycleNodes "{command: 0}" 2>&1 || true
+      )"
+      startup_requested=1
+      if grep -q "success=True" <<<"$output"; then
+        echo "[nav2_helper] lifecycle activation accepted"
+      else
+        echo "[nav2_helper] lifecycle activation did not complete" >&2
+      fi
     fi
 
     sleep 4
   done
 
-  echo "[nav2_helper] navigation lifecycle not active yet. Set 2D Pose Estimate in RViz, then retry Nav2 Goal." >&2
+  echo "[nav2_helper] navigation lifecycle not active after state-gated activation" >&2
+  return 1
 }
 
 while (($# > 0)); do

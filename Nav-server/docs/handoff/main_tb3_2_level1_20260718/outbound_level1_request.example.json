@@ -1,0 +1,19 @@
+{
+  "contract_version": "1.0",
+  "command_id": "replace-with-unique-outbound-command-id",
+  "task_id": 1002,
+  "robot_name": "tb3_2",
+  "scenario_type": "outbound",
+  "map": {"map_id": "robot2_map", "frame_id": "map"},
+  "pickup": {
+    "location_id": "STORAGE_02",
+    "floor": 1,
+    "approach": {"waypoint_id": "warehouse_a_approach", "x": 0.019, "y": -0.618, "yaw": 0.0}
+  },
+  "dropoff": {
+    "location_id": "OUTBOUND_02",
+    "floor": 1,
+    "approach": {"waypoint_id": "outbound_slot_2_approach", "x": 1.45, "y": 0.006, "yaw": 1.571}
+  },
+  "callback_url": "http://smartfactory-main.local:8088/api/v1/movement/command-events"
+}

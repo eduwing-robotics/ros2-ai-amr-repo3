@@ -220,7 +220,7 @@ echo "  log: $LOG_DIR/detector2_tb3_2.log"
 echo "========================================"
 while true; do
   echo '[detector2] 카메라 /camera/image_raw/compressed 대기 중...'
-  until [[ "$(timeout --signal=INT --kill-after=2s 4s ros2 topic info /camera/image_raw/compressed 2>/dev/null | awk '/Publisher count:/ {print $3}' | head -1)" =~ ^[1-9][0-9]*$ ]]; do
+  until [[ "\$(timeout --signal=INT --kill-after=2s 4s ros2 topic info /camera/image_raw/compressed 2>/dev/null | awk '/Publisher count:/ {print \$3}' | head -1)" =~ ^[1-9][0-9]*$ ]]; do
     sleep 3
   done
   echo '[detector2] 카메라 OK — detector 기동'

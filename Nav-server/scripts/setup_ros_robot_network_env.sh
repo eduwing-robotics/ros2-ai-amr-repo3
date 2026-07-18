@@ -8,9 +8,11 @@ if [[ -f "$HOME/ros2_env.sh" ]]; then
 else
   export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}"
   unset ROS_LOCALHOST_ONLY
-  export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
-  export ROS_STATIC_PEERS="${ROS_STATIC_PEERS:-192.168.30.101;192.168.30.102;192.168.30.9;192.168.30.5;192.168.30.12;192.168.30.3}"
   if [[ -f "$HOME/slam_nav_ws/config/fastdds_robot_network.xml" ]]; then
     export FASTRTPS_DEFAULT_PROFILES_FILE="$HOME/slam_nav_ws/config/fastdds_robot_network.xml"
   fi
 fi
+# Avoid subnet-wide DDS multicast storms on the robot Wi-Fi. Local processes
+# discover each other on localhost; the two robot SBCs are explicit peers.
+export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROBOT_NETWORK_DISCOVERY_RANGE:-SUBNET}"
+export ROS_STATIC_PEERS="${ROBOT_NETWORK_STATIC_PEERS:-192.168.30.101;192.168.30.102;192.168.30.12}"

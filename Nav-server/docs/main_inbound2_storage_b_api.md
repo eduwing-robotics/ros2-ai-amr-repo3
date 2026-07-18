@@ -111,3 +111,4 @@ curl -X POST 'http://192.168.30.4:8002/movement-api/v1/scenarios/inbound2-storag
     "callback_url":"http://192.168.30.9:8088/api/v1/movement/command-events"
   }'
 ```
+

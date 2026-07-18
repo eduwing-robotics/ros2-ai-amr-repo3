@@ -3,7 +3,7 @@
 상태: Active
 분류: Docs
 작성: 2026-06-27 12:11 KST
-최종 갱신: 2026-07-10 09:40 KST
+최종 갱신: 2026-07-18 KST
 목적: `slam_nav_ws` 기준 문서와 작업 문서의 위치를 안내한다.
 
 ## Codex / 에이전트 이어하기 (최신)
@@ -13,8 +13,10 @@
 
 ## Handoff — Main/LMS 전달
 
+- **`handoff/main_tb3_2_level1_20260718/README.md`** — **tb3_2 1층 입·출고 최신 전달 패키지 (승인 좌표·요청 예제·성공 18단계 원본 링크)**
 - **`handoff/LMS_NAV_CONTRACT_2026-07-14.md`** — **현재 실차 이동·도킹 LMS 계약 (최신)**
 - **`handoff/MAIN_LMS_HANDOFF_2026-07-09.md`** — **Main/LMS에 줄 문서 (통합본·유일)**
+- `handoff/MAIN_MOVEMENT_READINESS_2026-07-17.md` — 중앙 Supervisor 적용 후 Main의 명령 전 READY 확인 사항
 - `handoff/TB3_1_PARITY_PLAN_2026-07-09.md` — 로봇1을 로봇2와 동일하게 맞추는 방법 (브링업 포함)
 - `handoff/DUAL_ROBOT_TRAFFIC_REVIEW_2026-07-09.md` — **2대 동시 운용·충돌 방지 방식 검토**
 
@@ -36,9 +38,12 @@
 
 ## 운영 절차
 
+- **`runbook/TB3_2_CURRENT_STACK.md`**: **tb3_2 현재 정본 — 원샷/개별 실행, 검증, 로그, 복구**
 - `runbook/RUNBOOK_LMS_FULL_STARTUP.md`: 전체 bringup과 LMS 실행 순서
+
 - `runbook/RUNBOOK_ARUCO_DOCKING.md`: Pi Camera, ArUco, 도킹 절차
 - `runbook/RUNBOOK_GAZEBO_SIMULATION.md`: Gazebo Simulator 기반 RViz/Nav2/Movement API 테스트와 메인서버 접근 절차
+- `runbook/TB3_2_CENTRAL_SUPERVISOR.md`: 폐기된 중앙 Supervisor 이력(Superseded, 실행 금지)
 - `runbook/NAV_SERVER_BEGINNER_GUIDE.md`: 서버 실행과 기본 점검
 - `runbook/DEVELOPMENT_VERIFICATION.md`: pytest + check_all + smoke 계층 (환경별)
 - `runbook/RUNTIME_OUTPUT_POLICY.md`: runtime 산출물 정책

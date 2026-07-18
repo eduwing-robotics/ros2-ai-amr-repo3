@@ -142,7 +142,7 @@ curl http://smartfactory-nav.local:8001/movement-api/v1/health
     {"node_name": "turtlebot3_node", "node_namespace": "/", "topic_type": "geometry_msgs/msg/TwistStamped"}
   ],
   "command_accepting": true,
-  "nav2_ready": null,
+  "nav2_ready": true,
   "navigator_status": "IDLE",
   "is_emergency": false,
   "map_frame": "map",
@@ -171,16 +171,16 @@ curl http://smartfactory-nav.local:8001/movement-api/v1/health
 | `cmd_vel_topic` | 실제 로봇 base로 나가는 최종 속도 명령 topic. 기본 `/cmd_vel` |
 | `cmd_vel_subscribers` | `/cmd_vel`을 듣는 구독자 수. `0`이면 Nav2 goal을 받아도 실제 바퀴로 명령이 전달되지 않는다 |
 | `cmd_vel_subscriber_nodes` | `/cmd_vel` 구독 노드 목록. 빈 배열이면 실제 base driver 미연결로 본다 |
-| `command_accepting` | 서버가 명령을 접수할 수 있는 상태. 비상정지 또는 실제 로봇 offline이면 `false` |
-| `nav2_ready` | 현재 API에서는 비동기 Nav2 활성 상태를 단정하지 않으므로 실제 모드에서 `null` 가능 |
+| `command_accepting` | 서버가 명령을 접수할 수 있는 상태. 비상정지, 실제 로봇 offline 또는 Nav2 미준비면 `false` |
+| `nav2_ready` | Nav2 `bt_navigator` 활성 준비 여부. 실제 모드와 dry-run 모두 boolean |
 | `navigator_status` | `IDLE`, `MOVING`, `MANUAL`, `LOADING` 등 내부 navigator 상태 |
 | `is_emergency` | 비상정지 상태 여부 |
 | `localized` | `/amcl_pose` 수신 여부. navigation launch 후 초기 위치가 잡히면 `true` |
 | `localization_required` | 실제 이동 모드에서 localization 확인 필요 여부 |
 
-관제 서버는 최소 조건으로 `ok=true`, `robot_online=true`, `cmd_vel_subscribers > 0`, `command_accepting=true`, `dry_run=false`를 확인한다. `ok=true`는 API 프로세스 생존만 의미하므로 실제 로봇 표시에는 `robot_online` 또는 `/movement-api/v1/robots[].online`을 사용한다.
+관제 서버는 최소 조건으로 `ok=true`, `robot_online=true`, `localized=true`, `nav2_ready=true`, `command_accepting=true`, `dry_run=false`, `is_emergency=false`를 확인한다. `ok=true`는 API 프로세스 생존만 의미하므로 이동 가능 판정으로 사용하지 않는다.
 `localized=true`는 위치 추정이 된다는 뜻이고, 실제 구동 준비와는 별개다. `cmd_vel_subscribers=0`이면 좌표 명령을 보내도 로봇 base가 속도 명령을 받지 못한다.
-실제 이동 전에는 운영자가 RViz/초기 위치/TF/Nav2 활성 상태를 확인해야 한다.
+Movement 중앙 Supervisor도 같은 조건을 확인한 뒤 API를 시작한다. Main은 health 조건을 다시 확인해 부분 기동 또는 복구 중인 스택에 명령을 보내지 않는다.
 
 ---
 
@@ -383,7 +383,7 @@ GET /movement-api/v1/robots/{robot_name}/nav-state
 | `cmd_vel_subscribers` | 최종 속도 명령을 듣는 구독자 수. `0`이면 실제 로봇 base 미연결 |
 | `cmd_vel_subscriber_nodes` | 최종 속도 명령 구독 노드 목록. 디버깅 시 실제 driver 노드명을 확인 |
 | `command_accepting` | 명령 접수 가능 여부 |
-| `nav2_ready` | 현재는 lifecycle 확정 불가 시 `null`; 접수 불가면 `false` |
+| `nav2_ready` | Nav2 `bt_navigator` 활성 준비 여부를 나타내는 boolean |
 | `navigator_status` | 내부 navigator 상태 |
 | `mission_status` | 미션 상태 |
 | `active_commands` | `ACCEPTED` 또는 `RUNNING` 상태 command 목록 |

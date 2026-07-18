@@ -246,7 +246,7 @@ class LogisticsNavigator(Node):
         with self.nav2_ready_lock:
             if self.nav2_ready:
                 return True
-            skip_wait = os.getenv("NAV2_SKIP_ACTIVE_WAIT", "1").strip().lower() not in ("0", "false", "no", "off")
+            skip_wait = os.getenv("NAV2_SKIP_ACTIVE_WAIT", "0").strip().lower() not in ("0", "false", "no", "off")
             if skip_wait:
                 self.nav2_ready = True
                 self.get_logger().info("Nav2 active wait skipped; using available action servers.")
@@ -1052,7 +1052,10 @@ class LogisticsNavigator(Node):
 
         self.ensure_nav2_ready()
         try:
-            self.nav.goToPose(pose)
+            if not self.nav.goToPose(pose):
+                self.last_nav_failure = f"{waypoint_name}: Nav2 goal rejected (navigation lifecycle not ready)"
+                print(f"[실패] {self.last_nav_failure}")
+                return False
             return self._monitor_nav_task(str(waypoint_name), target_pose=pose, goal=goal)
         finally:
             self._restore_controller_params(restore_params)
@@ -1092,7 +1095,10 @@ class LogisticsNavigator(Node):
         print(f"\n[임무 시작] 목적지: {name} (구역: {info.get('role', '일반')})")
 
         self.ensure_nav2_ready()
-        self.nav.goToPose(pose)
+        if not self.nav.goToPose(pose):
+            self.last_nav_failure = f"{name}: Nav2 goal rejected (navigation lifecycle not ready)"
+            print(f"[실패] {self.last_nav_failure}")
+            return False
         result = self._monitor_nav_task(name, target_pose=pose)
         if result is True:
             if info.get("kind") == "keepout_or_controlled_entry":

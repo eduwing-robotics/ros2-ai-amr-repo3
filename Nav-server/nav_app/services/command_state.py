@@ -115,6 +115,15 @@ def command_callback_payload(command: Dict[str, Any], event: str, message: Optio
         "event_id": event_id,
         "sequence": sequence,
     }
+    terminal = event in ("COMMAND_FAILED", "COMMAND_ABORTED", "COMMAND_STOPPED", "COMMAND_CANCELLED")
+    if terminal:
+        required = {
+            "contract_version", "event_id", "sequence", "command_id", "task_id", "robot_name", "event",
+            "current_step_index", "current_step_code", "current_step_action", "last_completed_step_index",
+            "cargo_state", "business_completed", "reason_code", "message", "navigator_status",
+            "is_emergency", "authority_owner", "authority_released", "reported_at",
+        }
+        return {key: value for key, value in payload.items() if value is not None or key in required}
     return {key: value for key, value in payload.items() if value is not None}
 
 
@@ -126,7 +135,11 @@ def report_command_callback(command: Dict[str, Any], event: str, message: Option
     persist_command(command)
     if runtime.state_store:
         runtime.state_store.enqueue_callback(callback_url, payload)
-    delivered = _post_json_callback(callback_url, payload, label="CommandCallback")
+    delivered = _post_json_callback(
+        callback_url, payload, label="CommandCallback",
+        on_failure=(lambda outcome: runtime.state_store.record_callback_failure(payload["event_id"], outcome))
+        if runtime.state_store else None,
+    )
     if delivered and runtime.state_store:
         runtime.state_store.mark_callback_delivered(payload["event_id"])
     return delivered

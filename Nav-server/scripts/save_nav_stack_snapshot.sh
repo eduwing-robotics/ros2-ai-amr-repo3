@@ -13,9 +13,16 @@ DEST="$SNAP_ROOT/$NAME"
 # Paths relative to repo root — keep in sync with restore_nav_stack_snapshot.sh
 TRACKED=(
   scripts/run_nav2_with_initial_pose.sh
+  scripts/logistics_navigator.py
   scripts/robot_sbc/start_bringup.sh
   scripts/start_all_tb3_2.sh
+  nav_app/server_core.py
+  nav_app/routers/meta.py
+  nav_app/services/robot_context.py
   config/nav2/burger_smartfactory.yaml
+  launch/navigation2_labeled.launch.py
+  tests/test_stack_launcher_contract.py
+  tests/test_fastapi_contract.py
 )
 
 # Files added when EKF mode is enabled (removed on restore to this snapshot)

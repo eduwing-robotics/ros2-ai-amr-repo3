@@ -3,10 +3,13 @@
 상태: Active
 분류: Runbook
 작성: 2026-06-25 00:00 KST
-최종 갱신: 2026-07-03 17:55 KST
+최종 갱신: 2026-07-18 15:55 KST
 목적: 로봇 2대 bringup부터 LMS 명령 전송까지 전체 실행 순서를 정의한다.
 
 이 문서는 실제 테스트할 때 전원 켠 뒤 로봇 2대 bringup, Navigation2/RViz, Pi Camera/ArUco, Movement API, LMS 명령 전송까지 한 번에 맞추는 실행 순서다.
+
+> tb3_2의 현재 정본, 저장된 비밀번호 사용법, 7-pane 원샷 실행 및 컴포넌트별
+> 수동 실행 명령은 `docs/runbook/TB3_2_CURRENT_STACK.md`를 우선한다.
 
 ## 0. 기준값
 

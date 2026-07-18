@@ -30,6 +30,80 @@ def ros_spin_thread():
         time.sleep(0.01)
 
 
+NAV2_REQUIRED_LIFECYCLE_NODES = (
+    "map_server",
+    "amcl",
+    "controller_server",
+    "planner_server",
+    "behavior_server",
+    "bt_navigator",
+)
+
+
+def nav2_readiness_monitor():
+    """Continuously reconcile API readiness with actual Nav2 lifecycle state."""
+    import rclpy
+    from lifecycle_msgs.msg import State
+    from lifecycle_msgs.srv import GetState
+
+    clients = {}
+    last_ready = False
+    consecutive_probe_failures = 0
+
+    while rclpy.ok() and not runtime.nav2_readiness_stop.is_set():
+        navigator = runtime.navigator
+        if navigator is None:
+            break
+
+        probe_failed = False
+        inactive_nodes = []
+        try:
+            for node_name in NAV2_REQUIRED_LIFECYCLE_NODES:
+                client = clients.get(node_name)
+                if client is None:
+                    client = navigator.create_client(GetState, f"/{node_name}/get_state")
+                    clients[node_name] = client
+                if not client.wait_for_service(timeout_sec=0.25):
+                    probe_failed = True
+                    break
+
+                future = client.call_async(GetState.Request())
+                deadline = time.monotonic() + 1.0
+                while not future.done() and time.monotonic() < deadline:
+                    if runtime.nav2_readiness_stop.wait(0.02):
+                        return
+                result = future.result() if future.done() else None
+                if result is None:
+                    probe_failed = True
+                    break
+                if result.current_state.id != State.PRIMARY_STATE_ACTIVE:
+                    inactive_nodes.append(node_name)
+        except Exception as exc:
+            probe_failed = True
+            print(f"Nav Server: Nav2 lifecycle probe 경고: {exc}")
+
+        if inactive_nodes:
+            ready = False
+            consecutive_probe_failures = 0
+        elif probe_failed:
+            consecutive_probe_failures += 1
+            ready = last_ready if consecutive_probe_failures < 3 else False
+        else:
+            ready = True
+            consecutive_probe_failures = 0
+
+        with navigator.nav2_ready_lock:
+            navigator.nav2_ready = ready
+
+        if ready != last_ready:
+            if ready:
+                print("Nav Server: Nav2 lifecycle 전체 active — 명령 수락 시작.")
+            else:
+                detail = ",".join(inactive_nodes) if inactive_nodes else "lifecycle probe unavailable"
+                print(f"Nav Server: Nav2 readiness 해제 — {detail}")
+        last_ready = ready
+        runtime.nav2_readiness_stop.wait(2.0)
+
 def startup_runtime() -> None:
     """서버 시작 시 ROS 2 노드 및 관리자 초기화"""
     import rclpy
@@ -104,6 +178,12 @@ def startup_runtime() -> None:
     runtime.ros_thread.start()
     print("Nav Server: ROS 2 통신 스레드 시작됨.")
 
+    runtime.nav2_readiness_stop.clear()
+    runtime.nav2_readiness_thread = threading.Thread(
+        target=nav2_readiness_monitor, name="nav2-readiness", daemon=True
+    )
+    runtime.nav2_readiness_thread.start()
+
 
 def shutdown_runtime() -> None:
     """서버 종료 시 ROS 2 정리"""
@@ -111,10 +191,13 @@ def shutdown_runtime() -> None:
 
     runtime.outbox_stop.set()
     runtime.status_heartbeat_stop.set()
+    runtime.nav2_readiness_stop.set()
     if runtime.outbox_thread:
         runtime.outbox_thread.join(timeout=2.0)
     if runtime.status_heartbeat_thread:
         runtime.status_heartbeat_thread.join(timeout=2.0)
+    if runtime.nav2_readiness_thread:
+        runtime.nav2_readiness_thread.join(timeout=2.0)
     if runtime.navigator:
         cancel_task = getattr(getattr(runtime.navigator, "nav", None), "cancelTask", None)
         if callable(cancel_task):
@@ -134,6 +217,7 @@ def shutdown_runtime() -> None:
     runtime.state_store = None
     runtime.outbox_thread = None
     runtime.status_heartbeat_thread = None
+    runtime.nav2_readiness_thread = None
     print("Nav Server: 시스템 종료됨.")
 
 
