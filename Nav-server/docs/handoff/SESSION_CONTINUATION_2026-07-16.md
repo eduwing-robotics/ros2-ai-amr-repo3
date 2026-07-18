@@ -115,3 +115,52 @@ curl -fsS http://127.0.0.1:8002/robot/status
 
 ROS 점검 시 domain 5 설정을 먼저 로드한다. `/cmd_vel`, route, scenario, dock, lift command topic에는 사용자의 새 지시 전까지 publish/post하지 않는다.
 
+
+
+## 2026-07-18 세션 종료 기록 — 숫자 STORAGE 매핑과 task-389
+
+### Movement 반영 완료
+
+Main 숫자 슬롯과 실제 물리 창고의 확정 매핑은 다음과 같다.
+
+- STORAGE_01 -> warehouse_b_approach
+- STORAGE_02 -> warehouse_a_approach
+- STORAGE_03 -> warehouse_c_approach
+- STORAGE_04 -> warehouse_d_approach
+
+STORAGE_02 -> A는 기존 실차 성공 경로이므로 반드시 유지한다. Movement는 Main 좌표를 허용 오차로 검증한 뒤 실제 실행에는 Movement canonical profile 좌표와 18단계 시나리오를 사용한다.
+
+관련 로컬 커밋:
+
+- 3cdf983: 숫자 STORAGE 슬롯을 실제 물리 창고에 매핑
+- fb683a0: warehouse_c/d의 반올림 yaw 3.142를 요청 스키마에서 허용
+
+검증 결과:
+
+- scenario API contract 테스트 20 passed
+- task-387 형태 preview: INBOUND_02 -> STORAGE_03가 warehouse_c_approach로 정상 해석
+- Movement API 재시작 완료
+- 종료 전 health: robot_online=true, command_accepting=true, nav2_ready=true, localized=true, navigator_status=IDLE
+
+### task-389 실패 분석
+
+2026-07-18 19:19:22 Main이 inbound bolt_1 x3, INBOUND_02 -> STORAGE_03, 1층 작업을 생성했다. 배정 직후 첫 단계 전에 실패했으며 Movement command_id는 생성되지 않았고 로봇은 움직이지 않았다.
+
+Main 이벤트의 직접 오류:
+
+```text
+TASK_STEP_DISPATCH_FAILED
+detail={code: scenario_approach_invalid, role: dropoff}
+cargo_state=EMPTY
+```
+
+로그의 EMPTY는 빈 HTTP 응답이 아니라 화물 상태다. 실패 원인은 Main 내부 시나리오 조립부가 STORAGE_03 dropoff approach를 만들지 못한 것이다. POSE_RECOVERED stale -> live 이벤트는 이번 실패 원인이 아니다.
+
+### 다음 세션 첫 작업
+
+1. Main 측 숫자 슬롯 변환표/approach snapshot 조립을 확인한다.
+2. Main에도 STORAGE_01=B, STORAGE_02=A, STORAGE_03=C, STORAGE_04=D를 적용한다.
+3. STORAGE_03에는 warehouse_c canonical 값 x=1.239, y=-0.631, yaw=3.142, ArUco marker 10을 사용한다.
+4. 실제 실행 전 Main이 생성한 payload를 preview로 보내 valid=true와 dropoff=warehouse_c_approach를 확인한다.
+5. task-389는 이미 FAILED이므로 반복하지 말고 수정 후 새 작업 ID로 1개 수량부터 검증한다.
+6. STORAGE_03/04는 API 변환 검증만 완료됐고 해당 위치 실차 주행은 아직 미검증이다.
