@@ -88,6 +88,8 @@ done < <(find . \
   -path './frontend/web/dist' -prune -o \
   -path './frontend/web/playwright-report' -prune -o \
   -path './frontend/web/test-results' -prune -o \
+  -path './frontend/web/.pytest_cache' -prune -o \
+  -path './frontend/web/.ruff_cache' -prune -o \
   -path './frontend/web/.claude' -prune -o \
   -path './backend/.venv' -prune -o \
   -path './backend/.pytest_cache' -prune -o \
@@ -102,7 +104,7 @@ done < <(find . \
 # Public Markdown is intentionally flat under docs/.
 while IFS= read -r file; do
   case "$file" in
-    docs/README.md|docs/GLOSSARY.md|docs/ARCHITECTURE.md|docs/DATABASE.md|docs/INTERFACES.md|docs/API.md|docs/OPERATIONS.md|docs/UX.md|docs/UI_UX_DESIGN.md|docs/TEST_CASES.md|docs/MOVEMENT_SERVER_REQUIREMENTS.md|docs/MOVEMENT_SCENARIO_API_CONTRACT.md|docs/MOVEMENT_WAYPOINT_CONTRACT.md|docs/MOVEMENT_SCENARIO_TROUBLESHOOTING.md|docs/OPERATOR_BUTTON_GUIDE.md) ;;
+    docs/README.md|docs/GLOSSARY.md|docs/ARCHITECTURE.md|docs/DATABASE.md|docs/INTERFACES.md|docs/API.md|docs/OPERATIONS.md|docs/UX.md|docs/UI_UX_DESIGN.md|docs/TEST_CASES.md|docs/MOVEMENT_SERVER_REQUIREMENTS.md|docs/MOVEMENT_SCENARIO_API_CONTRACT.md|docs/MOVEMENT_WAYPOINT_CONTRACT.md|docs/MOVEMENT_SCENARIO_TROUBLESHOOTING.md|docs/OPERATOR_BUTTON_GUIDE.md|docs/INOUT_WORKFLOW_REFACTOR_PROGRESS.md) ;;
     *) err "Unexpected public Markdown file: $file" ;;
   esac
 done < <(find docs -maxdepth 1 -name '*.md' -type f -print)

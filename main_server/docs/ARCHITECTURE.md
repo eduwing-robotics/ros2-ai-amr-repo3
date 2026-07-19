@@ -7,7 +7,7 @@
 보조 독자: 신규 개발자·기술 평가자
 난이도: 개발
 소유: Docs
-최종 갱신: 2026-07-16 20:45 KST
+최종 갱신: 2026-07-19 16:30 KST
 구현 기준: backend/app 도메인 구조와 현재 서버 경계
 목적: Main_Control의 시스템 경계, 주요 업무 흐름, 도메인 책임과 의존 방향을 정의한다.
 
@@ -40,11 +40,11 @@ sequenceDiagram
   participant Main as 관제서버
   participant Mov as 이동서버
   Op->>Main: 입출고 요청 생성
-  Main->>Main: 작업 단계 계획
-  Main->>Mov: 이동/도킹 명령
-  Mov-->>Main: 도착/완료 콜백
-  Main->>Mov: 다음 단계 또는 복귀
-Main-->>Op: 물류 완료 및 복귀·주차 상태 갱신
+  Main->>Main: 계획 → Task 생성 → 로봇 배정
+  Main->>Mov: 9단계 Scenario 명령 1회
+  Mov-->>Main: 단계별 callback
+  Main->>Main: 증거 기록 → 상태·재고 반영
+  Main-->>Op: 물류 완료 및 복귀·주차 상태 갱신
 ```
 
 ## 3. 디자인 철학
@@ -92,7 +92,8 @@ flowchart TB
 
 ## 5. 입출고 업무 흐름
 
-운영자는 **품목+수량**만 입력한다. 관제가 슬롯·존·작업·단계를 계획한다.
+운영자는 **품목+수량**을 입력하고 필요하면 층·슬롯·입출고 waypoint를 지정한다. 관제는 미지정 값을
+계획하고 Task·업무 단계를 만든다.
 
 ```mermaid
 sequenceDiagram
@@ -100,9 +101,10 @@ sequenceDiagram
   participant Main as 관제서버
   participant Mov as 이동서버
   Op->>Main: 입고 요청 품목+수량
-  Main->>Main: 슬롯·존 계획 후 작업 생성
+  Main->>Main: 계획 → Task 영속화 → 로봇 배정
   Main->>Main: DB 접근 좌표 snapshot + 9개 업무 단계 동결
   Main->>Mov: Scenario command 1회
+  Mov-->>Main: 명령 접수
   Mov-->>Main: 업무 단계 callback
   Mov-->>Main: UNLOAD 완료 + EMPTY
   Main->>Main: 재고 1회 반영
@@ -112,10 +114,10 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  Req[품목_수량] --> Plan[슬롯_존_계획]
-  Plan --> WO[입출고_요청]
-  WO --> RobotTasks[로봇_작업]
-  RobotTasks --> Steps[로봇_작업_단계]
+  Req[입출고_요청] --> Plan[슬롯_존_계획]
+  Plan --> RobotTasks[Task_영속화]
+  RobotTasks --> Assign[로봇_배정]
+  Assign --> Steps[9단계_동결]
   Steps --> Mov[이동_서버]
 ```
 
@@ -142,8 +144,9 @@ flowchart TD
 
 용어로는, 맵 위 좌표를 **waypoint**, 선반의 보관 칸을 **storage slot**이라 부른다. 운영자의 입출고 요청 한 건이 **work order**(`POST /work-orders`)이고, 이것이 로봇이 실행할 **robot task**와 callback으로 추적하는 9개 **업무 단계**로 분해된다(§6).
 
-Work Order 조회는 Task·실행 상태·계획·위치 정보를 읽기 전용 projection으로 조립한다. 내부 canonical 필드와
-`/api/v1`도 내부 모델과 같은 canonical 필드명을 사용한다.
+Work Order 조회는 Task·실행 상태·계획·위치 정보를 읽기 전용 projection으로 조립한다. 내부 모델은
+canonical 필드명을 사용하고, `/api/v1`의 기존 공개 필드는 호환 adapter에서만 변환한다. 두 이름의 차이는
+[API](API.md)에 기록하며 도메인 내부 alias로 확산하지 않는다.
 
 ## 6. 작업 실행 흐름
 
@@ -169,15 +172,19 @@ stateDiagram-v2
 
 ```mermaid
 sequenceDiagram
-  participant Orch as 실행엔진
+  participant Adapter as Callback_adapter
+  participant Flow as Callback_workflow
+  participant Orch as 실행_orchestrator
   participant Mov as 이동서버
   participant Poll as 진행폴러
   Orch->>Mov: Scenario_명령_1회
-  Mov-->>Orch: 업무_단계_콜백
-  Orch->>Orch: 타임라인_상태_갱신
+  Mov-->>Adapter: 업무_단계_callback
+  Adapter->>Flow: 인증·lock·중복검증
+  Flow->>Flow: 원시_evidence_기록
+  Flow->>Orch: 같은_transaction에서_Task_반영
   Note over Poll: 약5초마다_콜백누락시
   Poll->>Mov: Scenario_상태_조회
-  Poll->>Orch: 같은_상태함수로_보정
+  Poll->>Flow: 같은_상태전이로_보정
 ```
 
 원칙:
@@ -187,6 +194,14 @@ sequenceDiagram
 - **멱등:** 명령 id·현재 단계·미완료 여부를 확인해 중복 콜백을 무시한다.
 - **게이트:** callback의 step index·code·cargo 상태를 검증하고 최종 PARK 안전 필드를 모두 확인한다.
 - **비상정지:** 이동 서버의 중단 콜백을 받으면 운영자 개입 대기 상태가 되고, 자동으로 재개하지 않는다.
+
+내부 책임:
+
+- `execution/steps.py`: 9단계 code·action 정본을 소유한다.
+- `work_orders/workflow.py`: 계획 → Task 영속화 → 배정 → 선택적 Movement 접수 순서를 조율한다.
+- `execution/callback_workflow.py`: 원시 callback 증거를 먼저 기록한 뒤 Task 반영을 요청한다.
+- `execution/transitions.py`: 계약·타임라인·완료 gate의 순수 판정을 소유한다.
+- 실행 orchestrator는 취소·실패·하역·정상 완료 transaction을 조율하되 경로·리프트·재고 SQL은 소유하지 않는다.
 
 입고 업무 단계: 출차 → pickup 접근·정렬·적재 → 운송 → dropoff 정렬·하역 → 홈 복귀·주차.
 
@@ -273,7 +288,7 @@ maps/            ROS map asset
 | 회복성 | callback + 상태 폴링, 재시작 후 진행 task 재동기화 | Movement/Vision 장기 장애의 자동 복구 목표는 미정 |
 | 관측성 | health/ready/status, command trace, evidence·task·inventory logs | 중앙 로그·metric·alert와 SLO는 아직 없음 |
 | 보안 | 외부 주소·비밀값 분리, upstream URL·응답 크기 검증, Movement callback shared token | 운영자 API 인증/RBAC와 TLS 종단은 아직 제공하지 않음 |
-| 성능 | health cache와 제한된 목록 조회 | 부하 시험과 응답시간·처리량 목표는 아직 없음 |
+| 성능 | health cache, 출고 점유량 grouped query, Frontend `Set`/`Map` 인덱스 | 부하 시험과 응답시간·처리량 목표는 아직 없음 |
 
 따라서 현재 릴리스 범위는 신뢰된 개발·현장 네트워크의 포트폴리오 검증이다. 외부망 또는 다사용자 운영으로
 확장할 때는 인증·권한, TLS, secret 관리, 로그/metric/alert, 측정 가능한 SLO를 별도 릴리스 기준으로 확정한다.
@@ -283,7 +298,7 @@ maps/            ROS map asset
 | 도메인 | 한 문장 책임 | 명시적으로 소유하지 않는 책임 | 현재 경계 예외 |
 | --- | --- | --- | --- |
 | `admin` | 허용된 PostgreSQL table의 구조와 row를 운영 진단용으로 조회한다. | 업무 데이터 정책과 임의 SQL 실행 | 없음 |
-| `work_orders` | 입출고 요청을 검증·계획하고 현행 1:1 Task projection의 생명주기를 제공한다. | Step 전진과 Movement 전송 세부 | 없음 |
+| `work_orders` | 입출고 요청을 검증·계획하고 Task 생성·배정·Movement 접수 workflow를 제공한다. | Step 전진과 물리 실행 세부 | 없음 |
 | `execution` | Task 배정·상태 전이와 Step 실행·중단·복구 순서를 조율한다. | 경로 계산, 재고 SQL, Vision 판정 기준 | safe-stop coordinator가 외부 취소와 상태 저장을 같은 transaction 흐름에서 조율 |
 | `movement` | 외부 Movement 계약을 호출하고 Robot Command 결과를 canonical 입력으로 정규화한다. | Task 완료 정책과 슬롯 선택 | callback coordinator는 분리됐지만 fleet ESTOP는 router에 남음 |
 | `safety` | 사람 위험과 ESTOP 정책을 적용하고 운영자 개입이 필요한 중단을 조율한다. | 업무 완료 판정과 자동 재개 | Execution state와 Evidence를 직접 변경 |

@@ -5,8 +5,8 @@
 보조 독자: 통합 QA
 난이도: 운영
 소유: Main·Movement Integration
-최종 갱신: 2026-07-17 18:40 KST
-구현 기준: Scenario API v1·2026-07-17 task 362/363 통합 진단
+최종 갱신: 2026-07-19 16:30 KST
+구현 기준: Scenario API v1·2026-07-17 task 362/363·2026-07-19 work order 391 통합 진단
 목적: 자동 입출고 명령의 생성, 수락, callback, 실패를 중복 실행 없이 진단하고 복구한다.
 
 ## 1. 안전 원칙
@@ -106,3 +106,15 @@ reason_code, message, authority_owner, authority_released, reported_at
 - 결론: API 문법·수락·상태 조회 경로는 동작했지만 callback 계약과 물리 단계 실패 원인은 추가 진단 필요
 
 이 사례에서 새 명령을 보내기보다 기존 command 조회와 양 서버 로그를 보존하는 것이 올바른 처리다.
+
+## 7. 2026-07-19 성공 회귀
+
+- Main: `codex/inout-workflow-refactor` worktree 서버
+- Robot/map: `tb3_2` / `robot2_map`
+- Work Order: `#391`, `INBOUND_02 → STORAGE_02` 1층, `bolt_1` 1개
+- Command: `task-391-tb3_2-inout_scenario-20260719T033011913525`
+- 결과: 9개 업무 단계 모두 `DONE`, LOAD·UNLOAD·RETURN_HOME·PARK 완료
+- 재고: `bolt_1` `0 → 1`, 최종 업무 `DONE`, `business_completed=true`, 주차 `PARKED`
+
+이 회귀는 Scenario 명령 접수, 물류 완료, 재고 반영, 복귀·주차가 서로 다른 확인 지점임을 검증한다.
+출고 경로 `STORAGE_02 → OUTBOUND_02 → WAIT2`의 물리 회귀는 아직 수행하지 않았다.

@@ -5,7 +5,7 @@
 보조 독자: 전체 프로젝트 구성원
 난이도: 입문
 소유: Docs
-최종 갱신: 2026-07-17 18:40 KST
+최종 갱신: 2026-07-19 16:30 KST
 구현 기준: 현재 추적 중인 공개 문서와 저장소 경로
 목적: GitHub 공개 정본 목차와 권장 읽기 순서.
 
@@ -31,6 +31,7 @@
 | [Movement Waypoint Contract](MOVEMENT_WAYPOINT_CONTRACT.md) | Main·Movement 개발자 | 연동 | location·물리 위치·approach waypoint 매핑 정본 |
 | [Movement Scenario Troubleshooting](MOVEMENT_SCENARIO_TROUBLESHOOTING.md) | 연동 개발자·현장 운영자 | 운영 | READY·callback·실패를 중복 실행 없이 진단 |
 | [MOVEMENT_SERVER_REQUIREMENTS](MOVEMENT_SERVER_REQUIREMENTS.md) | Movement 개발자 | 연동 | callback·재시도·ESTOP 요구 |
+| [In/Out Workflow Refactor Progress](INOUT_WORKFLOW_REFACTOR_PROGRESS.md) | Main 개발자·검토자 | 개발 | 리팩터링 목표·변경 예산·검증 결과·남은 물리 회귀 |
 
 ```mermaid
 flowchart TD

@@ -5,7 +5,7 @@
 보조 독자: QA·연동 개발자
 난이도: 개발
 소유: Backend
-최종 갱신: 2026-07-18 14:46 KST
+최종 갱신: 2026-07-19 16:30 KST
 구현 기준: 실행 서버의 OpenAPI와 backend/app/api route
 목적: Main `/api/v1` **작성 규칙 + 엔드포인트 카탈로그**. 외부 계약: [INTERFACES](INTERFACES.md).
 
@@ -212,6 +212,10 @@ Command callback은 `command_id`, robot, event/state가 필수이며 누락 시 
 `contract_version=1.0`과 9개 업무 step 필드를 추가로 검증한다. 상세 계약은
 [Scenario API 규약](MOVEMENT_SCENARIO_API_CONTRACT.md)을 따른다.
 
+처리 순서는 인증 → `event_id` advisory lock·중복 확인 → 원시 evidence 기록 → task advisory lock·상태 반영이며,
+evidence와 상태 변경은 같은 DB transaction에 둔다. sequence gap은 증거로 남기고 진행 폴러의 조회 결과도
+같은 상태 전이를 통해 보정한다. Scenario POST 수락은 명령 접수일 뿐 물리 동작 완료를 뜻하지 않는다.
+
 ESTOP 일괄 요청은 로봇마다 `request_id`를 만들고 `stop_requested → stop_confirmed|stop_unconfirmed`을
 `evidence_events`에 저장한다. 해제는 health 사전 판정으로 건너뛰지 않고 모든 enabled 로봇에 시도하며
 `clear_requested → clear_confirmed|clear_unconfirmed`을 저장한다. `GET /status`의
@@ -224,7 +228,7 @@ ESTOP 일괄 요청은 로봇마다 `request_id`를 만들고 `stop_requested �
 
 - **로봇 대표 상태:** `robots[].status`는 기존 작업 수명주기 호환값이며, 운영 화면은 `operational_status`를 사용한다. 우선순위는 `ESTOP > OFFLINE > FAULT > NOT_READY > RECOVERY > RUNNING > ASSIGNED > IDLE > UNKNOWN`이다. `task_status`는 연결 단절 중에도 기존 작업 상태를 보존하고, `operational_reason`은 보조 설명, `command_enabled`는 실행 UI 차단 기준이다.
 - **실시간 freshness:** pose fallback은 source age가 lost 임계값 이내일 때만 로봇 온라인 근거로 사용한다. 배터리는 `battery_stale` 또는 sample age 초과 시 미수신으로 표시한다. 실행 중 Movement 상태 조회가 3회 연속 실패하면 기존 orchestration JSON에 실패 문맥을 저장하고 `AWAITING_OPERATOR`로 전환한다. `last_seen_at`은 신선한 Movement status callback에서만 갱신한다. 카메라는 aggregate health와 별도로 source별 `status`·`last_frame_age_s`를 반환한다.
-- **입출고 요청:** `POST /work-orders/preview`는 DB에 쓰지 않고 계획만 보여준다. `POST /work-orders`는 요청 1건당 robot task 1건을 만들고, 완료 시점에 quantity만큼 재고를 증감한다(1회 상한 50). 가용 수량은 현 재고에서 진행 중 작업이 점유한 몫을 반영해 계산한다.
+- **입출고 요청:** `POST /work-orders/preview`는 DB에 쓰지 않고 계획만 보여준다. `POST /work-orders`는 계획 → Task 영속화 → 로봇 배정 → 선택적 Movement 접수 순서로 요청 1건당 robot task 1건을 만든다. 접수 실패는 `start_failed`로 드러내며 Task 생성 자체와 구분한다. 완료 시점에 quantity만큼 재고를 증감하고(1회 상한 50), 출고 가용 수량은 진행 중 작업의 품목별 점유량을 grouped query로 함께 반영한다.
 - **응답 호환:** 내부 Work Order 조회는 `RobotTaskSummary`의 `requested_quantity`·`allocated_quantity`·`robot_task_id`·`active_command_id`를 사용한다. `/api/v1` 응답은 adapter가 기존 `quantity`·`tasks[]`·`task_id`·`command_id`를 유지한다.
 - **취소·우선순위:** `POST /work-orders/{id}/cancel`은 예약 상태의 요청을 취소하고, `/priority`는 디스패치 순서를 `tasks.priority`에 영속화한다.
 - **실행 중 안전 중단:** `POST /work-orders/{id}/stop`은 현재 Movement command 취소를 즉시 요청한다. 빈 로봇은 취소 callback 후 `CANCELLED`, 적재 상태는 `AWAITING_OPERATOR`, 하역 완료 후 복귀·주차 중단은 물류 `DONE`을 유지하고 `PARK_FAILED`로 기록한다.

@@ -1,5 +1,14 @@
 # In/Out Workflow Refactor Progress
 
+상태: Active
+주 독자: Main 개발자·검토자
+보조 독자: 통합 QA·현장 검증 담당자
+난이도: 개발
+소유: Main Backend
+최종 갱신: 2026-07-19 16:30 KST
+구현 기준: `codex/inout-workflow-refactor` 변경 예산과 검증 기록
+목적: 리팩터링 목표·단계별 결과·품질 예산·남은 물리 회귀를 추적한다.
+
 ## Objective
 
 입·출고 실행 순서와 callback 반영 순서를 각각 하나의 workflow에서 읽을 수 있게 하면서,
@@ -29,7 +38,7 @@
 | 3. Work Order workflow | Complete | 계획→Task→배정→Movement 접수 순서를 `workflow.py`로 추출 | 66 passed, 3 subtests, Ruff passed |
 | 4. Callback workflow | Complete | 순수 계약 판정과 callback 증거·Task 반영 순서 분리 | 64 passed, Ruff passed |
 | 5. Performance | Complete | claim 일괄 조회·Frontend Map 계산·빈 `limit` 수정 | 3 passed, Ruff·Frontend typecheck/lint/build passed |
-| 6. Quality gates | Complete | 전체 정적 검사·테스트·production build | 281 passed, 54 skipped, 3 subtests; Ruff·Frontend gates passed |
+| 6. Quality gates | Complete | 전체 정적 검사·테스트·production build | 285 passed, 54 skipped, 3 subtests; Ruff·Frontend gates passed |
 | 7. Physical regression | In progress | 검증 경로 입고·출고 1회씩 | 입고 #391 9단계·리프트·재고·PARK 성공; 출고 pending |
 
 ## Decisions
@@ -58,7 +67,9 @@
 - 2026-07-19: worktree 서버에서 입고 #391 `INBOUND_02 → STORAGE_02` 실행. 9단계와 LOAD·UNLOAD·RETURN_HOME·PARK 모두 완료, `bolt_1` 재고 `0 → 1`, 최종 `DONE/PARKED` 확인.
 - 2026-07-19: callback 취소·실패·업무 완료·정상 완료를 기존 orchestrator 내부 책임 함수로 분리해 `advance_on_command_event` 복잡도 `39 → 13`으로 축소. 단계 index 정본화와 Work Order operation별 위치 조회를 적용하고 Backend `282 passed, 54 skipped, 3 subtests`, Ruff와 Frontend 전체 gate 통과.
 - 2026-07-19: 업무 완료 후 중단·Movement 실패의 `PARK_FAILED` 보존과 callback sequence gap 기록·poll 보정을 직접 검증하는 테스트 3건 추가. sequence helper를 bool 계약으로 축소하고 변경 파일 formatter 적용. Backend `285 passed, 54 skipped, 3 subtests`, Ruff·compile/import·Frontend 전체 gate 통과.
+- 2026-07-19: Architecture·API·운영 runbook을 workflow와 callback 책임에 맞춰 갱신. 문서 검사, Backend `285 passed, 54 skipped, 3 subtests`, Ruff·compile/import, Frontend typecheck·lint·production build와 `git diff --check` 재통과.
 
 ## Next
 
-후속 품질 변경 서버를 기동한 뒤 `STORAGE_02 → OUTBOUND_02 → WAIT2` 출고 물리 회귀를 별도 실행한다.
+정본 문서와 구현의 일치를 재검증하고 `main-server`에 통합한다. 통합 뒤
+`STORAGE_02 → OUTBOUND_02 → WAIT2` 출고 물리 회귀는 별도 현장 검증으로 남긴다.
