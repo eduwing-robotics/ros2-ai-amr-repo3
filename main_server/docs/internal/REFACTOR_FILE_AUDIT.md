@@ -347,11 +347,11 @@
 | `movement/commands.py` | 완료 | Scenario 특수 body 구현 제거, adapter 호출만 유지 |
 | `execution/inout_scenarios.py` | 완료 | DB 위치 snapshot 소유, Movement client helper 의존 제거 |
 | `execution/transitions.py` | 완료 | contract version을 Scenario adapter 정본에서 직접 사용 |
-| `api/routers/movement_callbacks.py` | 완료(추가) | Movement callback adapter와 Execution workflow를 API transaction에서 조합 |
+| `app/api/routers/movement_callbacks.py` | 완료(추가) | Movement callback adapter와 Execution workflow를 API transaction에서 조합 |
 | `movement/callbacks.py` | 완료 | event lock·중복 확인만 소유하고 상위 workflow를 인자로 받음 |
 | `movement/router.py` | 부분 완료 | command callback route 제거. 나머지는 동일 Movement HTTP 소유라 추가 분리 불필요 |
 | `db/postgres/location_routes.py` | 완료(추가) | route replace/delete SQL과 transaction 부작용 계약 소유 |
-| `domains/maps/routes.py` | 완료(추가) | transit→scan route 정책 소유 |
+| `app/domains/maps/routes.py` | 완료(추가) | transit→scan route 정책 소유 |
 | `api/routers/scenario.py` | 완료 | raw SQL 0건, HTTP·transaction·capability 연결만 유지 |
 | `api/routers/system.py` | 완료 | active Task raw SQL을 `tasks.has_active_assignment`로 이동 |
 | `api/routers/map_runtime.py` | 완료(추가) | Maps asset과 Movement runtime read projection 조합 |
