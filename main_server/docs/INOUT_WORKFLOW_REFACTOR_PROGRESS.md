@@ -28,8 +28,8 @@
 | 2. Shared definitions | Complete | 9단계 정본을 `execution/steps.py`로 통합 | 32 passed, Ruff passed |
 | 3. Work Order workflow | Complete | 계획→Task→배정→Movement 접수 순서를 `workflow.py`로 추출 | 66 passed, 3 subtests, Ruff passed |
 | 4. Callback workflow | Complete | 순수 계약 판정과 callback 증거·Task 반영 순서 분리 | 64 passed, Ruff passed |
-| 5. Performance | In progress | claim 일괄 조회·Frontend Map 계산 | SQL 횟수·Frontend 테스트 |
-| 6. Quality gates | Pending | 전체 정적 검사·테스트·production build | CI와 동일 명령 |
+| 5. Performance | Complete | claim 일괄 조회·Frontend Map 계산·빈 `limit` 수정 | 3 passed, Ruff·Frontend typecheck/lint/build passed |
+| 6. Quality gates | In progress | 전체 정적 검사·테스트·production build | CI와 동일 명령 |
 | 7. Physical regression | Pending | 검증 경로 입고·출고 1회씩 | 9단계·리프트·재고·PARK |
 
 ## Decisions
@@ -41,7 +41,7 @@
 ## Change Budget
 
 - New production files: 4 / 4
-- Production net lines: approximately +41 / +300 target
+- Production net lines: +74 / +300 target
 - Database migrations: 0 planned
 - Physical commands during phases 1–6: none
 
@@ -52,7 +52,8 @@
 - 2026-07-19: 9단계와 transfer action을 `execution/steps.py`로 이동. 관련 계약·진행·안전 테스트 32건과 Ruff 통과.
 - 2026-07-19: Work Order 생성·배정·Movement 접수를 `work_orders/workflow.py`로 이동하고 service를 조회·호환 facade로 축소. 회귀 테스트 66건과 Ruff 통과.
 - 2026-07-19: callback 계약·timeline·완료 gate를 `transitions.py`로, 증거 기록과 Task 반영 순서를 `callback_workflow.py`로 이동. 관련 테스트 64건과 Ruff 통과.
+- 2026-07-19: 출고 claim을 품목당 1회 `GROUP BY` 조회로 변경하고 Frontend 슬롯 탐색을 `Set`/`Map` 인덱스로 전환. 빈 `/tasks?limit=` 요청도 실제 limit 값으로 수정. Backend 3건 통과(환경 의존 17건 skip), Ruff와 Frontend typecheck·lint·production build 통과.
 
 ## Next
 
-출고 active claim의 반복 조회를 일괄 집계로 바꾸고 Frontend inventory 후보 계산과 빈 `limit` 요청을 정리한다.
+Backend 전체 테스트·Ruff와 Frontend production build를 다시 실행하고 diff·구조 경계를 점검한다.

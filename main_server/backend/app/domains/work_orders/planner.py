@@ -158,9 +158,10 @@ def _plan_outbound_single(
     conn, item_code: str, quantity: int, payload: dict[str, Any], floor: int | None
 ) -> dict[str, Any]:
     rows = [r for r in inventory.list_inventory(conn, item_code=item_code, floor=floor) if int(r.get("quantity") or 0) > 0]
+    claims = tasks.active_outbound_claims_by_location(conn, item_code)
     on_hand_total = sum(int(r.get("quantity") or 0) for r in rows)
     reserved_total = sum(
-        tasks.active_outbound_claims(conn, item_code, r["slot_id"], int(r.get("floor") or DEFAULT_FLOOR))
+        claims.get((r["slot_id"], int(r.get("floor") or DEFAULT_FLOOR)), 0)
         for r in rows
     )
     if on_hand_total - reserved_total < quantity:
@@ -174,7 +175,7 @@ def _plan_outbound_single(
             continue
         slot_id = row["slot_id"]
         candidate_floor = int(row.get("floor") or DEFAULT_FLOOR)
-        available = int(row["quantity"]) - tasks.active_outbound_claims(conn, item_code, slot_id, candidate_floor)
+        available = int(row["quantity"]) - claims.get((slot_id, candidate_floor), 0)
         if available >= quantity:
             return {
                 "slot": slot,
@@ -206,9 +207,10 @@ def _resolve_single_slot(
             return {"slot": slot, "plan_summary": summary}
         raise HTTPException(status_code=409, detail="no_available_slot")
 
+    claims = tasks.active_outbound_claims_by_location(conn, item_code)
     for candidate_floor in _candidate_floors(floor):
         on_hand = inventory.get_quantity(conn, slot_id, item_code, candidate_floor)
-        reserved = tasks.active_outbound_claims(conn, item_code, slot_id, candidate_floor)
+        reserved = claims.get((slot_id, candidate_floor), 0)
         if on_hand - reserved < quantity:
             continue
         available_qty = on_hand - reserved

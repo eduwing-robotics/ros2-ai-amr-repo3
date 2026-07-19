@@ -37,7 +37,7 @@ function createResultMessage(order: WorkOrder, request: WorkOrderCreate): { mess
 export const useTasks = (limit = 30) =>
   useQuery({
     queryKey: ["tasks", limit],
-    queryFn: () => apiGet<RobotTask[]>(`/tasks?limit=`),
+    queryFn: () => apiGet<RobotTask[]>(`/tasks?limit=${limit}`),
     refetchInterval: 2000,
   });
 

@@ -102,6 +102,23 @@ def active_outbound_claims(conn, item_id: str, location_id: str, floor: int = DE
     return int(row["claimed"])
 
 
+def active_outbound_claims_by_location(conn, item_id: str) -> dict[tuple[str, int], int]:
+    """품목의 활성 출고 예약량을 슬롯·층별로 한 번에 조회하며 DB 상태는 변경하지 않는다."""
+    rows = conn.execute(
+        "\n            SELECT from_location_id, from_floor, COALESCE(SUM(quantity), 0) AS claimed\n"
+        "            FROM tasks\n"
+        "            WHERE task_type = 'OUTBOUND'\n"
+        "              AND status = ANY(%s)\n"
+        "              AND item_id = %s\n"
+        "            GROUP BY from_location_id, from_floor\n            ",
+        (list(ACTIVE_TASK_STATUSES), item_id),
+    ).fetchall()
+    return {
+        (str(row["from_location_id"]), int(row.get("from_floor") or DEFAULT_FLOOR)): int(row["claimed"])
+        for row in rows
+    }
+
+
 def active_inbound_claims(conn, location_id: str, floor: int = DEFAULT_FLOOR) -> int:
     row = conn.execute(
         "\n            SELECT COALESCE(SUM(quantity), 0) AS claimed\n            FROM tasks\n            WHERE task_type = 'INBOUND'\n              AND status = ANY(%s)\n              AND to_location_id = %s\n              AND to_floor = %s\n            ",
