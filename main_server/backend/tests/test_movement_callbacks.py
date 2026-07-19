@@ -379,19 +379,54 @@ def test_robot_status_issue_default_reminder_is_fifteen_minutes() -> None:
         "reminder_due": False,
     }
 
-    saved = operational_events.should_append_robot_status_issue(
-        conn, "tb3_2", {"state": "idle", "localized": False}
-    )
+    saved = operational_events.should_append_robot_status_issue(conn, "tb3_2", {"state": "idle", "localized": False})
 
     assert saved is False
     assert conn.execute.call_args.args[1][0] == 900
 
 
+def test_robot_status_issue_treats_missing_optional_false_as_same_state() -> None:
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = {
+        "data_json": {"state": "idle", "localized": False},
+        "reminder_due": False,
+    }
+
+    saved = operational_events.should_append_robot_status_issue(
+        conn,
+        "tb3_2",
+        {
+            "state": "idle",
+            "localized": False,
+            "is_emergency": False,
+            "command_accepting": False,
+            "robot_online": False,
+        },
+    )
+
+    assert saved is False
+
+
+def test_robot_status_issue_detects_true_optional_transition() -> None:
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = {
+        "data_json": {"state": "idle", "localized": False},
+        "reminder_due": False,
+    }
+
+    saved = operational_events.should_append_robot_status_issue(
+        conn, "tb3_2", {"state": "idle", "localized": False, "is_emergency": True}
+    )
+
+    assert saved is True
+
+
 def test_duplicate_robot_status_issue_is_suppressed() -> None:
     conn = MagicMock()
-    with patch.object(callbacks.operational_events, "should_append_robot_status_issue", return_value=False), patch.object(
-        callbacks.operational_events, "append"
-    ) as append:
+    with (
+        patch.object(callbacks.operational_events, "should_append_robot_status_issue", return_value=False),
+        patch.object(callbacks.operational_events, "append") as append,
+    ):
         saved = callbacks.ingest_robot_status(conn, "r3", {"state": "offline", "localized": False})
     assert saved is False
     append.assert_not_called()

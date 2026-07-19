@@ -19,19 +19,40 @@ export class ApiError extends Error {
   }
 }
 
-/** HTTP 2xx JSON만 반환하며 실패 시 status를 보존한 ApiError를 던진다. */
+const API_TIMEOUT_MS = 15_000;
+
+/** HTTP 2xx JSON만 반환하며 15초 timeout과 status를 보존한 ApiError를 적용한다. */
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new ApiError(text || `HTTP ${response.status}`, response.status);
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, API_TIMEOUT_MS);
+  const callerSignal = options.signal;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+
+  try {
+    const response = await fetch(API_BASE + path, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      throw new ApiError(text || "HTTP " + response.status, response.status);
+    }
+    const body = await response.text();
+    return (body ? JSON.parse(body) : null) as T;
+  } catch (error) {
+    if (timedOut) throw new ApiError("요청 시간이 초과되었습니다.", 408);
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
   }
-  // 204 등 빈 응답 방어
-  const body = await response.text();
-  return (body ? JSON.parse(body) : null) as T;
 }
 
 export const apiGet = <T>(path: string) => api<T>(path);

@@ -178,7 +178,7 @@ Main 진단 표면은 `/movement/map-state`, `/movement/sync-status`, `/movement
 ## 6. 장애 · 롤백 · 보안 경계
 
 `/health`는 Main 프로세스 생존, `/ready`는 DB와 worker 준비, `/api/v1/status`는 로봇·외부 연동을 포함한
-운영 snapshot이다. 장애 판단에서 세 응답을 서로 대체하지 않는다.
+운영 snapshot이다. `/ready`는 worker task 종료뿐 아니라 task-progress·person-hazard tick의 3회 연속 실패도 503으로 보고하고, 정상 tick 후 자동 복구한다. 장애 판단에서 세 응답을 서로 대체하지 않는다.
 
 | 상황 | 우선 조치 | 보존할 증거 |
 | --- | --- | --- |

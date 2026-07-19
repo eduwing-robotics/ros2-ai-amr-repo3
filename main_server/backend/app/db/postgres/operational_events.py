@@ -54,9 +54,7 @@ def callback_event_exists(conn, event_id: str) -> bool:
     return row is not None
 
 
-def should_append_callback_validation_failure(
-    conn, signature: str, *, reminder_sec: int = 60
-) -> bool:
+def should_append_callback_validation_failure(conn, signature: str, *, reminder_sec: int = 60) -> bool:
     """Record a repeated invalid callback once per reminder window."""
     row = conn.execute(
         """
@@ -122,9 +120,7 @@ def latest_person_hazard_enabled(conn) -> bool | None:
     return row["event_type"] == "VISION_PERSON_HAZARD_ENABLED"
 
 
-def should_append_robot_status_issue(
-    conn, robot_id: str, payload: dict[str, Any], *, reminder_sec: int = 900
-) -> bool:
+def should_append_robot_status_issue(conn, robot_id: str, payload: dict[str, Any], *, reminder_sec: int = 900) -> bool:
     """Persist a robot issue on state transition, then at most once per reminder window."""
     row = conn.execute(
         """
@@ -141,9 +137,21 @@ def should_append_robot_status_issue(
     previous = row.get("data_json") or {}
     if isinstance(previous, str):
         previous = json.loads(previous)
-    keys = ("state", "localized", "is_emergency", "command_accepting", "robot_online")
-    transitioned = any(previous.get(key) != payload.get(key) for key in keys)
+    defaults: dict[str, Any] = {
+        "state": None,
+        "localized": False,
+        "is_emergency": False,
+        "command_accepting": False,
+        "robot_online": False,
+    }
+    transitioned = any(previous.get(key, default) != payload.get(key, default) for key, default in defaults.items())
     return transitioned or bool(row.get("reminder_due"))
+
+
+def list_operational_events_by_command(conn, command_id: str) -> list[dict[str, Any]]:
+    """해당 Movement command의 runtime 이벤트 전체를 최신순으로 반환한다."""
+    rows = runtime_records.list_movement_command_evidence_by_id(conn, command_id)
+    return [_to_operational_event(row) for row in rows if row.get("source") == "runtime"]
 
 
 def list_operational_events(conn, limit: int = 50) -> list[dict[str, Any]]:
@@ -152,21 +160,20 @@ def list_operational_events(conn, limit: int = 50) -> list[dict[str, Any]]:
         "\n            SELECT * FROM evidence_events\n            WHERE source = 'runtime'\n            ORDER BY observed_at DESC LIMIT %s\n            ",
         (limit,),
     ).fetchall()
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        data = r.get("data_json") or {}
-        if isinstance(data, str):
-            data = json.loads(data)
-        out.append(
-            {
-                "event_id": r["id"],
-                "event_type": r["event_type"],
-                "task_id": r.get("task_id"),
-                "robot_id": data.get("robot_id"),
-                "command_id": data.get("movement_command_id"),
-                "message": data.get("message", ""),
-                "payload_json": data,
-                "created_at": row_timestamp(r.get("observed_at")),
-            }
-        )
-    return out
+    return [_to_operational_event(r) for r in rows]
+
+
+def _to_operational_event(row: dict[str, Any]) -> dict[str, Any]:
+    data = row.get("data_json") or {}
+    if isinstance(data, str):
+        data = json.loads(data)
+    return {
+        "event_id": row["id"],
+        "event_type": row["event_type"],
+        "task_id": row.get("task_id"),
+        "robot_id": data.get("robot_id"),
+        "command_id": data.get("movement_command_id") or data.get("command_id"),
+        "message": data.get("message", ""),
+        "payload_json": data,
+        "created_at": row_timestamp(row.get("observed_at")),
+    }

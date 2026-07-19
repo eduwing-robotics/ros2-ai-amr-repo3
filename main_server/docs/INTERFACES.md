@@ -83,7 +83,7 @@ POST /api/v1/vision/streams/{source_id}/webrtc/offer?view={view}
 | `slot_id` | `locations(type=storage)` | |
 | `waypoint_id` | `locations` | type으로 존·마커 구분 |
 | work order | `tasks` | `work_orders` 물리 테이블 없음 |
-| 이벤트·이동 이력 | `evidence_events` | `/events`·`/movement-commands`는 projection |
+| 이벤트·이동 이력 | `evidence_events` | `/events`는 사건별, `/movement-commands`는 command별 병합 projection |
 | 맵·카메라 | `maps/` YAML·PGM · `cameras` | filesystem · infra |
 
 Work Order 내부 read model은 `RobotTaskSummary`와 canonical 필드(`requested_quantity`, `allocated_quantity`, `robot_task_id`, `active_command_id`)를 사용한다. 이는 외부 계약 변경이 아니며 `/api/v1` adapter가 기존 `quantity`, `tasks[]`, `task_id`, `command_id`를 계속 제공한다.

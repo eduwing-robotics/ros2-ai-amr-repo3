@@ -122,9 +122,9 @@ curl -s -X POST "$BASE/robot-commands" -H 'Content-Type: application/json' \
 | Movement | POST | `/movement/robots/{name}/status` | `MovementRobotStatusCallback → ApiMessage` | 실시간 상태·pose 수신 |
 | Browser / Main | GET | `/movement/map-state` · `/movement/runtime-map-context` | `— → JSON · object` | 활성 맵·runtime 컨텍스트 |
 | Browser | GET | `/movement/sync-status` | `— → JSON · object` | 맵·pose 동기화 진단 (+`planned_paths[]`) |
-| Browser | GET | `/movement/commands/{id}/trace` | `— → JSON · object` | 명령 실행 추적 |
+| Browser | GET | `/movement/commands/{id}/trace` | `— → JSON · object` | 최신 이벤트 window와 무관하게 해당 명령의 DB 증거·polling 상태 추적 |
 | Browser | GET | `/aruco/latest` | `— → JSON · object` | 아루코 인식 최신값 readout |
-| Browser | GET | `/movement-commands` | `— → RobotCommandRecord[]` | 이동 이력 projection |
+| Browser | GET | `/movement-commands` | `— → RobotCommandRecord[]` | command별 최신 상태와 최초 요청을 합친 1행 projection |
 
 ### Robot tasks · Work orders
 

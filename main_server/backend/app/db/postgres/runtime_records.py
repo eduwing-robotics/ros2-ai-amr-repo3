@@ -94,16 +94,47 @@ def list_runtime_records(conn, limit: int = 50) -> list[dict[str, Any]]:
 
 
 def list_movement_command_evidence(conn, limit: int = 50) -> list[dict[str, Any]]:
-    """Movement 명령 ID가 있는 runtime evidence만 최신순으로 반환한다."""
+    """최근 Movement command N개의 evidence를 명령 최신순·사건 최신순으로 반환한다."""
+    rows = conn.execute(
+        """
+        WITH command_events AS (
+            SELECT *, COALESCE(
+                NULLIF(data_json ->> 'command_id', ''),
+                NULLIF(data_json ->> 'movement_command_id', '')
+            ) AS movement_command_id
+            FROM evidence_events
+            WHERE source IN ('movement', 'orchestrator', 'runtime')
+        ), recent_commands AS (
+            SELECT movement_command_id, MAX(observed_at) AS last_observed_at
+            FROM command_events
+            WHERE movement_command_id IS NOT NULL
+            GROUP BY movement_command_id
+            ORDER BY last_observed_at DESC
+            LIMIT %s
+        )
+        SELECT command_events.*
+        FROM command_events
+        JOIN recent_commands USING (movement_command_id)
+        ORDER BY recent_commands.last_observed_at DESC, command_events.observed_at DESC, command_events.id DESC
+        """,
+        (max(1, limit),),
+    ).fetchall()
+    return [_map_row(conn, row) for row in rows]
+
+
+def list_movement_command_evidence_by_id(conn, command_id: str) -> list[dict[str, Any]]:
+    """해당 Movement command의 전체 evidence를 최신순으로 반환한다."""
     rows = conn.execute(
         """
         SELECT * FROM evidence_events
         WHERE source IN ('movement', 'orchestrator', 'runtime')
-          AND NULLIF(data_json ->> 'command_id', '') IS NOT NULL
+          AND (
+            data_json ->> 'command_id' = %s
+            OR data_json ->> 'movement_command_id' = %s
+          )
         ORDER BY observed_at DESC, id DESC
-        LIMIT %s
         """,
-        (max(1, limit),),
+        (command_id, command_id),
     ).fetchall()
     return [_map_row(conn, row) for row in rows]
 

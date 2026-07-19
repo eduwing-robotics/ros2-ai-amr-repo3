@@ -42,11 +42,13 @@ def poll_task_progress_once() -> dict:
 
 
 async def poll_task_progress_loop() -> None:
-    """5초 주기로 누락 진행을 보정하며 실패는 기록 후 다음 주기에 재시도한다."""
+    """5초 주기로 보정하며 연속 실패 횟수를 readiness 진단에 공개한다."""
+    poll_task_progress_loop.consecutive_failures = 0
     while True:
         await asyncio.sleep(POLL_INTERVAL_SEC)
         try:
             tick = await asyncio.to_thread(poll_task_progress_once)
+            poll_task_progress_loop.consecutive_failures = 0
             advanced = tick["advanced"]
             recovery_advanced = tick["recovery_advanced"]
             if advanced:
@@ -62,4 +64,5 @@ async def poll_task_progress_loop() -> None:
                     len(result["start_failed"]),
                 )
         except Exception:
+            poll_task_progress_loop.consecutive_failures += 1
             logger.exception("task progress poller tick failed")

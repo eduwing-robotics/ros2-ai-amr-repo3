@@ -23,12 +23,15 @@ def poll_person_hazard_once() -> bool:
 
 
 async def person_hazard_loop() -> None:
-    """약 3Hz로 hazard tick을 수행하며 advisory lock으로 중복 적용을 막는다."""
+    """약 3Hz로 수행하며 연속 실패 횟수를 readiness 진단에 공개한다."""
+    person_hazard_loop.consecutive_failures = 0
     interval = 1.0 / max(settings.person_hazard_poll_hz, 0.1)
     logger.info("person hazard loop started (%.2f Hz)", settings.person_hazard_poll_hz)
     while True:
         try:
             await asyncio.to_thread(poll_person_hazard_once)
+            person_hazard_loop.consecutive_failures = 0
         except Exception:
+            person_hazard_loop.consecutive_failures += 1
             logger.exception("person hazard poll tick failed")
         await asyncio.sleep(interval)

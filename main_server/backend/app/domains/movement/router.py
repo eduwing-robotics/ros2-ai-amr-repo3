@@ -213,11 +213,10 @@ def set_robot_initial_pose(robot_id: str, payload: InitialPoseRequest) -> dict:
 def movement_command_trace(command_id: str, robot_id: str | None = Query(default=None)) -> dict:
     """command_id 기준 DB 기록, callback 이벤트, Movement polling 상태를 묶어 반환한다."""
     with transaction() as conn:
-        commands = movement_commands.list_movement_command_records(conn, limit=200)
-        events = operational_events.list_operational_events(conn, limit=200)
-    command = next((c for c in commands if c.get("command_id") == command_id), None)
+        commands = movement_commands.list_movement_command_records_by_id(conn, command_id)
+        callbacks = operational_events.list_operational_events_by_command(conn, command_id)
+    command = commands[0] if commands else None
     resolved_robot_id = robot_id or (command or {}).get("robot_id")
-    callbacks = [e for e in events if e.get("command_id") == command_id]
     polling: dict | None = None
     polling_error: str | None = None
     if resolved_robot_id:
@@ -270,7 +269,9 @@ def movement_robot_status(robot_name: str, payload: MovementRobotStatusCallback,
     if callbacks.robot_status_requires_event(body):
         with transaction() as conn:
             saved = callbacks.ingest_robot_status(conn, robot_name, body)
-        return ApiMessage(message="movement robot status issue saved" if saved else "movement robot status issue deduplicated")
+        return ApiMessage(
+            message="movement robot status issue saved" if saved else "movement robot status issue deduplicated"
+        )
     return ApiMessage(message="movement robot status accepted")
 
 

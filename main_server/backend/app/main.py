@@ -174,6 +174,16 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail="task progress poller stopped")
         if hazard_task is not None and hazard_task.done():
             raise HTTPException(status_code=503, detail="person hazard poller stopped")
+        failed_workers = [
+            name
+            for name, worker in (
+                ("task progress poller", poll_task_progress_loop),
+                ("person hazard poller", person_hazard_loop),
+            )
+            if int(getattr(worker, "consecutive_failures", 0)) >= 3
+        ]
+        if failed_workers:
+            raise HTTPException(status_code=503, detail=f"worker tick failing: {', '.join(failed_workers)}")
         pose_tasks = getattr(app.state, "pose_tasks", [])
         if any(task.done() for task in pose_tasks):
             raise HTTPException(status_code=503, detail="pose runtime worker stopped")
