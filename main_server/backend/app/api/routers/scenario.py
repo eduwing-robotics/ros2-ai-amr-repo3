@@ -5,7 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app.db.connection import transaction
-from app.db.postgres import MAP_MARKER_TYPES, MarkerInUseError, locations, operational_events
+from app.db.postgres import MarkerInUseError, locations, operational_events
+from app.domains.maps import routes as map_routes
 from app.models.common import ApiMessage
 from app.models.maps import MarkerUsage, Waypoint, WaypointRouteUpsert, WaypointUpsert
 
@@ -23,11 +24,7 @@ def list_waypoints(map_id: str | None = None) -> list[Waypoint]:
 def waypoint_usage(waypoint_id: str) -> MarkerUsage:
     """waypoint 참조 상태(삭제 가능 여부)."""
     with transaction() as conn:
-        row = conn.execute(
-            "SELECT id FROM locations WHERE id = %s AND type = ANY(%s)",
-            (waypoint_id, list(MAP_MARKER_TYPES)),
-        ).fetchone()
-        if not row:
+        if not locations.get_map_marker(conn, waypoint_id):
             raise HTTPException(status_code=404, detail="waypoint not found")
         usage = locations.marker_usage(conn, waypoint_id)
         return MarkerUsage(**usage)
@@ -49,31 +46,19 @@ def upsert_waypoint(payload: WaypointUpsert) -> ApiMessage:
 
 @router.post("/waypoint-routes", response_model=ApiMessage)
 def upsert_waypoint_route(payload: WaypointRouteUpsert) -> ApiMessage:
+    """transit waypoint를 scan target route로 같은 transaction에서 교체한다."""
     with transaction() as conn:
-        source = conn.execute("SELECT type FROM locations WHERE id = %s", (payload.waypoint_id,)).fetchone()
-        target = conn.execute("SELECT type FROM locations WHERE id = %s", (payload.target_location_id,)).fetchone()
-        if not source or source["type"] != "transit":
-            raise HTTPException(status_code=409, detail="route source must be transit")
-        if not target or target["type"] != "scan":
-            raise HTTPException(status_code=409, detail="route target must be scan")
-        conn.execute("DELETE FROM location_route_steps WHERE waypoint_id = %s", (payload.waypoint_id,))
-        order = conn.execute(
-            "SELECT COALESCE(MAX(step_order), 0) + 1 AS n FROM location_route_steps WHERE target_location_id = %s",
-            (payload.target_location_id,),
-        ).fetchone()["n"]
-        conn.execute(
-            "INSERT INTO location_route_steps (target_location_id, step_order, waypoint_id) VALUES (%s, %s, %s)",
-            (payload.target_location_id, order, payload.waypoint_id),
+        map_routes.replace_waypoint_route(
+            conn, waypoint_id=payload.waypoint_id, target_location_id=payload.target_location_id
         )
     return ApiMessage(message="waypoint route saved")
 
 
 @router.delete("/waypoint-routes/{waypoint_id}", response_model=ApiMessage)
 def delete_waypoint_route(waypoint_id: str) -> ApiMessage:
+    """waypoint route를 같은 transaction에서 삭제한다."""
     with transaction() as conn:
-        deleted = conn.execute("DELETE FROM location_route_steps WHERE waypoint_id = %s", (waypoint_id,)).rowcount
-        if not deleted:
-            raise HTTPException(status_code=404, detail="waypoint route not found")
+        map_routes.delete_waypoint_route(conn, waypoint_id)
     return ApiMessage(message="waypoint route deleted")
 
 

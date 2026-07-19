@@ -55,6 +55,11 @@ def list_assignable(conn) -> list[dict[str, Any]]:
     return [_map(conn, r) for r in rows]
 
 
+def has_active_assignment(conn) -> bool:
+    """ASSIGNED 또는 RUNNING Task 존재 여부를 반환한다."""
+    return bool(conn.execute("SELECT 1 FROM tasks WHERE status IN ('ASSIGNED', 'RUNNING') LIMIT 1").fetchone())
+
+
 def assign(conn, task_id: int, robot_id: str, status: str = "ASSIGNED") -> None:
     conn.execute("UPDATE tasks SET status = %s, robot_id = %s WHERE id = %s", (status, robot_id, task_id))
 

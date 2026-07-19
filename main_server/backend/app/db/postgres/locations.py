@@ -18,6 +18,13 @@ def get_location(conn, location_id: str) -> dict[str, Any] | None:
     return _as_slot(conn, row) if row else None
 
 
+def get_map_marker(conn, location_id: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT * FROM locations WHERE id = %s AND type = ANY(%s)", (location_id, list(MAP_MARKER_TYPES))
+    ).fetchone()
+    return _as_slot(conn, row) if row else None
+
+
 def list_by_type(conn, location_type: str) -> list[dict[str, Any]]:
     return list_locations(conn, location_type)
 

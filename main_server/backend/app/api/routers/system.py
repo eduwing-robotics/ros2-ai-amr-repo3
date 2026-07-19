@@ -161,10 +161,7 @@ def update_person_hazard_setting(payload: PersonHazardSettingUpdate) -> dict:
     """실행 작업 중 비활성화를 막고 설정을 이벤트 로그에 영속화한다."""
     with transaction() as conn:
         if not payload.person_hazard_enabled:
-            active = conn.execute(
-                "SELECT 1 FROM tasks WHERE status IN ('ASSIGNED', 'RUNNING') LIMIT 1"
-            ).fetchone()
-            if active:
+            if postgres_tasks.has_active_assignment(conn):
                 raise HTTPException(status_code=409, detail="person_hazard_disable_blocked_active_task")
         return person_hazard.set_person_hazard_enabled(conn, payload.person_hazard_enabled)
 
