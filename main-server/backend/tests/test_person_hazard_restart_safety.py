@@ -470,6 +470,11 @@ def test_lifespan_reconciles_before_starting_background_pollers() -> None:
             patch("app.services.field_bindings.load_field_bindings"),
             patch("app.db.pg_connection.require_database_url"),
             patch.object(main, "init_db"),
+            patch.object(
+                main,
+                "initialize_map_assets",
+                side_effect=lambda: calls.append("map_assets_sync"),
+            ),
             patch.object(main, "initialize_pose_runtime"),
             patch.object(
                 main,
@@ -485,7 +490,7 @@ def test_lifespan_reconciles_before_starting_background_pollers() -> None:
         ):
             async with main.lifespan(main.app):
                 await asyncio.sleep(0)
-                assert calls[0] == "restart_reconcile"
+                assert calls[:2] == ["map_assets_sync", "restart_reconcile"]
                 assert calls.count("background_loop") == 5
 
     asyncio.run(exercise())
