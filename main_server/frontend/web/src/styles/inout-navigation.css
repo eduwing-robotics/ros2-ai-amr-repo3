@@ -1,8 +1,12 @@
 /* Left-origin work request navigation and compact transaction form. */
 @media (min-width:1201px){
-  .operator-stage>.inout-drawer{left:12px;right:auto;top:12px;bottom:12px;width:390px;max-height:none;border-radius:10px;box-shadow:12px 0 28px rgb(16 47 58 / 16%)}
+  .operator-stage{--work-order-drawer-w:clamp(320px,28vw,390px)}
+  .operator-stage>.inout-drawer{left:12px;right:auto;top:12px;bottom:12px;width:var(--work-order-drawer-w);max-height:none;border-radius:10px;box-shadow:12px 0 28px rgb(16 47 58 / 16%)}
   .operator-stage.drawer-open .operator-context-area{visibility:visible}
-  .operator-stage.drawer-open:has(.inout-drawer) .operator-primary-workspace{margin-left:402px}
+  .operator-stage.drawer-open:has(.inout-drawer) .operator-primary-workspace{margin-left:calc(var(--work-order-drawer-w) + 12px)}
+}
+@media (max-width:1500px) and (min-width:1201px){
+  .operator-stage.drawer-open:has(.inout-drawer) .operator-primary-workspace{margin-left:0}
 }
 .inout-drawer{border-color:var(--border-strong);background:var(--surface)}
 .inout-drawer .drawer-head{min-height:52px;padding:0 14px;border-bottom:1px solid var(--border);background:var(--surface-2)}
@@ -25,6 +29,12 @@
 .inout-drawer .work-order-actions .btn{min-height:40px}
 .operator-page-head{display:none}
 @media(max-width:1200px){.inout-drawer .work-order-form-body{padding:12px}.inout-drawer .work-order-operation-switch .btn{align-items:center}}
+@media(max-width:480px){
+  .inout-drawer .work-order-assignment-switch{grid-template-columns:1fr 1fr}
+  .inout-drawer .work-order-section-label{grid-column:1/-1}
+  .inout-drawer .work-order-actions{grid-template-columns:84px minmax(0,1fr)}
+  .inout-drawer :is(select,input){width:100%;max-width:100%}
+}
 
 .work-order-map-reference{display:flex;align-items:center;gap:6px;margin-top:7px;padding:7px 9px;border:1px solid color-mix(in srgb,var(--operator) 35%,var(--border));border-radius:7px;background:var(--operator-soft);color:var(--operator-dark);font-size:10px;font-weight:700}
 .zone-marker.work-order-focused .zone-dot{stroke:var(--operator);stroke-width:4;filter:drop-shadow(0 0 5px color-mix(in srgb,var(--operator) 65%,transparent));animation:work-order-slot-pulse 1.4s ease-in-out infinite}
