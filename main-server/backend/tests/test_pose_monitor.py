@@ -76,6 +76,16 @@ def test_fallback_poll_marks_movement_disconnected() -> None:
     connected.assert_called_once_with("r1", False)
 
 
+def test_fallback_endpoint_filter_skips_unconfigured_peer() -> None:
+    fake_settings = SimpleNamespace(
+        movement_client_mode="http",
+        movement_base_urls={"tb3_1": "http://nav:8001/movement-api/v1"},
+    )
+    with patch.object(pose_monitor, "settings", fake_settings):
+        assert pose_monitor._fallback_endpoint_configured("tb3_burger_01") is True
+        assert pose_monitor._fallback_endpoint_configured("tb3_burger_02") is False
+
+
 def test_fallback_workers_isolate_a_slow_robot() -> None:
     async def scenario() -> tuple[dict[str, int], float]:
         loop = asyncio.get_running_loop()

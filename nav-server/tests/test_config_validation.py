@@ -330,14 +330,14 @@ def test_validate_robot_profile_rejects_bad_lift_topic():
     assert any("lift.topics.cmd_move" in error for error in errors)
 
 
-def test_robot2_field_dispatch_is_explicitly_blocked_without_removing_lift():
+def test_robot2_field_dispatch_is_commissioned_with_physical_lift():
     import json
     from pathlib import Path
 
     robot = next(item for item in json.loads((Path(__file__).resolve().parents[1] / "config" / "robots.json").read_text())["robots"] if item["robot_id"] == "tb3_burger_02")
     assert robot["active_map_yaml"] == "map/robot2_map.yaml"
     assert robot["localization"]["map_id"] == "robot2_map"
-    assert robot["field_dispatch"] == {"inbound": False, "outbound": False, "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"}
+    assert robot["field_dispatch"] == {"inbound": True, "outbound": True, "status": "COMMISSIONED_TB2_PHYSICAL_LEVEL1"}
     assert "lift" in robot["capabilities"] and robot["lift"]["enabled"] is True
     assert not validate_robot_profile(robot)
 
@@ -374,6 +374,8 @@ def test_robot1_uses_confirmed_map_without_changing_robot_ownership():
     assert robot1["field_dispatch"] == blocked
     assert (robot2["bridge_robot_id"], robot2["ros_domain_id"], robot2["api_port"]) == ("tb3_2", 5, 8002)
     assert robot2["lift"]["enabled"] is True and "lift" in robot2["capabilities"]
+    assert robot2["field_dispatch"]["inbound"] is True
+    assert robot2["field_dispatch"]["outbound"] is True
     assert not validate_robot_profile(robot1)
     assert not validate_robot_profile(robot2)
 

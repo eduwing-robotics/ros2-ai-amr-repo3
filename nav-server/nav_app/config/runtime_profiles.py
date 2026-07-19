@@ -22,6 +22,7 @@ PROFILE_KEYS = {
     "evidence_class",
     "robot_selector",
     "components",
+    "lift_backends",
     "virtual_lift",
 }
 SELECTOR_KEYS = {"robot_ids", "enabled_robots"}
@@ -30,6 +31,7 @@ OWNERSHIP_VALUES = {"external", "managed-script", "service-managed"}
 EXECUTION_CLASSES = {"live", "synthetic_hil"}
 EVIDENCE_CLASSES = {"physical", "nonphysical"}
 VIRTUAL_LIFT_KEYS = {"enabled", "backend"}
+LIFT_BACKEND_VALUES = {"disabled", "virtual", "physical"}
 
 
 class RuntimeProfileError(ValueError):
@@ -115,6 +117,21 @@ def _validate_profile(profile: dict[str, Any], expected_id: str) -> None:
         raise RuntimeProfileError(f"{expected_id}: synthetic_hil evidence must be nonphysical")
     if execution_class == "synthetic_hil" and not (isinstance(virtual_lift, dict) and virtual_lift.get("enabled") is True):
         raise RuntimeProfileError(f"{expected_id}: synthetic_hil requires enabled virtual_lift")
+
+    lift_backends = profile.get("lift_backends")
+    if not isinstance(lift_backends, dict) or not lift_backends:
+        raise RuntimeProfileError(f"{expected_id}: lift_backends must be a non-empty object")
+    invalid_lift_backends = sorted(
+        robot_id
+        for robot_id, backend in lift_backends.items()
+        if not isinstance(robot_id, str) or not robot_id or backend not in LIFT_BACKEND_VALUES
+    )
+    if invalid_lift_backends:
+        raise RuntimeProfileError(f"{expected_id}: invalid lift_backends entry: {', '.join(invalid_lift_backends)}")
+    if execution_class == "live" and "virtual" in lift_backends.values():
+        raise RuntimeProfileError(f"{expected_id}: live profiles cannot select a virtual lift backend")
+    if execution_class == "synthetic_hil" and set(lift_backends.values()) != {"virtual"}:
+        raise RuntimeProfileError(f"{expected_id}: synthetic_hil robots must select the virtual lift backend")
 
     selector = profile.get("robot_selector")
     if not isinstance(selector, dict):
@@ -217,6 +234,27 @@ def resolve_runtime_profile(
         selected.append(resolved_robot)
 
     selected_id_set = set(selected_ids)
+    lift_backends = deepcopy(profile["lift_backends"])
+    if set(lift_backends) != selected_id_set:
+        missing = sorted(selected_id_set - set(lift_backends))
+        extra = sorted(set(lift_backends) - selected_id_set)
+        detail = []
+        if missing:
+            detail.append(f"missing={','.join(missing)}")
+        if extra:
+            detail.append(f"unselected={','.join(extra)}")
+        raise RuntimeProfileError(f"{profile_id}: lift_backends must exactly match selected robots ({'; '.join(detail)})")
+    for robot in selected:
+        robot_id = str(robot["robot_id"])
+        backend = lift_backends[robot_id]
+        if backend == "physical":
+            capabilities = {str(value) for value in robot.get("capabilities") or []}
+            lift = robot.get("lift") if isinstance(robot.get("lift"), dict) else {}
+            if "lift" not in capabilities or lift.get("enabled") is not True:
+                raise RuntimeProfileError(
+                    f"{profile_id}: {robot_id} cannot select physical lift without enabled lift hardware facts"
+                )
+
     for name, component in profile["components"].items():
         component_robot_ids = component.get("robot_ids")
         if component_robot_ids is not None and not set(component_robot_ids) <= selected_id_set:
@@ -240,6 +278,7 @@ def resolve_runtime_profile(
         "evidence_class": profile["evidence_class"],
         "robots": selected,
         "components": deepcopy(profile["components"]),
+        "lift_backends": lift_backends,
         "selected_resources": resources,
         **({"virtual_lift": deepcopy(profile["virtual_lift"])} if "virtual_lift" in profile else {}),
     }

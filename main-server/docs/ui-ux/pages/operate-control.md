@@ -2,8 +2,10 @@
 
 상태: Active
 소유: Frontend
-최종 갱신: 2026-07-09 15:06 KST
+최종 갱신: 2026-07-19 KST
 목적: 운영 관제 화면의 표시 정보·조작 진입점과 운영자 수동 조작(Teleop·맵 이동)을 설명한다.
+
+이 문서는 현재 UI 구성과 동작의 참조 문서다. 실물 장비와 서비스를 순서대로 기동하는 절차는 [실물 E2E 통합 실행서](../../../../docs/operations/physical-e2e-checklist.md)가 소유한다.
 
 ![관제 화면](../screens/operate-control.png)
 
@@ -13,7 +15,8 @@
 2. 헤더에서 연결·비상 배지와 **ESTOP**(`EstopControls`)을 확인한다.
 3. 맵·로봇 pose·카메라·알람·작업 처리량을 확인한다.
 4. 맵 아래 in-flow 조작 영역에서 수동 조작(`Teleop`)·맵 이동(`MapGotoOperate`)을 사용한다.
-5. 입출고·기록·재고는 슬림 네비로 좌측 드로어를 연다. **작업**은 밴드 작업 탭으로 전환한다.
+5. **작업** 탭에서 입출고 요청을 만들고 실물/가상 lift와 준비된 로봇을 선택한다. 실시간 작업 큐에서 현재 recipe 단계, Nav·AI runtime command, person monitor, 복구 대기 상태를 확인한다.
+6. 기록·재고는 슬림 네비로 좌측 드로어를 열어 최종 task·evidence·재고 변경을 확인한다.
 
 ## Behavior
 
@@ -21,6 +24,8 @@
 - 헤더 `EstopControls` — 누름=`robotEstopAll`(`POST /robot/estop`) 즉시 실행; 해제=confirm 후 `robotClearEstopAll`. `is_emergency` 시 배너·teleop/goto 비활성화.
 - `DashboardMap` — map metadata + robot pose로 로봇 위치 표시. 존·방향 글리프·planned path 라벨은 `overlayScale` 역수 `u`로 화면 px 고정, footprint 디스크는 `map.resolution` 미터 환산 honest-scale. `GET /movement/sync-status`의 `planned_paths[]`(fake·dry-run)가 있으면 Nav2 예상 경로를 점선 polyline으로 오버레이.
 - 로봇별 pose chip에 `localized`·`pose age`·`reason`·live/stale/lost 표시. 우측 레일에 이벤트 피드·카메라·로봇 상태 카드 상시 표시.
+- `WorkOrderForm` — physical은 `navigate+lift`와 fresh lift telemetry, synthetic HIL은 명시적인 nonphysical admission과 virtual backend를 요구한다. 준비되지 않은 조합은 생성 전에 비활성화한다.
+- `FleetMissionDock`/`TaskQueue` — Main recipe 단계와 runtime command ID, AI evidence, person monitor, `AWAITING_OPERATOR` 복구 동작을 같은 task 기준으로 표시한다.
 
 ### 수동 조작 (Teleop · 맵 이동)
 
@@ -34,10 +39,12 @@
 - `POST /robot/estop`·`/robot/clear_estop`: 일괄 비상 정지/해제
 - `POST /robot-commands` (`manual_drive`·`move_to_point`): teleop·운영 goto
 - `GET /maps` · `GET /robot-poses?map_id=...` · `GET /movement/sync-status`
+- `POST /work-orders` · `GET /work-orders` · task recovery/evidence retry endpoints
 
 ## Edge Cases
 
 - active map과 선택 map이 다르면 live pose를 표시하지 않는다.
 - pose가 없거나 오래되면 위치 대신 상태 메시지를 보여준다.
 - 비상 정지 중에는 teleop·맵 이동·입출고 등 충돌 컨트롤이 비활성화된다.
+- 로봇 capability/lift 상태가 없으면 해당 physical/synthetic 조합을 실행하지 않고 준비 사유를 표시한다.
 - 맵 stage 크기 측정 전에는 화면 고정 오버레이 글리프를 숨긴다.

@@ -17,7 +17,13 @@ class WorkOrderRobotAssignTest(unittest.TestCase):
         conn = MagicMock()
         assign.return_value = {"task_id": 1, "assigned_robot_id": "tb3_2"}
         out = task_service.assign_work_order_robot(conn, 1, "tb3_2")
-        assign.assert_called_once_with(conn, 1, "tb3_2", source="work_order")
+        assign.assert_called_once_with(
+            conn,
+            1,
+            "tb3_2",
+            source="work_order",
+            execution_mode="physical",
+        )
         self.assertEqual(out["assigned_robot_id"], "tb3_2")
 
     @patch.object(task_service, "_apply_assignment")
@@ -31,7 +37,11 @@ class WorkOrderRobotAssignTest(unittest.TestCase):
         robot_repo.return_value.list_idle.return_value = [{"robot_id": "tb3_2"}]
         task_service.assign_task(MagicMock(), 1, "tb3_2")
         ready.assert_called_once_with("tb3_2")
-        capable.assert_called_once_with({"task_id": 1, "status": "QUEUED", "assigned_robot_id": None}, "tb3_2")
+        capable.assert_called_once_with(
+            {"task_id": 1, "status": "QUEUED", "assigned_robot_id": None},
+            "tb3_2",
+            execution_mode="physical",
+        )
         apply_.assert_called_once()
 
     @patch("app.api.movement_helpers.localization_snapshot")

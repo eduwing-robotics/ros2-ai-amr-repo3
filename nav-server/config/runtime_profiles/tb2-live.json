@@ -8,6 +8,9 @@
       "tb3_burger_02"
     ]
   },
+  "lift_backends": {
+    "tb3_burger_02": "physical"
+  },
   "components": {
     "base": {
       "enabled": true,

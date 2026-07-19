@@ -83,6 +83,40 @@ def test_work_order_rejects_user_callback_base_url():
         })
 
 
+def test_virtual_lift_work_order_requires_explicit_robot_and_immediate_start():
+    with pytest.raises(ValidationError):
+        WorkOrderCreate.model_validate({
+            "operation": "outbound",
+            "item_code": "BOX-A",
+            "quantity": 1,
+            "execution_mode": "synthetic_hil",
+            "admit_nonphysical": True,
+        })
+
+    payload = WorkOrderCreate.model_validate({
+        "operation": "outbound",
+        "item_code": "BOX-A",
+        "quantity": 1,
+        "execution_mode": "synthetic_hil",
+        "admit_nonphysical": True,
+        "auto_start": True,
+        "robot_id": "tb3_1",
+    })
+
+    assert payload.execution_mode == "synthetic_hil"
+    assert payload.robot_id == "tb3_1"
+
+
+def test_physical_work_order_cannot_accidentally_set_nonphysical_admission():
+    with pytest.raises(ValidationError):
+        WorkOrderCreate.model_validate({
+            "operation": "inbound",
+            "item_code": "BOX-A",
+            "quantity": 1,
+            "admit_nonphysical": True,
+        })
+
+
 def test_command_and_legacy_route_callbacks_ignore_supplied_destination():
     with patch.object(helpers, "settings", _settings()), patch(
         "app.api.helpers.socket.getaddrinfo", return_value=[(0, 0, 0, "", ("192.168.30.9", 8088))]

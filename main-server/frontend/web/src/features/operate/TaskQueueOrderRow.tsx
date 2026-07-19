@@ -5,6 +5,7 @@ import { operationLabel, formatPlanSummaryLine } from "../../lib/workOrderLabels
 import type { Robot, WorkOrder } from "../../types";
 import { OrderReorderControls } from "./WorkOrderQueueControls";
 import { TaskProgressTimeline } from "./TaskProgressTimeline";
+import { OperationIcon } from "./OperationIcon";
 import {
   canCancelOrder,
   primaryTask,
@@ -91,7 +92,7 @@ export function WorkOrderQueueRow({
             />
           </td>
         ) : null}
-        <td className="work-order-cell-task"><span className="work-order-primary"><strong className="mono">#{order.order_id}</strong><small>{operationLabel(order.operation)}</small></span></td>
+        <td className="work-order-cell-task"><span className="work-order-primary"><strong className="mono">#{order.order_id}</strong><small className="operation-label"><OperationIcon operation={order.operation} />{operationLabel(order.operation)}</small></span></td>
         <td className="work-order-cell-item"><span className="work-order-primary" title={itemName ? itemName + " (" + order.item_code + ")" : order.item_code}><strong>{itemName || order.item_code}</strong><small>{itemMarkerId == null ? "ArUco 미지정" : `A${itemMarkerId}`} · {order.quantity}개</small></span></td>
         <td className="work-order-cell-context" title={taskPlanLabel(order)}><span className="work-order-context"><strong>{taskRobotLabel(order)}</strong><small>{taskPlanLabel(order)}{taskCommandLabel(order) ? " · " + taskCommandLabel(order) : ""}</small></span></td>
         <td className="work-order-cell-status"><Pill status={order.status} /></td>

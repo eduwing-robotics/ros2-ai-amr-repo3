@@ -71,9 +71,7 @@ def test_charge_uses_robot2_approach_but_final_dispatch_stays_uncommissioned() -
         for binding in bindings["locations"].values()
     )
     dispatch = bindings["map_dispatch"]["robot2_map"]
-    assert dispatch["inbound"] is False
-    assert dispatch["outbound"] is False
-    assert "PENDING" in dispatch["status"] or "UNCOMMISSIONED" in dispatch["status"]
+    assert dispatch == {"inbound": True, "outbound": True, "status": "COMMISSIONED"}
 
 
 def test_main_field_bindings_mirror_nav_physical_zone_and_dock_authority() -> None:

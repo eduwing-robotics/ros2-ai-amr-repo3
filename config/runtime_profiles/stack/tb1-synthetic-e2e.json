@@ -38,7 +38,10 @@
         "LMS_CALLBACK_BASE_URL": "http://smartfactory-integration.local:8088",
         "LMS_CALLBACK_ALLOWLIST": "http://smartfactory-integration.local:8088",
         "LMS_CALLBACK_ALLOW_HTTP": "true",
-        "LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED": "true"
+        "LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED": "true",
+        "LMS_LIFT_LOAD_EVIDENCE_ENABLED": "true",
+        "LMS_LIFT_LOAD_EVIDENCE_MODE": "gate",
+        "LMS_LIFT_LOAD_EVIDENCE_SOURCE": "global_cam_01"
       }
     }
   },

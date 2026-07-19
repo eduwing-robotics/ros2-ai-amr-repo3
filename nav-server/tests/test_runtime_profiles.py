@@ -28,6 +28,16 @@ def test_all_live_expands_in_canonical_config_order():
     assert [robot["robot_id"] for robot in resolved["robots"]] == ["tb3_burger_01", "tb3_burger_02"]
     assert resolved["components"]["lift"]["required"] is True
     assert resolved["components"]["lift"]["robot_ids"] == ["tb3_burger_02"]
+    assert resolved["lift_backends"] == {
+        "tb3_burger_01": "disabled",
+        "tb3_burger_02": "physical",
+    }
+
+
+def test_lift_backend_selection_is_explicit_for_each_robot():
+    assert resolve_runtime_profile(cli_profile="tb1-live")["lift_backends"] == {"tb3_burger_01": "disabled"}
+    assert resolve_runtime_profile(cli_profile="tb1-synthetic-hil")["lift_backends"] == {"tb3_burger_01": "virtual"}
+    assert resolve_runtime_profile(cli_profile="tb2-live")["lift_backends"] == {"tb3_burger_02": "physical"}
 
 
 def _fixture(tmp_path: Path, profile_id="test"):
@@ -94,6 +104,22 @@ def test_live_profile_cannot_enable_virtual_lift(tmp_path):
         resolve_runtime_profile(manifest_path=manifest_path, robots_path=robots_path)
 
 
+def test_live_profile_cannot_select_virtual_lift_backend(tmp_path):
+    manifest_path, robots_path, profile = _fixture(tmp_path)
+    profile["lift_backends"] = {"tb3_burger_01": "virtual"}
+    (tmp_path / "profile.json").write_text(json.dumps(profile))
+    with pytest.raises(RuntimeProfileError, match="cannot select a virtual"):
+        resolve_runtime_profile(manifest_path=manifest_path, robots_path=robots_path)
+
+
+def test_physical_lift_backend_requires_hardware_fact(tmp_path):
+    manifest_path, robots_path, profile = _fixture(tmp_path)
+    profile["lift_backends"] = {"tb3_burger_01": "physical"}
+    (tmp_path / "profile.json").write_text(json.dumps(profile))
+    with pytest.raises(RuntimeProfileError, match="enabled lift hardware facts"):
+        resolve_runtime_profile(manifest_path=manifest_path, robots_path=robots_path)
+
+
 @pytest.mark.parametrize(
     "virtual_lift,match",
     [
@@ -130,6 +156,10 @@ def test_unknown_disabled_refs_and_resource_collisions_fail(tmp_path):
         resolve_runtime_profile(manifest_path=manifest_path, robots_path=robots_path)
 
     profile["robot_selector"] = {"enabled_robots": True}
+    profile["lift_backends"] = {
+        "tb3_burger_01": "disabled",
+        "tb3_burger_02": "physical",
+    }
     (tmp_path / "profile.json").write_text(json.dumps(profile))
     robots = json.loads(robots_path.read_text())
     robots["robots"][1]["api_port"] = robots["robots"][0]["api_port"]

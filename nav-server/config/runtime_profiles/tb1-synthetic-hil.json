@@ -8,6 +8,9 @@
       "tb3_burger_01"
     ]
   },
+  "lift_backends": {
+    "tb3_burger_01": "virtual"
+  },
   "components": {
     "base": {
       "enabled": true,

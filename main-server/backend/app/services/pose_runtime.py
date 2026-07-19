@@ -325,6 +325,13 @@ class PoseRuntime:
     def _evaluate_entry(self, entry: PoseEntry, now_mono: float) -> None:
         candidate = self._candidate_pose_state(entry, now_mono)
         previous = entry.pose_state
+        if candidate == "stale" and previous == "live":
+            # A short gap in Main's receipt cadence is not evidence that the
+            # robot lost localization. Keep the last valid pose live until the
+            # receive-lost threshold; source delay still transitions to stale.
+            snapshot = self._snapshot(entry, now_mono)
+            if snapshot["quality_reasons"] == ["RECEIVE_DELAY"]:
+                candidate = previous
         if (
             candidate == "live"
             and previous in {"stale", "lost"}
@@ -333,6 +340,7 @@ class PoseRuntime:
             candidate = previous
         if candidate != previous:
             if candidate in {"stale", "lost"}:
+                snapshot = self._snapshot(entry, now_mono)
                 entry.pose_episode_id = entry.pose_episode_id or str(uuid.uuid4())
                 self._emit(
                     "POSE_STALE" if candidate == "stale" else "POSE_LOST",
@@ -343,7 +351,8 @@ class PoseRuntime:
                     now_mono,
                 )
             elif candidate == "live" and previous in {"stale", "lost"}:
-                self._emit("POSE_RECOVERED", entry, previous, candidate, entry.pose_episode_id, now_mono)
+                if entry.pose_episode_id is not None:
+                    self._emit("POSE_RECOVERED", entry, previous, candidate, entry.pose_episode_id, now_mono)
                 entry.pose_episode_id = None
             entry.pose_state = candidate
 

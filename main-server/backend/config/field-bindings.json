@@ -7,9 +7,9 @@
       "status": "BLOCKED_SUPERSEDED_MAP_COORDINATES_UNVERIFIED"
     },
     "robot2_map": {
-      "inbound": false,
-      "outbound": false,
-      "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"
+      "inbound": true,
+      "outbound": true,
+      "status": "COMMISSIONED"
     }
   },
   "robot_home_locations": {

@@ -17,6 +17,7 @@ from nav_app.routers import movement_api, robot_commands as robot_command_routes
 from nav_app.runtime import runtime
 from nav_app.services import capabilities, command_state, docking
 from nav_app.services.lift_backends import (
+    DisabledLiftBackend,
     PHYSICAL_LIFT_NOT_VERIFIED,
     VirtualLiftBackend,
     create_lift_backend,
@@ -130,9 +131,13 @@ def test_resolved_profile_revalidation_honors_launcher_manifest_and_robot_overri
 )
 def test_backend_selection_is_two_key_fail_closed(resolved, environment, reason):
     if reason is None:
+        resolved["lift_backends"] = {"tb3_burger_01": "disabled"}
         backend = create_lift_backend(MagicMock(), _tb1(), resolved_profile=resolved, environment=environment)
-        assert backend.__class__.__name__ == "LiftClient"
+        assert isinstance(backend, DisabledLiftBackend)
         assert backend.enabled is False
+        assert backend.status()["reason"] == "lift_disabled"
+        with pytest.raises(RuntimeError, match="lift_disabled"):
+            backend.execute_transfer("load", 1, {})
         return
     with pytest.raises(RuntimeError, match=reason):
         create_lift_backend(MagicMock(), _tb1(), resolved_profile=resolved, environment=environment)

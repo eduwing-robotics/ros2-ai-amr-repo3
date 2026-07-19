@@ -3,16 +3,16 @@
 상태: Active
 소유: Ops
 작성: 2026-06-30 23:10 KST
-최종 갱신: 2026-07-14 KST
-목적: 입고(inbound) 작업의 정상 흐름과 작업 중 취소·돌발 끼어듦을 수동으로 검증하는 절차를 정의한다.
+최종 갱신: 2026-07-19 KST
+목적: Main 입고 화면의 정상 흐름과 취소·돌발 끼어듦 acceptance case를 정의한다.
 
-Cross-service 실행 순서와 physical/synthetic 판정은 [TB1 우선 실물 E2E 실행 체크리스트](../../../docs/operations/physical-e2e-checklist.md)를 먼저 따른다. 이 문서는 Main 입고 화면과 task 상태 검증만 소유한다.
+Cross-service 기동, 실제 장비 준비, physical/synthetic 판정은 [실물 E2E 통합 실행서](../../../docs/operations/physical-e2e-checklist.md)가 소유한다. 이 문서는 Main 입고 폼, task 상태 전이, 취소·복구 acceptance case만 소유하며 서비스 기동 순서를 반복하지 않는다.
 
 ## 현재 실행 제한
 
-- 실제 환경 맵은 `robot2_map`이지만 location·scan·waypoint·pose·marker binding이 아직 commissioned 상태가 아니다. Main과 Nav의 inbound/outbound field dispatch는 모두 차단돼 있다.
-- 기존 `robot1_map` 좌표로 실제 입고를 실행하지 않는다. `robot2_map` commissioning과 robot-scoped audit 전에는 아래 절차를 UI·DB 상태 확인에만 사용한다.
-- TB1은 물리 lift가 없다. `tb1-synthetic-hil`은 Nav virtual lift를 제공하지만 Main의 nonphysical INBOUND/OUTBOUND task admission은 아직 없다. admission이 추가된 뒤 수행해도 lift-only synthetic 검증이며 물리 입고 합격 근거가 아니다.
+- 실제 환경 맵은 `robot2_map` 하나다. TB1 live/no-hardware 입출고는 차단돼 있고, TB2 live의 1층 물리 E2E 경로만 열려 있다. 승인되지 않은 슬롯·층으로 범위를 임의 확장하지 않는다.
+- 기존 `robot1_map` 좌표나 UI remap으로 실제 입고를 실행하지 않는다. Main background·pose와 Nav command의 map identity가 모두 `robot2_map`이어야 한다.
+- 현재 TB1 hardware fact는 lift disabled다. `tb1-synthetic-e2e` stack은 Main의 명시적 nonphysical admission과 Nav virtual lift를 함께 열며, UI에서 `가상 리프트`를 선택한 즉시 시작 작업만 허용한다. 결과는 lift-only synthetic 검증이며 물리 입고 합격 근거가 아니다.
 
 ## 사전 조건
 
@@ -27,9 +27,9 @@ Cross-service 실행 순서와 physical/synthetic 판정은 [TB1 우선 실물 E
 1. 운영 화면에서 `입출고` 드로어 열기 → `입고` 선택.
 2. 품목 선택. 품목 옆에 `빈 슬롯 N곳` 표시 확인(여유 개수 표기는 더 이상 없음).
 3. 수량 `1` 입력. (정책상 1주문=슬롯 1칸=파레트 1개)
-4. 입고 존 선택. 스캔 페어가 있으면 `자동 시작` 체크 가능.
+4. 입고 존과 `실물 리프트` 또는 `가상 리프트`를 선택한다. 가상 리프트는 준비된 robot을 직접 지정하고 자동 시작해야 한다.
 5. `실행 전 계획`(미리보기)에 대상 슬롯/존이 표시되는지 확인.
-6. `실행` 클릭 → `주문 #N 생성 · 입고 · 상태 QUEUED · task 1건` 확인.
+6. `실행` 클릭 → task가 생성되고, 자동 시작이면 준비된 robot에 배정되어 바로 `RUNNING`으로 전이하는지 확인한다.
 7. `작업에서 보기`로 이동 → 작업 큐에 주문이 `예약`으로 등장.
 8. 로봇 배정: `자동 배정` 또는 작업 펼쳐 `배정`(로봇 선택) → 상태 `ASSIGNED`, 로봇 `ASSIGNED`.
 9. `시작` → mission dispatch, 상태 `RUNNING`, 로봇 `RUNNING`.
@@ -44,7 +44,7 @@ Cross-service 실행 순서와 physical/synthetic 판정은 [TB1 우선 실물 E
 | --- | --- | --- | --- |
 | B1 | 예약(QUEUED) 취소 | 작업 행 `취소` | 작업 `CANCELLED`, 재고 변화 없음 |
 | B2 | 배정(ASSIGNED) 취소 | `취소` | 작업 `CANCELLED`, 로봇 `IDLE` 복귀, 재고 변화 없음 |
-| B3 | 진행 중(RUNNING) 취소 | `취소` → 확인 모달(실물 불일치 경고) | 작업 `CANCELLED`, 로봇 `IDLE`, **재고 미반영**. 이미 적재된 경우 실물과 불일치 가능 — 경고대로 |
+| B3 | 진행 중(RUNNING) 중단 | 복구 패널에서 화물 상태 확인 후 `기존 작업 계속`·`안전 위치 이동`·`수동 종료` 중 선택 | 단순 취소로 화물 상태를 추측하지 않는다. `DONE` 전에는 재고 미반영 |
 | B4 | 주문 단위 취소 | 주문 행 `취소` | 대기·배정 작업만 취소. **진행 중 작업은 취소 안 됨**(모달이 건수 안내) |
 | B5 | 비상 정지(E-STOP) 중 입고 시도 | 헤더 ESTOP 활성 후 `실행` | 입출고 폼 비활성("비상 정지 중 — 입출고 실행 불가"). 해제 후 재시도 가능 |
 | B6 | 가용 로봇 없음 | 모든 로봇 비-IDLE 상태에서 생성 | 생성은 됨(`QUEUED`). `자동 시작`/`배정` 시 시작 불가 — 로봇 가용 시 자동 진행 |
@@ -64,13 +64,13 @@ Cross-service 실행 순서와 physical/synthetic 판정은 [TB1 우선 실물 E
 
 ## Physical-motion safety closure
 
-- 사람 위험 모니터는 `move_to_point`부터 ArUco 정렬, 도킹(삽입·리프트·후진),
-  `leave_dock`, 충전 접근까지 같은 task의 모든 물리 동작 동안 유지한다. 모니터를
-  arm 또는 retain하지 못하면 Main은 명령을 보내지 않고 fail-closed E-stop/hold를 기록한다.
+- 사람 위험 모니터는 `POST_PICK_UP` evidence가 승인된 뒤 `PRE_DROP_OFF` 평가 전까지의
+  적재 주행에만 arm한다. 해당 구간에서 monitor를 arm 또는 retain하지 못하면 Main은
+  명령을 보내지 않고 fail-closed E-stop/hold를 기록한다.
 - Nav E-stop은 Nav2 취소와 base zero-velocity에 더해, 리프트 장착 프로필에서는 lift stop을
   요청한다. 리프트 미장착 프로필은 정상적으로 base-only E-stop을 수행한다.
 
 ## 알려진 한계 (확인됨)
 
-- **층(floor) 선택 미노출**: 입출고 요청 폼에 층 선택이 없고, `WorkOrderCreate/PreviewRequest` 스키마에 `floor` 필드가 없어 자동 입출고는 항상 floor 1로 처리된다. 수동 재고 편집(창고 관리 > 재고)에서만 1/2층을 지정할 수 있다. 층 자동화가 필요하면 별도 작업으로 스키마·폼에 floor를 추가해야 한다.
+- 층은 입출고 요청 폼에서 1/2층을 선택한다. 현재 TB2 물리 합격 범위는 1층이며, 2층 선택은 별도 lift 높이·도킹 commissioning 전에는 사용하지 않는다.
 - 프론트의 `빈 슬롯 N곳`은 빈 슬롯 수이며, 단일 주문은 한 슬롯만 사용한다(수량>1은 B8 참조).

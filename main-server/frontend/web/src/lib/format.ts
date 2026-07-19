@@ -96,10 +96,12 @@ export function eventDotClass(ev: { event_type?: string; message?: string; paylo
   // 복구 이력은 감사 타임라인에는 남기되 미확인 알람으로 다시 세지 않는다.
   if (/(RECOVERED|RECONNECTED|BACK_IN_BOUNDS)$/.test(ev.event_type ?? "")) return "off";
   // 기준 변경 전에 저장된 3초대 SOURCE_DELAY도 운영 알람에서 제외한다.
+  if (ev.event_type === "POSE_LOST" || ev.event_type === "LOCALIZATION_LOST") return "err";
   if (ev.event_type === "POSE_STALE" && ev.payload && typeof ev.payload === "object") {
     const pose = (ev.payload as { pose?: { quality_reasons?: unknown; source_age_sec?: unknown } }).pose;
     const reasons = Array.isArray(pose?.quality_reasons) ? pose.quality_reasons.map(String) : [];
     const sourceAge = Number(pose?.source_age_sec);
+    if (reasons.length === 1 && reasons[0] === "RECEIVE_DELAY") return "off";
     if (reasons.includes("SOURCE_DELAY") && Number.isFinite(sourceAge) && sourceAge < POSE_SOURCE_ALERT_SEC) {
       return "off";
     }

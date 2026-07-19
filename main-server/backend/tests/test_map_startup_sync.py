@@ -25,3 +25,21 @@ def test_initialize_map_assets_imports_repository_assets() -> None:
 
     assert result == expected
     import_assets.assert_called_once_with(conn)
+
+
+def test_initialize_field_reference_syncs_release_owned_approaches() -> None:
+    conn = MagicMock()
+    transaction = MagicMock()
+    transaction.return_value.__enter__.return_value = conn
+    manifest = {"map_id": "robot2_map", "revision": "field-r1", "locations": []}
+
+    with (
+        patch.object(main, "transaction", transaction),
+        patch.object(main, "load_manifest", return_value=manifest) as load,
+        patch.object(main, "sync_reference", return_value=11) as sync,
+    ):
+        result = main.initialize_field_reference()
+
+    assert result == 11
+    load.assert_called_once_with()
+    sync.assert_called_once_with(conn, manifest)

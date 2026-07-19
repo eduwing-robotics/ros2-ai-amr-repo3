@@ -1,5 +1,7 @@
 # Nav runtime profile contract
 
+This document is the current reference contract for Nav profile selection and evidence boundaries. The cross-service startup sequence belongs to the [physical E2E integrated runbook](../../../docs/operations/physical-e2e-checklist.md) and is not duplicated here.
+
 Runtime profiles select operational intent; they do not duplicate robot
 hardware facts. `config/robots.json` remains the canonical inventory for robot
 IDs, domains, ports, capabilities, localization, and lift hardware.
@@ -25,6 +27,14 @@ Required heterogeneous components may declare `robot_ids`; for example,
 readiness requires an expected controller node on `/cmd_vel`, and physical lift
 readiness comes from the API's subscriber-and-fresh-telemetry `lift.ready` gate,
 not from topic names alone.
+
+Each selected robot also has one explicit `lift_backends` value:
+`disabled`, `virtual`, or `physical`. TB1 live currently selects `disabled`,
+TB1 synthetic HIL selects `virtual`, and TB2 live selects `physical`. A
+`physical` selection is rejected unless the same robot's canonical hardware
+facts enable lift and advertise the lift capability. When a lift is installed
+on TB1, its hardware facts and a live profile are changed together; docking
+and task code do not need a robot-specific branch.
 
 Every live or synthetic-HIL Nav profile owns its selected robots' Nav2 helper as
 `managed-script`. The supervisor starts Movement API endpoints first, then

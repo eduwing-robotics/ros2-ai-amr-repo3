@@ -36,8 +36,8 @@ def test_robots_json_profiles_declare_capabilities_and_ports():
     assert tb3_1["lift"]["enabled"] is False
 
     assert tb3_2["capabilities"] == ["navigate", "charge", "lift"]
-    assert tb3_2["field_dispatch"]["inbound"] is False
-    assert tb3_2["field_dispatch"]["outbound"] is False
+    assert tb3_2["field_dispatch"]["inbound"] is True
+    assert tb3_2["field_dispatch"]["outbound"] is True
     assert tb3_2["api_port"] == 8002
     assert tb3_2["lift"]["enabled"] is True
 

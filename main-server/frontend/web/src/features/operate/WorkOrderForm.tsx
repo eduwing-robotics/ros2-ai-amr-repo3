@@ -15,12 +15,14 @@ import {
 import { useItems, useInventory, useStorageSlots } from "../../hooks/useWarehouseData";
 import { useAllWaypoints, useRobots } from "../../hooks/useScenarioData";
 import { useCreateWorkOrder, useWorkOrderPreview } from "../../hooks/useWorkOrders";
+import { useStatus } from "../../hooks/useStatus";
 import type { Operation, WorkOrder, WorkOrderCreate, WorkOrderPreview, WorkOrderPreviewRequest } from "../../types";
 import {
   MAX_WORK_ORDER_QUANTITY,
   WORK_ORDER_QUANTITY_WARN,
 } from "../../types/warehouse";
 type AssignMode = "auto" | "manual";
+type LiftMode = "physical" | "synthetic_hil";
 
 export interface WorkOrderPayloadInput {
   operation: Operation;
@@ -34,6 +36,7 @@ export interface WorkOrderPayloadInput {
   priority?: number;
   createdBy?: string;
   slotId?: string;
+  executionMode?: LiftMode;
 }
 
 function waypointPayload(input: Pick<WorkOrderPayloadInput, "operation" | "inboundWaypointId" | "outboundWaypointId">) {
@@ -61,7 +64,40 @@ export function buildWorkOrderCreateBody(input: WorkOrderPayloadInput): WorkOrde
     ...(input.robotId ? { robot_id: input.robotId } : {}),
     ...(input.priority ? { priority: input.priority } : {}),
     ...(input.createdBy?.trim() ? { created_by: input.createdBy.trim() } : {}),
+    execution_mode: input.executionMode ?? "physical",
+    admit_nonphysical: input.executionMode === "synthetic_hil",
   };
+}
+
+function capabilitySet(value: unknown): Set<string> {
+  return new Set(Array.isArray(value) ? value.map(String) : []);
+}
+
+function liftCompatibility(
+  health: Record<string, unknown> | undefined,
+  mode: LiftMode,
+): { ready: boolean; reason: string } {
+  if (!health) return { ready: false, reason: "robot_capabilities_unknown" };
+  const lift = health.lift && typeof health.lift === "object"
+    ? health.lift as Record<string, unknown>
+    : {};
+  if (mode === "synthetic_hil") {
+    if (health.execution_class !== "synthetic_hil" || health.evidence_class !== "nonphysical") {
+      return { ready: false, reason: "synthetic_hil_nav_profile_not_active" };
+    }
+    if (health.lift_backend !== "virtual" || lift.synthetic_test_capable !== true) {
+      return { ready: false, reason: "virtual_lift_backend_not_active" };
+    }
+    return lift.ready === true
+      ? { ready: true, reason: "가상 리프트 준비" }
+      : { ready: false, reason: String(lift.reason || "virtual_lift_backend_not_ready") };
+  }
+  const capabilities = capabilitySet(health.capabilities);
+  const required = ["navigate", "lift"];
+  const missing = required.find((capability) => !capabilities.has(capability));
+  if (missing) return { ready: false, reason: `robot_missing_capability:${missing}` };
+  if (lift.ready !== true) return { ready: false, reason: String(lift.reason || "lift_not_ready") };
+  return { ready: true, reason: "실물 리프트 준비" };
 }
 
 
@@ -167,6 +203,9 @@ function validationMessage({
   needsZone,
   operation,
   manualSlotMissing,
+  liftMode,
+  robotId,
+  selectedRobotCompatible,
 }: {
   disabled?: boolean;
   itemCode: string;
@@ -178,6 +217,9 @@ function validationMessage({
   needsZone: boolean;
   operation: Operation;
   manualSlotMissing: boolean;
+  liftMode: LiftMode;
+  robotId: string;
+  selectedRobotCompatible: boolean;
 }) {
   if (disabled) return "비상 정지 중 — 입출고 실행 불가";
   if (!itemCode) return "품목을 선택하세요.";
@@ -187,6 +229,8 @@ function validationMessage({
   if (noEmptySlot) return "빈 슬롯이 없습니다.";
   if (needsZone) return `${operationLabel(operation)} 존을 선택하세요.`;
   if (manualSlotMissing) return "수동 모드: 보관 슬롯 1곳을 선택하세요.";
+  if (liftMode === "synthetic_hil" && !robotId) return "가상 리프트 시험은 준비된 로봇을 직접 선택하세요.";
+  if (robotId && !selectedRobotCompatible) return "선택한 로봇의 리프트 모드가 준비되지 않았습니다.";
   return null;
 }
 
@@ -211,6 +255,7 @@ export function WorkOrderForm({
   const { data: slots = [] } = useStorageSlots();
   const { data: waypoints = [] } = useAllWaypoints();
   const { data: allRobots = [] } = useRobots();
+  const status = useStatus();
   const robots = useMemo(() => allRobots.filter((robot) => robot.enabled), [allRobots]);
   const create = useCreateWorkOrder();
 
@@ -223,12 +268,24 @@ export function WorkOrderForm({
   const [quantity, setQuantity] = useState("1");
   const [zoneId, setZoneId] = useState("");
   const [autoStart, setAutoStart] = useState(true);
+  const [liftMode, setLiftMode] = useState<LiftMode>("physical");
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [result, setResult] = useState<WorkOrder | null>(null);
 
   const selectedRobotEmergency = Boolean(robotId && emergencyRobots.includes(robotId));
-  const formBlocked = Boolean(disabled) || selectedRobotEmergency;
+  const robotLiftStates = useMemo(
+    () => {
+      const movementHealth = status.data?.movement_health ?? {};
+      return Object.fromEntries(robots.map((robot) => [
+        robot.robot_id,
+        liftCompatibility(movementHealth[robot.robot_id] as Record<string, unknown> | undefined, liftMode),
+      ]));
+    },
+    [robots, status.data?.movement_health, liftMode],
+  );
+  const selectedRobotCompatible = !robotId || robotLiftStates[robotId]?.ready === true;
+  const formBlocked = Boolean(disabled) || selectedRobotEmergency || !selectedRobotCompatible;
 
   const qty = Number(quantity);
   const selectedFloor = Number(floor) === 2 ? 2 : 1;
@@ -247,7 +304,11 @@ export function WorkOrderForm({
     setError(null);
     setErrorCode(null);
     setResult(null);
-  }, [operation, itemCode, quantity, zoneId, requestedFloor, assignMode, robotId, autoStart, manualSlotId]);
+  }, [operation, itemCode, quantity, zoneId, requestedFloor, assignMode, robotId, autoStart, manualSlotId, liftMode]);
+
+  useEffect(() => {
+    if (liftMode === "synthetic_hil") setAutoStart(true);
+  }, [liftMode]);
 
   useEffect(() => {
     setManualSlotId("");
@@ -331,6 +392,9 @@ export function WorkOrderForm({
     needsZone,
     operation,
     manualSlotMissing,
+    liftMode,
+    robotId,
+    selectedRobotCompatible,
   });
   const submitDisabled = formBlocked || create.isPending || result !== null || items.length === 0 || submitValidation !== null;
 
@@ -347,6 +411,7 @@ export function WorkOrderForm({
         ...payloadInput,
         autoStart,
         robotId,
+        executionMode: liftMode,
       }));
       setResult(order);
       onSubmitted?.(order, autoStart);
@@ -487,17 +552,39 @@ export function WorkOrderForm({
           </>
         ) : null}
         <Field label="로봇 배정">
+          <div className="toolbar work-order-assignment-switch" role="group" aria-label="리프트 동작 방식">
+            <Button
+              variant={liftMode === "physical" ? "primary" : "secondary"}
+              onClick={() => { setLiftMode("physical"); setRobotId(""); }}
+            >실물 리프트</Button>
+            <Button
+              variant={liftMode === "synthetic_hil" ? "primary" : "secondary"}
+              onClick={() => { setLiftMode("synthetic_hil"); setRobotId(""); }}
+            >가상 리프트</Button>
+          </div>
           <select value={robotId} onChange={(e) => setRobotId(e.target.value)}>
-            <option value="">자동 배정</option>
-            {robots.map((r) => (
-              <option key={r.robot_id} value={r.robot_id}>{r.display_name || r.robot_id}</option>
-            ))}
+            <option value="" disabled={liftMode === "synthetic_hil"}>
+              {liftMode === "synthetic_hil" ? "가상 리프트 로봇 선택" : "자동 배정"}
+            </option>
+            {robots.map((r) => {
+              const state = robotLiftStates[r.robot_id] ?? { ready: false, reason: "robot_capabilities_unknown" };
+              return (
+                <option key={r.robot_id} value={r.robot_id} disabled={!state.ready}>
+                  {r.display_name || r.robot_id} · {state.ready ? state.reason : (API_ERROR_MESSAGES[state.reason] || state.reason)}
+                </option>
+              );
+            })}
           </select>
           {robotId && selectedRobotEmergency ? (
             <span className="pill err">선택한 로봇이 비상 정지 상태입니다</span>
           ) : null}
           {robotId && !selectedRobotEmergency ? (
-            <span className="muted">생성 시 {robotId}에 즉시 배정 (유휴·localized·명령 수신 가능해야 함)</span>
+            <span className="muted">
+              생성 시 {robotId}에 즉시 배정 · {liftMode === "synthetic_hil" ? "실제 주행 + 가상 lift" : "실물 lift"}
+            </span>
+          ) : null}
+          {!robotId && liftMode === "synthetic_hil" ? (
+            <span className="muted">tb1-synthetic-e2e처럼 가상 lift 프로파일이 실행 중인 로봇만 선택할 수 있습니다.</span>
           ) : null}
         </Field>
       </div>
@@ -515,7 +602,7 @@ export function WorkOrderForm({
               type="checkbox"
               checked={autoStart}
               onChange={(e) => setAutoStart(e.target.checked)}
-              disabled={selectedZoneMissingScan}
+              disabled={selectedZoneMissingScan || liftMode === "synthetic_hil"}
             />
             생성 후 자동 시작
           </label>

@@ -14,6 +14,7 @@ from app.db.connection import transaction
 from app.db.repo_bridge import event_repo
 from app.services.movement import MovementClientError, movement_client
 from app.services.pose_runtime import UnknownRobotError, pose_runtime
+from app.services.robot_mapping import movement_robot_key
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +174,11 @@ async def pose_fallback_poller_loop() -> None:
     workers: dict[str, asyncio.Task[None]] = {}
     try:
         while True:
-            robot_ids = set(pose_runtime.known_robot_ids())
+            robot_ids = {
+                robot_id
+                for robot_id in pose_runtime.known_robot_ids()
+                if _fallback_endpoint_configured(robot_id)
+            }
             removed = set(workers) - robot_ids
             for robot_id in removed:
                 workers.pop(robot_id).cancel()
@@ -192,6 +197,13 @@ async def pose_fallback_poller_loop() -> None:
             worker.cancel()
         if workers:
             await asyncio.gather(*workers.values(), return_exceptions=True)
+
+
+def _fallback_endpoint_configured(robot_id: str) -> bool:
+    """A single-robot profile must not poll or warn about an unconfigured peer."""
+    if str(getattr(settings, "movement_client_mode", "fake")).strip().lower() != "http":
+        return True
+    return bool(getattr(settings, "movement_base_urls", {}).get(movement_robot_key(robot_id)))
 
 
 async def _pose_fallback_robot_loop(robot_id: str) -> None:

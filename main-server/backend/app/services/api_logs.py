@@ -16,7 +16,18 @@ _MAX_LOGS = 300
 _logs: deque[dict[str, Any]] = deque(maxlen=_MAX_LOGS)
 _lock = Lock()
 _heartbeat_states: dict[tuple[str, str], dict[str, Any]] = {}
-_SUPPRESSED_POLL_TARGETS = {"health", "health_pose_fallback", "robot_pose", "localization", "map_state"}
+_auth_failure_states: dict[tuple[str, str, str], dict[str, Any]] = {}
+_poll_metrics: dict[tuple[str, str, str], dict[str, Any]] = {}
+_SUPPRESSED_POLL_TARGETS = {
+    "health",
+    "health_pose_fallback",
+    "robot_pose",
+    "localization",
+    "map_state",
+    "image",
+    "latest",
+    "streams",
+}
 _HEARTBEAT_FAILURE_THRESHOLD = 3
 _HEARTBEAT_SUCCESS_THRESHOLD = 2
 
@@ -38,18 +49,74 @@ def begin_call(service: str, target: str, method: str, url: str, source: str | N
 
 
 def finish_call(ctx: dict[str, Any], ok: bool, status: int | str | None = None, detail: str = "") -> None:
-    if str(ctx.get("target") or "") in _SUPPRESSED_POLL_TARGETS:
-        return
+    target = str(ctx.get("target") or "")
     elapsed_ms = int((perf_counter() - ctx.pop("_t0", perf_counter())) * 1000)
+    if target in _SUPPRESSED_POLL_TARGETS:
+        checked_at = now_iso()
+        key = (str(ctx.get("service") or ""), target, str(ctx.get("source") or ""))
+        with _lock:
+            metric = _poll_metrics.setdefault(
+                key,
+                {
+                    "service": key[0],
+                    "target": target,
+                    "source": key[2],
+                    "request_count": 0,
+                    "success_count": 0,
+                    "failure_count": 0,
+                    "total_elapsed_ms": 0,
+                    "max_elapsed_ms": 0,
+                },
+            )
+            metric["request_count"] += 1
+            metric["success_count" if ok else "failure_count"] += 1
+            metric["total_elapsed_ms"] += elapsed_ms
+            metric["max_elapsed_ms"] = max(metric["max_elapsed_ms"], elapsed_ms)
+            metric["last_status"] = status
+            metric["last_checked_at"] = checked_at
+            if ok:
+                metric["last_success_at"] = checked_at
+        return
+    finished_at = now_iso()
     item = {
         **ctx,
         "ok": bool(ok),
         "status": status,
         "detail": detail[:500] if detail else "",
         "elapsed_ms": elapsed_ms,
-        "finished_at": now_iso(),
+        "finished_at": finished_at,
     }
+    auth_key = (str(ctx.get("service") or ""), target, str(ctx.get("source") or ""))
     with _lock:
+        if status in {401, 403}:
+            active = _auth_failure_states.get(auth_key)
+            if active is not None:
+                log = active["log"]
+                active["count"] += 1
+                log["repeat_count"] = active["count"]
+                log["last_checked_at"] = finished_at
+                log["finished_at"] = finished_at
+                log["detail"] = item["detail"]
+                log["http_status"] = status
+                return
+            item.update({
+                "status": "auth_error",
+                "http_status": status,
+                "repeat_count": 1,
+                "last_checked_at": finished_at,
+            })
+            _logs.appendleft(item)
+            _auth_failure_states[auth_key] = {"count": 1, "log": item}
+            return
+
+        active = _auth_failure_states.pop(auth_key, None)
+        if active is not None and ok:
+            item.update({
+                "status": "auth_recovered",
+                "http_status": status,
+                "detail": "authentication restored",
+                "recovered_after_count": active["count"],
+            })
         _logs.appendleft(item)
 
 
@@ -157,6 +224,23 @@ def clear_logs() -> None:
     with _lock:
         _logs.clear()
         _heartbeat_states.clear()
+        _auth_failure_states.clear()
+        _poll_metrics.clear()
+
+
+def list_poll_metrics(service: str | None = None) -> list[dict[str, Any]]:
+    """Aggregate high-frequency probes without turning each poll into a log row."""
+    with _lock:
+        rows = []
+        for metric in _poll_metrics.values():
+            row = dict(metric)
+            count = max(1, int(row["request_count"]))
+            row["success_rate"] = round(int(row["success_count"]) * 100 / count, 1)
+            row["average_elapsed_ms"] = round(int(row["total_elapsed_ms"]) / count, 1)
+            rows.append(row)
+    if service:
+        rows = [row for row in rows if row.get("service") == service]
+    return sorted(rows, key=lambda row: str(row.get("last_checked_at") or ""), reverse=True)
 
 
 def list_logs(service: str | None = None, limit: int = 100) -> list[dict[str, Any]]:

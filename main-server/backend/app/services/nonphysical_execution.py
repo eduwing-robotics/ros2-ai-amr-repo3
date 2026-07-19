@@ -1,4 +1,4 @@
-"""Explicit execution-mode contract for reusable TB1 nonphysical trials.
+"""Explicit execution-mode contract for reusable nonphysical trials.
 
 This module contains no transport or database code.  Main orchestration and
 operator-facing commissioning flows use the same admission/provenance rules so
@@ -52,9 +52,9 @@ def resolve_execution_provenance(mode: str, *, robot_id: str) -> ExecutionProven
             base_motion="live",
             lift_backend="physical",
         )
-    if robot_id != "tb3_1":
-        raise NonphysicalAdmissionError("nonphysical execution is scoped to tb3_1")
     if normalized == "evidence_only":
+        if robot_id != "tb3_1":
+            raise NonphysicalAdmissionError("evidence_only execution is scoped to tb3_1")
         return ExecutionProvenance(
             execution_mode="evidence_only",
             execution_class="evidence_only",

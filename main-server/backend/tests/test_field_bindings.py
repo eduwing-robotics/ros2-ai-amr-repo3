@@ -86,24 +86,19 @@ class FieldBindingsTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 409)
         self.assertIn("scenario_map=robot1_map", ctx.exception.detail)
 
-    def test_candidate_bindings_use_current_map_but_dispatch_stays_blocked(self) -> None:
+    def test_candidate_bindings_use_current_commissioned_map(self) -> None:
         self.assertEqual(
             field_bindings.map_for_locations(["INBOUND_01", "STORAGE_S1", "HOME_01"]),
             "robot2_map",
         )
 
-    def test_charge_binding_uses_release_map_while_dispatch_stays_blocked(self) -> None:
+    def test_charge_binding_uses_release_map(self) -> None:
         self.assertEqual(field_bindings.map_for_locations(["CHARGE_01"]), "robot2_map")
-        with self.assertRaises(HTTPException) as ctx:
-            field_bindings.assert_field_dispatch_commissioned("INBOUND", "robot2_map")
-        self.assertEqual(ctx.exception.status_code, 409)
+        field_bindings.assert_field_dispatch_commissioned("INBOUND", "robot2_map")
 
-    def test_robot2_field_dispatch_is_machine_readably_blocked(self) -> None:
-        with self.assertRaises(HTTPException) as ctx:
-            field_bindings.assert_field_dispatch_commissioned("INBOUND", "robot2_map")
-        self.assertEqual(ctx.exception.status_code, 409)
-        self.assertEqual(ctx.exception.detail["code"], "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS")
-        self.assertEqual(ctx.exception.detail["field_dispatch"]["status"], "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS")
+    def test_robot2_field_dispatch_is_machine_readably_commissioned(self) -> None:
+        field_bindings.assert_field_dispatch_commissioned("INBOUND", "robot2_map")
+        field_bindings.assert_field_dispatch_commissioned("OUTBOUND", "robot2_map")
 
     def test_superseded_robot1_map_coordinates_are_blocked(self) -> None:
         with self.assertRaises(HTTPException) as ctx:

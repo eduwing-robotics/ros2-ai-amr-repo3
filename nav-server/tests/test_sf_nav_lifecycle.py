@@ -26,6 +26,7 @@ def _isolated_profile(tmp_path: Path, port: int) -> dict[str, str]:
         "execution_class": "live",
         "evidence_class": "physical",
         "robot_selector": {"robot_ids": ["tb3_burger_01"]},
+        "lift_backends": {"tb3_burger_01": "disabled"},
         "components": {
             "movement_api": {
                 "enabled": True,

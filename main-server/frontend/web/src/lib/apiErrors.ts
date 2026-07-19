@@ -22,6 +22,12 @@ export const API_ERROR_MESSAGES: Record<string, string> = {
   robot_offline: "로봇 또는 Movement 서버에 연결할 수 없습니다.",
   robot_not_localized: "로봇이 localized 상태가 아닙니다(초기 위치 설정 필요).",
   robot_not_accepting: "로봇이 명령을 받을 수 없습니다(E-stop 등).",
+  robot_capabilities_unknown: "로봇 기능 정보를 아직 받지 못했습니다. 연결 상태를 확인하세요.",
+  synthetic_hil_nav_profile_not_active: "선택한 로봇에 가상 리프트 프로파일이 실행 중이 아닙니다.",
+  virtual_lift_backend_not_active: "가상 리프트 백엔드가 준비되지 않았습니다.",
+  virtual_lift_backend_not_ready: "가상 리프트 백엔드가 아직 준비되지 않았습니다.",
+  nonphysical_task_admission_disabled: "Main 서버에서 가상 리프트 시험 모드가 열려 있지 않습니다.",
+  "explicit nonphysical admission is required": "가상 리프트 시험 동의를 확인해야 합니다.",
   // 작업오더 · 작업
   work_order_not_found: "작업오더를 찾을 수 없습니다.",
   work_order_running_requires_recovery: "진행 중 작업오더는 복구 패널에서 화물 상태 확인 후 처리하세요.",
@@ -55,6 +61,17 @@ export function parseApiDetail(raw: string): string {
 /** 코드 문자열을 한글 메시지로. 매핑 없으면 undefined. */
 export function mapErrorCode(code: string): string | undefined {
   if (API_ERROR_MESSAGES[code]) return API_ERROR_MESSAGES[code];
+  if (code.startsWith("robot_missing_capability:")) {
+    const capability = code.split(":", 2)[1];
+    const labels: Record<string, string> = {
+      lift: "리프트",
+      inbound: "입고",
+      outbound: "출고",
+      navigate: "주행",
+      charge: "충전",
+    };
+    return `선택한 로봇은 ${labels[capability] || capability} 기능을 사용할 수 없습니다.`;
+  }
   const base = code.replace(/\s*\(.*\)\s*$/, ""); // "code(status=RUNNING)" → "code"
   return DYNAMIC_ERROR_MESSAGES[base] || API_ERROR_MESSAGES[base];
 }

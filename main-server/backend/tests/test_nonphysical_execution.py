@@ -24,9 +24,10 @@ def test_evidence_only_and_synthetic_hil_share_nonphysical_safety_invariants() -
     assert synthetic.lift_backend == "virtual"
 
 
-def test_nonphysical_modes_are_tb1_only_and_require_explicit_admission() -> None:
+def test_evidence_only_stays_tb1_scoped_and_synthetic_hil_is_reusable() -> None:
     with pytest.raises(NonphysicalAdmissionError, match="tb3_1"):
         resolve_execution_provenance("evidence_only", robot_id="tb3_2")
+    assert resolve_execution_provenance("synthetic_hil", robot_id="tb3_2").lift_backend == "virtual"
     with pytest.raises(NonphysicalAdmissionError, match="explicit"):
         require_explicit_nonphysical_admission(
             "synthetic_hil", robot_id="tb3_1", admitted=False

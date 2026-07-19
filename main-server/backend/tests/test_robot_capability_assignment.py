@@ -16,7 +16,7 @@ def _task(task_id: int, task_type: str) -> dict:
 
 
 class RobotCapabilityAssignmentTest(unittest.TestCase):
-    def test_http_manual_assign_rejects_missing_required_capability(self) -> None:
+    def test_http_manual_assign_accepts_nav_and_lift_without_fake_direction_capability(self) -> None:
         conn = MagicMock()
         task_repo = MagicMock()
         task_repo.return_value.get.return_value = _task(1, "INBOUND")
@@ -42,11 +42,9 @@ class RobotCapabilityAssignmentTest(unittest.TestCase):
                 "localized": True,
                 "pose": {"x": 0, "y": 0},
             }
-            with self.assertRaises(HTTPException) as ctx:
-                task_service.assign_task(conn, 1, "tb3_1")
+            task_service.assign_task(conn, 1, "tb3_1")
 
-        self.assertEqual(ctx.exception.status_code, 409)
-        self.assertEqual(ctx.exception.detail, "robot_missing_capability:inbound")
+        task_repo.return_value.assign.assert_called_once_with(1, "tb3_1", task_service.ASSIGNED_STATUS)
 
     def test_http_manual_assign_rejects_unknown_capabilities(self) -> None:
         with (
@@ -96,7 +94,7 @@ class RobotCapabilityAssignmentTest(unittest.TestCase):
         robots = MagicMock()
         robots.return_value.exists.return_value = True
         robots.return_value.list_idle.return_value = [{"robot_id": "tb3_1"}]
-        movement_health.set_fake_robot_capabilities("tb3_1", ["navigate", "lift", "outbound"])
+        movement_health.set_fake_robot_capabilities("tb3_1", ["navigate", "lift"])
         try:
             with (
                 patch.object(task_service, "task_repo", tasks),
@@ -110,6 +108,52 @@ class RobotCapabilityAssignmentTest(unittest.TestCase):
             movement_health.clear_fake_robot_capabilities("tb3_1")
 
         tasks.return_value.assign.assert_called_once_with(1, "tb3_1", task_service.ASSIGNED_STATUS)
+
+    def test_synthetic_hil_assignment_requires_live_virtual_backend_but_not_physical_lift_capability(self) -> None:
+        movement_health.set_fake_robot_capabilities("tb3_1", ["navigate", "charge"])
+        movement_health.set_fake_robot_health("tb3_1", {
+            "execution_class": "synthetic_hil",
+            "evidence_class": "nonphysical",
+            "lift_backend": "virtual",
+            "lift": {"synthetic_test_capable": True, "ready": True, "reason": "ok"},
+        })
+        try:
+            with (
+                patch("app.core.config.settings") as settings,
+                patch.object(
+                    task_service,
+                    "synthetic_hil_backend_block_reason",
+                    return_value=None,
+                ),
+            ):
+                settings.movement_client_mode = "fake"
+                task_service._assert_robot_capable_for_task(
+                    _task(1, "OUTBOUND"),
+                    "tb3_1",
+                    execution_mode="synthetic_hil",
+                )
+        finally:
+            movement_health.clear_fake_robot_capabilities("tb3_1")
+            movement_health.clear_fake_robot_health("tb3_1")
+
+    def test_synthetic_hil_assignment_rejects_physical_nav_profile(self) -> None:
+        movement_health.set_fake_robot_health("tb3_1", {
+            "execution_class": "live",
+            "evidence_class": "physical",
+        })
+        try:
+            with patch("app.core.config.settings") as settings:
+                settings.movement_client_mode = "fake"
+                with self.assertRaises(HTTPException) as ctx:
+                    task_service._assert_robot_capable_for_task(
+                        _task(1, "INBOUND"),
+                        "tb3_1",
+                        execution_mode="synthetic_hil",
+                    )
+        finally:
+            movement_health.clear_fake_robot_health("tb3_1")
+
+        self.assertEqual(ctx.exception.detail, "synthetic_hil_nav_profile_not_active")
 
     def test_offline_manual_assign_rejects_unknown_fake_capabilities(self) -> None:
         movement_health.set_fake_robot_health("tb3_1", {"capabilities": None})
@@ -184,8 +228,8 @@ class RobotCapabilityAssignmentTest(unittest.TestCase):
         ]
         capabilities = {
             "nav_only": {"navigate", "charge"},
-            "lift_in": {"navigate", "lift", "inbound"},
-            "lift_out": {"navigate", "lift", "outbound"},
+            "lift_in": {"navigate", "lift"},
+            "lift_out": {"navigate", "lift"},
         }
 
         with (

@@ -46,12 +46,14 @@ class TestPoseRuntime:
         assert row["receive_state"] == "live"
         assert row["source_state"] == "fresh"
 
-    def test_watchdog_emits_issue_once_and_three_samples_recover(self) -> None:
+    def test_receive_only_delay_is_not_an_incident_and_lost_recovers_once(self) -> None:
         self.runtime.ingest("r1", {"map_id": "m", "x": 1, "y": 2}, source_kind="canonical")
         self.runtime.collect_events()
         self.clock.advance(1.6)
-        assert [e["event_type"] for e in self.runtime.collect_events()] == ["POSE_STALE"]
         assert self.runtime.collect_events() == []
+        assert self.runtime.collect_events() == []
+        assert self.runtime.list_snapshots()[0]["pose_state"] == "live"
+        assert self.runtime.list_snapshots()[0]["quality_reasons"] == ["RECEIVE_DELAY"]
         self.clock.advance(3.5)
         assert [e["event_type"] for e in self.runtime.collect_events()] == ["POSE_LOST"]
 
@@ -60,6 +62,18 @@ class TestPoseRuntime:
         events = self.runtime.collect_events()
         assert [e["event_type"] for e in events].count("POSE_RECOVERED") == 1
         assert self.runtime.list_snapshots()[0]["pose_state"] == "live"
+
+    def test_source_stale_is_still_an_operational_incident(self) -> None:
+        self.runtime.ingest(
+            "r1",
+            {"map_id": "m", "x": 1, "y": 2, "source_age_sec": 5.1},
+            source_kind="canonical",
+        )
+
+        events = self.runtime.collect_events()
+
+        assert [event["event_type"] for event in events] == ["POSE_STALE"]
+        assert "SOURCE_DELAY" in events[0]["pose"]["quality_reasons"]
 
     def test_recent_canonical_push_wins_over_poll_and_old_stamp_is_ignored(self) -> None:
         assert self.runtime.ingest(

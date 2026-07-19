@@ -26,8 +26,11 @@ ASSIGNED_STATUS = "ASSIGNED"
 TASK_REQUIRED_CAPABILITIES: dict[str, set[str]] = {
     "MOVE": {"navigate"},
     "CHARGE": {"navigate", "charge"},
-    "INBOUND": {"navigate", "lift", "inbound"},
-    "OUTBOUND": {"navigate", "lift", "outbound"},
+    # Inbound/outbound are task directions, not separate robot hardware.
+    # Dock-transfer support is represented by navigate + lift, while physical
+    # readiness remains the Movement lift telemetry gate.
+    "INBOUND": {"navigate", "lift"},
+    "OUTBOUND": {"navigate", "lift"},
 }
 HELD_ORCHESTRATION_PHASES = {
     orch_state.PHASE_AWAITING_OPERATOR,
@@ -63,7 +66,14 @@ def create_task(conn, payload: dict[str, Any]) -> dict[str, Any]:
     return tasks.get(task_id)
 
 
-def assign_task(conn, task_id: int, robot_id: str, source: str = "operator") -> dict[str, Any]:
+def assign_task(
+    conn,
+    task_id: int,
+    robot_id: str,
+    source: str = "operator",
+    *,
+    execution_mode: str = "physical",
+) -> dict[str, Any]:
     tasks = task_repo(conn)
     robots = robot_repo(conn)
     task = tasks.get(task_id)
@@ -76,14 +86,20 @@ def assign_task(conn, task_id: int, robot_id: str, source: str = "operator") -> 
     if not any(r["robot_id"] == robot_id for r in robots.list_idle()):
         raise HTTPException(status_code=409, detail="robot is not idle")
     _assert_robot_ready_for_assignment(robot_id)
-    _assert_robot_capable_for_task(task, robot_id)
-    _apply_assignment(conn, task, robot_id, source)
+    _assert_robot_capable_for_task(task, robot_id, execution_mode=execution_mode)
+    _apply_assignment(conn, task, robot_id, source, execution_mode=execution_mode)
     return tasks.get(task_id)
 
 
-def assign_work_order_robot(conn, task_id: int, robot_id: str) -> dict[str, Any]:
+def assign_work_order_robot(
+    conn,
+    task_id: int,
+    robot_id: str,
+    *,
+    execution_mode: str = "physical",
+) -> dict[str, Any]:
     """Work order 생성 트랜잭션 안에서 지정 로봇 배정 — Movement readiness 검증 포함(assign_task)."""
-    return assign_task(conn, task_id, robot_id, source="work_order")
+    return assign_task(conn, task_id, robot_id, source="work_order", execution_mode=execution_mode)
 
 
 # movement_reason → 운영자용 배정 불가 코드. FE robotReadiness.ts와 문자열 동기화.
@@ -124,8 +140,13 @@ def _assert_robot_ready_for_assignment(robot_id: str) -> None:
         raise HTTPException(status_code=409, detail=detail)
 
 
-def required_capabilities_for_task(task: dict[str, Any]) -> set[str]:
+def required_capabilities_for_task(task: dict[str, Any], *, execution_mode: str = "physical") -> set[str]:
     task_type = str(task.get("task_type") or "MOVE").upper()
+    if execution_mode == "synthetic_hil" and task_type in {"INBOUND", "OUTBOUND"}:
+        # The real base, localization, Nav2, ArUco alignment and docking remain
+        # required. Only the lift actuator capability is supplied by the
+        # admitted virtual backend.
+        return {"navigate"}
     return set(TASK_REQUIRED_CAPABILITIES.get(task_type, TASK_REQUIRED_CAPABILITIES["MOVE"]))
 
 
@@ -163,8 +184,31 @@ def observed_robot_capabilities(robot_id: str) -> set[str] | None:
     return _normalize_capabilities(snap.get("capabilities"))
 
 
-def robot_capability_block_reason(task: dict[str, Any], robot_id: str) -> str | None:
-    required = required_capabilities_for_task(task)
+def synthetic_hil_backend_block_reason(robot_id: str) -> str | None:
+    from app.services.movement_health import get_movement_health
+
+    health = get_movement_health([robot_id], force=True).get(robot_id) or {}
+    if health.get("execution_class") != "synthetic_hil" or health.get("evidence_class") != "nonphysical":
+        return "synthetic_hil_nav_profile_not_active"
+    lift = health.get("lift") if isinstance(health.get("lift"), dict) else {}
+    if health.get("lift_backend") != "virtual" or lift.get("synthetic_test_capable") is not True:
+        return "virtual_lift_backend_not_active"
+    if lift.get("ready") is not True:
+        return str(lift.get("reason") or "virtual_lift_backend_not_ready")
+    return None
+
+
+def robot_capability_block_reason(
+    task: dict[str, Any],
+    robot_id: str,
+    *,
+    execution_mode: str = "physical",
+) -> str | None:
+    if execution_mode == "synthetic_hil":
+        detail = synthetic_hil_backend_block_reason(robot_id)
+        if detail:
+            return detail
+    required = required_capabilities_for_task(task, execution_mode=execution_mode)
     if not required:
         return None
     observed = observed_robot_capabilities(robot_id)
@@ -176,9 +220,14 @@ def robot_capability_block_reason(task: dict[str, Any], robot_id: str) -> str | 
     return None
 
 
-def _assert_robot_capable_for_task(task: dict[str, Any], robot_id: str) -> None:
+def _assert_robot_capable_for_task(
+    task: dict[str, Any],
+    robot_id: str,
+    *,
+    execution_mode: str = "physical",
+) -> None:
     """Fail closed unless the assigned robot has every task capability."""
-    detail = robot_capability_block_reason(task, robot_id)
+    detail = robot_capability_block_reason(task, robot_id, execution_mode=execution_mode)
     if detail:
         raise HTTPException(status_code=409, detail=detail)
 
@@ -311,7 +360,14 @@ def auto_assign(conn, source: str = "auto") -> dict[str, Any]:
     }
 
 
-def _apply_assignment(conn, task: dict[str, Any], robot_id: str, source: str) -> None:
+def _apply_assignment(
+    conn,
+    task: dict[str, Any],
+    robot_id: str,
+    source: str,
+    *,
+    execution_mode: str = "physical",
+) -> None:
     tasks = task_repo(conn)
     task_id = task["task_id"]
     if getattr(conn, "is_postgres", False) is True:
@@ -322,7 +378,7 @@ def _apply_assignment(conn, task: dict[str, Any], robot_id: str, source: str) ->
         tasks.assign(task_id, robot_id, ASSIGNED_STATUS)
         robot_repo(conn).set_task(robot_id, ASSIGNED_STATUS, task_id)
     tasks.add_history(task_id, task["status"], ASSIGNED_STATUS, f"assigned to {robot_id}", source)
-    required_capabilities = required_capabilities_for_task(task)
+    required_capabilities = required_capabilities_for_task(task, execution_mode=execution_mode)
     observed_capabilities = observed_robot_capabilities(robot_id)
     event_repo(conn).append(
         event_type="TASK_ASSIGNED",
@@ -334,6 +390,7 @@ def _apply_assignment(conn, task: dict[str, Any], robot_id: str, source: str) ->
             "source": source,
             "required_capabilities": _capability_payload(required_capabilities),
             "observed_capabilities": _capability_payload(observed_capabilities),
+            "execution_mode": execution_mode,
         },
     )
 

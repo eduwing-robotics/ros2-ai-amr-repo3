@@ -282,6 +282,73 @@ class LiftLoadEvidenceGateBindingTest(unittest.TestCase):
 
 
 class LiftLoadOrchestratorHookTest(unittest.TestCase):
+    def test_transient_evidence_uncertainty_retries_once_before_operator_hold(self) -> None:
+        transient = {
+            "result": "UNCERTAIN",
+            "reason_code": "INSUFFICIENT_FRESH_FRAMES",
+            "command_satisfying": False,
+            "status": "recorded",
+            "binding_errors": [],
+        }
+        passed = {
+            "result": "PASS",
+            "reason_code": "EXPECTED_ITEM_COUNT_MATCH_AND_STABLE",
+            "command_satisfying": True,
+            "status": "recorded",
+            "binding_errors": [],
+        }
+        settings = SimpleNamespace(
+            lift_load_evidence_auto_retry_limit=1,
+            lift_load_evidence_auto_retry_delay_ms=250,
+        )
+        step = {**_leg("load"), "evidence_sequence_no": 3}
+        with (
+            patch.object(orchestrator, "settings", settings),
+            patch.object(
+                orchestrator.lift_load_evidence,
+                "evaluate_and_record",
+                side_effect=[transient, passed],
+            ) as evaluate,
+            patch.object(orchestrator.time, "sleep") as sleep,
+        ):
+            decision = orchestrator._evaluate_gate(
+                MagicMock(), task=_task(), step=step, command_def_id=12,
+            )
+
+        self.assertTrue(decision["approved"])
+        self.assertEqual(decision["attempt"], 2)
+        self.assertEqual(decision["auto_retry_count"], 1)
+        self.assertEqual(evaluate.call_count, 2)
+        sleep.assert_called_once_with(0.25)
+
+    def test_definitive_evidence_fail_never_auto_retries(self) -> None:
+        failed = {
+            "result": "FAIL",
+            "reason_code": "WRONG_ITEM",
+            "command_satisfying": False,
+            "status": "recorded",
+            "binding_errors": [],
+        }
+        settings = SimpleNamespace(
+            lift_load_evidence_auto_retry_limit=3,
+            lift_load_evidence_auto_retry_delay_ms=0,
+        )
+        with (
+            patch.object(orchestrator, "settings", settings),
+            patch.object(
+                orchestrator.lift_load_evidence,
+                "evaluate_and_record",
+                return_value=failed,
+            ) as evaluate,
+        ):
+            decision = orchestrator._evaluate_gate(
+                MagicMock(), task=_task(), step={**_leg("load"), "evidence_sequence_no": 3}, command_def_id=12,
+            )
+
+        self.assertFalse(decision["approved"])
+        self.assertEqual(decision["auto_retry_count"], 0)
+        evaluate.assert_called_once()
+
     def test_legacy_load_completion_holds_for_orchestration_migration(self) -> None:
         conn = MagicMock()
         task = _task(

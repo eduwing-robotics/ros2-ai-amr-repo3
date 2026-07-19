@@ -470,12 +470,13 @@ def test_lifespan_reconciles_before_starting_background_pollers() -> None:
             patch("app.services.field_bindings.load_field_bindings"),
             patch("app.db.pg_connection.require_database_url"),
             patch.object(main, "init_db"),
-            patch.object(
-                main,
-                "initialize_map_assets",
-                side_effect=lambda: calls.append("map_assets_sync"),
-            ),
-            patch.object(main, "initialize_pose_runtime"),
+                patch.object(
+                    main,
+                    "initialize_map_assets",
+                    side_effect=lambda: calls.append("map_assets_sync"),
+                ),
+                patch.object(main, "initialize_field_reference"),
+                patch.object(main, "initialize_pose_runtime"),
             patch.object(
                 main,
                 "initialize_person_hazard_safety",

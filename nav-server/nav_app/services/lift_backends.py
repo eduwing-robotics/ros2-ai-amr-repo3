@@ -33,6 +33,35 @@ def _env_enabled(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def resolved_lift_backend(
+    resolved_profile: Mapping[str, Any] | None,
+    *,
+    robot_id: str | None = None,
+    robot_profile: Mapping[str, Any] | None = None,
+) -> str:
+    """Resolve one robot's explicit lift backend, with a legacy-safe fallback."""
+    if isinstance(resolved_profile, Mapping):
+        backends = resolved_profile.get("lift_backends")
+        selected_id = robot_id or os.getenv("ROBOT_ID")
+        if not selected_id:
+            robots = resolved_profile.get("robots")
+            if isinstance(robots, list) and len(robots) == 1 and isinstance(robots[0], Mapping):
+                selected_id = str(robots[0].get("robot_id") or "")
+        if isinstance(backends, Mapping) and selected_id and backends.get(selected_id) in {
+            "disabled",
+            "virtual",
+            "physical",
+        }:
+            return str(backends[selected_id])
+
+    # Resolved profiles produced before the common backend contract remain
+    # readable during a rolling update, but never gain a capability.
+    if isinstance(resolved_profile, Mapping) and resolved_profile.get("execution_class") == "synthetic_hil":
+        return "virtual"
+    lift = robot_profile.get("lift") if isinstance(robot_profile, Mapping) else None
+    return "physical" if isinstance(lift, Mapping) and lift.get("enabled") is True else "disabled"
+
+
 def load_resolved_runtime_profile(path: str | Path | None = None) -> Optional[dict[str, Any]]:
     """Load and canonically revalidate the launcher contract for this process."""
     selected = path or os.getenv(RESOLVED_PROFILE_ENV)
@@ -90,6 +119,7 @@ def synthetic_hil_admitted(
         and isinstance(virtual_lift, Mapping)
         and virtual_lift.get("enabled") is True
         and virtual_lift.get("backend") == "deterministic"
+        and resolved_lift_backend(resolved) == "virtual"
         and _env_enabled(env.get(SYNTHETIC_HIL_ALLOW_ENV))
     )
 
@@ -108,6 +138,8 @@ def require_synthetic_hil_admission(
         raise RuntimeError("synthetic_hil_virtual_lift_required")
     if virtual_lift.get("backend") != "deterministic":
         raise RuntimeError("synthetic_hil_backend_not_supported")
+    if resolved_lift_backend(resolved) != "virtual":
+        raise RuntimeError("synthetic_hil_virtual_backend_required")
     env = os.environ if environment is None else environment
     if not _env_enabled(env.get(SYNTHETIC_HIL_ALLOW_ENV)):
         raise RuntimeError("synthetic_hil_process_gate_required")
@@ -121,8 +153,7 @@ def lift_provenance(
     resolved = resolved_profile if resolved_profile is not None else load_resolved_runtime_profile()
     execution_class = str(resolved.get("execution_class", "live")) if isinstance(resolved, Mapping) else "live"
     evidence_class = str(resolved.get("evidence_class", "physical")) if isinstance(resolved, Mapping) else "physical"
-    synthetic = execution_class == "synthetic_hil"
-    backend_name = getattr(backend, "backend_name", "virtual" if synthetic else "physical")
+    backend_name = getattr(backend, "backend_name", resolved_lift_backend(resolved))
     return {
         "execution_class": execution_class,
         "evidence_class": evidence_class,
@@ -233,17 +264,57 @@ class VirtualLiftBackend:
         return result
 
 
+class DisabledLiftBackend:
+    """Explicit no-lift backend; avoids creating unused ROS lift publishers."""
+
+    backend_name = "disabled"
+    enabled = False
+
+    def status(self) -> dict[str, Any]:
+        return {
+            "enabled": False,
+            "ready": False,
+            "backend": self.backend_name,
+            "reason": "lift_disabled",
+            **lift_provenance(backend=self),
+        }
+
+    def telemetry_health(self, max_age_sec: Optional[float] = None) -> dict[str, Any]:
+        del max_age_sec
+        return {"ready": False, "reason": "lift_disabled", "backend": self.backend_name}
+
+    def stop(self) -> None:
+        return None
+
+    @staticmethod
+    def _disabled(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("lift_disabled")
+
+    move_to = _disabled
+    move_to_if_needed = _disabled
+    home = _disabled
+    execute_transfer = _disabled
+    execute_pre_insert = _disabled
+    execute_carry_after_load = _disabled
+
 def create_lift_backend(
     node: Any,
     robot_profile: Mapping[str, Any],
     *,
     resolved_profile: Mapping[str, Any] | None = None,
     environment: Mapping[str, str] | None = None,
-) -> LiftClient | VirtualLiftBackend:
+) -> LiftClient | VirtualLiftBackend | DisabledLiftBackend:
     resolved = resolved_profile if resolved_profile is not None else load_resolved_runtime_profile()
-    if isinstance(resolved, Mapping) and resolved.get("execution_class") == "synthetic_hil":
+    backend = resolved_lift_backend(
+        resolved,
+        robot_id=str(robot_profile.get("robot_id") or os.getenv("ROBOT_ID") or "") or None,
+        robot_profile=robot_profile,
+    )
+    if backend == "virtual":
         require_synthetic_hil_admission(resolved, environment)
         config = deepcopy(dict(robot_profile.get("lift") or {}))
         config.update(dict(resolved.get("virtual_lift") or {}))
         return VirtualLiftBackend(config)
-    return LiftClient(node, dict(robot_profile.get("lift") or {}))
+    if backend == "physical":
+        return LiftClient(node, dict(robot_profile.get("lift") or {}))
+    return DisabledLiftBackend()

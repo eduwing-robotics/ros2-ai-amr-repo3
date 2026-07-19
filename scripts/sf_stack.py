@@ -22,6 +22,7 @@ from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = ROOT / "config" / "runtime_profiles" / "stack" / "manifest.json"
+NAV_PROFILE_MANIFEST = ROOT / "nav-server" / "config" / "runtime_profiles" / "manifest.json"
 DEFAULT_STATE_ROOT = Path(os.getenv("XDG_RUNTIME_DIR", "/tmp")) / "smartfactory" / "stack"
 COMPONENT_ORDER = ("bridge", "nav", "main")
 STOP_ORDER = tuple(reversed(COMPONENT_ORDER))
@@ -131,6 +132,20 @@ def load_profile(requested: str | None) -> tuple[dict[str, Any], dict[str, Any],
     return profile, manifest, local_ips
 
 
+def load_nav_profile_contract(profile_id: str) -> dict[str, Any]:
+    manifest = load_json(NAV_PROFILE_MANIFEST)
+    relative = (manifest.get("profiles") or {}).get(profile_id)
+    if not isinstance(relative, str) or not relative:
+        raise StackError(f"unknown Nav profile: {profile_id}")
+    path = (NAV_PROFILE_MANIFEST.parent / relative).resolve()
+    if NAV_PROFILE_MANIFEST.parent not in path.parents:
+        raise StackError(f"Nav profile path escapes manifest directory: {relative}")
+    profile = load_json(path)
+    if profile.get("profile_id") != profile_id:
+        raise StackError(f"Nav profile identity mismatch: {profile_id}")
+    return profile
+
+
 def validate_profile(name: str, profile: dict[str, Any]) -> None:
     if profile.get("schema_version") != 1:
         raise StackError(f"profile={name} schema_version must be 1")
@@ -166,6 +181,11 @@ def validate_profile(name: str, profile: dict[str, Any]) -> None:
             raise StackError(f"profile={name} enabled Nav must select a Nav profile")
         if nav.get("readiness_mode") != "http":
             raise StackError(f"profile={name} stack-managed Nav readiness_mode must be http")
+        nav_contract = load_nav_profile_contract(nav["profile"])
+        if nav_contract.get("execution_class") != execution_class:
+            raise StackError(
+                f"profile={name} execution_class does not match Nav profile={nav['profile']}"
+            )
     if main.get("enabled"):
         if main.get("site_profile") not in {"field", "integration"}:
             raise StackError(f"profile={name} has unsupported Main site profile")
@@ -184,10 +204,22 @@ def validate_profile(name: str, profile: dict[str, Any]) -> None:
             raise StackError(
                 f"profile={name} must set LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED={expected_nonphysical}"
             )
+        evidence_enabled = env.get("LMS_LIFT_LOAD_EVIDENCE_ENABLED")
+        evidence_mode = env.get("LMS_LIFT_LOAD_EVIDENCE_MODE")
+        if evidence_enabled not in {"true", "false"}:
+            raise StackError(f"profile={name} must explicitly enable or disable lift-load evidence")
+        if evidence_mode not in {"gate", "record"}:
+            raise StackError(f"profile={name} must explicitly select gate or record lift-load evidence mode")
+        if evidence_enabled == "true" and evidence_mode != "gate":
+            raise StackError(f"profile={name} enabled lift-load evidence must use gate mode")
+        if env.get("LMS_LIFT_LOAD_EVIDENCE_SOURCE") != "global_cam_01":
+            raise StackError(f"profile={name} lift-load evidence source must be global_cam_01")
     if execution_class == "synthetic_hil":
         main_env = main.get("env") or {}
-        if nav.get("enabled") is not True or nav.get("profile") != "tb1-synthetic-hil":
-            raise StackError(f"profile={name} synthetic_hil must select the tb1-synthetic-hil Nav profile")
+        nav_contract = load_nav_profile_contract(str(nav.get("profile") or "")) if nav.get("enabled") else {}
+        lift_backends = nav_contract.get("lift_backends")
+        if not isinstance(lift_backends, dict) or set(lift_backends.values()) != {"virtual"}:
+            raise StackError(f"profile={name} synthetic_hil Nav profile must select virtual lift backends")
         if main.get("enabled") is not True or main_env.get("LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED") != "true":
             raise StackError(f"profile={name} synthetic_hil must explicitly admit nonphysical Main tasks")
 

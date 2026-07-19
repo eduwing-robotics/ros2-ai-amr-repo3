@@ -165,6 +165,7 @@ export interface WorkOrder {
   business_completed?: boolean;
   return_status?: "RETURNING_HOME" | "PARKING" | "PARKED" | "PARK_FAILED" | null;
   parking_error?: JsonObject | null;
+  execution_mode?: "physical" | "synthetic_hil";
 }
 
 export interface WorkOrderCreate {
@@ -181,6 +182,8 @@ export interface WorkOrderCreate {
   inbound_waypoint_id?: string | null;
   outbound_waypoint_id?: string | null;
   robot_id?: string | null;
+  execution_mode?: "physical" | "synthetic_hil";
+  admit_nonphysical?: boolean;
 }
 
 export interface WorkOrderPreviewRequest {

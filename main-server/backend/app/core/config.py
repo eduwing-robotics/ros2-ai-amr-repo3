@@ -143,12 +143,12 @@ class Settings:
     movement_health_timeout_sec: float = float(os.getenv("LMS_MOVEMENT_HEALTH_TIMEOUT_SEC", "0.8"))
     pose_receive_stale_sec: float = float(os.getenv("LMS_POSE_RECEIVE_STALE_SEC", "1.5"))
     pose_receive_lost_sec: float = float(os.getenv("LMS_POSE_RECEIVE_LOST_SEC", "5.0"))
-    pose_source_stale_sec: float = float(os.getenv("LMS_POSE_SOURCE_STALE_SEC", "3.0"))
+    pose_source_stale_sec: float = float(os.getenv("LMS_POSE_SOURCE_STALE_SEC", "5.0"))
     pose_source_lost_sec: float = float(os.getenv("LMS_POSE_SOURCE_LOST_SEC", "10.0"))
     pose_recovery_samples: int = int(os.getenv("LMS_POSE_RECOVERY_SAMPLES", "3"))
     pose_watchdog_interval_sec: float = float(os.getenv("LMS_POSE_WATCHDOG_INTERVAL_SEC", "0.25"))
-    pose_poll_interval_sec: float = float(os.getenv("LMS_POSE_POLL_INTERVAL_SEC", "1.0"))
-    pose_push_preferred_sec: float = float(os.getenv("LMS_POSE_PUSH_PREFERRED_SEC", "2.0"))
+    pose_poll_interval_sec: float = float(os.getenv("LMS_POSE_POLL_INTERVAL_SEC", "0.25"))
+    pose_push_preferred_sec: float = float(os.getenv("LMS_POSE_PUSH_PREFERRED_SEC", "0.5"))
     pose_max_source_age_sec: float = float(os.getenv("LMS_POSE_MAX_SOURCE_AGE_SEC", "86400"))
     pose_jump_distance_m: float = float(os.getenv("LMS_POSE_JUMP_DISTANCE_M", "1.0"))
     pose_jump_speed_mps: float = float(os.getenv("LMS_POSE_JUMP_SPEED_MPS", "1.0"))
@@ -186,6 +186,10 @@ class Settings:
     # This is intentionally separate from the camera-frame age sent to AI.
     lift_load_evidence_max_age_s: float = float(os.getenv("LMS_LIFT_LOAD_EVIDENCE_MAX_AGE_S", "5.0"))
     lift_load_evidence_clock_skew_s: float = float(os.getenv("LMS_LIFT_LOAD_EVIDENCE_CLOCK_SKEW_S", "1.0"))
+    # A fresh frame can repair transient uncertainty, so retry it once before
+    # asking an operator. Definitive FAIL or binding errors never auto-retry.
+    lift_load_evidence_auto_retry_limit: int = int(os.getenv("LMS_LIFT_LOAD_EVIDENCE_AUTO_RETRY_LIMIT", "1"))
+    lift_load_evidence_auto_retry_delay_ms: int = int(os.getenv("LMS_LIFT_LOAD_EVIDENCE_AUTO_RETRY_DELAY_MS", "250"))
     nonphysical_task_admission_enabled: bool = os.getenv(
         "LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED", "false"
     ).lower() in {"1", "true", "yes", "on"}

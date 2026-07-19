@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import defaultdict
 from typing import Any
 
@@ -534,7 +535,10 @@ def start_task_orchestration(
 
         live_health = get_movement_health([str(robot_id)], force=True).get(str(robot_id), {})
         if live_health.get("execution_class") != "synthetic_hil" or live_health.get("evidence_class") != "nonphysical":
-            raise HTTPException(status_code=409, detail="tb1 synthetic_hil Nav profile is not active")
+            raise HTTPException(status_code=409, detail="synthetic_hil_nav_profile_not_active")
+        lift = live_health.get("lift") if isinstance(live_health.get("lift"), dict) else {}
+        if live_health.get("lift_backend") != "virtual" or lift.get("synthetic_test_capable") is not True:
+            raise HTTPException(status_code=409, detail="virtual_lift_backend_not_active")
     steps = plan_command_steps(conn, scenario, task_id, robot_id)
     orchestration = orch_state.new_orchestration(steps, callback_base_url=configured_callback_base_url())
     orchestration["provenance"] = provenance.as_dict()
@@ -723,42 +727,64 @@ def _evaluate_gate(
     operation_override: str | None = None,
 ) -> dict[str, Any]:
     operation = operation_override or ("POST_PICK_UP" if _dock_action(step) == "load" else "PRE_DROP_OFF")
-    attempt = int(step.get("evidence_attempt") or 0) + 1
-    step["evidence_attempt"] = attempt
-    runtime_command_id = orch_state.deterministic_evidence_command_id(
-        int(task["task_id"]),
-        operation,
-        int(step.get("evidence_sequence_no") or 0),
-        attempt,
-    )
-    try:
-        evidence_step = _step_for_evidence(step, operation_override=operation_override)
-        result = lift_load_evidence.evaluate_and_record(
-            conn,
-            task,
-            evidence_step,
-            command_def_id,
-            runtime_command_id=runtime_command_id,
+    retry_limit = max(0, int(settings.lift_load_evidence_auto_retry_limit))
+    initial_attempt = int(step.get("evidence_attempt") or 0)
+    decision: dict[str, Any] = {}
+
+    for retry_index in range(retry_limit + 1):
+        attempt = initial_attempt + retry_index + 1
+        step["evidence_attempt"] = attempt
+        runtime_command_id = orch_state.deterministic_evidence_command_id(
+            int(task["task_id"]),
+            operation,
+            int(step.get("evidence_sequence_no") or 0),
+            attempt,
         )
-        if isinstance(result, dict):
-            result = {
-                **result,
+        try:
+            evidence_step = _step_for_evidence(step, operation_override=operation_override)
+            result = lift_load_evidence.evaluate_and_record(
+                conn,
+                task,
+                evidence_step,
+                command_def_id,
+                runtime_command_id=runtime_command_id,
+            )
+            if isinstance(result, dict):
+                result = {
+                    **result,
+                    "runtime_command_id": runtime_command_id,
+                    "command_def_id": command_def_id,
+                    "attempt": attempt,
+                }
+            decision = _gate_approval_metadata(result)
+        except Exception as exc:
+            logger.exception("lift-load evidence gate failed")
+            decision = _gate_approval_metadata({
+                "result": "ERROR",
+                "reason_code": str(exc),
+                "command_satisfying": False,
+                "status": "error",
                 "runtime_command_id": runtime_command_id,
                 "command_def_id": command_def_id,
                 "attempt": attempt,
-            }
-        return _gate_approval_metadata(result)
-    except Exception as exc:
-        logger.exception("lift-load evidence gate failed")
-        return _gate_approval_metadata({
-            "result": "ERROR",
-            "reason_code": str(exc),
-            "command_satisfying": False,
-            "status": "error",
-            "runtime_command_id": runtime_command_id,
-            "command_def_id": command_def_id,
-            "attempt": attempt,
-        })
+            })
+
+        decision["auto_retry_count"] = retry_index
+        if decision.get("approved") or not _transient_evidence_decision(decision) or retry_index >= retry_limit:
+            return decision
+        delay = max(0, int(settings.lift_load_evidence_auto_retry_delay_ms)) / 1000.0
+        if delay:
+            time.sleep(delay)
+    return decision
+
+
+def _transient_evidence_decision(decision: dict[str, Any]) -> bool:
+    """Only a fresh-frame problem may retry without operator judgment."""
+    if decision.get("binding_errors"):
+        return False
+    if str(decision.get("status") or "").lower() in {"error", "missing"}:
+        return True
+    return str(decision.get("result") or "").upper() in {"UNCERTAIN", "NO_DECISION"}
 
 def dispatch_current_step(conn, task_id: int) -> str:
     tasks = task_repo(conn)

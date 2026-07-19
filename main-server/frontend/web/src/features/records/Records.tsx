@@ -15,11 +15,11 @@ const PAGE_SIZE = 25;
 type TabKey = "events" | "tasks" | "movement" | "inventory" | "communications";
 
 const TAB_LABELS: Record<TabKey, string> = {
-  events: "감사 이벤트",
-  tasks: "작업 완료 (task_logs)",
-  movement: "이동 증거",
-  inventory: "재고 변경",
-  communications: "통신 기록",
+  events: "운영 이벤트",
+  tasks: "작업 이력",
+  movement: "이동 명령",
+  inventory: "재고 이력",
+  communications: "시스템 상태",
 };
 
 function paginate<T>(rows: T[], page: number) {
@@ -161,6 +161,8 @@ const heartbeatLabel = (status?: string | number) => ({
 
 const communicationResultLabel = (row: CommLog) => {
   if (row.heartbeat) return heartbeatLabel(row.status);
+  if (row.status === "auth_error") return "인증 오류";
+  if (row.status === "auth_recovered") return "인증 복구";
   const code = typeof row.status === "number" ? row.status : Number(row.status);
   if (code >= 200 && code < 300) return "요청 성공";
   if (code === 400) return "잘못된 요청";
@@ -184,27 +186,40 @@ const communicationTargetLabel = (row: CommLog) => ({
   frame_stream: "원본 영상 스트림",
   overlay_stream: "분석 영상 스트림",
   heartbeat: "연결 상태",
+  webrtc_offer: "WebRTC 연결",
 } as Record<string, string>)[String(row.target || "")] || String(row.source || row.target || "—");
 
 function CommunicationsTab() {
   const [service, setService] = useState("");
   const { data, isLoading } = useCommLogs(service, 200);
   const rows = data?.logs ?? [];
+  const metrics = data?.poll_metrics ?? [];
+  const metricRequests = metrics.reduce((sum, metric) => sum + metric.request_count, 0);
+  const metricSuccesses = metrics.reduce((sum, metric) => sum + metric.success_count, 0);
+  const metricElapsed = metrics.reduce((sum, metric) => sum + metric.average_elapsed_ms * metric.request_count, 0);
+  const metricSuccessRate = metricRequests ? (metricSuccesses * 100 / metricRequests).toFixed(1) : "—";
+  const metricAverageMs = metricRequests ? (metricElapsed / metricRequests).toFixed(1) : "—";
   const columns: Column<CommLog>[] = [
     { header: "시각", className: "mono", cell: (r) => <span title={cell(r.finished_at || r.started_at)}>{formatServerTime(r.finished_at || r.started_at)}</span> },
     { header: "서비스", cell: (r) => cell(r.service) },
     { header: "대상", cell: (r) => <span title={cell(r.source || r.target)}>{communicationTargetLabel(r)}</span> },
     { header: "결과", cell: (r) => <span title={r.status == null ? "" : "원본 상태: " + String(r.status)}><Pill status={r.ok ? "ok" : "error"} /> {communicationResultLabel(r)}</span> },
     { header: "내용", cell: (r) => cell(r.detail) },
-    { header: "반복", className: "mono", cell: (r) => r.heartbeat ? String(r.repeat_count || 1) + "회" : "—" },
-    { header: "최근 확인", className: "mono", cell: (r) => r.heartbeat ? formatServerTime(r.last_checked_at) : "—" },
+    { header: "반복", className: "mono", cell: (r) => r.heartbeat || r.status === "auth_error" ? String(r.repeat_count || 1) + "회" : "—" },
+    { header: "최근 확인", className: "mono", cell: (r) => r.heartbeat || r.status === "auth_error" ? formatServerTime(r.last_checked_at) : "—" },
     { header: "응답 시간", className: "mono", cell: (r) => r.elapsed_ms == null ? "—" : <>{r.elapsed_ms} ms</> },
     { header: "URL", className: "mono", cell: (r) => <span title={cell(r.url)}>{cell(r.url)}</span> },
   ];
   return <>
     <div className="toolbar records-filters">
-      <input className="search" placeholder="서비스 이름으로 필터" value={service} onChange={(e) => setService(e.target.value)} />
-      <span className="rowcount">최근 {rows.length}건</span>
+      <select className="filter" aria-label="서비스 필터" value={service} onChange={(e) => setService(e.target.value)}>
+        <option value="">서비스: 전체</option>
+        <option value="movement">Movement</option>
+        <option value="vision">Vision</option>
+        <option value="camera">Camera</option>
+      </select>
+      <span className="rowcount">운영 사건 {rows.length}건</span>
+      <span className="rowcount">폴링 {metricRequests.toLocaleString()}회 · 성공률 {metricSuccessRate}% · 평균 {metricAverageMs}ms</span>
     </div>
     {isLoading ? <div className="empty">불러오는 중…</div> : <FilterableTable columns={columns} rows={rows}
       getKey={(r, i) => [r.started_at, r.service, i].join("-")}
@@ -253,7 +268,7 @@ export function Records({
         <div className="ops-heading">
           <div>
             <h2>기록</h2>
-            <p>감사 이벤트·작업 완료·이동 증거·재고 변경·통신 기록 — DB source 테이블 기반 read-only 조회</p>
+            <p>운영 이벤트·작업·이동·재고·연결 상태를 시간순으로 조회합니다.</p>
           </div>
         </div>
       ) : null}

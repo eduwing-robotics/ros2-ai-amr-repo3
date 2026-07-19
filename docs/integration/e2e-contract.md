@@ -1,5 +1,7 @@
 # Main · Nav · AI E2E 계약
 
+이 문서는 Main·Nav·AI 사이에서 현재 구현된 책임, 인증, command, evidence, recovery 불변식의 정본이다. 운영자가 서비스를 기동하고 UI에서 실물 시험을 수행하는 순서는 [실물 E2E 통합 실행서](../operations/physical-e2e-checklist.md)가 소유한다. 이 문서는 운용 명령을 중복해서 소유하지 않는다.
+
 ## 소유권과 trust
 
 | 소유자 | 계약 |
@@ -40,7 +42,7 @@ Nav는 configured Main origin과 고정 Movement callback path만 허용하고 r
 
 실물 위치·마커·도킹 값의 정본은 `nav-server/map/zones.json`이다. `main-server/backend/config/field-bindings.json`은 그 값을 Main location과 연결하는 실행 계약이며, 계약 테스트가 Nav zone·dock pose·scan marker와의 정적 불일치를 거부한다. 운영 DB row가 이 계약과 다르면 Main은 command 계획을 HTTP 409로 거부한다. 현재 field asset은 `robot2_map`이며 Main은 coordinate와 initial-pose dispatch 전에 Nav의 map ID·geometry·YAML/PGM digest를 exact match로 검증한다. UI/legacy map remap은 적용하지 않는다.
 
-`tb3_1`과 `tb3_2`는 production에서 `robot2_map`을 보고한다. TB1은 `HOME_01`/marker 3, TB2는 `HOME_02`/marker 4로 복귀한다. 두 로봇이 같은 map ID를 공유하므로 `field_dispatch.inbound/outbound=false`는 유지한다. 맵 단위 스위치를 바로 켜지 말고 로봇·경로별 현장 승인 후 commissioning해야 한다.
+`tb3_1`과 `tb3_2`는 production에서 `robot2_map`을 보고한다. TB1은 `HOME_01`/marker 3, TB2는 `HOME_02`/marker 4로 복귀한다. Main의 `robot2_map` dispatch는 승인된 TB2 물리 E2E를 위해 열려 있지만, Nav가 로봇별 gate를 최종 적용한다. 리프트가 없는 TB1 live와 no-hardware profile은 `field_dispatch.inbound/outbound=false`, 현장 1층 경로를 검증한 TB2 live만 `true`다.
 
 Nav의 현재 `robot2_map` 현장 scan approach는 다음과 같다. 같은 실물 장비와 맵으로 검증한 Nav tag `pre-scenario-api-v1-20260716` (`3ed56bf`)의 값만 `nav-server/map/zones.json`에 선별 반영했다.
 
@@ -53,7 +55,7 @@ Nav의 현재 `robot2_map` 현장 scan approach는 다음과 같다. 같은 실�
 
 TB2에서 실물 완료된 최소 경로는 `HOME_02(#4) → INBOUND_02(#1) → STORAGE_S1(#7) → HOME_02(#4)`와 `HOME_02(#4) → STORAGE_S1(#7) → OUTBOUND_02(#6) → HOME_02(#4)`다. 이 경로의 A구역 1층 lift cycle은 `0 → 6 → 0 mm`이며, Main의 분리된 evidence gate와 Nav의 `dock_transfer` 구조는 그대로 유지한다.
 
-변경된 A/C 접근점은 `robot2_map`에서 0.18m 자유 공간 검사를 통과했고 Main binding·테스트 seed와도 일치한다. 이 정적 일치는 물리 정확성이나 field commissioning을 뜻하지 않는다. 운영 DB row와 전체 dock pose를 현장에서 검증하고 `field_dispatch`를 별도 승인하기 전에는 Main field task를 시작하지 않는다.
+변경된 A/C 접근점은 `robot2_map`에서 0.18m 자유 공간 검사를 통과했고 Main binding·테스트 seed와도 일치한다. TB2의 위 1층 baseline 경로만 field E2E 대상으로 승인됐다. 다른 슬롯·층과 `metric_docking.live_enabled`는 별도 commissioning 대상이며, 정적 일치만으로 승인 범위를 넓히지 않는다.
 
 ## DB reservation과 orchestration
 

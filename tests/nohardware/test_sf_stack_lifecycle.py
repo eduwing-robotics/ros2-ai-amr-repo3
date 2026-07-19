@@ -80,7 +80,14 @@ def _stack_fixture(
                 "env": {
                     "LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED": (
                         "true" if execution_class == "synthetic_hil" else "false"
-                    )
+                    ),
+                    "LMS_LIFT_LOAD_EVIDENCE_ENABLED": (
+                        "true" if execution_class == "synthetic_hil" else "false"
+                    ),
+                    "LMS_LIFT_LOAD_EVIDENCE_MODE": (
+                        "gate" if execution_class == "synthetic_hil" else "record"
+                    ),
+                    "LMS_LIFT_LOAD_EVIDENCE_SOURCE": "global_cam_01",
                 },
             },
         },
@@ -418,6 +425,8 @@ def test_repository_profiles_assign_one_safe_default_per_field_host() -> None:
         profiles["tb2-local-e2e"]["components"]["main"]["env"]["LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED"]
         == "false"
     )
+    assert profiles["tb2-local-e2e"]["components"]["main"]["env"]["LMS_LIFT_LOAD_EVIDENCE_ENABLED"] == "true"
+    assert profiles["tb2-local-e2e"]["components"]["main"]["env"]["LMS_LIFT_LOAD_EVIDENCE_MODE"] == "gate"
     assert profiles["all-local-e2e"]["site"]["allowed_local_ips"] == ["192.168.30.5"]
     assert (
         profiles["all-local-e2e"]["components"]["bridge"]["runner"]
@@ -435,6 +444,7 @@ def test_repository_profiles_assign_one_safe_default_per_field_host() -> None:
         profiles["all-local-e2e"]["components"]["main"]["env"]["LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED"]
         == "false"
     )
+    assert profiles["all-local-e2e"]["components"]["main"]["env"]["LMS_LIFT_LOAD_EVIDENCE_MODE"] == "gate"
     assert profiles["main-field"]["components"]["nav"]["enabled"] is False
     assert profiles["main-field"]["health"]["main"] == [
         "http://smartfactory-main.local:8088/health",
@@ -444,6 +454,7 @@ def test_repository_profiles_assign_one_safe_default_per_field_host() -> None:
         profiles["main-field"]["components"]["main"]["env"]["LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED"]
         == "false"
     )
+    assert profiles["main-field"]["components"]["main"]["env"]["LMS_LIFT_LOAD_EVIDENCE_MODE"] == "gate"
     assert profiles["nav-field-tb1"]["components"]["main"]["enabled"] is False
     assert profiles["tb1-synthetic-e2e"]["execution_class"] == "synthetic_hil"
     assert profiles["tb1-synthetic-e2e"]["components"]["nav"]["profile"] == "tb1-synthetic-hil"
@@ -451,5 +462,6 @@ def test_repository_profiles_assign_one_safe_default_per_field_host() -> None:
         profiles["tb1-synthetic-e2e"]["components"]["main"]["env"]["LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED"]
         == "true"
     )
+    assert profiles["tb1-synthetic-e2e"]["components"]["main"]["env"]["LMS_LIFT_LOAD_EVIDENCE_MODE"] == "gate"
     assert profiles["nav-field-tb2"]["components"]["nav"]["profile"] == "tb2-live"
     assert profiles["nav-field-all"]["components"]["nav"]["profile"] == "all-live"

@@ -2,7 +2,7 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class WorkOrderTask(BaseModel):
@@ -76,6 +76,7 @@ class WorkOrder(BaseModel):
     business_completed: bool = False
     return_status: str | None = None
     parking_error: dict[str, Any] | None = None
+    execution_mode: Literal["physical", "synthetic_hil"] = "physical"
 
 
 class WorkOrderStopResult(BaseModel):
@@ -106,6 +107,19 @@ class WorkOrderCreate(BaseModel):
     inbound_waypoint_id: str | None = None
     outbound_waypoint_id: str | None = None
     robot_id: str | None = None
+    execution_mode: Literal["physical", "synthetic_hil"] = "physical"
+    admit_nonphysical: bool = False
+
+    @model_validator(mode="after")
+    def validate_execution_mode(self) -> "WorkOrderCreate":
+        if self.execution_mode == "synthetic_hil":
+            if not self.admit_nonphysical:
+                raise ValueError("explicit nonphysical admission is required")
+            if not self.auto_start or not self.robot_id:
+                raise ValueError("synthetic_hil work orders require auto_start and an explicit robot_id")
+        elif self.admit_nonphysical:
+            raise ValueError("admit_nonphysical is only valid for synthetic_hil")
+        return self
 
 
 class WorkOrderPriorityUpdate(BaseModel):

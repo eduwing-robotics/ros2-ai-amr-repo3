@@ -14,6 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.routes import router
 from app.core.config import settings
 from app.db.connection import init_db, transaction
+from app.db.map_reference import load_manifest, sync_reference
 from app.db.repo_bridge import robot_repo
 from app.services import person_hazard
 from app.services.map_assets import import_map_assets
@@ -86,6 +87,13 @@ def initialize_map_assets() -> dict:
         return import_map_assets(conn)
 
 
+def initialize_field_reference() -> int:
+    """Synchronize release-owned scan/approach rows required by field tasks."""
+    manifest = load_manifest()
+    with transaction() as conn:
+        return sync_reference(conn, manifest)
+
+
 def initialize_person_hazard_safety() -> int:
     """Hold persisted in-flight motion before any startup poller can advance it."""
     with transaction() as conn:
@@ -103,6 +111,7 @@ async def lifespan(app: FastAPI):
     load_field_bindings()
     require_database_url()
     init_db()
+    initialize_field_reference()
     initialize_map_assets()
     initialize_pose_runtime()
     initialize_person_hazard_safety()

@@ -36,6 +36,13 @@ def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | No
     operation = payload["operation"]
     quantity = validated_quantity(int(payload["quantity"]))
     auto_start = bool(payload.get("auto_start", False))
+    execution_mode = str(payload.get("execution_mode") or "physical")
+    admit_nonphysical = bool(payload.get("admit_nonphysical", False))
+    if execution_mode == "synthetic_hil":
+        from app.core.config import settings
+
+        if not settings.nonphysical_task_admission_enabled:
+            raise HTTPException(status_code=409, detail="nonphysical_task_admission_disabled")
 
     if not MvpItemRepository(conn).exists(item_code):
         raise HTTPException(status_code=404, detail="item not found")
@@ -66,7 +73,12 @@ def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | No
     robot_id = payload.get("robot_id")
     if robot_id:
         for task_id in task_ids:
-            task_service.assign_work_order_robot(conn, task_id, str(robot_id))
+            task_service.assign_work_order_robot(
+                conn,
+                task_id,
+                str(robot_id),
+                execution_mode=execution_mode,
+            )
     elif auto_start:
         task_service.auto_assign(conn, source="work_order")
 
@@ -78,9 +90,19 @@ def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | No
             if task and task.get("status") == task_service.ASSIGNED_STATUS:
                 try:
                     mission_results.append(task_service.start_task_mission(
-                        conn, task_id, callback_base_url=callback_base_url, source="work_order",
+                        conn,
+                        task_id,
+                        callback_base_url=callback_base_url,
+                        source="work_order",
+                        execution_mode=execution_mode,
+                        admit_nonphysical=admit_nonphysical,
                     ))
                 except HTTPException as exc:
+                    if execution_mode == "synthetic_hil":
+                        # The requested backend is part of this work order's
+                        # meaning. Roll the transaction back rather than leave
+                        # an ambiguous physical-looking queued task behind.
+                        raise
                     start_failed.append({"task_id": task_id, "detail": exc.detail})
 
     order = _response(conn, batch_id or task_ids[0], mission_results=mission_results or None)
@@ -739,6 +761,7 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
     plan_summary = _plan_summary_for_task(conn, order_id)
     attached = evidence_runtime.attach_orchestration(task, conn) or task
     orch = (attached.get("preset_snapshot") or {}).get("_orchestration") or {}
+    execution_mode = str((orch.get("provenance") or {}).get("execution_mode") or "physical")
     business_completed = bool(orch.get("business_completed"))
     return_status = orch.get("return_status")
     parking_error = orch.get("parking_error")
@@ -784,6 +807,7 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
         "business_completed": business_completed,
         "return_status": return_status,
         "parking_error": parking_error,
+        "execution_mode": execution_mode,
     }
     if mission_results is not None:
         order["mission_results"] = mission_results

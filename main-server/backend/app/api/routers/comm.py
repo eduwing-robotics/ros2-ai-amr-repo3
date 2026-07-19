@@ -8,6 +8,7 @@ from app.db.connection import transaction
 from app.db.repo_bridge import camera_repo, movement_repo, robot_repo
 from app.models.schemas import MovementCommand, Robot
 from app.services.api_logs import list_logs as list_api_logs
+from app.services.api_logs import list_poll_metrics
 from app.services.movement_health import get_movement_health
 from app.services.vision_proxy import fetch_camera_health
 
@@ -28,12 +29,15 @@ def comm_logs(
         ]
         robots = [Robot(**r) for r in robot_repo(conn).list()]
     logs = list_api_logs(service=service, limit=limit)
+    poll_metrics = list_poll_metrics(service=service)
     return {
         "logs": logs,
+        "poll_metrics": poll_metrics,
         "movement_commands": movement_commands,
         "counts": {
             "logs": len(logs),
             "movement_commands": len(movement_commands),
+            "poll_metrics": len(poll_metrics),
         },
         "robots": robots,
     }
