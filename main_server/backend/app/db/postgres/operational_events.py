@@ -123,7 +123,7 @@ def latest_person_hazard_enabled(conn) -> bool | None:
 
 
 def should_append_robot_status_issue(
-    conn, robot_id: str, payload: dict[str, Any], *, reminder_sec: int = 60
+    conn, robot_id: str, payload: dict[str, Any], *, reminder_sec: int = 900
 ) -> bool:
     """Persist a robot issue on state transition, then at most once per reminder window."""
     row = conn.execute(

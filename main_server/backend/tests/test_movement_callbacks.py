@@ -17,6 +17,7 @@ except ImportError:
     TestClient = None  # type: ignore[misc, assignment]
 
 from app.api.routers import movement_callbacks as callback_routes
+from app.db.postgres import operational_events
 from app.domains.execution import callback_workflow
 from app.domains.movement import callbacks
 from app.domains.movement import router as routes
@@ -294,6 +295,36 @@ class MovementCallbackRouteTest(unittest.TestCase):
         ingest.assert_not_called()
         transaction_ctx.assert_not_called()
 
+    @patch("app.domains.movement.router.postgres_robots.get")
+    @patch("app.domains.movement.router.callbacks.ingest_robot_status_pose")
+    @patch("app.domains.movement.router.transaction")
+    def test_disabled_robot_status_is_acknowledged_without_runtime_pose(
+        self, transaction_ctx, ingest_pose, get_robot
+    ) -> None:
+        transaction_ctx.return_value.__enter__.return_value = MagicMock()
+        ingest_pose.side_effect = routes.UnknownRobotError("tb3_1")
+        get_robot.return_value = {"robot_id": "tb3_1", "enabled": False}
+
+        res = self.client.post("/api/v1/movement/robots/tb3_1/status", json={"state": "idle"})
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["message"], "movement robot status ignored: robot disabled")
+
+    @patch("app.domains.movement.router.postgres_robots.get")
+    @patch("app.domains.movement.router.callbacks.ingest_robot_status_pose")
+    @patch("app.domains.movement.router.transaction")
+    def test_enabled_unregistered_robot_status_remains_configuration_error(
+        self, transaction_ctx, ingest_pose, get_robot
+    ) -> None:
+        transaction_ctx.return_value.__enter__.return_value = MagicMock()
+        ingest_pose.side_effect = routes.UnknownRobotError("tb3_x")
+        get_robot.return_value = {"robot_id": "tb3_x", "enabled": True}
+
+        res = self.client.post("/api/v1/movement/robots/tb3_x/status", json={"state": "idle"})
+
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(res.json()["detail"], "robot not registered")
+
     @patch("app.domains.movement.router.transaction")
     @patch("app.domains.movement.router.estop_all_robots")
     def test_estop_route_shape(self, estop_all, transaction_ctx) -> None:
@@ -339,6 +370,21 @@ class MovementCallbackRouteTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_robot_status_issue_default_reminder_is_fifteen_minutes() -> None:
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = {
+        "data_json": {"state": "idle", "localized": False},
+        "reminder_due": False,
+    }
+
+    saved = operational_events.should_append_robot_status_issue(
+        conn, "tb3_2", {"state": "idle", "localized": False}
+    )
+
+    assert saved is False
+    assert conn.execute.call_args.args[1][0] == 900
 
 
 def test_duplicate_robot_status_issue_is_suppressed() -> None:

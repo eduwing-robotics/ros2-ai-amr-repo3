@@ -200,7 +200,6 @@
 [필요 없음] src/domains/operate/InventoryView.tsx
 [필요 없음] src/domains/operate/OperationIcon.tsx
 [필요 없음] src/domains/operate/recovery.ts
-[필요 없음] src/domains/operate/RobotMonitorCard.tsx
 [필요 없음] src/domains/operate/RobotStatusCard.tsx
 [필요 없음] src/domains/operate/taskLifecycle.ts
 [필요 없음] src/domains/operate/taskProgressModel.ts
@@ -230,7 +229,6 @@
 [필요 없음] src/hooks/useStatus.ts
 [필요 없음] src/lib/alerts.ts
 [필요 없음] src/lib/apiErrors.ts
-[필요 없음] src/lib/aruco.ts
 [필요 없음] src/lib/coords.ts
 [필요 없음] src/lib/dockPairs.ts
 [필요 없음] src/lib/format.ts
@@ -359,6 +357,8 @@
 | `records/recordMetrics.ts` | 완료(추가) | poll metric weighted average 순수 projection |
 | `Records.tsx` | 완료 | metric 계산 제거, 렌더링·filter orchestration 유지 |
 | `FleetTaskDock.tsx` | 완료 | timeline의 압축 JSX를 의미 단위로 전개; 동작·DOM 계약 유지 |
+| `RobotMonitorCard.tsx`, `lib/aruco.ts` | 완료(삭제) | production·test 참조 0건을 재확인하고 대체 화면/수동 진단 API와 중복된 Frontend code 제거 |
+| Movement status hygiene | 완료 | 비활성 로봇 callback은 200 ignored, 동일 이상 reminder는 15분 간격으로 제한 |
 | 책임 주석 지정 9개 파일 | 완료 | adapter·상태 소유·운영 script의 책임·비책임을 현재 구현과 일치시킴 |
 
 ### 필요 없음으로 재판정

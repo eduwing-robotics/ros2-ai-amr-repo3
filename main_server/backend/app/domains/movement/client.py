@@ -79,14 +79,6 @@ class MovementClient:
         """진행 중인 수동 조작을 정지한다."""
         raise NotImplementedError
 
-    def dock_transfer(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """게이트 도킹 블록(아루코 정밀 도킹 + 리프트 상/하차)을 트리거한다. MOVEMENT_SERVER_REQUIREMENTS §10.2."""
-        raise NotImplementedError
-
-    def aruco_align(self, robot_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        """무리프트 정밀 정렬(주차·충전). GATE_DOCKING aruco_align (S4)."""
-        raise NotImplementedError
-
     def aruco_latest(self, robot_id: str, marker_id: int) -> dict[str, Any]:
         """ArUco 검출 readout — 수동 정렬 테스트용."""
         raise NotImplementedError

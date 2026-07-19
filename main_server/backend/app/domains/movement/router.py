@@ -254,6 +254,10 @@ def movement_robot_status(robot_name: str, payload: MovementRobotStatusCallback,
     try:
         callbacks.ingest_robot_status_pose(robot_name, body)
     except UnknownRobotError as exc:
+        with transaction() as conn:
+            robot = postgres_robots.get(conn, robot_name)
+        if robot and not robot.get("enabled", True):
+            return ApiMessage(message="movement robot status ignored: robot disabled")
         raise HTTPException(status_code=404, detail="robot not registered") from exc
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"invalid pose: {exc}") from exc

@@ -232,9 +232,9 @@ work order ID·task ID·command ID·최종 task 상태·재고 전후 값·판�
 
 | ID | 시나리오 | 통과 조건 | 상태 |
 | --- | --- | --- | --- |
-| HW-01 | 1층 정상 입고 | 도킹 완료 후 재고가 한 번만 증가 | 미검증 |
+| HW-01 | 1층 정상 입고 | 도킹 완료 후 재고가 한 번만 증가 | 부분 검증: task-391 `INBOUND_02 → STORAGE_02`, DONE/PARKED |
 | HW-02 | 2층 정상 입고 | 도킹 완료 후 재고가 한 번만 증가 | 미검증 |
-| HW-03 | 1층 정상 출고 | 하역 완료 후 재고가 한 번만 감소 | 미검증 |
+| HW-03 | 1층 정상 출고 | 하역 완료 후 재고가 한 번만 감소 | 부분 검증: task-384 `STORAGE_02 → OUTBOUND_02`, DONE |
 | HW-04 | 2층 정상 출고 | 하역 완료 후 재고가 한 번만 감소 | 미검증 |
 | HW-05 | Route preview | 선택 section 일치, dock_transfer load→unload와 요청 층 level 확인 | 미검증 |
 | HW-06 | Movement 단절 | 이동 조작 차단, 진행 task 원인 보존 | 미검증 |
@@ -246,6 +246,8 @@ work order ID·task ID·command ID·최종 task 상태·재고 전후 값·판�
 | HW-12 | 단일 route 실행 | preview와 execute body·command ID가 같고 Main이 별도 dock_transfer를 전송하지 않음 | 미검증 |
 
 실서버 결과에는 work order ID, robot ID, Movement command ID, 최종 task 상태와 재고 전후 값을 남긴다.
+
+`POSE_STALE ↔ POSE_RECOVERED` 반복 발생은 안전 threshold를 임의 조정하지 않고 source timestamp·수신 주기 증거를 먼저 수집한다. 반복 원인이 확정될 때까지 HW-06·HW-10의 일부로 추적한다.
 
 ## 요구사항 · 위험 추적
 
