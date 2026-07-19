@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.domains.execution import inout_scenarios
 from app.domains.execution import steps as scenario_steps
+from app.domains.movement.scenario_adapter import CONTRACT_VERSION
 
 SCENARIO_EVENT_NAMES = {
     "COMMAND_ACCEPTED": "ACCEPTED",
@@ -110,7 +110,7 @@ def scenario_done_gate_errors(progress: dict[str, Any]) -> list[str]:
 
 def scenario_event_contract_errors(step: dict[str, Any], event: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    if str(event.get("contract_version") or "") != inout_scenarios.CONTRACT_VERSION:
+    if str(event.get("contract_version") or "") != CONTRACT_VERSION:
         errors.append("contract_version")
     raw_event = str(event.get("event") or event.get("state") or "").upper()
     if raw_event in {"STEP_STARTED", "STEP_COMPLETED"}:

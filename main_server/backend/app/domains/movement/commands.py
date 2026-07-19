@@ -10,8 +10,7 @@ from fastapi import HTTPException, Request
 
 from app.api.helpers import callback_base_url
 from app.db.postgres import operational_events, robots
-from app.domains.execution import inout_scenarios
-from app.domains.movement import command_status
+from app.domains.movement import command_status, scenario_adapter
 from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
 from app.domains.movement.navigation import resolve_movement_map_id
 from app.domains.movement.teleop import execute_teleop
@@ -354,7 +353,7 @@ def _dispatch_inout_scenario(
     command_id: str,
     callback_url: str,
 ) -> RobotCommandResponse:
-    body = inout_scenarios.build_command(
+    body = scenario_adapter.build_scenario_command(
         dict(payload.params),
         command_id=command_id,
         task_id=payload.task_id,

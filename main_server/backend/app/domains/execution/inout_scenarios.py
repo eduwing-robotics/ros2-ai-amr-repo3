@@ -10,10 +10,7 @@ from fastapi import HTTPException
 
 from app.core.config import settings
 from app.db.postgres import locations
-from app.domains.movement.client import movement_robot_key
-
-CONTRACT_VERSION = "1.0"
-FRAME_ID = "map"
+from app.domains.movement.scenario_adapter import FRAME_ID, build_scenario_command
 
 # DB schema를 바꾸지 않고 기존 업무 위치와 release-managed 접근 waypoint를 연결하는 정본.
 # 좌표와 yaw는 이 표에 넣지 않고 반드시 locations row에서 실행 시 snapshot한다.
@@ -138,55 +135,7 @@ def build_command(
     robot_id: str,
     callback_url: str,
 ) -> dict[str, Any]:
-    """Build the only body allowed for Movement POST /scenario-commands."""
-    if task_id is None:
-        raise HTTPException(status_code=400, detail={"code": "scenario_task_id_required"})
-    required = {"scenario_type", "map", "pickup", "dropoff"}
-    if set(params) != required:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "scenario_params_invalid", "fields": sorted(set(params) ^ required)},
-        )
-    scenario_type = params.get("scenario_type")
-    if scenario_type not in {"inbound", "outbound"}:
-        raise HTTPException(status_code=400, detail={"code": "scenario_type_invalid"})
-    map_context = params.get("map")
-    if not isinstance(map_context, dict) or set(map_context) != {"map_id", "frame_id"}:
-        raise HTTPException(status_code=400, detail={"code": "scenario_map_invalid"})
-    if not str(map_context.get("map_id") or "") or map_context.get("frame_id") != FRAME_ID:
-        raise HTTPException(status_code=400, detail={"code": "scenario_map_invalid"})
-    for role in ("pickup", "dropoff"):
-        location = params.get(role)
-        if not isinstance(location, dict) or set(location) != {"location_id", "floor", "approach"}:
-            raise HTTPException(status_code=400, detail={"code": "scenario_location_invalid", "role": role})
-        if not str(location.get("location_id") or ""):
-            raise HTTPException(status_code=400, detail={"code": "scenario_location_invalid", "role": role})
-        _floor(location.get("floor"), field=f"{role}.floor", status_code=400)
-        approach = location.get("approach")
-        if not isinstance(approach, dict) or set(approach) != {"waypoint_id", "x", "y", "yaw"}:
-            raise HTTPException(status_code=400, detail={"code": "scenario_approach_invalid", "role": role})
-        try:
-            x, y, yaw = float(approach["x"]), float(approach["y"]), float(approach["yaw"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=400, detail={"code": "scenario_approach_invalid", "role": role}
-            ) from exc
-        if (
-            not str(approach.get("waypoint_id") or "")
-            or not all(math.isfinite(value) for value in (x, y, yaw))
-            or not -math.pi <= yaw <= math.pi
-        ):
-            raise HTTPException(status_code=400, detail={"code": "scenario_approach_invalid", "role": role})
-    if not callback_url:
-        raise HTTPException(status_code=500, detail={"code": "scenario_callback_url_missing"})
-    return {
-        "contract_version": CONTRACT_VERSION,
-        "command_id": command_id,
-        "task_id": int(task_id),
-        "robot_name": movement_robot_key(robot_id),
-        "scenario_type": scenario_type,
-        "map": params["map"],
-        "pickup": params["pickup"],
-        "dropoff": params["dropoff"],
-        "callback_url": callback_url,
-    }
+    """기존 호출 호환 facade이며 Scenario 계약 검증은 Movement adapter가 소유한다."""
+    return build_scenario_command(
+        params, command_id=command_id, task_id=task_id, robot_id=robot_id, callback_url=callback_url
+    )

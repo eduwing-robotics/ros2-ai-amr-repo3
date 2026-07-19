@@ -11,13 +11,14 @@ from fastapi import HTTPException
 
 from app.db.connection import TASK_EVENT_LOCK_NAMESPACE, advisory_xact_lock_for_key
 from app.db.postgres import operational_events, robots, runtime_records, tasks
-from app.domains.execution import evidence, inout_scenarios, recovery, transitions
+from app.domains.execution import evidence, recovery, transitions
 from app.domains.execution import state as orch_state
 from app.domains.execution import steps as scenario_steps
 from app.domains.movement import commands
 from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
 from app.domains.movement.health import get_movement_health
 from app.domains.movement.navigation import movement_reason
+from app.domains.movement.scenario_adapter import CONTRACT_VERSION
 from app.domains.safety import hazard as person_hazard
 from app.domains.vision import evidence as lift_load_evidence
 from app.domains.warehouse import inventory as inventory_ops
@@ -880,7 +881,7 @@ def poll_running_tasks(conn) -> int:
         scenario_changed = False
         if str(step.get("kind")) == "inout_scenario":
             previous = step.get("scenario_progress") or {}
-            status.setdefault("contract_version", inout_scenarios.CONTRACT_VERSION)
+            status.setdefault("contract_version", CONTRACT_VERSION)
             scenario_changed = any(
                 status.get(field) != previous.get(field)
                 for field in (
