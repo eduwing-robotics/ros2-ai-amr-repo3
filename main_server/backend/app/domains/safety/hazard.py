@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.core.config import settings
-from app.db.postgres import runtime_records, safety_stops
+from app.db.postgres import operational_events, runtime_records, safety_stops
 from app.domains.execution import evidence
 from app.domains.execution import state as orch_state
 from app.domains.movement.client import MovementClientError, movement_client
@@ -45,9 +45,41 @@ _degraded_log_at: dict[str, float] = {}
 _pending_estops: dict[str, int] = {}
 _processed_advisories: dict[str, float] = {}
 _last_reconcile_at = 0.0
+_person_hazard_enabled = settings.person_hazard_enabled
 RECONCILE_INTERVAL_SEC = 5.0
 ADVISORY_REPLAY_TTL_SEC = 3600.0
 MAX_PROCESSED_ADVISORIES = 10_000
+
+
+def person_hazard_enabled() -> bool:
+    """현재 관리자 설정을 반환하며 환경변수는 최초 기본값으로만 사용한다."""
+    return _person_hazard_enabled
+
+
+def restore_person_hazard_setting(conn) -> bool:
+    """마지막 관리 이벤트에서 설정을 복원하고 없으면 환경 기본값을 유지한다."""
+    global _person_hazard_enabled
+    persisted = operational_events.latest_person_hazard_enabled(conn)
+    _person_hazard_enabled = settings.person_hazard_enabled if persisted is None else persisted
+    return _person_hazard_enabled
+
+
+def set_person_hazard_enabled(conn, enabled: bool) -> dict[str, Any]:
+    """안전 감시 설정을 영속화하며 비활성화 시 원격 monitor만 해제한다."""
+    global _person_hazard_enabled
+    _person_hazard_enabled = bool(enabled)
+    if not _person_hazard_enabled:
+        for runtime in list(active_monitors()):
+            disable_monitor(runtime.robot_id, remote=True)
+    operational_events.append(
+        conn,
+        event_type="VISION_PERSON_HAZARD_ENABLED" if enabled else "VISION_PERSON_HAZARD_DISABLED",
+        message=f"Vision person hazard {'enabled' if enabled else 'disabled'}",
+        payload={"person_hazard_enabled": bool(enabled)},
+    )
+    if _person_hazard_enabled:
+        reconcile_active_monitors(conn, force=True)
+    return {"person_hazard_enabled": _person_hazard_enabled, "active_monitor_count": len(active_monitors())}
 
 
 def robot_source(robot_id: str) -> str:
@@ -83,18 +115,18 @@ def reconcile_active_monitors(conn, *, force: bool = False) -> int:
         if step_index >= len(steps):
             continue
         step = steps[step_index]
-        if step.get("kind") != "move_to_point" or not orch_state.is_dispatched_robot_task_step(step):
+        if step.get("kind") not in {"move_to_point", "inout_scenario"} or not orch_state.is_dispatched_robot_task_step(step):
             continue
-        enable_monitor(robot_id, int(task["task_id"]), command_id=str(step.get("command_id") or "") or None)
+        enable_monitor(robot_id, int(task["task_id"]), command_id=str(step.get("command_id") or "") or None, step_kind=str(step.get("kind") or "move_to_point"))
         if get_runtime(robot_id):
             restored += 1
     return restored
 
 
-def enable_monitor(robot_id: str, task_id: int, *, command_id: str | None = None) -> None:
+def enable_monitor(robot_id: str, task_id: int, *, command_id: str | None = None, step_kind: str = "move_to_point") -> bool:
     """주행 task의 Vision 감시를 켜며 Vision ACK 전에는 준비를 확정하지 않는다."""
-    if not settings.person_hazard_enabled:
-        return
+    if not person_hazard_enabled():
+        return True
     source = robot_source(robot_id)
     if robot_id in _runtime and _runtime[robot_id].enabled:
         disable_monitor(robot_id, remote=True)
@@ -109,7 +141,7 @@ def enable_monitor(robot_id: str, task_id: int, *, command_id: str | None = None
         put_person_monitor_state(body)
     except VisionUpstreamError as exc:
         logger.warning("person monitor enable failed robot=%s: %s", robot_id, exc)
-        return
+        return False
     now = datetime.now(timezone.utc)
     _runtime[robot_id] = PersonHazardMonitorRuntime(
         robot_id=robot_id,
@@ -118,8 +150,9 @@ def enable_monitor(robot_id: str, task_id: int, *, command_id: str | None = None
         enabled=True,
         enable_time=now,
         last_command_id=command_id,
-        last_step_kind="move_to_point",
+        last_step_kind=step_kind,
     )
+    return True
 
 
 def disable_monitor(robot_id: str, *, remote: bool = True) -> None:
@@ -176,9 +209,6 @@ def mark_running_tasks_awaiting_operator(conn, *, reason: str) -> int:
         if orch_state.RobotTaskExecutionState.wrap(orch).phase == orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR:
             continue
         mark_task_awaiting_operator(conn, task_id, reason=reason, robot_id=task.get("assigned_robot_id"))
-        robot_id = task.get("assigned_robot_id")
-        if robot_id:
-            on_robot_task_terminal(str(robot_id))
         count += 1
     return count
 
@@ -332,6 +362,7 @@ def apply_person_hazard_advisory(conn, runtime: PersonHazardMonitorRuntime, payl
     )
     safety_stops.open_from_evidence(conn, decision_id)
     mark_task_awaiting_operator(conn, runtime.task_id, reason="person_hazard", robot_id=runtime.robot_id)
+    disable_monitor(runtime.robot_id, remote=True)
     _mark_advisory_seen(runtime, dedup)
     _set_cooldown(runtime.robot_id, runtime.source, runtime.task_id, dedup)
     return estop_ok
@@ -369,7 +400,7 @@ def apply_person_hazard_response(conn, runtime: PersonHazardMonitorRuntime, payl
     if result == "NO_ACTIVE_MONITOR":
         if runtime.enabled:
             logger.warning("NO_ACTIVE_MONITOR during DRIVE robot=%s — reassert enable", runtime.robot_id)
-            enable_monitor(runtime.robot_id, runtime.task_id, command_id=runtime.last_command_id)
+            enable_monitor(runtime.robot_id, runtime.task_id, command_id=runtime.last_command_id, step_kind=runtime.last_step_kind or "move_to_point")
         return
     if result == "NO_RELEVANT_DETECTION":
         return
@@ -389,7 +420,7 @@ def poll_robot_person_hazard(conn, runtime: PersonHazardMonitorRuntime) -> None:
 
 def poll_person_hazards_once(conn) -> int:
     """활성 monitor를 한 번 조회하며 외부 실패 시 작업을 fail-open 재개하지 않는다."""
-    if not settings.person_hazard_enabled:
+    if not person_hazard_enabled():
         return 0
     reconcile_active_monitors(conn)
     retry_pending_estops(conn)

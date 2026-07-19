@@ -27,6 +27,7 @@ from app.domains.movement.pose_monitor import (
     pose_watchdog_loop,
 )
 from app.domains.movement.pose_runtime import pose_runtime
+from app.domains.safety import hazard as person_hazard
 from app.domains.safety.hazard_loop import person_hazard_loop
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,8 @@ async def lifespan(app: FastAPI):
     init_db()
     initialize_pose_runtime()
     initialize_estop_runtime()
+    with transaction() as conn:
+        person_hazard.restore_person_hazard_setting(conn)
     sweep_task = asyncio.create_task(poll_task_progress_loop())
     hazard_task = asyncio.create_task(person_hazard_loop())
     pose_tasks = [
@@ -169,7 +172,7 @@ def create_app() -> FastAPI:
         hazard_task = getattr(app.state, "hazard_task", None)
         if sweep_task is not None and sweep_task.done():
             raise HTTPException(status_code=503, detail="task progress poller stopped")
-        if settings.person_hazard_enabled and hazard_task is not None and hazard_task.done():
+        if hazard_task is not None and hazard_task.done():
             raise HTTPException(status_code=503, detail="person hazard poller stopped")
         pose_tasks = getattr(app.state, "pose_tasks", [])
         if any(task.done() for task in pose_tasks):

@@ -107,6 +107,21 @@ def latest_estop_states(conn, robot_ids: list[str]) -> dict[str, str]:
     }
 
 
+def latest_person_hazard_enabled(conn) -> bool | None:
+    """Return the latest admin override; None keeps the environment default."""
+    row = conn.execute(
+        """
+            SELECT event_type FROM evidence_events
+            WHERE source = 'runtime'
+              AND event_type IN ('VISION_PERSON_HAZARD_ENABLED', 'VISION_PERSON_HAZARD_DISABLED')
+            ORDER BY observed_at DESC, id DESC LIMIT 1
+        """
+    ).fetchone()
+    if not row:
+        return None
+    return row["event_type"] == "VISION_PERSON_HAZARD_ENABLED"
+
+
 def should_append_robot_status_issue(
     conn, robot_id: str, payload: dict[str, Any], *, reminder_sec: int = 60
 ) -> bool:

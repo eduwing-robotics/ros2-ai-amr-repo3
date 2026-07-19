@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.db.connection import transaction
@@ -12,6 +13,7 @@ from app.db.postgres import robots as postgres_robots
 from app.db.postgres import tasks as postgres_tasks
 from app.domains.movement.client import movement_client
 from app.domains.movement.health import battery_from_health, get_movement_health
+from app.domains.safety import hazard as person_hazard
 from app.domains.vision.cameras import apply_camera_stream_defaults, camera_system_config
 from app.domains.vision.client import fetch_camera_health
 from app.models.records import CameraSource, ControlSystemStatusSnapshot
@@ -19,6 +21,10 @@ from app.models.robots import Robot
 from app.models.tasks import RobotTask
 
 router = APIRouter(tags=["system"])
+
+
+class PersonHazardSettingUpdate(BaseModel):
+    person_hazard_enabled: bool
 
 
 def _estop_summary(robots: list[Robot], health: dict, persisted: dict[str, str] | None = None) -> dict:
@@ -137,6 +143,32 @@ def _apply_robot_operational_states(
         robot.command_enabled = command_enabled
 
 
+def _person_hazard_status() -> dict:
+    return {
+        "person_hazard_enabled": person_hazard.person_hazard_enabled(),
+        "active_monitor_count": len(person_hazard.active_monitors()),
+    }
+
+
+@router.get("/system/person-hazard")
+def get_person_hazard_setting() -> dict:
+    """현재 Vision 사람 감지 안전 감시 설정을 반환한다."""
+    return _person_hazard_status()
+
+
+@router.put("/system/person-hazard")
+def update_person_hazard_setting(payload: PersonHazardSettingUpdate) -> dict:
+    """실행 작업 중 비활성화를 막고 설정을 이벤트 로그에 영속화한다."""
+    with transaction() as conn:
+        if not payload.person_hazard_enabled:
+            active = conn.execute(
+                "SELECT 1 FROM tasks WHERE status IN ('ASSIGNED', 'RUNNING') LIMIT 1"
+            ).fetchone()
+            if active:
+                raise HTTPException(status_code=409, detail="person_hazard_disable_blocked_active_task")
+        return person_hazard.set_person_hazard_enabled(conn, payload.person_hazard_enabled)
+
+
 @router.get("/system/external-config")
 def external_config(request: Request) -> dict:
     """현재 Main 서버가 사용하는 외부 API endpoint 설정을 반환한다."""
@@ -212,6 +244,10 @@ def status() -> ControlSystemStatusSnapshot:
             "vision": {
                 "api_base_url": settings.vision_api_base_url,
                 "stream_base_url": settings.vision_stream_base_url,
+            },
+            "person_hazard": {
+                **_person_hazard_status(),
+                "vision_reachable": bool(camera_health.get("ok")),
             },
         },
         movement_health=movement_health,

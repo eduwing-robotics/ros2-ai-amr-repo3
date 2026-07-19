@@ -46,6 +46,7 @@ class PersonHazardPolicyTest(unittest.TestCase):
         ph._pending_estops.clear()
         ph._processed_advisories.clear()
         ph._last_reconcile_at = 0.0
+        ph._person_hazard_enabled = True
 
     def test_runtime_rejects_undeclared_state(self) -> None:
         runtime = ph.PersonHazardMonitorRuntime("tb3_1", "tb3_1_picam", 101)
@@ -70,7 +71,28 @@ class PersonHazardPolicyTest(unittest.TestCase):
         ):
             restored = ph.reconcile_active_monitors(MagicMock(), force=True)
         self.assertEqual(restored, 1)
-        enable.assert_called_once_with("tb3_1", 101, command_id="cmd-1")
+        enable.assert_called_once_with("tb3_1", 101, command_id="cmd-1", step_kind="move_to_point")
+
+    def test_reconcile_restores_dispatched_inout_scenario_monitor(self) -> None:
+        task = {
+            "task_id": 102,
+            "assigned_robot_id": "tb3_2",
+            "preset_snapshot": {
+                "_orchestration": {
+                    "steps": [{"kind": "inout_scenario", "status": "DISPATCHED", "command_id": "cmd-2"}],
+                    "step_index": 0,
+                }
+            },
+        }
+        runtime = ph.PersonHazardMonitorRuntime("tb3_2", "tb3_2_picam", 102, last_step_kind="inout_scenario")
+        with (
+            patch.object(ph.evidence, "list_orchestrated_running", return_value=[task]),
+            patch.object(ph, "enable_monitor") as enable,
+            patch.object(ph, "get_runtime", side_effect=[None, runtime]),
+        ):
+            restored = ph.reconcile_active_monitors(MagicMock(), force=True)
+        self.assertEqual(restored, 1)
+        enable.assert_called_once_with("tb3_2", 102, command_id="cmd-2", step_kind="inout_scenario")
 
     def test_reconcile_ignores_non_movement_step(self) -> None:
         task = {

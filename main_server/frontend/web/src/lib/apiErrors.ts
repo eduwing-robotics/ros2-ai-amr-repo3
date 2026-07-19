@@ -25,6 +25,8 @@ export const API_ERROR_MESSAGES: Record<string, string> = {
   robot_battery_low: "로봇 배터리가 20% 미만이어서 새 작업을 배정할 수 없습니다.",
   robot_disabled: "관리자에서 운용 사용이 꺼진 로봇입니다.",
   robot_has_active_task: "진행 중이거나 배정된 작업을 먼저 안전하게 종료하세요.",
+  person_hazard_disable_blocked_active_task: "배정되었거나 진행 중인 작업을 먼저 안전하게 종료하세요.",
+  person_hazard_monitor_unavailable: "Vision 사람 감지 안전 감시를 활성화하지 못해 작업 시작을 차단했습니다.",
   recovery_movement_unreachable: "Movement 서버에 연결할 수 없어 복구를 실행할 수 없습니다.",
   recovery_estop_active: "ESTOP을 해제한 뒤 복구를 실행하세요.",
   recovery_robot_offline: "로봇이 오프라인이어서 복구를 실행할 수 없습니다.",
@@ -58,8 +60,8 @@ export function parseApiDetail(raw: string): string {
     const detail = parsed.detail;
     if (typeof detail === "string") return detail;
     if (detail && typeof detail === "object") {
-      const obj = detail as { error?: string; message?: string };
-      return obj.message || obj.error || raw;
+      const obj = detail as { code?: string; error?: string; message?: string };
+      return obj.message || obj.error || obj.code || raw;
     }
   } catch {
     /* plain text */

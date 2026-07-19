@@ -46,6 +46,11 @@ export interface RobotTaskStartResult {
   step_count: number;
 }
 
+export interface PersonHazardSetting {
+  person_hazard_enabled: boolean;
+  active_monitor_count: number;
+}
+
 // --- 변경 동작 (성공 시 /status 스냅샷 + 관련 쿼리 무효화) ---
 export function useAdminMutations() {
   const qc = useQueryClient();
@@ -72,6 +77,12 @@ export function useAdminMutations() {
   });
   const deleteCamera = useMutation({
     mutationFn: (id: string) => apiSend(`/camera-sources/${encodeURIComponent(id)}`, "DELETE"),
+    onSuccess: refresh,
+  });
+  const setPersonHazard = useMutation({
+    mutationFn: (enabled: boolean) => apiSend<PersonHazardSetting>("/system/person-hazard", "PUT", {
+      person_hazard_enabled: enabled,
+    }),
     onSuccess: refresh,
   });
   const createTask = useMutation({
@@ -146,5 +157,5 @@ export function useAdminMutations() {
     onSuccess: refresh,
   });
 
-  return { saveRobot, deleteRobot, saveCamera, deleteCamera, createTask, assignTask, autoAssignTasks, autoAssignAndStartTasks, startRobotTask, cancelTask, teleop };
+  return { saveRobot, deleteRobot, saveCamera, deleteCamera, setPersonHazard, createTask, assignTask, autoAssignTasks, autoAssignAndStartTasks, startRobotTask, cancelTask, teleop };
 }

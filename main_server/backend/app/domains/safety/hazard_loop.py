@@ -24,9 +24,6 @@ def poll_person_hazard_once() -> bool:
 
 async def person_hazard_loop() -> None:
     """약 3Hz로 hazard tick을 수행하며 advisory lock으로 중복 적용을 막는다."""
-    if not settings.person_hazard_enabled:
-        logger.info("person hazard loop disabled (LMS_PERSON_HAZARD_ENABLED=false)")
-        return
     interval = 1.0 / max(settings.person_hazard_poll_hz, 0.1)
     logger.info("person hazard loop started (%.2f Hz)", settings.person_hazard_poll_hz)
     while True:

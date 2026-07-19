@@ -6,7 +6,7 @@ import { Pill } from "../../components/Pill";
 import { Panel } from "../../components/Panel";
 import { Field } from "../../components/Field";
 import { Button } from "../../components/Button";
-import { ApiError } from "../../lib/api";
+import { describeApiError } from "../../lib/apiErrors";
 import { agoLabel, cell } from "../../lib/format";
 import type { CameraSource, Robot } from "../../types";
 
@@ -28,22 +28,29 @@ const cameraFrameAge = (camera: CameraSource) => {
 
 export function DevicesAdmin() {
   const { data } = useStatus();
-  const { saveRobot, deleteRobot, saveCamera, deleteCamera } = useAdminMutations();
+  const { saveRobot, deleteRobot, saveCamera, deleteCamera, setPersonHazard } = useAdminMutations();
   const [robotForm, setRobotForm] = useState(EMPTY_ROBOT);
   const [cameraForm, setCameraForm] = useState(EMPTY_CAMERA);
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ kind: "robot" | "camera"; id: string } | null>(null);
+  const [pendingHazardDisable, setPendingHazardDisable] = useState(false);
   const { probeMovement } = useProbes();
 
   const robots = data?.robots ?? [];
   const cameras = data?.camera_sources ?? [];
+  const personHazard = (data?.system?.person_hazard ?? {}) as {
+    person_hazard_enabled?: boolean;
+    active_monitor_count?: number;
+    vision_reachable?: boolean;
+  };
+  const personHazardEnabled = personHazard.person_hazard_enabled === true;
 
   const run = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : (e as Error).message);
+      setError(describeApiError(e));
     }
   };
 
@@ -74,6 +81,45 @@ export function DevicesAdmin() {
       </div>
 
       {error ? <div className="inline-alert warn">{error}</div> : null}
+
+      <Panel title="Vision 사람 감지 안전 감시">
+        <div className="action-row">
+          <Pill status={personHazardEnabled ? (personHazard.vision_reachable ? "ONLINE" : "OFFLINE") : "DISABLED"} />
+          <span>
+            {personHazardEnabled
+              ? personHazard.vision_reachable ? "사용 중 · Vision 연결 정상" : "사용 중 · Vision 연결 불가"
+              : "미사용"}
+            {personHazard.active_monitor_count ? ` · 감시 작업 ${personHazard.active_monitor_count}건` : ""}
+          </span>
+          <label className="operation-switch" title="입출고·이동 작업 시작 전에 사람 감지 감시 활성화를 확인합니다.">
+            <input
+              type="checkbox"
+              aria-label="Vision 사람 감지 안전 감시 사용"
+              checked={personHazardEnabled}
+              disabled={setPersonHazard.isPending}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  void run(() => setPersonHazard.mutateAsync(true));
+                } else {
+                  setPendingHazardDisable(true);
+                }
+              }}
+            />
+            <span className="operation-switch-track" aria-hidden="true" />
+            <span>{personHazardEnabled ? "사용" : "미사용"}</span>
+          </label>
+          {pendingHazardDisable ? (
+            <span className="delete-confirm">
+              <span>작업 중 사람 감지 자동 정지를 끕니다. 계속할까요?</span>
+              <Button variant="danger" onClick={() => run(async () => {
+                await setPersonHazard.mutateAsync(false);
+                setPendingHazardDisable(false);
+              })}>확인</Button>
+              <Button variant="secondary" onClick={() => setPendingHazardDisable(false)}>취소</Button>
+            </span>
+          ) : null}
+        </div>
+      </Panel>
 
       <div className="grid2 devices-panels">
         <Panel title="로봇">

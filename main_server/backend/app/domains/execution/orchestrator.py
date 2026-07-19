@@ -199,6 +199,7 @@ def _finish_task(conn, task_id: int, to_status: str, source: str) -> dict[str, A
     tasks.set_status(conn, task_id, to_status, clear_robot=bool(robot_id and to_status in {"CANCELLED", "FAILED"}))
     if robot_id:
         robots.set_task(conn, robot_id, "IDLE", None)
+        person_hazard.on_robot_task_terminal(str(robot_id))
     tasks.add_history(conn, task_id, task["status"], to_status, to_status.lower(), source)
     operational_events.append(
         conn,
@@ -337,6 +338,16 @@ def dispatch_current_step(conn, task_id: int) -> str:
     if base:
         callback_url = commands.resolve_callback_url(None, base)
 
+    if str(step.get("kind")) in {"move_to_point", "inout_scenario"}:
+        monitor_ready = person_hazard.enable_monitor(
+            robot_id, task_id, command_id=command_id, step_kind=str(step.get("kind")),
+        )
+        if not monitor_ready:
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "person_hazard_monitor_unavailable", "robot_id": robot_id},
+            )
+
     payload = RobotCommandRequest(
         robot_id=robot_id,
         kind=step["kind"],
@@ -388,8 +399,6 @@ def dispatch_current_step(conn, task_id: int) -> str:
             "command_definition_id": command_definition_id,
         },
     )
-    if step["kind"] == "move_to_point":
-        person_hazard.on_move_to_point_dispatched(conn, task_id, robot_id, result.command_id)
     return result.command_id
 
 
