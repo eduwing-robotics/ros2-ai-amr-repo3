@@ -32,5 +32,36 @@ class LiftClientScaleTests(unittest.TestCase):
         self.assertFalse(client._at_target_mm(50.0, 2.0))
 
 
+class LiftClientArrivalTests(unittest.TestCase):
+    def _client_at(self, position_mm: float) -> LiftClient:
+        client = LiftClient(MagicMock(), {"enabled": False, "position_tolerance_mm": 2.0})
+        client.position_mm = position_mm
+        client.direction = "STOP"
+        client.move_to = MagicMock(return_value={"position_mm": position_mm, "direction": "STOP"})
+        return client
+
+    def test_force_move_at_zero_returns_immediately_when_already_arrived(self):
+        client = self._client_at(0.0)
+
+        result = client.move_to_if_needed(0.0, tolerance_mm=2.0, force=True)
+
+        self.assertEqual(result["position_mm"], 0.0)
+        client.move_to.assert_not_called()
+
+    def test_arrival_tolerance_boundary_is_inclusive_even_when_forced(self):
+        for position_mm in (1.9, 2.0):
+            with self.subTest(position_mm=position_mm):
+                client = self._client_at(position_mm)
+                client.move_to_if_needed(0.0, tolerance_mm=2.0, force=True)
+                client.move_to.assert_not_called()
+
+    def test_position_outside_tolerance_still_executes_move(self):
+        client = self._client_at(2.1)
+
+        client.move_to_if_needed(0.0, tolerance_mm=2.0, force=True)
+
+        client.move_to.assert_called_once_with(0.0, timeout_sec=None, tolerance_mm=2.0)
+
+
 if __name__ == "__main__":
     unittest.main()

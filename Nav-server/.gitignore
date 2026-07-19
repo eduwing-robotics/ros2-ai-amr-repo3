@@ -12,6 +12,7 @@ logs/
 tmp/
 backups/
 worklog/*.log
+worklog/movement_state_*.json
 worklog/insert_snapshots/
 *.pid
 forward.json

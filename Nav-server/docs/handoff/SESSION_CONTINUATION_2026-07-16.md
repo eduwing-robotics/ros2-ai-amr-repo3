@@ -219,3 +219,12 @@ cargo_state=EMPTY
 - `/odom`, `/scan`, `/camera/image_raw/compressed`, `/mission/tb3_1/aruco/detections`, `/lift/position`은 모두 publisher 1이었다.
 - 주행 명령과 리프트 이동 명령은 보내지 않았다.
 - 현재 운영 정본: `docs/runbook/TB3_1_CURRENT_STACK.md`.
+
+## 2026-07-19 tb3_1 lift_move 0mm 완료 판정 수정
+
+- Main의 task 402와 task-384 치환 진단에서 첫 `lift_move`가 `target=0.0mm`, `position=0.0mm`, `force_move=true`인데 20초 후 timeout 되는 문제가 재현됐다.
+- 원인은 `move_to_if_needed()`가 `force_move=true`일 때 목표 도달 상태를 무시하고 명령을 보낸 뒤, 명령 이후 새 position과 direction 이벤트를 모두 기다린 것이다. 0mm no-op에서는 새 이벤트가 없어 timeout 됐다.
+- 현재 위치가 목표 허용오차 이내이고 direction이 STOP이면 `force_move`와 관계없이 즉시 완료하도록 수정했다.
+- 허용오차 2.0mm 기준 `0.0`, `1.9`, `2.0`mm는 즉시 완료하고 `2.1`mm는 실제 이동 경로로 진행하는 테스트를 추가했다.
+- 관련 Scenario/API 회귀 테스트는 `40 passed, 2 subtests passed`였다.
+- 실차 Scenario와 리프트 이동 명령은 실행하지 않았다. 코드 반영 후 첫 실차 검증은 현재 0mm no-op, 이후 비0mm에서 0mm 복귀 순서로 별도 수행한다.

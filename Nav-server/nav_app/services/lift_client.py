@@ -234,10 +234,15 @@ class LiftClient:
         tolerance_mm: Optional[float] = None,
         force: bool = False,
     ) -> Dict[str, Any]:
-        """이미 목표 높이면 skip. force=True면 항상 move_to (L2 선반 진입 등)."""
+        """Return immediately at a confirmed target; otherwise command and wait.
+
+        ``force`` remains accepted for scenario contract compatibility, but it
+        must not turn an already-arrived no-op into a timeout when the bridge
+        emits no new position/direction events (notably the 0 mm home target).
+        """
         target = float(target_mm)
         tolerance = float(tolerance_mm if tolerance_mm is not None else self.config.get("position_tolerance_mm", 2.0))
-        if not force and self._at_target_mm(target, tolerance) and self._is_stopped():
+        if self._at_target_mm(target, tolerance) and self._is_stopped():
             return self.status()
         return self.move_to(target, timeout_sec=timeout_sec, tolerance_mm=tolerance_mm)
 
