@@ -28,6 +28,7 @@ class Picamera2CompressedPublisher(Node):
         self.declare_parameter('sharpness', 1.50)
         self.declare_parameter('frame_id', 'camera_link')
         self.declare_parameter('topic', '/camera/image_raw/compressed')
+        self.declare_parameter('rotation_deg', 0)
 
         width = int(self.get_parameter('width').value)
         height = int(self.get_parameter('height').value)
@@ -38,8 +39,12 @@ class Picamera2CompressedPublisher(Node):
         sharpness = float(self.get_parameter('sharpness').value)
         frame_id = str(self.get_parameter('frame_id').value)
         topic = str(self.get_parameter('topic').value)
+        rotation_deg = int(self.get_parameter('rotation_deg').value)
+        if rotation_deg not in (0, 180):
+            raise ValueError('rotation_deg must be 0 or 180')
         self._frame_id = frame_id
         self._quality = quality
+        self._rotation_deg = rotation_deg
 
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -70,7 +75,8 @@ class Picamera2CompressedPublisher(Node):
         self.get_logger().info(
             f'picamera2 publisher {width}x{height} → {topic} (q={quality}, '
             f'brightness={brightness}, contrast={contrast}, '
-            f'saturation={saturation}, sharpness={sharpness}, AE/AWB=on)'
+            f'saturation={saturation}, sharpness={sharpness}, '
+            f'rotation={rotation_deg}deg, AE/AWB=on)'
         )
 
     def _publish(self) -> None:
@@ -79,6 +85,8 @@ class Picamera2CompressedPublisher(Node):
         except Exception as exc:  # noqa: BLE001
             self.get_logger().warning(f'capture failed: {exc}')
             return
+        if self._rotation_deg == 180:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
         ok, encoded = cv2.imencode(
             '.jpg', cv2.cvtColor(frame, cv2.COLOR_RGB2BGR),
             [int(cv2.IMWRITE_JPEG_QUALITY), self._quality],

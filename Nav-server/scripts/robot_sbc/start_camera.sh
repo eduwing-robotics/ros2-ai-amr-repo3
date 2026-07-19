@@ -10,6 +10,7 @@ BRINGUP_WAIT_SEC="${BRINGUP_WAIT_SEC:-10}"
 CAMERA_START_RETRIES="${CAMERA_START_RETRIES:-2}"
 CAMERA_LAUNCH="${CAMERA_LAUNCH:-turtlebot3_bringup camera.launch.py}"
 CAMERA_LAUNCH_ARGS="${CAMERA_LAUNCH_ARGS:-format:=YUYV width:=320 height:=240 orientation:=180}"
+CAMERA_ROTATION_DEG="${CAMERA_ROTATION_DEG:-0}"
 
 # Match Nav PC DDS discovery across the robot Wi-Fi subnet.
 if [[ -f "$HOME/ros2_env.sh" ]]; then
@@ -69,7 +70,8 @@ if [[ "$CAMERA_BACKEND" == "picamera2" ]]; then
   if [[ -n "$PUBLISHER" ]] && python3 -c "import picamera2" 2>/dev/null; then
     echo "[robot_sbc] starting picamera2 publisher DOMAIN=$DOMAIN ($PUBLISHER)"
     exec python3 "$PUBLISHER" --ros-args \
-      -p width:=320 -p height:=240 -p topic:=/camera/image_raw/compressed
+      -p width:=320 -p height:=240 -p topic:=/camera/image_raw/compressed \
+      -p rotation_deg:="$CAMERA_ROTATION_DEG"
   fi
   echo "[robot_sbc] WARNING: picamera2 unavailable (publisher=${PUBLISHER:-missing}, import failed or missing)"
   echo "[robot_sbc] falling back to camera_ros (CAMERA_BACKEND=ros)"

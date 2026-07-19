@@ -4,6 +4,7 @@ import unittest
 from nav_app.services.docking import (
     _marker_seek_monotonic,
     _marker_pose_aligned,
+    _center_angular_sign,
     _marker_yaw_error_rad,
     _pose_aware_docking_angular_z,
     _marker_seek_sweep_enabled,
@@ -37,6 +38,18 @@ from nav_app.settings import NAV_APPROACH_SOFT_XY_TOLERANCE_M, NAV_APPROACH_XY_T
 
 
 class DockingMotionTests(unittest.TestCase):
+    def test_center_angular_sign_can_flip_for_rotated_camera(self):
+        self.assertEqual(_center_angular_sign({"center_angular_sign": 1.0}), 1.0)
+        self.assertEqual(_center_angular_sign({"center_angular_sign": -1.0}), -1.0)
+        detection = {"center_error_norm": 0.10}
+        angular = _pose_aware_docking_angular_z(
+            detection,
+            {"center_angular_sign": 1.0, "marker_pose_yaw_enabled": False},
+            wall_mode=False,
+            max_angular=0.5,
+        )
+        self.assertGreater(angular, 0.0)
+
     def test_marker_pose_yaw_is_required_globally(self):
         self.assertFalse(_marker_pose_aligned({"center_error_norm": 0.0}, {}))
         self.assertTrue(_marker_pose_aligned(
@@ -51,7 +64,7 @@ class DockingMotionTests(unittest.TestCase):
     def test_pose_aware_steering_uses_center_and_face_yaw(self):
         detection = {"center_error_norm": 0.10, "marker_yaw_error_rad": 0.10}
         angular = _pose_aware_docking_angular_z(
-            detection, {}, wall_mode=False, max_angular=0.5
+            detection, {"center_angular_sign": -1.0}, wall_mode=False, max_angular=0.5
         )
         self.assertLess(angular, -0.09)
         self.assertAlmostEqual(_marker_yaw_error_rad(detection), 0.10, places=6)

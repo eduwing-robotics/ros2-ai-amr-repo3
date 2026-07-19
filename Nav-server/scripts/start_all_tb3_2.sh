@@ -27,6 +27,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_VENV="${PROJECT_VENV:-$ROOT/venv}"
+if [[ ! -x "$PROJECT_VENV/bin/python" && -x "/home/lucas/slam_nav_ws/venv/bin/python" ]]; then
+  PROJECT_VENV="/home/lucas/slam_nav_ws/venv"
+fi
 ROBOT_SBC_DIR="$SCRIPT_DIR/robot_sbc"
 LOG_DIR="${LOG_DIR:-$ROOT/logs}"
 SESSION_MARKER="$LOG_DIR/tb3_2_stack.session"
@@ -247,7 +251,7 @@ echo '[api-8002] bringup /odom + /scan 준비 대기...'
 '$SCRIPT_DIR/wait_for_robot_topics.sh' $DOMAIN 30 || \
   echo '[api-8002] WARNING: bringup readiness timeout — API는 시작하고 health에서 연결 상태를 차단'
 echo '[api-8002] 준비 검사 종료 — Movement API 시작'
-exec env ONLY_ROBOT=tb3_2 PROJECT_VENV='$ROOT/venv' scripts/start_nav_servers.sh foreground
+exec env ONLY_ROBOT=tb3_2 PROJECT_VENV='$PROJECT_VENV' scripts/start_nav_servers.sh foreground
 EOF
 }
 

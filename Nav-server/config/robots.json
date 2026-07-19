@@ -18,6 +18,7 @@
       "enabled": true,
       "active_map_yaml": "map/robot2_map.yaml",
       "aruco_detection_topic": "/mission/tb3_1/aruco/detections",
+      "aruco_center_angular_sign": 1.0,
       "lift": {
         "enabled": true,
         "topics": {
@@ -67,6 +68,7 @@
       "enabled": true,
       "active_map_yaml": "map/robot2_map.yaml",
       "aruco_detection_topic": "/mission/tb3_2/aruco/detections",
+      "aruco_center_angular_sign": -1.0,
       "lift": {
         "enabled": true,
         "topics": {

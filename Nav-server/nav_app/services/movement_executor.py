@@ -31,6 +31,43 @@ from nav_app.services.robot_context import (
 )
 from nav_app.services.status_helpers import stage_for_step_action as _stage_for_step_action
 
+def _approach_goal_for_nav_step(step: MovementStep) -> Optional[Dict[str, Any]]:
+    """Return the final position-only goal that hands off to ArUco alignment."""
+    if step.action == "nav2_pose":
+        goal = step.payload.get("goal")
+        return goal if isinstance(goal, dict) and goal.get("nav_position_only") else None
+    if step.action == "nav2_waypoints":
+        goals = step.payload.get("goals")
+        if isinstance(goals, list) and goals:
+            goal = goals[-1]
+            return goal if isinstance(goal, dict) and goal.get("nav_position_only") else None
+    return None
+
+
+def _pre_rotate_for_aruco(step: MovementStep, next_step: MovementStep) -> None:
+    """Apply the canonical approach yaw after an xy-only Nav2 arrival."""
+    if next_step.action != "aruco_align":
+        return
+    goal = _approach_goal_for_nav_step(step)
+    if goal is None:
+        return
+    target_yaw = goal.get("yaw")
+    if target_yaw is None:
+        target_yaw = approach_yaw_for_waypoint(goal.get("waypoint"))
+    marker_id = next_step.payload.get("aruco_marker_id")
+    if next_step.payload.get("skip_approach_yaw_rotate"):
+        next_step.payload["approach_yaw_pre_rotated"] = True
+        return
+    skip_yaw = marker_id is not None and _skip_approach_yaw_if_marker_visible(
+        int(marker_id), next_step.payload
+    )
+    if target_yaw is not None and not skip_yaw:
+        if _rotate_to_approach_yaw_if_needed(float(target_yaw), next_step.payload) is not True:
+            raise RuntimeError("approach yaw rotate failed before aruco_align")
+        next_step.payload["approach_yaw_pre_rotated"] = True
+    elif skip_yaw:
+        next_step.payload["approach_yaw_pre_rotated"] = True
+
 
 def _aruco_failure_diagnostics(command: Dict[str, Any], req: MovementCommandRequest) -> Optional[Dict[str, Any]]:
     """Capture enough state to decide whether marker_not_found is detector, pose, or FOV."""
@@ -319,31 +356,10 @@ def execute_movement_command(req: MovementCommandRequest):
                 if command.get("current_step_code") in ("UNLOAD", "STORAGE_UNLOAD_COMPLETE"):
                     _report_command_callback(command, "BUSINESS_COMPLETED", "storage unload complete")
                 _persist_command(command)
-            if step.action == "nav2_pose" and index + 1 < len(req.steps):
-                next_step = req.steps[index + 1]
-                if next_step.action == "aruco_align":
-                    goal = step.payload.get("goal") or {}
-                    if goal.get("nav_position_only"):
-                        target_yaw = goal.get("yaw")
-                        if target_yaw is None:
-                            target_yaw = approach_yaw_for_waypoint(goal.get("waypoint"))
-                        marker_id = next_step.payload.get("aruco_marker_id")
-                        if next_step.payload.get("skip_approach_yaw_rotate"):
-                            next_step.payload["approach_yaw_pre_rotated"] = True
-                        else:
-                            skip_yaw = marker_id is not None and _skip_approach_yaw_if_marker_visible(
-                                int(marker_id), next_step.payload
-                            )
-                            if target_yaw is not None and not skip_yaw:
-                                if _rotate_to_approach_yaw_if_needed(float(target_yaw), next_step.payload) is not True:
-                                    raise RuntimeError("approach yaw rotate failed before aruco_align")
-                                next_step.payload["approach_yaw_pre_rotated"] = True
-                            elif skip_yaw:
-                                next_step.payload["approach_yaw_pre_rotated"] = True
-            if step.action == "nav2_pose":
-                goal = step.payload.get("goal") or {}
-                if goal.get("nav_position_only"):
-                    command["nav_position_only_approach"] = True
+            if step.action in ("nav2_pose", "nav2_waypoints") and index + 1 < len(req.steps):
+                _pre_rotate_for_aruco(step, req.steps[index + 1])
+            if _approach_goal_for_nav_step(step) is not None:
+                command["nav_position_only_approach"] = True
             if step.action == "aruco_align":
                 mode = str(step.payload.get("align_mode", "center_only")).lower()
                 if mode in ("full", "precision", "full_center", "full_rotate", "full_no_forward"):

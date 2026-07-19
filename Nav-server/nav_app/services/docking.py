@@ -71,6 +71,7 @@ from nav_app.services.robot_commands import (
     load_waypoint_goals,
 )
 from nav_app.services.robot_context import aruco_detection_topic as _aruco_detection_topic
+from nav_app.config import active_robot_profile
 from nav_app.services.status_helpers import clamp as _clamp
 
 
@@ -181,6 +182,15 @@ def _marker_pose_aligned(detection: Optional[Dict[str, Any]], payload: Dict[str,
     return abs(yaw_error) <= _marker_pose_yaw_tolerance_rad(payload)
 
 
+def _center_angular_sign(payload: Optional[Dict[str, Any]] = None) -> float:
+    """Resolve the image-center steering sign for the active robot camera orientation."""
+    payload = payload or {}
+    configured = payload.get("center_angular_sign")
+    if configured is None:
+        configured = active_robot_profile().get("aruco_center_angular_sign", -1.0)
+    return 1.0 if float(configured) >= 0.0 else -1.0
+
+
 def _pose_aware_docking_angular_z(
     detection: Dict[str, Any], payload: Dict[str, Any], *, wall_mode: bool, max_angular: float
 ) -> float:
@@ -190,7 +200,7 @@ def _pose_aware_docking_angular_z(
     center_gain = float(payload.get("dock_angular_gain", ARUCO_DOCK_ANGULAR_GAIN))
     if wall_mode:
         center_gain *= 0.45
-    command = -center_gain * center_error
+    command = _center_angular_sign(payload) * center_gain * center_error
     if yaw_error is not None and payload.get("marker_pose_yaw_enabled", True):
         yaw_gain = float(payload.get("marker_yaw_gain", 0.55))
         yaw_sign = float(payload.get("marker_yaw_angular_sign", -1.0))
@@ -443,7 +453,7 @@ def execute_aruco_yaw_seek(marker_id: int, payload: Dict[str, Any]):
                 max(centering_speed, abs(angular_gain * error_norm)),
             )
             angular_z = _apply_angular_deadband(
-                _clamp(-angular_gain * error_norm, -speed, speed),
+                _clamp(_center_angular_sign(payload) * angular_gain * error_norm, -speed, speed),
                 payload,
             )
             runtime.navigator.publish_velocity_for_duration(
@@ -475,7 +485,7 @@ def execute_aruco_yaw_seek(marker_id: int, payload: Dict[str, Any]):
         runtime.navigator.publish_stop_velocity()
         if not monotonic and sweep_enabled:
             if last_error is not None and miss_streak >= 2:
-                sweep_dir = -1.0 if last_error > 0.0 else 1.0
+                sweep_dir = _center_angular_sign(payload) if last_error > 0.0 else -_center_angular_sign(payload)
             elif miss_streak >= 3:
                 sweep_dir *= -1.0
         time.sleep(0.05)
@@ -760,7 +770,7 @@ def execute_center_align_only(marker_id: int, payload: Dict[str, Any]):
             runtime.navigator.publish_stop_velocity()
             if not monotonic and last_detection is not None and miss_streak >= 2:
                 err = _marker_center_error_norm(last_detection)
-                sweep_dir = -1.0 if err is not None and err > 0.0 else 1.0
+                sweep_dir = _center_angular_sign(payload) if err is not None and err > 0.0 else -_center_angular_sign(payload)
             elif not monotonic and miss_streak >= 3:
                 sweep_dir *= -1.0
             time.sleep(0.05)
@@ -787,7 +797,7 @@ def execute_center_align_only(marker_id: int, payload: Dict[str, Any]):
                 detection, payload, wall_mode=False, max_angular=speed
             )
             if pose_yaw_required
-            else _clamp(-angular_gain * error_norm, -speed, speed)
+            else _clamp(_center_angular_sign(payload) * angular_gain * error_norm, -speed, speed)
         )
         angular_z = _apply_angular_deadband(raw_angular, payload)
         runtime.navigator.publish_velocity_for_duration(
