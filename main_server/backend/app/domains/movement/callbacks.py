@@ -9,7 +9,7 @@ from typing import Any
 from app.core.config import settings
 from app.db.connection import MOVEMENT_CALLBACK_LOCK_NAMESPACE, advisory_xact_lock_for_key
 from app.db.postgres import operational_events
-from app.domains.execution import orchestrator
+from app.domains.execution import callback_workflow
 from app.domains.movement.pose_runtime import pose_runtime
 
 
@@ -48,32 +48,13 @@ def _lock_callback_event(conn, payload: dict[str, Any]) -> None:
     advisory_xact_lock_for_key(conn, MOVEMENT_CALLBACK_LOCK_NAMESPACE, key)
 
 
-def _event_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    out = dict(payload)
-    if payload.get("event_id"):
-        out["callback_event_id"] = payload["event_id"]
-    return out
-
-
 def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
     """Persist a command callback and advance Execution when applicable."""
     payload = _with_callback_event_id(payload, "event")
     _lock_callback_event(conn, payload)
     if _is_duplicate_callback(conn, payload):
         return {"message": "duplicate movement callback ignored", "duplicate": True, "task_advanced": False}
-    command_id = payload.get("command_id")
-    robot_id = payload.get("robot_name") or payload.get("robot_id")
-    event = payload.get("event") or payload.get("state") or "UNKNOWN"
-    operational_events.append(
-        conn,
-        event_type=f"MOVEMENT_COMMAND_{event}",
-        robot_id=robot_id,
-        command_id=command_id,
-        task_id=payload.get("task_id"),
-        message=payload.get("message") or str(event),
-        payload=_event_payload(payload),
-    )
-    advanced = orchestrator.handle_command_event(conn, payload) is not None
+    advanced = callback_workflow.apply_command_event(conn, payload)
     return {"message": "movement command event saved", "duplicate": False, "task_advanced": advanced}
 
 

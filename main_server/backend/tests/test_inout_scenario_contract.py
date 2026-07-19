@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.domains.execution import evidence, inout_scenarios, orchestrator
+from app.domains.execution import evidence, inout_scenarios, orchestrator, transitions
 from app.domains.execution import steps as scenario_steps
 from app.domains.movement import commands
 from app.models.movement import RobotCommandEvent
@@ -214,13 +214,13 @@ def test_uncertain_post_retries_same_body_only_after_status_404() -> None:
 
 def test_timeline_advances_only_with_matching_business_step_code() -> None:
     step = {"route_timeline": scenario_steps.business_timeline()}
-    orchestrator._update_route_timeline(
+    transitions.update_route_timeline(
         step,
         {"current_step_index": 3, "current_step_code": "LOAD", "event": "STEP_STARTED"},
         "STEP_STARTED",
     )
     assert step["route_timeline"][3]["status"] == "RUNNING"
-    orchestrator._update_route_timeline(
+    transitions.update_route_timeline(
         step,
         {"current_step_index": 3, "current_step_code": "UNLOAD", "event": "STEP_COMPLETED"},
         "STEP_COMPLETED",

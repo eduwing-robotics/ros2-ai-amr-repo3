@@ -11,9 +11,8 @@ from fastapi import HTTPException
 
 from app.db.connection import TASK_EVENT_LOCK_NAMESPACE, advisory_xact_lock_for_key
 from app.db.postgres import operational_events, robots, runtime_records, tasks
-from app.domains.execution import evidence, inout_scenarios, recovery
+from app.domains.execution import evidence, inout_scenarios, recovery, transitions
 from app.domains.execution import state as orch_state
-from app.domains.execution import steps as scenario_steps
 from app.domains.movement import commands
 from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
 from app.domains.movement.health import get_movement_health
@@ -27,135 +26,6 @@ from app.models.tasks import RobotTaskStepStatus
 logger = logging.getLogger(__name__)
 
 TERMINAL_STEP_STATES = {"DONE", "FAILED", "ABORTED", "CANCELLED"}
-
-SCENARIO_EVENT_NAMES = {
-    "COMMAND_ACCEPTED": "ACCEPTED",
-    "COMMAND_RUNNING": "RUNNING",
-    "COMMAND_DONE": "DONE",
-    "COMMAND_FAILED": "FAILED",
-    "COMMAND_ABORTED": "ABORTED",
-    "COMMAND_STOPPED": "CANCELLED",
-    "COMMAND_CANCELLED": "CANCELLED",
-}
-SCENARIO_PROGRESS_FIELDS = (
-    "contract_version",
-    "event",
-    "execution_id",
-    "state",
-    "current_step_index",
-    "current_step_code",
-    "current_step_action",
-    "last_completed_step_index",
-    "cargo_state",
-    "business_completed",
-    "authority_owner",
-    "authority_released",
-    "navigator_status",
-    "is_emergency",
-    "reason_code",
-    "message",
-    "reported_at",
-    "updated_at",
-)
-
-
-def _normalize_movement_event(event: dict[str, Any]) -> str:
-    raw = str(event.get("event") or event.get("state") or event.get("status") or "").upper()
-    if raw in {"CANCELED", "STOPPED"}:
-        return "CANCELLED"
-    return SCENARIO_EVENT_NAMES.get(raw, raw)
-
-
-def _update_scenario_progress(orch: dict[str, Any], step: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
-    previous = step.get("scenario_progress") or {}
-    progress = dict(previous) if isinstance(previous, dict) else {}
-    for field in SCENARIO_PROGRESS_FIELDS:
-        if field in event:
-            progress[field] = event[field]
-    step["scenario_progress"] = progress
-    orch["scenario_progress"] = progress
-    return progress
-
-
-def _update_route_timeline(step: dict[str, Any], event: dict[str, Any], event_name: str) -> None:
-    timeline = step.get("route_timeline")
-    if not isinstance(timeline, list) or not timeline:
-        return
-    try:
-        current = int(event.get("current_step_index"))
-    except (TypeError, ValueError):
-        current = -1
-    if event_name == "DONE":
-        current = len(timeline) - 1
-    if current < 0:
-        return
-    current = min(current, len(timeline) - 1)
-    expected_code = str(timeline[current].get("step_code") or timeline[current].get("kind") or "")
-    callback_code = str(event.get("current_step_code") or "")
-    if callback_code and callback_code != expected_code:
-        return
-    step["route_timeline_current_index"] = current
-    terminal_failure = event_name in {"FAILED", "ABORTED", "REJECTED", "CANCELLED"}
-    step_completed = "COMPLETED" in event_name
-    for index, item in enumerate(timeline):
-        if index < current or event_name == "DONE":
-            item["status"] = "DONE"
-        elif index == current:
-            item["status"] = event_name if terminal_failure else "DONE" if step_completed else "RUNNING"
-            if terminal_failure:
-                item["failure_reason"] = event.get("message") or event.get("reason")
-    step["route_timeline"] = timeline
-
-
-def _scenario_business_milestone(progress: dict[str, Any]) -> bool:
-    try:
-        last_completed = int(progress.get("last_completed_step_index"))
-    except (TypeError, ValueError):
-        return False
-    return (
-        progress.get("business_completed") is True
-        and str(progress.get("cargo_state") or "").upper() == "EMPTY"
-        and last_completed >= 6
-    )
-
-
-def _scenario_done_gate_errors(progress: dict[str, Any]) -> list[str]:
-    checks = {
-        "current_step_code": str(progress.get("current_step_code") or "") == "PARK",
-        "business_completed": progress.get("business_completed") is True,
-        "cargo_state": str(progress.get("cargo_state") or "").upper() == "EMPTY",
-        "authority_owner": str(progress.get("authority_owner") or "").upper() == "MAIN",
-        "authority_released": progress.get("authority_released") is True,
-        "navigator_status": str(progress.get("navigator_status") or "").upper() == "IDLE",
-        "is_emergency": progress.get("is_emergency") is False,
-    }
-    try:
-        checks["last_completed_step_index"] = int(progress.get("last_completed_step_index")) >= 8
-    except (TypeError, ValueError):
-        checks["last_completed_step_index"] = False
-    return [field for field, valid in checks.items() if not valid]
-
-
-def _scenario_event_contract_errors(step: dict[str, Any], event: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-    if str(event.get("contract_version") or "") != inout_scenarios.CONTRACT_VERSION:
-        errors.append("contract_version")
-    raw_event = str(event.get("event") or event.get("state") or "").upper()
-    if raw_event in {"STEP_STARTED", "STEP_COMPLETED"}:
-        try:
-            index = int(event.get("current_step_index"))
-        except (TypeError, ValueError):
-            index = -1
-        code = str(event.get("current_step_code") or "")
-        if scenario_steps.STEP_CODE_TO_INDEX.get(code) != index:
-            errors.append("current_step")
-    previous = step.get("scenario_progress") or {}
-    old_last = previous.get("last_completed_step_index")
-    new_last = event.get("last_completed_step_index")
-    if old_last is not None and new_last is not None and int(new_last) < int(old_last):
-        errors.append("last_completed_step_index")
-    return errors
-
 
 def _orchestration_phase(conn, task_id: int) -> str | None:
     task = evidence.attach_orchestration(tasks.get_task(conn, task_id), conn)
@@ -482,14 +352,14 @@ def advance_on_command_event(
         return None
 
     step = steps[step_index]
-    event_name = _normalize_movement_event(event)
+    event_name = transitions.normalize_movement_event(event)
     event_command_id = event.get("command_id")
     if not event_command_id or str(event_command_id) != str(step.get("command_id") or ""):
         return None
     if step.get("status") in TERMINAL_STEP_STATES:
         return None
     if str(step.get("kind")) == "inout_scenario":
-        contract_errors = _scenario_event_contract_errors(step, event)
+        contract_errors = transitions.scenario_event_contract_errors(step, event)
         if contract_errors:
             operational_events.append(
                 conn,
@@ -521,8 +391,8 @@ def advance_on_command_event(
 
     scenario_progress: dict[str, Any] = {}
     if str(step.get("kind")) == "inout_scenario":
-        scenario_progress = _update_scenario_progress(orch, step, event)
-        _update_route_timeline(step, event, event_name)
+        scenario_progress = transitions.update_scenario_progress(orch, step, event)
+        transitions.update_route_timeline(step, event, event_name)
 
     if orch_state.normalize_phase(orch.get("phase")) == orch_state.RobotTaskOrchestrationPhase.CANCEL_REQUESTED:
         stop_request = orch.get("stop_request") or {}
@@ -700,7 +570,7 @@ def advance_on_command_event(
         return _task(conn, task_id)
 
     if event_name == "DONE" and str(step.get("kind")) == "inout_scenario":
-        gate_errors = _scenario_done_gate_errors(scenario_progress)
+        gate_errors = transitions.scenario_done_gate_errors(scenario_progress)
         if gate_errors:
             step["completion_gate_errors"] = gate_errors
             execution.steps = steps

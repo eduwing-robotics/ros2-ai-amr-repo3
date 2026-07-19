@@ -27,8 +27,8 @@
 | 1. Characterization | Complete | 기존 성공·거절·callback·재고 의미 고정 | 64 passed, 17 skipped, 3 subtests |
 | 2. Shared definitions | Complete | 9단계 정본을 `execution/steps.py`로 통합 | 32 passed, Ruff passed |
 | 3. Work Order workflow | Complete | 계획→Task→배정→Movement 접수 순서를 `workflow.py`로 추출 | 66 passed, 3 subtests, Ruff passed |
-| 4. Callback workflow | In progress | 순수 전이 판단과 DB effect 반영 분리 | 중복·역순·복구 테스트 |
-| 5. Performance | Pending | claim 일괄 조회·Frontend Map 계산 | SQL 횟수·Frontend 테스트 |
+| 4. Callback workflow | Complete | 순수 계약 판정과 callback 증거·Task 반영 순서 분리 | 64 passed, Ruff passed |
+| 5. Performance | In progress | claim 일괄 조회·Frontend Map 계산 | SQL 횟수·Frontend 테스트 |
 | 6. Quality gates | Pending | 전체 정적 검사·테스트·production build | CI와 동일 명령 |
 | 7. Physical regression | Pending | 검증 경로 입고·출고 1회씩 | 9단계·리프트·재고·PARK |
 
@@ -40,8 +40,8 @@
 
 ## Change Budget
 
-- New production files: 2 / 4
-- Production net lines: approximately +36 / +300 target
+- New production files: 4 / 4
+- Production net lines: approximately +41 / +300 target
 - Database migrations: 0 planned
 - Physical commands during phases 1–6: none
 
@@ -51,7 +51,8 @@
 - 2026-07-19: 입출고 관련 baseline `64 passed, 17 skipped, 3 subtests passed`; 기존 테스트가 접수 거절, callback 중복, 단계 계약, safe-stop cargo 상태를 이미 고정함을 확인.
 - 2026-07-19: 9단계와 transfer action을 `execution/steps.py`로 이동. 관련 계약·진행·안전 테스트 32건과 Ruff 통과.
 - 2026-07-19: Work Order 생성·배정·Movement 접수를 `work_orders/workflow.py`로 이동하고 service를 조회·호환 facade로 축소. 회귀 테스트 66건과 Ruff 통과.
+- 2026-07-19: callback 계약·timeline·완료 gate를 `transitions.py`로, 증거 기록과 Task 반영 순서를 `callback_workflow.py`로 이동. 관련 테스트 64건과 Ruff 통과.
 
 ## Next
 
-Callback의 순수 계약 판정과 DB·재고·복구 effect가 섞인 지점을 분리하되 기존 orchestrator 공개 진입점은 유지한다.
+출고 active claim의 반복 조회를 일괄 집계로 바꾸고 Frontend inventory 후보 계산과 빈 `limit` 요청을 정리한다.

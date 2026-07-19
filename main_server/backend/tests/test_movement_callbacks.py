@@ -16,6 +16,7 @@ try:
 except ImportError:
     TestClient = None  # type: ignore[misc, assignment]
 
+from app.domains.execution import callback_workflow
 from app.domains.movement import callbacks
 from app.domains.movement import router as routes
 from app.domains.movement.client import MovementClientError, robot_is_emergency, set_robot_emergency
@@ -43,26 +44,19 @@ class MovementCallbackServiceTest(unittest.TestCase):
         for robot_id in ("r1", "r2", "r3"):
             set_robot_emergency(robot_id, False)
 
-    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
+    @patch("app.domains.movement.callbacks.callback_workflow.apply_command_event")
     @patch("app.domains.movement.callbacks.operational_events")
-    def test_ingest_command_event_appends_and_forwards(self, operational_events, handle_event) -> None:
-        operational_events.append = self.event.append
+    def test_ingest_command_event_appends_and_forwards(self, operational_events, apply_event) -> None:
         operational_events.callback_event_exists = self.event.callback_event_exists
         payload = {"command_id": "cmd-1", "robot_name": "r1", "event": "ACCEPTED"}
 
         callbacks.ingest_command_event(self.conn, payload)
 
-        self.event.append.assert_called_once()
-        kwargs = self.event.append.call_args.kwargs
-        self.assertEqual(kwargs["event_type"], "MOVEMENT_COMMAND_ACCEPTED")
-        self.assertEqual(kwargs["robot_id"], "r1")
-        self.assertEqual(kwargs["command_id"], "cmd-1")
-        handle_event.assert_called_once_with(self.conn, payload)
+        apply_event.assert_called_once_with(self.conn, payload)
 
-    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
+    @patch("app.domains.movement.callbacks.callback_workflow.apply_command_event")
     @patch("app.domains.movement.callbacks.operational_events")
-    def test_duplicate_event_id_is_acknowledged_without_reapply(self, operational_events, handle_event) -> None:
-        operational_events.append = self.event.append
+    def test_duplicate_event_id_is_acknowledged_without_reapply(self, operational_events, apply_event) -> None:
         operational_events.callback_event_exists = self.event.callback_event_exists
         self.event.callback_event_exists.return_value = True
         result = callbacks.ingest_command_event(
@@ -70,41 +64,37 @@ class MovementCallbackServiceTest(unittest.TestCase):
             {"command_id": "cmd-1", "robot_name": "r1", "event": "DONE", "event_id": "evt-1"},
         )
         self.assertTrue(result["duplicate"])
-        self.event.append.assert_not_called()
-        handle_event.assert_not_called()
+        apply_event.assert_not_called()
 
     @patch("app.domains.movement.callbacks.advisory_xact_lock_for_key")
-    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
+    @patch("app.domains.movement.callbacks.callback_workflow.apply_command_event")
     @patch("app.domains.movement.callbacks.operational_events")
-    def test_event_id_is_locked_and_task_id_is_linked(self, operational_events, handle_event, advisory_lock) -> None:
+    def test_event_id_is_locked_and_task_id_is_linked(self, operational_events, apply_event, advisory_lock) -> None:
         operational_events.callback_event_exists.return_value = False
-        handle_event.return_value = None
-        callbacks.ingest_command_event(
-            self.conn,
-            {
-                "event_id": "exec-344:6:completed",
-                "command_id": "cmd-344",
-                "task_id": 344,
-                "robot_name": "tb3_2",
-                "event": "STEP_COMPLETED",
-            },
-        )
+        payload = {
+            "event_id": "exec-344:6:completed",
+            "command_id": "cmd-344",
+            "task_id": 344,
+            "robot_name": "tb3_2",
+            "event": "STEP_COMPLETED",
+        }
+        callbacks.ingest_command_event(self.conn, payload)
 
         lock_args = advisory_lock.call_args.args
         self.assertIs(lock_args[0], self.conn)
         self.assertEqual(lock_args[1], callbacks.MOVEMENT_CALLBACK_LOCK_NAMESPACE)
         self.assertIsInstance(lock_args[2], int)
-        self.assertEqual(operational_events.append.call_args.kwargs["task_id"], 344)
-        handle_event.assert_called_once()
+        apply_event.assert_called_once_with(self.conn, payload)
 
-    @patch("app.domains.movement.callbacks.orchestrator.handle_command_event")
-    @patch("app.domains.movement.callbacks.operational_events")
+    @patch("app.domains.execution.callback_workflow.orchestrator.handle_command_event")
+    @patch("app.domains.execution.callback_workflow.operational_events")
     def test_event_write_failure_does_not_advance_execution(self, operational_events, handle_event) -> None:
-        operational_events.callback_event_exists = self.event.callback_event_exists
         operational_events.append.side_effect = RuntimeError("event write failed")
 
         with self.assertRaisesRegex(RuntimeError, "event write failed"):
-            callbacks.ingest_command_event(self.conn, {"command_id": "cmd-1", "robot_name": "r1", "event": "DONE"})
+            callback_workflow.apply_command_event(
+                self.conn, {"command_id": "cmd-1", "robot_name": "r1", "event": "DONE"}
+            )
 
         handle_event.assert_not_called()
 
