@@ -3,7 +3,7 @@
 상태: Active
 분류: Docs
 작성: 2026-06-27 12:11 KST
-최종 갱신: 2026-07-18 KST
+최종 갱신: 2026-07-19 KST
 목적: `slam_nav_ws` 기준 문서와 작업 문서의 위치를 안내한다.
 
 ## Codex / 에이전트 이어하기 (최신)
@@ -38,6 +38,7 @@
 
 ## 운영 절차
 
+- **`runbook/TB3_1_CURRENT_STACK.md`**: **tb3_1 현재 정본 — 전원 재인가, 원샷 실행, 검증, 종료, 복구**
 - **`runbook/TB3_2_CURRENT_STACK.md`**: **tb3_2 현재 정본 — 원샷/개별 실행, 검증, 로그, 복구**
 - `runbook/RUNBOOK_LMS_FULL_STARTUP.md`: 전체 bringup과 LMS 실행 순서
 

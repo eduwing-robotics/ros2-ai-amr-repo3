@@ -209,3 +209,13 @@ cargo_state=EMPTY
 2. 주행 없이 API health, `/odom`, `/scan`, camera, ArUco, Nav2 lifecycle을 먼저 확인한다.
 3. 리프트 43mm/50mm 교정은 별도 작업으로 두고 홈 기준 실측 절차를 따른다.
 4. 실차 시나리오는 Movement preview가 valid인 것을 확인한 뒤 사용자에게 별도 실행 허용을 받는다.
+
+### 2026-07-19 전원 재인가 검증 추가
+
+- robot1 물리 전원 재인가 후 SBC SSH 응답을 확인했다.
+- Nav PC의 이전 Terminator/API가 남아 `robot_online=false`를 반환하는 상태를 확인했으며, API 응답만으로 복구를 판단하면 안 된다.
+- `scripts/start_all_tb3_1.sh restart`로 1호기 범위만 정리하고 7/7 pane을 재기동했다.
+- 최종 health는 `robot_online=true`, `cmd_vel_subscribers=1`, `command_accepting=true`, `nav2_ready=true`, `localized=true`였다.
+- `/odom`, `/scan`, `/camera/image_raw/compressed`, `/mission/tb3_1/aruco/detections`, `/lift/position`은 모두 publisher 1이었다.
+- 주행 명령과 리프트 이동 명령은 보내지 않았다.
+- 현재 운영 정본: `docs/runbook/TB3_1_CURRENT_STACK.md`.

@@ -102,3 +102,18 @@ def test_detector_and_relay_consume_robot_raw_compressed_camera_topic():
     assert 'DETECTOR_IMAGE_TOPIC="${DETECTOR_IMAGE_TOPIC:-$RAW_COMPRESSED_TOPIC}"' in runner
     assert '-p "input_topic:=${DETECTOR_IMAGE_TOPIC}"' in runner
     assert 'DETECTOR_IMAGE_TOPIC="${DETECTOR_IMAGE_TOPIC:-$CAMERA_TOPIC}"' not in runner
+
+def test_robot1_launcher_stays_scoped_and_does_not_mask_failed_panes():
+    script = (ROOT / "scripts/start_all_tb3_1.sh").read_text()
+
+    status_start = script.index("status_stack()")
+    status_end = script.index("case ", status_start)
+    status = script[status_start:status_end]
+    assert "for p in 8001 8002" not in status
+    assert "for p in 8001" in status
+
+    pane_check_start = script.index("verify_terminator_panes()")
+    pane_check_end = script.index("local tlog=", pane_check_start)
+    pane_check = script[pane_check_start:pane_check_end]
+    assert "detector1_fallback.log" not in pane_check
+    assert "nohup bash" not in pane_check

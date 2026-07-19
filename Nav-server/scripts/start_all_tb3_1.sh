@@ -75,7 +75,6 @@ ROBOT_LDS_MODEL="${ROBOT_LDS_MODEL:-LDS-03}"
 ROBOT_BRINGUP_WAIT_SEC="${ROBOT_BRINGUP_WAIT_SEC:-10}"
 ROBOT_TOPIC_WAIT_SEC="${ROBOT_TOPIC_WAIT_SEC:-120}"
 CAMERA_TOPIC_WAIT_SEC="${CAMERA_TOPIC_WAIT_SEC:-60}"
-STATUS_DELAY_SEC="${STATUS_DELAY_SEC:-50}"
 MODE="${MODE:-terminator}"
 
 # ssh 비밀번호는 ROBOT_PW 환경변수로만 전달한다. sshpass 우선, 없으면 SSH_ASKPASS 헬퍼 사용.
@@ -622,14 +621,8 @@ PY
       return 0
     fi
     log "WARNING: terminator pane ${running}/${n}만 실행 — 누락:${missing}"
-    log "  → scripts/start_all_tb3_1.sh restart (레이아웃 ratio/maximise 적용)"
-    # detector pane(보통 idx=3)이 죽었으면 백그라운드 fallback — 시나리오는 계속 가능
-    if [[ "$WITH_ROBOT" == "1" ]] && ! pgrep -f "${tmpd}/pane_3.sh" >/dev/null 2>&1 \
-        && ! pgrep -f "aruco_detector_node.py" >/dev/null 2>&1 \
-        && [[ -x "${tmpd}/pane_3.sh" ]]; then
-      log "detector1 pane 미기동 — 백그라운드 fallback (로그: $LOG_DIR/detector1_fallback.log)"
-      nohup bash "${tmpd}/pane_3.sh" >>"$LOG_DIR/detector1_fallback.log" 2>&1 &
-    fi
+    log "  → 중복 프로세스를 만들지 말고 scripts/start_all_tb3_1.sh restart 실행"
+    return 1
   }
 
   local tlog="$tmpd/terminator.log"
@@ -650,7 +643,7 @@ PY
     log "WARNING: terminator 미기동. $tlog:"
     sed 's/^/  /' "$tlog" 2>/dev/null || true
   fi
-  log "상태 점검 (${STATUS_DELAY_SEC}s 후 status pane): scripts/start_all_tb3_1.sh status"
+  log "상태 점검: scripts/start_all_tb3_1.sh status"
   log "전체 종료: scripts/start_all_tb3_1.sh stop"
 }
 
@@ -662,7 +655,7 @@ attach_stack() {
 
 status_stack() {
   echo "===== Movement API health ====="
-  for p in 8001 8002; do
+  for p in 8001; do
     printf 'port %s: ' "$p"
     curl -s --max-time 3 "http://127.0.0.1:$p/movement-api/v1/health" \
       | python3 -c "import sys,json; d=json.load(sys.stdin); print('online=%s accepting=%s localized=%s nav=%s active=%s' % (d['robot_online'], d['command_accepting'], d['localized'], d['navigator_status'], d.get('active_commands',[])))" 2>/dev/null \
