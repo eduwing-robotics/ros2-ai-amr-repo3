@@ -28,8 +28,8 @@
 | `OUTBOUND_02` | 출고 2 | `outbound_slot_2_approach` | `1.450` | `0.006` | `1.571` | Movement |
 | `STORAGE_01` | Warehouse B | `warehouse_b_approach` | `0.033` | `-0.376` | `0.000` | Movement |
 | `STORAGE_02` | Warehouse A | `warehouse_a_approach` | `0.019` | `-0.618` | DB active value | Movement |
-| `STORAGE_03` | Warehouse D | `warehouse_d_approach` | reference JSON | reference JSON | reference JSON | Movement |
-| `STORAGE_04` | Warehouse C | `warehouse_c_approach` | `1.239` | `-0.631` | DB active value | Movement |
+| `STORAGE_03` | Warehouse C | `warehouse_c_approach` | `1.239` | `-0.631` | `3.142` | Movement |
+| `STORAGE_04` | Warehouse D | `warehouse_d_approach` | `1.225` | `-0.377` | `3.142` | Movement |
 
 좌표 파일 정본은 [`database/reference/robot2_map.json`](../database/reference/robot2_map.json)이다. 실제 command는 DB의 활성 row를 snapshot하므로 배포 전 JSON, DB, Movement profile 세 값을 비교한다.
 

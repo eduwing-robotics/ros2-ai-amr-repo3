@@ -144,8 +144,8 @@ def test_scenario_request_rejects_legacy_tuning_fields() -> None:
 @pytest.mark.parametrize(
     ("storage_id", "waypoint_id", "x", "y"),
     [
-        ("STORAGE_03", "warehouse_d_approach", 1.225, -0.377),
-        ("STORAGE_04", "warehouse_c_approach", 1.239, -0.631),
+        ("STORAGE_03", "warehouse_c_approach", 1.239, -0.631),
+        ("STORAGE_04", "warehouse_d_approach", 1.225, -0.377),
     ],
 )
 def test_rounded_pi_yaw_keeps_validated_storage_mapping(

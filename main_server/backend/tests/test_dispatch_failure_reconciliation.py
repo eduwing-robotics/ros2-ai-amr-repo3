@@ -109,6 +109,6 @@ def test_all_storage_ids_remain_automatic_scenario_candidates() -> None:
     )} == {
         "STORAGE_01": "warehouse_b_approach",
         "STORAGE_02": "warehouse_a_approach",
-        "STORAGE_03": "warehouse_d_approach",
-        "STORAGE_04": "warehouse_c_approach",
+        "STORAGE_03": "warehouse_c_approach",
+        "STORAGE_04": "warehouse_d_approach",
     }
