@@ -519,7 +519,11 @@ def start_task_orchestration(
     if task_type in {"INBOUND", "OUTBOUND", "CHARGE"}:
         location_ids = [
             str(location_id)
-            for location_id in (task.get("from_location_id"), task.get("to_location_id"))
+            for location_id in (
+                task.get("from_location_id"),
+                task.get("to_location_id"),
+                scenario.get("start_location_id"),
+            )
             if location_id
         ]
         if task_type in {"INBOUND", "OUTBOUND"}:
@@ -1376,11 +1380,28 @@ def _advance_on_command_event(conn, task_id: int, event: dict[str, Any], source:
                 )
                 return _task(conn, task_id)
         elif action == "unload":
-            # The business transfer is complete even while the robot returns home.
+            # The business transfer is complete even while the robot returns
+            # home or hands off directly to a compatible queued task.
             orch["business_completed"] = True
             orch["business_completed_at_step"] = step_index
             orch["return_status"] = "RETURNING_HOME"
             orch["parking_error"] = None
+            provenance = orch.get("provenance") if isinstance(orch.get("provenance"), dict) else {}
+            destination_id = task.get("to_location_id")
+            if provenance.get("execution_mode", "physical") == "physical" and destination_id:
+                next_task = task_service.reserve_next_task_for_robot(
+                    conn,
+                    task,
+                    start_dock_location_id=str(destination_id),
+                )
+                if next_task:
+                    orch["chained_next_task_id"] = int(next_task["task_id"])
+                    orch["chained_next_task"] = next_task
+                    orch["return_status"] = "CHAINED"
+                    # The current transfer finishes at this dock.  The next
+                    # task owns the leave-dock step using this exact marker and
+                    # pose, so returning HOME first would be redundant.
+                    steps = steps[: step_index + 1]
 
     step["status"] = "DONE"
     orch_state.set_steps(orch, steps)
@@ -1390,22 +1411,71 @@ def _advance_on_command_event(conn, task_id: int, event: dict[str, Any], source:
 
     if step_index >= len(steps):
         if bool(orch.get("business_completed")):
-            orch["return_status"] = "PARKED"
+            orch["return_status"] = "CHAINED" if orch.get("chained_next_task_id") else "PARKED"
         orch_state.set_phase(orch, orch_state.PHASE_DONE)
         if not _finalize_terminal_transition(conn, task_id, transition_id, orch):
             return None
         finished = task_service.complete_task(conn, task_id, source=source)
         robot_id = task.get("assigned_robot_id")
-        if robot_id:
-            robot_repo(conn).set_task(str(robot_id), "IDLE", None)
-            person_hazard.on_robot_task_terminal(str(robot_id))
+        prepared_next_task = orch.get("chained_next_task") if isinstance(orch.get("chained_next_task"), dict) else None
+        claimed_next_task = (
+            task_service.commit_reserved_next_task(conn, task, prepared_next_task)
+            if prepared_next_task is not None
+            else None
+        )
+        chained_next_task_id = int(claimed_next_task["task_id"]) if claimed_next_task else None
+        if prepared_next_task is not None and claimed_next_task is None:
+            # Advisory locks make this path exceptional.  Keep the completed
+            # transfer durable and the robot idle at the current dock rather
+            # than weakening the one-live-task invariant.
+            orch.pop("chained_next_task_id", None)
+            orch.pop("chained_next_task", None)
+            orch["return_status"] = "PARK_FAILED"
+            orch["parking_error"] = {"reason": "chained_task_claim_lost"}
+            evidence_runtime.save_orchestration(conn, task_id, orch)
+        else:
+            orch.pop("chained_next_task", None)
+            evidence_runtime.save_orchestration(conn, task_id, orch)
         event_repo(conn).append(
             event_type="TASK_ORCHESTRATION_DONE",
             task_id=task_id,
             robot_id=task.get("assigned_robot_id"),
             message=f"task {task_id} all steps done",
-            payload={"task_id": task_id},
+            payload={"task_id": task_id, "chained_next_task_id": chained_next_task_id},
         )
+        if chained_next_task_id:
+            # Commit the completed inventory transfer and durable next-task
+            # reservation before the next Movement HTTP dispatch.  A dispatch
+            # failure then leaves an explicit ASSIGNED task that can be
+            # restarted rather than rolling back the finished work.
+            if getattr(conn, "is_postgres", False) is True:
+                conn.commit()
+            try:
+                start_task_orchestration(
+                    conn,
+                    int(chained_next_task_id),
+                    source="task_chain",
+                )
+                event_repo(conn).append(
+                    event_type="TASK_CHAIN_STARTED",
+                    task_id=int(chained_next_task_id),
+                    robot_id=str(robot_id) if robot_id else None,
+                    message=f"task {chained_next_task_id} started after task {task_id}",
+                    payload={"task_id": int(chained_next_task_id), "previous_task_id": task_id},
+                )
+            except Exception as exc:
+                logger.exception("chained task %s failed to start after task %s", chained_next_task_id, task_id)
+                event_repo(conn).append(
+                    event_type="TASK_CHAIN_START_FAILED",
+                    task_id=int(chained_next_task_id),
+                    robot_id=str(robot_id) if robot_id else None,
+                    message=f"task {chained_next_task_id} remained assigned after chain start failure",
+                    payload={
+                        "task_id": int(chained_next_task_id),
+                        "previous_task_id": task_id,
+                        "error": str(getattr(exc, "detail", exc)),
+                    },
+                )
         return finished
 
     if not _finalize_terminal_transition(conn, task_id, transition_id, orch):

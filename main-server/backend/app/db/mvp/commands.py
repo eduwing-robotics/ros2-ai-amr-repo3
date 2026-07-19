@@ -96,7 +96,10 @@ class MvpCommandRepository:
                 "evidence_count": len(evs),
                 "runtime_command_id": runtime_command_id,
                 "target": template.get("target"),
-                "transfer_action": "load" if mode.endswith("load") else "unload" if mode.endswith("unload") else None,
+                # ``unload`` also ends with ``load``.  Match the specific mode
+                # first so the UI/runtime progress does not label a drop-off as
+                # another pickup.
+                "transfer_action": "unload" if mode.endswith("unload") else "load" if mode.endswith("load") else None,
                 "human_hazard_monitor": bool(template.get("human_hazard_monitor")),
                 "last_observed_at": _row_ts(evs[-1].get("observed_at")) if evs else None,
             })

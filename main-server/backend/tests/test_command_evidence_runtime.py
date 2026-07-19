@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from unittest.mock import MagicMock
 
 from app.core.config import settings
 from app.db.connection import init_db, transaction
@@ -12,6 +13,37 @@ from app.services import evidence_runtime
 from tests.pg_fixture import apply_demo_fixture
 
 SKIP = not os.environ.get("LMS_DATABASE_URL")
+
+
+class CommandProgressProjectionTests(unittest.TestCase):
+    def test_unload_recipe_is_not_projected_as_load(self) -> None:
+        definitions = [
+            {
+                "id": 1,
+                "sequence_no": 2,
+                "command_type": "dock_transfer",
+                "target_system": "movement",
+                "required_evidence_type": "DONE",
+                "request_template_json": {"mode": "inbound_load"},
+            },
+            {
+                "id": 2,
+                "sequence_no": 6,
+                "command_type": "dock_transfer",
+                "target_system": "movement",
+                "required_evidence_type": "DONE",
+                "request_template_json": {"mode": "storage_unload"},
+            },
+        ]
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.side_effect = [definitions, []]
+
+        progress = command_repo(conn).progress_for_task(42, "INBOUND")
+
+        self.assertEqual(
+            [step["transfer_action"] for step in progress],
+            ["load", "unload"],
+        )
 
 
 @unittest.skipIf(SKIP, "LMS_DATABASE_URL required")
@@ -217,7 +249,15 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                 conn, task_repo(conn).get(outbound_id) or {}
             )["steps"]
 
-        self.assertEqual(inbound[0]["params"], {"aruco_marker_id": 4})
+        self.assertEqual(inbound[0]["params"], {
+            "aruco_marker_id": 4,
+            "parking_pose": {
+                "map_id": "robot2_map",
+                "x": 0.816,
+                "y": 0.326,
+                "yaw": 1.571,
+            },
+        })
         self.assertEqual(inbound[2]["params"]["pre_insert_lift_mm"], 0)
         self.assertEqual(
             [step["params"]["aruco_marker_id"] for step in inbound if step["action_type"] == "dock_transfer"],

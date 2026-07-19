@@ -143,7 +143,7 @@ export interface WorkOrderRobotTask {
   selection_reason?: string | null;
   available_qty_at_plan?: number | null;
   business_completed?: boolean;
-  return_status?: "RETURNING_HOME" | "PARKING" | "PARKED" | "PARK_FAILED" | null;
+  return_status?: "RETURNING_HOME" | "PARKING" | "PARKED" | "PARK_FAILED" | "CHAINED" | null;
   parking_error?: JsonObject | null;
   progress?: WorkOrderTaskProgress | null;
 }
@@ -163,7 +163,7 @@ export interface WorkOrder {
   mission_results?: JsonObject[];
   start_failed?: Array<{ task_id: number; detail: string | unknown }>;
   business_completed?: boolean;
-  return_status?: "RETURNING_HOME" | "PARKING" | "PARKED" | "PARK_FAILED" | null;
+  return_status?: "RETURNING_HOME" | "PARKING" | "PARKED" | "PARK_FAILED" | "CHAINED" | null;
   parking_error?: JsonObject | null;
   execution_mode?: "physical" | "synthetic_hil";
 }

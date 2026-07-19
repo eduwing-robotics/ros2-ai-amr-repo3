@@ -690,6 +690,32 @@ def _active_command_id(conn, task_id: int) -> str | None:
     return None
 
 
+def _assigned_robot_id(conn, task: dict[str, Any]) -> str | None:
+    """Return the live assignment or the latest audited assignment.
+
+    Terminal tasks release the robot for new work and older rows may therefore
+    have ``tasks.robot_id = NULL``.  The work-order history still needs to show
+    which robot actually executed the task, so recover that display value from
+    the existing runtime evidence instead of adding another state table.
+    """
+    current = task.get("assigned_robot_id") or task.get("robot_id")
+    if current:
+        return str(current)
+    task_id = int(task["task_id"])
+    row = conn.execute(
+        """
+        SELECT data_json ->> 'robot_id' AS robot_id
+        FROM evidence_events
+        WHERE (task_id = %s OR data_json ->> 'task_id' = %s)
+          AND COALESCE(data_json ->> 'robot_id', '') <> ''
+        ORDER BY observed_at DESC
+        LIMIT 1
+        """,
+        (task_id, str(task_id)),
+    ).fetchone()
+    return str(row["robot_id"]) if row and row.get("robot_id") else None
+
+
 def _task_progress(
     orch: dict[str, Any],
     recipe_steps: list[dict[str, Any]] | None = None,
@@ -712,6 +738,7 @@ def _task_progress(
                 "command_id": step.get("command_id"),
                 "transfer_action": step.get("transfer_action"),
                 "failure_reason": step.get("failure_reason") or step.get("error") or step.get("reason"),
+                "human_hazard_monitor": bool(step.get("human_hazard_monitor")),
             }
         )
     logical_steps = [
@@ -767,6 +794,7 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
     parking_error = orch.get("parking_error")
     source_zone, target_zone = _zones_from_task(conn, task, operation, plan_summary)
     task_floor = int((task.get("to_floor") if operation == "inbound" else task.get("from_floor")) or DEFAULT_FLOOR)
+    assigned_robot_id = _assigned_robot_id(conn, task)
     item_code = str(task.get("item_code") or task.get("item_id") or "")
     item = MvpItemRepository(conn).get(item_code) if item_code else None
     wo_task = {
@@ -777,7 +805,7 @@ def _response(conn, order_id: int, mission_results: list[dict[str, Any]] | None 
         "quantity": int(task.get("quantity") or 1),
         "priority": int(task.get("priority") or 0),
         "status": task.get("status"),
-        "assigned_robot_id": task.get("assigned_robot_id"),
+        "assigned_robot_id": assigned_robot_id,
         "command_id": _active_command_id(conn, order_id),
         "slot_label": (plan_summary or {}).get("slot_label") or task.get("slot_id"),
         "source_zone": source_zone,

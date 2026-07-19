@@ -61,7 +61,15 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         steps = scenario["steps"]
         self.assertEqual(len(steps), 7)
         self.assertEqual(steps[0]["action_type"], "leave_dock")
-        self.assertEqual(steps[0]["params"], {"aruco_marker_id": 3})
+        self.assertEqual(steps[0]["params"], {
+            "aruco_marker_id": 3,
+            "parking_pose": {
+                "map_id": "robot2_map",
+                "x": 0.527,
+                "y": 0.306,
+                "yaw": 1.571,
+            },
+        })
         self.assertEqual(steps[1]["action_type"], "move")
         self.assertAlmostEqual(steps[1]["x"], 1.8)
         self.assertEqual(steps[2]["action_type"], "dock_transfer")
@@ -125,16 +133,63 @@ class InOutScenarioOfflineTest(unittest.TestCase):
             [step["params"]["aruco_marker_id"] for step in inbound if step["action_type"] in {"dock_transfer", "aruco_align"}],
             [1, 7, 4],
         )
-        self.assertEqual(inbound[0]["params"], {"aruco_marker_id": 4})
+        self.assertEqual(inbound[0]["params"], {
+            "aruco_marker_id": 4,
+            "parking_pose": {
+                "map_id": "robot2_map",
+                "x": 0.816,
+                "y": 0.326,
+                "yaw": 1.571,
+            },
+        })
         self.assertEqual(inbound[2]["params"]["pre_insert_lift_mm"], 0)
         self.assertEqual(inbound[-2]["waypoint_id"], "vehicle_2_approach")
         self.assertEqual(
             [step["params"]["aruco_marker_id"] for step in outbound if step["action_type"] in {"dock_transfer", "aruco_align"}],
             [7, 6, 4],
         )
-        self.assertEqual(outbound[0]["params"], {"aruco_marker_id": 4})
+        self.assertEqual(outbound[0]["params"], {
+            "aruco_marker_id": 4,
+            "parking_pose": {
+                "map_id": "robot2_map",
+                "x": 0.816,
+                "y": 0.326,
+                "yaw": 1.571,
+            },
+        })
         self.assertEqual(outbound[2]["params"]["pre_insert_lift_mm"], 0)
         self.assertEqual(outbound[-2]["waypoint_id"], "vehicle_2_approach")
+
+    @patch("app.services.evidence_runtime.location_repo")
+    def test_chained_task_leaves_the_previous_dock_instead_of_home(self, location_repo_fn) -> None:
+        data = _mock_locations()
+        location_repo_fn.return_value = self._repo(data)
+        task = {
+            "task_id": 23,
+            "task_type": "OUTBOUND",
+            "assigned_robot_id": "tb3_2",
+            "from_location_id": "STORAGE_S1",
+            "to_location_id": "OUTBOUND_02",
+            "from_floor": 1,
+            "to_floor": 1,
+            "preset_snapshot": {
+                "_orchestration": {
+                    "phase": "ASSIGNED",
+                    "chain_context": {
+                        "previous_task_id": 22,
+                        "start_dock_location_id": "STORAGE_S1",
+                        "robot_id": "tb3_2",
+                    },
+                },
+            },
+        }
+
+        scenario = evidence_runtime.build_scenario_from_task(MagicMock(), task)
+
+        self.assertEqual(scenario["start_location_id"], "STORAGE_S1")
+        self.assertEqual(scenario["steps"][0]["action_type"], "leave_dock")
+        self.assertEqual(scenario["steps"][0]["params"]["aruco_marker_id"], 7)
+        self.assertEqual(scenario["steps"][-1]["params"], {"aruco_marker_id": 4, "final": "park"})
 
     @patch("app.services.evidence_runtime.location_repo")
     def test_inbound_preserves_ordered_transit_then_scan_then_dock(self, location_repo_fn) -> None:
@@ -188,7 +243,7 @@ class InOutScenarioOfflineTest(unittest.TestCase):
 
         source_route = steps[1:4]
         self.assertEqual({step["command_sequence_no"] for step in source_route}, {1})
-        self.assertEqual({step["human_hazard_monitor"] for step in source_route}, {False})
+        self.assertEqual({step["human_hazard_monitor"] for step in source_route}, {True})
 
         load = next(step for step in steps if step.get("params", {}).get("action") == "load")
         unload = next(step for step in steps if step.get("params", {}).get("action") == "unload")
@@ -201,6 +256,9 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         ]
         self.assertTrue(loaded_route)
         self.assertTrue(all(step["human_hazard_monitor"] is True for step in loaded_route))
+        return_home = steps[-2]
+        self.assertEqual(return_home["action_type"], "move")
+        self.assertTrue(return_home["human_hazard_monitor"])
         self.assertFalse(load["human_hazard_monitor"])
         self.assertFalse(unload["human_hazard_monitor"])
 

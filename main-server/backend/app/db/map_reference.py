@@ -61,7 +61,7 @@ def verify_assets(manifest: dict[str, Any]) -> None:
 
 
 def sync_reference(conn, manifest: dict[str, Any]) -> int:
-    """Upsert listed locations only; never delete unlisted or operator-managed rows."""
+    """Synchronize release-owned locations/routes without touching operator rows."""
     verify_assets(manifest)
     revision = str(manifest["revision"])
     for row in manifest["locations"]:
@@ -86,9 +86,32 @@ def sync_reference(conn, manifest: dict[str, Any]) -> int:
                 row.get("marker_id"), manifest["map_id"], revision,
             ),
         )
-    target_ids = sorted({str(row["target_location_id"]) for row in manifest.get("routes", [])})
-    if target_ids:
-        conn.execute("DELETE FROM location_route_steps WHERE target_location_id = ANY(%s)", (target_ids,))
+    release_ids = sorted(str(row["id"]) for row in manifest["locations"])
+    stale_rows = conn.execute(
+        """
+        SELECT id FROM locations
+        WHERE release_managed = TRUE
+          AND map_id = %s
+          AND NOT (id = ANY(%s))
+        """,
+        (manifest["map_id"], release_ids),
+    ).fetchall()
+    stale_ids = [str(row["id"]) for row in stale_rows]
+    if stale_ids:
+        conn.execute(
+            "DELETE FROM location_route_steps WHERE target_location_id = ANY(%s) OR waypoint_id = ANY(%s)",
+            (stale_ids, stale_ids),
+        )
+        conn.execute(
+            "DELETE FROM locations WHERE id = ANY(%s) AND release_managed = TRUE",
+            (stale_ids,),
+        )
+
+    # The manifest owns routes into every release scan. Clear old steps even
+    # when the new route list is empty, then insert the current ordered set.
+    scan_ids = sorted(str(row["id"]) for row in manifest["locations"] if row["type"] == "scan")
+    if scan_ids:
+        conn.execute("DELETE FROM location_route_steps WHERE target_location_id = ANY(%s)", (scan_ids,))
     for route in manifest.get("routes", []):
         conn.execute(
             "INSERT INTO location_route_steps (target_location_id, step_order, waypoint_id) VALUES (%s, %s, %s)",

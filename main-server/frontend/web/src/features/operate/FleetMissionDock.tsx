@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Pill } from "../../components/Pill";
 import { statusTone } from "../../lib/format";
 import type { Robot, WorkOrder, WorkOrderRobotTask, WorkOrderTaskProgressStep } from "../../types";
@@ -14,6 +15,7 @@ const RUNNING = new Set(["RUNNING", "IN_PROGRESS", "CANCEL_REQUESTED", "AWAITING
 const STOPPABLE = new Set(["RUNNING", "IN_PROGRESS", "AWAITING_OPERATOR", "RECOVERY_REQUIRED", "RECOVERY_RUNNING"]);
 const CANCELLABLE = new Set(["QUEUED", "PENDING", "ASSIGNED"]);
 const HOLD = new Set(["AWAITING_OPERATOR", "RECOVERY_REQUIRED", "CANCEL_REQUESTED"]);
+const RECOVERY = new Set(["AWAITING_OPERATOR", "RECOVERY_REQUIRED", "RECOVERY_RUNNING"]);
 
 function phaseOf(order: WorkOrder, task: WorkOrderRobotTask | null) {
   const taskStatus = String(task?.status ?? order.status ?? "QUEUED").toUpperCase();
@@ -33,14 +35,18 @@ function stepState(step: WorkOrderTaskProgressStep, current: number) {
 }
 function stepLabel(step: WorkOrderTaskProgressStep) {
   const kind = step.kind.toLowerCase(), transfer = String(step.transfer_action ?? "").toLowerCase();
+  const monitored = step.human_hazard_monitor ? " · 사람 감시" : "";
   if (kind === "verify_post_pick_up") return "AI 적재 확인";
   if (kind === "verify_pre_drop_off") return "AI 하역 전 확인";
   if (kind === "leave_dock") return "출발";
   if (kind === "dock_transfer" && transfer === "load") return "적재";
   if (kind === "dock_transfer" && transfer === "unload") return "하역";
   if (kind === "aruco_align") return "주차";
-  if (kind === "move_to_point" && step.human_hazard_monitor) return "운송·사람 감시";
-  if (kind === "move_to_point") return transfer === "load" ? "적재 이동" : transfer === "unload" ? "하역 이동" : "복귀";
+  if (kind === "move_to_point" && step.target === "inbound_scan") return `입고 이동${monitored}`;
+  if (kind === "move_to_point" && step.target === "storage_scan") return `보관 이동${monitored}`;
+  if (kind === "move_to_point" && step.target === "outbound_scan") return `출고 이동${monitored}`;
+  if (kind === "move_to_point" && step.target === "home") return `복귀${monitored}`;
+  if (kind === "move_to_point") return transfer === "load" ? `적재 이동${monitored}` : transfer === "unload" ? `하역 이동${monitored}` : `운송${monitored}`;
   return step.label || step.kind;
 }
 function MissionTimeline({ task }: { task: WorkOrderRobotTask }) {
@@ -54,6 +60,7 @@ function MissionTimeline({ task }: { task: WorkOrderRobotTask }) {
 
 type QueueRow = { order: WorkOrder; task: WorkOrderRobotTask | null };
 export function FleetMissionDock({ robots, selectedRobotId, onRobotSelect }: { robots: Robot[]; selectedRobotId: string; onRobotSelect: (robotId: string) => void }) {
+  const navigate = useNavigate();
   const { data: orders = [], dataUpdatedAt, isFetching, isError, refetch } = useWorkOrders(50);
   const stopWorkOrder = useStopWorkOrder();
   const cancelWorkOrder = useCancelWorkOrder();
@@ -66,6 +73,7 @@ export function FleetMissionDock({ robots, selectedRobotId, onRobotSelect }: { r
     return ar - br || Number(b.task?.priority ?? 0) - Number(a.task?.priority ?? 0) || b.order.order_id - a.order.order_id;
   }), [allRows]);
   const historyRows = useMemo(() => allRows.filter(({ order, task }) => !QUEUE.has(phaseOf(order, task))).sort((a, b) => b.order.order_id - a.order.order_id), [allRows]);
+  const recoveryCount = useMemo(() => queueRows.filter(({ order, task }) => RECOVERY.has(phaseOf(order, task))).length, [queueRows]);
   const rows = tab === "queue" ? queueRows : historyRows;
   const updatedAt = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString("ko-KR", { hour12: false }) : "대기 중";
   const stop = (order: WorkOrder, robotId?: string | null) => {
@@ -79,16 +87,17 @@ export function FleetMissionDock({ robots, selectedRobotId, onRobotSelect }: { r
     else cancelWorkOrder.mutate(order.order_id);
   };
   return <section className="fleet-mission-dock panel" aria-label="작업 큐, 할당 로봇, 타임라인과 안전 중지">
-    <header className="fleet-mission-head"><div><h2>{tab === "queue" ? "실시간 작업 큐" : "작업 기록"}</h2><p>{tab === "queue" ? `실행 중 ${queueRows.filter((row) => RUNNING.has(taskStatusOf(row.order, row.task))).length} · 할당 대기 ${queueRows.filter((row) => taskStatusOf(row.order, row.task) === "ASSIGNED").length} · 미할당 ${queueRows.filter((row) => !row.task?.assigned_robot_id).length}` : `완료·실패·중단 ${historyRows.length}건`}</p></div><div className="fleet-mission-head-actions"><button type="button" className={`fleet-live-state${isError ? " is-error" : ""}`} onClick={() => void refetch()} title="작업 큐 즉시 새로고침"><i aria-hidden="true" />{isError ? "연결 오류 · 재시도" : isFetching ? "갱신 중" : `LIVE · ${updatedAt}`}</button><div className="fleet-dock-tabs" role="tablist" aria-label="하단 작업 보기"><button type="button" role="tab" aria-selected={tab === "queue"} className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>진행·예약</button><button type="button" role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>작업 기록</button></div></div></header>
+    <header className="fleet-mission-head"><div><h2>{tab === "queue" ? "실시간 작업 큐" : "작업 기록"}</h2><p>{tab === "queue" ? `활성 ${queueRows.length} · 복구 ${recoveryCount}` : `완료·실패·중단 ${historyRows.length}건`}</p></div><div className="fleet-mission-head-actions"><button type="button" className={`fleet-live-state${isError ? " is-error" : ""}`} onClick={() => void refetch()} title="작업 큐 즉시 새로고침"><i aria-hidden="true" />{isError ? "연결 오류 · 재시도" : isFetching ? "갱신 중" : `LIVE · ${updatedAt}`}</button><div className="fleet-dock-tabs" role="tablist" aria-label="하단 작업 보기"><button type="button" role="tab" aria-selected={tab === "queue"} className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>실시간 큐</button><button type="button" role="tab" aria-selected={tab === "history"} className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>작업 기록</button></div></div></header>
     <div className="fleet-mission-columns" aria-hidden="true"><span>작업</span><span>할당 로봇</span><span>진행 타임라인</span><span>작업 제어</span></div>
-    <div className="fleet-mission-rows">{rows.length === 0 ? <div className="empty">{tab === "queue" ? "진행·예약 작업이 없습니다." : "완료된 작업 기록이 없습니다."}</div> : rows.map(({ order, task }) => {
+    <div className="fleet-mission-rows">{rows.length === 0 ? <div className="empty">{tab === "queue" ? "표시할 작업이 없습니다." : "완료된 작업 기록이 없습니다."}</div> : rows.map(({ order, task }) => {
       const robotId = task?.assigned_robot_id ?? null, phase = phaseOf(order, task), taskStatus = taskStatusOf(order, task), running = phase === "RUNNING" || phase === "IN_PROGRESS" || phase === "RECOVERY_RUNNING", holding = HOLD.has(phase);
+      const terminal = !QUEUE.has(phase);
       const selected = Boolean(robotId && selectedRobotId === robotId), stopping = stopWorkOrder.isPending && stopWorkOrder.variables === order.order_id, cancelling = task ? cancelTask.isPending && cancelTask.variables === task.task_id : cancelWorkOrder.isPending && cancelWorkOrder.variables === order.order_id, canStop = tab === "queue" && STOPPABLE.has(taskStatus), canCancel = tab === "queue" && (task ? canCancelTask(task) : CANCELLABLE.has(taskStatus));
-      return <article data-operation={order.operation} data-history-status={phase} data-status-tone={statusTone(phase)} className={`fleet-mission-row${selected ? " selected" : ""}${running ? " is-running" : ""}${holding ? " is-hold" : ""}${tab === "history" ? " is-history" : ""}`} key={`${order.order_id}-${task?.task_id ?? "order"}`}>
+      return <article data-operation={order.operation} data-history-status={phase} data-status-tone={statusTone(phase)} className={`fleet-mission-row${selected ? " selected" : ""}${running ? " is-running" : ""}${holding ? " is-hold" : ""}${terminal ? " is-history" : ""}`} key={`${order.order_id}-${task?.task_id ?? "order"}`}>
         <div className="fleet-task-summary" title={"작업 #" + order.order_id + (task ? " · Task #" + task.task_id : "")}><Pill status={phase} /><strong>{running ? <span className="fleet-live-label"><i />LIVE</span> : null}{task ? "Task #" + task.task_id : "작업 #" + order.order_id}</strong><span className="operation-label"><OperationIcon operation={order.operation} />{order.operation === "inbound" ? "입고" : "출고"} · {order.item_name || order.item_code}{order.aruco_marker_id == null ? "" : ` · A${order.aruco_marker_id}`} · {task?.quantity ?? order.quantity}개</span>{Number(task?.priority ?? 0) > 0 ? <small>우선 {task?.priority}</small> : null}</div>
         {robotId ? <button type="button" className="fleet-assignee" onClick={() => onRobotSelect(robotId)}><strong>{robotNames.get(robotId) ?? robotId}</strong>{robotNames.get(robotId) && robotNames.get(robotId) !== robotId ? <span className="mono">{robotId}</span> : null}</button> : <div className="fleet-unassigned"><strong>미할당</strong><span>배정 대기</span></div>}
         <div className="fleet-task-progress">{task ? <MissionTimeline task={task} /> : <div className="fleet-idle-line"><span />작업 계획 대기</div>}</div>
-        {canCancel ? <button type="button" className="btn danger slim fleet-safe-stop" disabled={cancelling} title="실행 전 작업을 일반 취소합니다" onClick={() => cancel(order, task, robotId)}>{cancelling ? "취소 중…" : "대기 작업 취소"}</button> : <button type="button" className="btn danger slim fleet-safe-stop" disabled={!canStop || stopping} title={canStop ? "작업 #" + order.order_id + " 안전 중지" : "진행 중 작업만 안전 중지할 수 있습니다"} onClick={() => stop(order, robotId)}>{stopping ? "요청 중…" : tab === "history" ? "종료됨" : "작업 안전 중지"}</button>}
+        {RECOVERY.has(phase) ? <button type="button" className="btn secondary slim fleet-safe-stop" title="복구 확인 화면 열기" onClick={() => navigate("/operate/tasks")}>복구 열기</button> : canCancel ? <button type="button" className="btn danger slim fleet-safe-stop" disabled={cancelling} title="실행 전 작업을 일반 취소합니다" onClick={() => cancel(order, task, robotId)}>{cancelling ? "취소 중…" : "대기 작업 취소"}</button> : <button type="button" className="btn danger slim fleet-safe-stop" disabled={!canStop || stopping} title={canStop ? "작업 #" + order.order_id + " 안전 중지" : "진행 중 작업만 안전 중지할 수 있습니다"} onClick={() => stop(order, robotId)}>{stopping ? "요청 중…" : terminal ? "종료됨" : "작업 안전 중지"}</button>}
       </article>;
     })}</div>
   </section>;

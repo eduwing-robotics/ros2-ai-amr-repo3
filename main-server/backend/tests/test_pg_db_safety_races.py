@@ -294,6 +294,43 @@ class PgDbSafetyRaceTest(unittest.TestCase):
             ).fetchone()
             self.assertEqual(unclaimed["status"], "QUEUED")
 
+    def test_chained_claim_replaces_current_active_task_in_one_transaction(self) -> None:
+        with write_transaction() as conn:
+            tasks = MvpTaskRepository(conn)
+            current_task_id = tasks.create(
+                {"task_type": "MOVE", "status": "RUNNING", "robot_id": "tb3_1"}
+            )
+            next_task_id = tasks.create({"task_type": "MOVE", "status": "QUEUED"})
+            conn.execute("UPDATE robots SET status = 'RUNNING' WHERE id = %s", ("tb3_1",))
+
+            prepared = tasks.prepare_chained_assignment(current_task_id, next_task_id, "tb3_1")
+            self.assertIsNotNone(prepared)
+            tasks.set_status(current_task_id, "DONE")
+            conn.execute("UPDATE robots SET status = 'IDLE' WHERE id = %s", ("tb3_1",))
+            claimed = tasks.claim_chained_assignment(current_task_id, next_task_id, "tb3_1")
+            self.assertIsNotNone(claimed)
+
+        with transaction() as conn:
+            rows = conn.execute(
+                "SELECT id, status, robot_id FROM tasks WHERE id IN (%s, %s) ORDER BY id",
+                (current_task_id, next_task_id),
+            ).fetchall()
+            self.assertEqual(rows[0]["status"], "COMPLETED")
+            self.assertEqual(rows[1]["status"], "ASSIGNED")
+            self.assertEqual(rows[1]["robot_id"], "tb3_1")
+            active = conn.execute(
+                """
+                SELECT COUNT(*) AS count FROM tasks
+                WHERE robot_id = %s AND status IN ('CREATED', 'QUEUED', 'ASSIGNED', 'RUNNING')
+                """,
+                ("tb3_1",),
+            ).fetchone()
+            self.assertEqual(active["count"], 1)
+            self.assertEqual(
+                conn.execute("SELECT status FROM robots WHERE id = %s", ("tb3_1",)).fetchone()["status"],
+                "ASSIGNED",
+            )
+
     def _race_work_order(self, payload: dict[str, object]) -> list[object]:
         barrier = threading.Barrier(2)
         results: list[object] = []

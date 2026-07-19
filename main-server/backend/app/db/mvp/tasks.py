@@ -155,6 +155,136 @@ class MvpTaskRepository:
             raise RuntimeError("assignment task claim lost after robot claim")
         return self._map(claimed_task)
 
+    def prepare_chained_assignment(
+        self,
+        current_task_id: int,
+        next_task_id: int,
+        robot_id: str,
+    ) -> dict[str, Any] | None:
+        """Lock one possible hand-off without violating one-live-task-per-robot.
+
+        PostgreSQL's partial unique index rejects even a temporary second live
+        task for the same robot.  This first phase therefore only locks and
+        validates the current task, candidate task and robot.  The caller must
+        finish the current task and call ``claim_chained_assignment`` in the
+        same transaction.
+        """
+        resources = sorted(
+            (
+                f"task-assignment:robot:{robot_id}",
+                f"task-assignment:task:{current_task_id}",
+                f"task-assignment:task:{next_task_id}",
+            )
+        )
+        for resource in resources:
+            self.conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (resource,),
+            ).fetchone()
+
+        current = self.conn.execute(
+            "SELECT * FROM tasks WHERE id = %s FOR UPDATE",
+            (current_task_id,),
+        ).fetchone()
+        next_task = self.conn.execute(
+            "SELECT * FROM tasks WHERE id = %s FOR UPDATE",
+            (next_task_id,),
+        ).fetchone()
+        robot = self.conn.execute(
+            "SELECT * FROM robots WHERE id = %s FOR UPDATE",
+            (robot_id,),
+        ).fetchone()
+        if not current or not next_task or not robot:
+            return None
+        if (
+            current.get("robot_id") != robot_id
+            or current.get("status") != "RUNNING"
+            or next_task.get("status") not in {"CREATED", "QUEUED"}
+            or next_task.get("robot_id")
+            or robot.get("status") != "RUNNING"
+            or not robot.get("enabled", True)
+        ):
+            return None
+
+        return self._map(next_task)
+
+    def claim_chained_assignment(
+        self,
+        current_task_id: int,
+        next_task_id: int,
+        robot_id: str,
+    ) -> dict[str, Any] | None:
+        """Assign a prepared hand-off after the current task is terminal.
+
+        Reacquiring the same advisory locks is harmless in one transaction and
+        also makes this method fail closed if it is called without preparation.
+        The completed task no longer participates in ``uq_tasks_active_robot``,
+        so the next task can be assigned without weakening that invariant.
+        """
+        resources = sorted(
+            (
+                f"task-assignment:robot:{robot_id}",
+                f"task-assignment:task:{current_task_id}",
+                f"task-assignment:task:{next_task_id}",
+            )
+        )
+        for resource in resources:
+            self.conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (resource,),
+            ).fetchone()
+
+        current = self.conn.execute(
+            "SELECT * FROM tasks WHERE id = %s FOR UPDATE",
+            (current_task_id,),
+        ).fetchone()
+        next_task = self.conn.execute(
+            "SELECT * FROM tasks WHERE id = %s FOR UPDATE",
+            (next_task_id,),
+        ).fetchone()
+        robot = self.conn.execute(
+            "SELECT * FROM robots WHERE id = %s FOR UPDATE",
+            (robot_id,),
+        ).fetchone()
+        if not current or not next_task or not robot:
+            return None
+        if (
+            current.get("robot_id") != robot_id
+            or current.get("status") != "COMPLETED"
+            or next_task.get("status") not in {"CREATED", "QUEUED"}
+            or next_task.get("robot_id")
+            or robot.get("status") != "IDLE"
+            or not robot.get("enabled", True)
+        ):
+            return None
+
+        claimed_robot = self.conn.execute(
+            """
+            UPDATE robots
+            SET status = 'ASSIGNED', last_seen_at = now()
+            WHERE id = %s AND status = 'IDLE' AND enabled = TRUE
+            RETURNING id
+            """,
+            (robot_id,),
+        ).fetchone()
+        if not claimed_robot:
+            return None
+
+        claimed = self.conn.execute(
+            """
+            UPDATE tasks
+            SET status = 'ASSIGNED', robot_id = %s
+            WHERE id = %s
+              AND status IN ('CREATED', 'QUEUED')
+              AND robot_id IS NULL
+            RETURNING *
+            """,
+            (robot_id, next_task_id),
+        ).fetchone()
+        if not claimed:
+            raise RuntimeError("chained task claim lost after robot claim")
+        return self._map(claimed)
+
     def set_priority(self, task_id: int, priority: int) -> None:
         self.conn.execute(
             "UPDATE tasks SET priority = %s WHERE id = %s",

@@ -75,16 +75,20 @@ class InOutHomePrecisionTest(unittest.TestCase):
                     "x": 1.0,
                     "y": 2.0,
                     "yaw": 0.0,
-                    "human_hazard_monitor": False,
+                    "human_hazard_monitor": True,
                 }
             ],
         )
 
     def test_valid_park_ends_with_final_aruco_alignment(self) -> None:
         scenario = self._build(_locations())
+        park_approach = scenario["steps"][-2]
         final = scenario["steps"][-1]
+        self.assertEqual(park_approach["action_type"], "move")
+        self.assertTrue(park_approach["human_hazard_monitor"])
         self.assertEqual(final["action_type"], "aruco_align")
         self.assertEqual(final["params"], {"aruco_marker_id": 3, "final": "park"})
+        self.assertFalse(final["human_hazard_monitor"])
         self.assertFalse(any(step["name"].startswith("home:") for step in scenario["steps"]))
 
     def test_transit_route_requires_coordinates_and_scan_map_identity(self) -> None:

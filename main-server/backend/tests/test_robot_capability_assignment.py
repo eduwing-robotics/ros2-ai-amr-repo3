@@ -269,6 +269,95 @@ class RobotCapabilityAssignmentTest(unittest.TestCase):
         self.assertEqual(payload["required_capabilities"], ["charge", "navigate"])
         self.assertEqual(payload["observed_capabilities"], ["charge", "navigate"])
 
+    def test_chained_assignment_prepares_then_commits_first_compatible_task(self) -> None:
+        tasks = MagicMock()
+        tasks.return_value.list_assignable.return_value = [
+            _task(2, "INBOUND"),
+            _task(3, "MOVE"),
+        ]
+        events = MagicMock()
+        runtime = MagicMock()
+        current = {
+            "task_id": 1,
+            "task_type": "OUTBOUND",
+            "status": "RUNNING",
+            "assigned_robot_id": "tb3_2",
+        }
+        with (
+            patch.object(task_service, "task_repo", tasks),
+            patch.object(task_service, "event_repo", events),
+            patch.object(task_service, "evidence_runtime", runtime),
+            patch.object(task_service, "robot_assignment_block_reason", return_value=None),
+            patch.object(task_service, "observed_robot_capabilities", return_value={"navigate", "lift"}),
+        ):
+            claimed = task_service.reserve_next_task_for_robot(
+                MagicMock(),
+                current,
+                start_dock_location_id="OUTBOUND_01",
+            )
+            self.assertEqual(claimed["task_id"], 2)
+            tasks.return_value.assign.assert_not_called()
+            runtime.save_orchestration.assert_not_called()
+
+            finalized = task_service.commit_reserved_next_task(MagicMock(), current, claimed)
+
+        self.assertEqual(finalized["task_id"], 2)
+        tasks.return_value.assign.assert_called_once_with(2, "tb3_2", "ASSIGNED")
+        runtime.save_orchestration.assert_called_once()
+        chain_context = runtime.save_orchestration.call_args.args[2]["chain_context"]
+        self.assertEqual(chain_context["previous_task_id"], 1)
+        self.assertEqual(chain_context["start_dock_location_id"], "OUTBOUND_01")
+        self.assertFalse(any(call.args[0] == 3 for call in tasks.return_value.assign.call_args_list))
+
+    def test_chained_assignment_keeps_home_return_when_battery_or_health_blocks_robot(self) -> None:
+        tasks = MagicMock()
+        current = {
+            "task_id": 1,
+            "task_type": "INBOUND",
+            "status": "RUNNING",
+            "assigned_robot_id": "tb3_1",
+        }
+        with (
+            patch.object(task_service, "task_repo", tasks),
+            patch.object(task_service, "robot_assignment_block_reason", return_value="robot_battery_low"),
+        ):
+            claimed = task_service.reserve_next_task_for_robot(
+                MagicMock(),
+                current,
+                start_dock_location_id="STORAGE_S1",
+            )
+
+        self.assertIsNone(claimed)
+        tasks.return_value.list_assignable.assert_not_called()
+
+    def test_chained_assignment_skips_lift_task_for_nav_only_robot(self) -> None:
+        tasks = MagicMock()
+        tasks.return_value.list_assignable.return_value = [
+            _task(2, "OUTBOUND"),
+            _task(3, "MOVE"),
+        ]
+        current = {
+            "task_id": 1,
+            "task_type": "MOVE",
+            "status": "RUNNING",
+            "assigned_robot_id": "tb3_1",
+        }
+        with (
+            patch.object(task_service, "task_repo", tasks),
+            patch.object(task_service, "event_repo", MagicMock()),
+            patch.object(task_service, "evidence_runtime", MagicMock()),
+            patch.object(task_service, "robot_assignment_block_reason", return_value=None),
+            patch.object(task_service, "observed_robot_capabilities", return_value={"navigate"}),
+        ):
+            claimed = task_service.reserve_next_task_for_robot(
+                MagicMock(),
+                current,
+                start_dock_location_id="HOME_01",
+            )
+
+        self.assertEqual(claimed["task_id"], 3)
+        tasks.return_value.assign.assert_not_called()
+
     def test_fake_health_has_deterministic_capability_seam(self) -> None:
         movement_health.set_fake_robot_capabilities("tb3_2", ["navigate", "charge"])
         try:

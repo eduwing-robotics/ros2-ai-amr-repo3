@@ -84,7 +84,7 @@ def _move_step(
     *,
     name: str,
     command_sequence_no: int | None = None,
-    human_hazard_monitor: bool = False,
+    human_hazard_monitor: bool = True,
 ) -> dict[str, Any]:
     step = {
         "action_type": "move",
@@ -109,7 +109,7 @@ def _append_route_and_scan(
     *,
     scan_name: str,
     command_sequence_no: int | None = None,
-    human_hazard_monitor: bool = False,
+    human_hazard_monitor: bool = True,
 ) -> None:
     scan_id = str(scan.get("slot_id") or scan.get("location_id") or "")
     scan_map_id = scan.get("map_id")
@@ -187,7 +187,7 @@ def _append_dock_gate(
     move_sequence_no: int,
     dock_sequence_no: int,
     evidence_sequence_no: int,
-    human_hazard_monitor: bool = False,
+    human_hazard_monitor: bool = True,
 ) -> None:
     scan = _resolve_scan_for_dock(conn, dock_id)
     _require_location(conn, dock_id, label="dock")
@@ -247,15 +247,30 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
     task_type = str(task.get("task_type") or "").upper()
     floor = int(task.get("to_floor") or task.get("from_floor") or 1)
     home_id = field_bindings.home_location_for_robot(task.get("assigned_robot_id"))
+    preset = task.get("preset_snapshot") if isinstance(task.get("preset_snapshot"), dict) else {}
+    reserved = preset.get("_orchestration") if isinstance(preset.get("_orchestration"), dict) else {}
+    chain_context = reserved.get("chain_context") if isinstance(reserved.get("chain_context"), dict) else {}
+    start_dock_id = str(chain_context.get("start_dock_location_id") or home_id)
     steps: list[dict[str, Any]] = []
 
-    # 항상 출차(후진)로 시작한다. 로봇별 대기 마커를 함께 보내면 Nav가
-    # stale process state보다 fresh physical marker evidence를 우선할 수 있다.
-    _, home_scan = field_bindings.scan_binding_for(home_id)
+    # 항상 현재 도크에서 출차(후진)로 시작한다. 일반 작업은 로봇별 HOME,
+    # 연속 작업은 직전 작업의 하역 도크가 시작점이다. 정확한 마커·pose를
+    # 보내 Nav가 stale process state보다 fresh physical evidence를 우선한다.
+    start_binding = field_bindings.binding_for(start_dock_id)
+    _, start_scan = field_bindings.scan_binding_for(start_dock_id)
+    start_pose = start_binding["pose"]
     steps.append({
         "action_type": "leave_dock",
         "name": "leave_dock",
-        "params": {"aruco_marker_id": int(home_scan["marker_id"])},
+        "params": {
+            "aruco_marker_id": int(start_scan["marker_id"]),
+            "parking_pose": {
+                "map_id": str(start_binding["map_id"]),
+                "x": float(start_pose["x"]),
+                "y": float(start_pose["y"]),
+                "yaw": float(start_pose["yaw"]),
+            },
+        },
         "human_hazard_monitor": False,
     })
 
@@ -264,7 +279,7 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
         storage_id = task.get("to_location_id")
         if not inbound_id or not storage_id:
             raise HTTPException(status_code=409, detail="inbound task missing from/to locations")
-        map_id = field_bindings.map_for_locations([str(inbound_id), str(storage_id), home_id])
+        map_id = field_bindings.map_for_locations([str(inbound_id), str(storage_id), home_id, start_dock_id])
         _append_dock_gate(
             conn,
             steps,
@@ -291,7 +306,7 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
         outbound_id = task.get("to_location_id")
         if not storage_id or not outbound_id:
             raise HTTPException(status_code=409, detail="outbound task missing from/to locations")
-        map_id = field_bindings.map_for_locations([str(storage_id), str(outbound_id), home_id])
+        map_id = field_bindings.map_for_locations([str(storage_id), str(outbound_id), home_id, start_dock_id])
         _append_dock_gate(
             conn,
             steps,
@@ -322,7 +337,7 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
     # silently degrading a cargo-return task to an imprecise plain move.
     _append_aruco_align_gate(conn, steps, home_id, label="park", move_sequence_no=7)
 
-    return {"map_id": map_id, "steps": steps}
+    return {"map_id": map_id, "steps": steps, "start_location_id": start_dock_id}
 
 
 def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
@@ -371,7 +386,7 @@ def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
                 "x": float(loc["x"]),
                 "y": float(loc["y"]),
                 "yaw": float(loc.get("yaw") or 0.0),
-                "human_hazard_monitor": False,
+                "human_hazard_monitor": True,
             })
     if not steps and task.get("to_location_id"):
         loc = location_repo(conn).get(task["to_location_id"])
@@ -381,7 +396,7 @@ def build_scenario_from_task(conn, task: dict[str, Any]) -> dict[str, Any]:
                 "name": task["to_location_id"],
                 "x": float(loc.get("x") or 0),
                 "y": float(loc.get("y") or 0),
-                "human_hazard_monitor": False,
+                "human_hazard_monitor": True,
             })
     return {"map_id": map_id, "steps": steps}
 

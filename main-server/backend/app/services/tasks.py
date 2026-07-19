@@ -360,6 +360,121 @@ def auto_assign(conn, source: str = "auto") -> dict[str, Any]:
     }
 
 
+def reserve_next_task_for_robot(
+    conn,
+    current_task: dict[str, Any],
+    *,
+    start_dock_location_id: str,
+    source: str = "orchestrator_chain",
+) -> dict[str, Any] | None:
+    """Lock the best compatible queued task for a finishing robot.
+
+    A low-battery, unlocalized, non-accepting or capability-mismatched robot
+    keeps the normal return-home path.  PostgreSQL keeps the candidate locked
+    until the caller completes the current task and finalizes the hand-off.
+    """
+    robot_id = str(current_task.get("assigned_robot_id") or current_task.get("robot_id") or "")
+    if not robot_id or robot_assignment_block_reason(robot_id) is not None:
+        return None
+    observed = observed_robot_capabilities(robot_id)
+    if observed is None:
+        return None
+
+    tasks = task_repo(conn)
+    current_task_id = int(current_task["task_id"])
+    for candidate in tasks.list_assignable():
+        if int(candidate["task_id"]) == current_task_id:
+            continue
+        if not required_capabilities_for_task(candidate) <= observed:
+            continue
+        if getattr(conn, "is_postgres", False) is True:
+            prepared = tasks.prepare_chained_assignment(
+                current_task_id,
+                int(candidate["task_id"]),
+                robot_id,
+            )
+            if not prepared:
+                continue
+        return {
+            **candidate,
+            "chain_context": {
+                "previous_task_id": current_task_id,
+                "start_dock_location_id": str(start_dock_location_id),
+                "robot_id": robot_id,
+                "source": source,
+                "required_capabilities": _capability_payload(required_capabilities_for_task(candidate)),
+                "observed_capabilities": _capability_payload(observed),
+            },
+        }
+    return None
+
+
+def commit_reserved_next_task(
+    conn,
+    current_task: dict[str, Any],
+    prepared_task: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Complete a locked task hand-off after the current task is terminal."""
+    context = prepared_task.get("chain_context") if isinstance(prepared_task.get("chain_context"), dict) else {}
+    robot_id = str(context.get("robot_id") or current_task.get("assigned_robot_id") or "")
+    current_task_id = int(current_task["task_id"])
+    next_task_id = int(prepared_task["task_id"])
+    if not robot_id:
+        return None
+
+    tasks = task_repo(conn)
+    if getattr(conn, "is_postgres", False) is True:
+        claimed = tasks.claim_chained_assignment(current_task_id, next_task_id, robot_id)
+        if not claimed:
+            return None
+    else:
+        tasks.assign(next_task_id, robot_id, ASSIGNED_STATUS)
+        robot_repo(conn).set_task(robot_id, ASSIGNED_STATUS, next_task_id)
+        claimed = {
+            **prepared_task,
+            "status": ASSIGNED_STATUS,
+            "assigned_robot_id": robot_id,
+            "robot_id": robot_id,
+        }
+
+    source = str(context.get("source") or "orchestrator_chain")
+    start_dock_location_id = str(context.get("start_dock_location_id") or "")
+    tasks.add_history(
+        next_task_id,
+        str(prepared_task.get("status") or "QUEUED"),
+        ASSIGNED_STATUS,
+        f"chained after task {current_task_id} on {robot_id}",
+        source,
+    )
+    evidence_runtime.save_orchestration(
+        conn,
+        next_task_id,
+        {
+            "phase": ASSIGNED_STATUS,
+            "chain_context": {
+                "previous_task_id": current_task_id,
+                "start_dock_location_id": start_dock_location_id,
+                "robot_id": robot_id,
+            },
+        },
+    )
+    event_repo(conn).append(
+        event_type="TASK_CHAIN_RESERVED",
+        task_id=next_task_id,
+        robot_id=robot_id,
+        message=f"task {next_task_id} chained after task {current_task_id}",
+        payload={
+            "task_id": next_task_id,
+            "previous_task_id": current_task_id,
+            "robot_id": robot_id,
+            "start_dock_location_id": start_dock_location_id,
+            "required_capabilities": context.get("required_capabilities"),
+            "observed_capabilities": context.get("observed_capabilities"),
+        },
+    )
+    return claimed
+
+
 def _apply_assignment(
     conn,
     task: dict[str, Any],
@@ -382,6 +497,7 @@ def _apply_assignment(
     observed_capabilities = observed_robot_capabilities(robot_id)
     event_repo(conn).append(
         event_type="TASK_ASSIGNED",
+        task_id=task_id,
         robot_id=robot_id,
         message=f"task {task_id} assigned to {robot_id} ({source})",
         payload={

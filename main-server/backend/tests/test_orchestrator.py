@@ -257,6 +257,71 @@ class OrchestratorDuplicateTransitionTest(unittest.TestCase):
             self.assertIsNone(orchestrator.advance_on_command_event(MagicMock(), 77, {"command_id": "other", "state": "ARRIVED"}))
         self.assertEqual(harness.state["preset_snapshot"]["_orchestration"]["step_index"], 0)
 
+    def test_unload_completion_chains_compatible_task_and_skips_home_steps(self) -> None:
+        harness = _ConcurrentOrchestrationHarness()
+        with harness.state_lock:
+            harness.state.update({
+                "task_type": "INBOUND",
+                "to_location_id": "STORAGE_S1",
+            })
+            orchestration = harness.state["preset_snapshot"]["_orchestration"]
+            orchestration["provenance"] = {"execution_mode": "physical"}
+            orchestration["steps"] = [
+                {
+                    "seq": 1,
+                    "kind": "dock_transfer",
+                    "status": "dispatched",
+                    "command_id": "unload-command",
+                    "params": {"action": "unload"},
+                },
+                {"seq": 2, "kind": "move_to_point", "status": "pending", "command_id": None, "params": {}},
+                {"seq": 3, "kind": "aruco_align", "status": "pending", "command_id": None, "params": {}},
+            ]
+            orchestration["legs"] = orchestration["steps"]
+
+        completed = {"task_id": 77, "status": "DONE"}
+        conn = MagicMock()
+        with (
+            patch.object(orchestrator, "task_repo") as tasks,
+            patch.object(orchestrator, "robot_repo"),
+            patch.object(orchestrator, "evidence_repo", return_value=harness.repo),
+            patch.object(orchestrator, "event_repo"),
+            patch.object(orchestrator, "evidence_runtime") as runtime,
+            patch.object(orchestrator, "person_hazard"),
+            patch.object(
+                orchestrator.task_service,
+                "reserve_next_task_for_robot",
+                return_value={"task_id": 88, "status": "ASSIGNED", "assigned_robot_id": "robot-a"},
+            ) as reserve,
+            patch.object(orchestrator.task_service, "complete_task", return_value=completed),
+            patch.object(
+                orchestrator.task_service,
+                "commit_reserved_next_task",
+                return_value={"task_id": 88, "status": "ASSIGNED", "assigned_robot_id": "robot-a"},
+            ) as commit_reserved,
+            patch.object(orchestrator, "start_task_orchestration") as start_next,
+        ):
+            tasks.return_value.get.side_effect = harness.get_task
+            runtime.attach_orchestration.side_effect = lambda row, _conn: row
+            runtime.save_orchestration.side_effect = harness.save
+            runtime.resolve_command_def_id.return_value = None
+
+            result = orchestrator.advance_on_command_event(
+                conn,
+                77,
+                {"command_id": "unload-command", "state": "DONE"},
+            )
+
+        self.assertEqual(result, completed)
+        reserve.assert_called_once()
+        self.assertEqual(reserve.call_args.kwargs["start_dock_location_id"], "STORAGE_S1")
+        commit_reserved.assert_called_once()
+        start_next.assert_called_once_with(conn, 88, source="task_chain")
+        final = harness.state["preset_snapshot"]["_orchestration"]
+        self.assertEqual(final["return_status"], "CHAINED")
+        self.assertEqual(final["chained_next_task_id"], 88)
+        self.assertEqual(len(final["steps"]), 1)
+
 class OrchestratorDispatchRetryTest(unittest.TestCase):
     def test_retry_generation_changes_command_id_but_remains_deterministic(self) -> None:
         step = {

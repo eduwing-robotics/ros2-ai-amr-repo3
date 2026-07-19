@@ -1,5 +1,7 @@
+from unittest.mock import MagicMock
+
 from app.models.work_orders import WorkOrderTask
-from app.services.work_orders_pg import _task_progress
+from app.services.work_orders_pg import _assigned_robot_id, _task_progress
 
 
 def test_work_order_progress_projects_callback_tracked_steps() -> None:
@@ -25,7 +27,7 @@ def test_work_order_progress_projects_callback_tracked_steps() -> None:
                 "evidence_count": 2,
                 "runtime_command_id": "cmd-load",
                 "target": "inbound_scan",
-                "human_hazard_monitor": False,
+                "human_hazard_monitor": True,
             },
             {
                 "command_id": 32,
@@ -54,6 +56,28 @@ def test_work_order_progress_projects_callback_tracked_steps() -> None:
     assert task.progress.steps[1].command_id == "cmd-load"
     assert task.progress.recipe_steps[1].target_system == "vision"
     assert task.progress.recipe_steps[1].command_def_id == 32
+    assert task.progress.recipe_steps[0].human_hazard_monitor is True
+
+
+def test_terminal_work_order_recovers_last_assigned_robot_from_runtime_evidence() -> None:
+    conn = MagicMock()
+    conn.execute.return_value.fetchone.return_value = {"robot_id": "tb3_2"}
+
+    robot_id = _assigned_robot_id(conn, {"task_id": 142, "assigned_robot_id": None})
+
+    assert robot_id == "tb3_2"
+    sql, params = conn.execute.call_args.args
+    assert "evidence_events" in sql
+    assert params == (142, "142")
+
+
+def test_live_assignment_wins_without_history_query() -> None:
+    conn = MagicMock()
+
+    robot_id = _assigned_robot_id(conn, {"task_id": 143, "assigned_robot_id": "tb3_1"})
+
+    assert robot_id == "tb3_1"
+    conn.execute.assert_not_called()
 
 
 def test_work_order_progress_is_absent_without_runtime_or_recipe() -> None:

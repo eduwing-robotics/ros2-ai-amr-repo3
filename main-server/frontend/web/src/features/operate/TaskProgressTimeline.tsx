@@ -33,6 +33,7 @@ function phaseLabel(phase: string): string {
 function stepLabel(step: WorkOrderTaskProgressStep): string {
   const kind = step.kind.toLowerCase();
   const transfer = String(step.transfer_action ?? "").toLowerCase();
+  const monitored = step.human_hazard_monitor ? " · 사람 감시" : "";
   if (kind === "verify_post_pick_up") return "AI 적재 확인";
   if (kind === "verify_pre_drop_off") return "AI 하역 전 확인";
   if (kind === "leave_dock") return "대기 위치 이탈";
@@ -41,11 +42,12 @@ function stepLabel(step: WorkOrderTaskProgressStep): string {
   if (kind === "move_to_point" && transfer === "load") return "적재 위치 접근·적재";
   if (kind === "move_to_point" && transfer === "unload") return "하역 위치 접근·하역";
   if (kind === "aruco_align") return "대기 위치 주차";
-  if (kind === "move_to_point" && step.human_hazard_monitor) return "화물 운송 · 사람 감시";
-  if (kind === "move_to_point" && step.target === "inbound_scan") return "입고 위치 이동";
-  if (kind === "move_to_point" && step.target === "storage_scan") return "보관 위치 이동";
-  if (kind === "move_to_point" && step.target === "outbound_scan") return "출고 위치 이동";
-  if (kind === "move_to_point") return "대기 위치 복귀";
+  if (kind === "move_to_point" && step.target === "inbound_scan") return `입고 위치 이동${monitored}`;
+  if (kind === "move_to_point" && step.target === "storage_scan") return `보관 위치 이동${monitored}`;
+  if (kind === "move_to_point" && step.target === "outbound_scan") return `출고 위치 이동${monitored}`;
+  if (kind === "move_to_point" && step.target === "home") return `대기 위치 복귀${monitored}`;
+  if (kind === "move_to_point" && step.target === "charge") return `충전 위치 이동${monitored}`;
+  if (kind === "move_to_point") return `화물 운송${monitored}`;
   return step.label || step.kind;
 }
 

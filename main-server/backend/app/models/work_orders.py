@@ -23,7 +23,7 @@ class WorkOrderTask(BaseModel):
     selection_reason: str | None = None
     available_qty_at_plan: int | None = None
     business_completed: bool = False
-    return_status: str | None = None
+    return_status: Literal["RETURNING_HOME", "PARKING", "PARKED", "PARK_FAILED", "CHAINED"] | None = None
     parking_error: dict[str, Any] | None = None
     progress: "WorkOrderTaskProgress | None" = None
 
@@ -74,7 +74,7 @@ class WorkOrder(BaseModel):
     tasks: list[WorkOrderTask] = Field(default_factory=list)
     mission_results: list[dict[str, Any]] = Field(default_factory=list)
     business_completed: bool = False
-    return_status: str | None = None
+    return_status: Literal["RETURNING_HOME", "PARKING", "PARKED", "PARK_FAILED", "CHAINED"] | None = None
     parking_error: dict[str, Any] | None = None
     execution_mode: Literal["physical", "synthetic_hil"] = "physical"
 
