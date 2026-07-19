@@ -192,7 +192,14 @@ def movement_reason(health: dict, pose_payload: dict | None = None) -> tuple[str
     except (TypeError, ValueError):
         return "localization_lost", "set_initial_pose"
     if pose_age > settings.pose_source_lost_sec:
-        return "localization_lost", "set_initial_pose"
+        movement_confirms_ready = (
+            pose_payload.get("initial_pose_required") is False
+            and localized is True
+            and health.get("nav2_ready") is True
+            and health.get("command_accepting") is True
+        )
+        if not movement_confirms_ready:
+            return "localization_lost", "set_initial_pose"
     if health.get("nav2_ready") is not True:
         return "nav2_not_ready", "check_nav_state"
     if health.get("command_accepting") is not True:
@@ -298,6 +305,7 @@ def localization_snapshot(robot_id: str) -> dict:
         "command_accepting": health.get("command_accepting"),
         "localized": bool(localization.get("localized", health.get("localized", False))),
         "localization_required": health.get("localization_required", True),
+        "initial_pose_required": localization.get("initial_pose_required"),
         "pose": pose,
         "pose_state": pose_state(pose),
         "reason": localization.get("reason") if localization.get("reason") not in {None, "unknown"} else reason,

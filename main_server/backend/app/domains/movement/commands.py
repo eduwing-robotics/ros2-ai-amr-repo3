@@ -9,9 +9,15 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from app.api.helpers import callback_base_url
+from app.core.health_cache import clear_cache
 from app.db.postgres import operational_events, robots
 from app.domains.movement import command_status, scenario_adapter
-from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
+from app.domains.movement.client import (
+    MovementClientError,
+    movement_client,
+    movement_robot_key,
+    set_robot_emergency,
+)
 from app.domains.movement.navigation import resolve_movement_map_id
 from app.domains.movement.teleop import execute_teleop
 from app.models.robot_commands import RobotCommandRequest, RobotCommandResponse
@@ -52,7 +58,7 @@ def dispatch_robot_command(conn, payload: RobotCommandRequest, request: Request 
     if payload.kind == "manual_drive":
         return _dispatch_manual_drive(payload, command_id)
     if payload.kind == "estop":
-        return _dispatch_estop(payload, command_id)
+        return _dispatch_estop(conn, payload, command_id)
     if payload.kind == "dock_transfer":
         return _dispatch_dock_transfer(payload, command_id, callback_url)
     if payload.kind == "aruco_align":
@@ -161,14 +167,34 @@ def _dispatch_manual_drive(payload: RobotCommandRequest, command_id: str) -> Rob
     )
 
 
-def _dispatch_estop(payload: RobotCommandRequest, command_id: str) -> RobotCommandResponse:
+def _dispatch_estop(conn, payload: RobotCommandRequest, command_id: str) -> RobotCommandResponse:
     op = str(payload.params.get("op", "stop"))
+    if op not in {"stop", "clear"}:
+        raise HTTPException(status_code=400, detail="estop.params.op must be stop or clear")
+    clearing = op == "clear"
+    operational_events.append(
+        conn,
+        event_type="ROBOT_CLEAR_ESTOP_REQUESTED" if clearing else "ROBOT_ESTOP_REQUESTED",
+        robot_id=payload.robot_id,
+        command_id=command_id,
+        message=f"{op} estop requested: {payload.robot_id}",
+    )
     try:
         response = (
-            movement_client.clear_estop(payload.robot_id) if op == "clear" else movement_client.estop(payload.robot_id)
+            movement_client.clear_estop(payload.robot_id) if clearing else movement_client.estop(payload.robot_id)
         )
     except MovementClientError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    set_robot_emergency(payload.robot_id, not clearing)
+    clear_cache()
+    operational_events.append(
+        conn,
+        event_type="ROBOT_CLEAR_ESTOP_CONFIRMED" if clearing else "ROBOT_ESTOP_CONFIRMED",
+        robot_id=payload.robot_id,
+        command_id=command_id,
+        message=f"{op} estop confirmed: {payload.robot_id}",
+        payload=response,
+    )
     return RobotCommandResponse(
         command_id=command_id,
         robot_id=payload.robot_id,
@@ -258,9 +284,7 @@ def _map_movement_client_error(exc: MovementClientError, *, kind: str) -> HTTPEx
     code = exc.status_code
     if code == 409:
         return HTTPException(status_code=409, detail=detail)
-    if kind in {"dock_transfer", "aruco_align"} and (
-        code == 404 or "404" in detail_text or "Not Found" in detail_text
-    ):
+    if kind in {"dock_transfer", "aruco_align"} and (code == 404 or "404" in detail_text or "Not Found" in detail_text):
         return HTTPException(
             status_code=501,
             detail=(
@@ -391,7 +415,8 @@ def _dispatch_inout_scenario(
     if not recovered and not str(response.get("execution_id") or ""):
         mismatches.append("execution_id")
     if (not recovered and state != "ACCEPTED") or (
-        recovered and state not in {"ACCEPTED", "RUNNING", "STOP_REQUESTED", "DONE", "FAILED", "ABORTED", "STOPPED", "CANCELLED"}
+        recovered
+        and state not in {"ACCEPTED", "RUNNING", "STOP_REQUESTED", "DONE", "FAILED", "ABORTED", "STOPPED", "CANCELLED"}
     ):
         mismatches.append("state")
     owner = str(response.get("authority_owner") or "").upper()

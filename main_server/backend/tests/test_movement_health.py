@@ -14,6 +14,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.domains.movement.health import health_urls_for, http_health
+from app.domains.movement.navigation import movement_reason
 
 BASE = "http://nav.local:8001/movement-api/v1"
 

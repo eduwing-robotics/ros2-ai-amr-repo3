@@ -70,7 +70,10 @@ class RobotCommandServiceTest(unittest.TestCase):
                 "lift_timeout_sec": 30,
             },
         )
-        with patch("app.domains.movement.commands.movement_client.robot_command", return_value={"accepted": True, "command_id": "cmd-dock-opt-exec"}) as robot_command:
+        with patch(
+            "app.domains.movement.commands.movement_client.robot_command",
+            return_value={"accepted": True, "command_id": "cmd-dock-opt-exec"},
+        ) as robot_command:
             commands._dispatch_dock_transfer(payload, "cmd-dock-opt-exec", "")
         sent = robot_command.call_args.args[1]
         self.assertEqual(sent["params"]["lift_height_mm"], 50.0)
@@ -107,7 +110,10 @@ class RobotCommandServiceTest(unittest.TestCase):
             dry_run=False,
             params={"aruco_marker_id": 2, "action": "load", "level": 2},
         )
-        with patch("app.domains.movement.commands.movement_client.robot_command", return_value={"accepted": True, "command_id": "cmd-dock-level"}) as robot_command:
+        with patch(
+            "app.domains.movement.commands.movement_client.robot_command",
+            return_value={"accepted": True, "command_id": "cmd-dock-level"},
+        ) as robot_command:
             commands._dispatch_dock_transfer(payload, "cmd-dock-level", "")
         sent = robot_command.call_args.args[1]
         self.assertEqual(sent["params"]["level"], 2)
@@ -119,7 +125,10 @@ class RobotCommandServiceTest(unittest.TestCase):
             dry_run=False,
             params={"aruco_marker_id": 7, "action": "unload"},
         )
-        with patch("app.domains.movement.commands.movement_client.robot_command", return_value={"accepted": True, "command_id": "cmd-dock-2"}):
+        with patch(
+            "app.domains.movement.commands.movement_client.robot_command",
+            return_value={"accepted": True, "command_id": "cmd-dock-2"},
+        ):
             result = commands._dispatch_dock_transfer(payload, "cmd-dock-2", "")
         self.assertTrue(result.accepted)
 
@@ -176,7 +185,9 @@ class RobotCommandServiceTest(unittest.TestCase):
             dry_run=False,
             params={"aruco_marker_id": 3},
         )
-        with patch("app.domains.movement.commands.movement_client.robot_command", return_value={"accepted": True}) as robot_command:
+        with patch(
+            "app.domains.movement.commands.movement_client.robot_command", return_value={"accepted": True}
+        ) as robot_command:
             commands._dispatch_aruco_align(payload, "cmd-align-2", "")
         sent = robot_command.call_args.args[1]
         self.assertEqual(sent["robot_id"], "tb3_1")
@@ -207,7 +218,10 @@ class RobotCommandServiceTest(unittest.TestCase):
             dry_run=False,
             params={"aruco_marker_id": 3},
         )
-        with patch("app.domains.movement.commands.movement_client.robot_command", return_value={"accepted": True, "command_id": "cmd-align-2"}):
+        with patch(
+            "app.domains.movement.commands.movement_client.robot_command",
+            return_value={"accepted": True, "command_id": "cmd-align-2"},
+        ):
             result = commands._dispatch_aruco_align(payload, "cmd-align-2", "")
         self.assertTrue(result.accepted)
 
@@ -227,8 +241,25 @@ class RobotCommandServiceTest(unittest.TestCase):
             side_effect=commands.MovementClientError("movement unreachable"),
         ):
             with self.assertRaises(HTTPException) as ctx:
-                commands._dispatch_estop(payload, "cmd-estop-1")
+                commands._dispatch_estop(MagicMock(), payload, "cmd-estop-1")
         self.assertEqual(ctx.exception.status_code, 502)
+
+    def test_clear_estop_updates_main_latch_and_audit_lifecycle(self) -> None:
+        conn = MagicMock()
+        payload = RobotCommandRequest(robot_id="robot-a", kind="estop", params={"op": "clear"})
+        with (
+            patch.object(commands.movement_client, "clear_estop", return_value={"cleared": True}),
+            patch.object(commands, "set_robot_emergency") as set_emergency,
+            patch.object(commands, "clear_cache") as clear_health_cache,
+            patch.object(commands.operational_events, "append") as append,
+        ):
+            result = commands._dispatch_estop(conn, payload, "cmd-clear-1")
+
+        self.assertTrue(result.accepted)
+        set_emergency.assert_called_once_with("robot-a", False)
+        clear_health_cache.assert_called_once_with()
+        self.assertEqual(append.call_args_list[0].kwargs["event_type"], "ROBOT_CLEAR_ESTOP_REQUESTED")
+        self.assertEqual(append.call_args_list[1].kwargs["event_type"], "ROBOT_CLEAR_ESTOP_CONFIRMED")
 
     def test_manual_drive_dry_run_validates_without_movement(self) -> None:
         payload = RobotCommandRequest(
