@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query, Request, status
 
 from app.api.helpers import callback_base_url
 from app.db.connection import transaction, write_transaction
-from app.domains.work_orders import service
+from app.domains.work_orders import service, workflow
 from app.models.work_orders import (
     WorkOrder,
     WorkOrderCreate,
@@ -69,7 +69,7 @@ def create_work_order(payload: WorkOrderCreate, request: Request) -> WorkOrder:
     resolved_callback = callback_base_url(request, payload.callback_base_url)
     with write_transaction() as conn:
         return WorkOrder(
-            **service.create_work_order(
+            **workflow.create_work_order(
                 conn,
                 payload.model_dump(),
                 callback_base_url=resolved_callback,

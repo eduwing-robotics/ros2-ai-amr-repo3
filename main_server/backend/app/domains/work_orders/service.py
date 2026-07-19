@@ -9,8 +9,6 @@ from fastapi import HTTPException
 
 from app.db.postgres import (
     DEFAULT_FLOOR,
-    items,
-    locations,
     operational_events,
 )
 from app.db.postgres import (
@@ -25,85 +23,20 @@ from app.domains.work_orders.planner import (
     MAX_WORK_ORDER_QUANTITY as MAX_WORK_ORDER_QUANTITY,
 )
 from app.domains.work_orders.planner import (
-    plan_work_order,
-    validated_quantity,
-)
-from app.domains.work_orders.planner import (
     preview_work_order as preview_work_order,
 )
 from app.models.work_orders import WorkOrderOperation
 
 
 def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | None = None) -> dict[str, Any]:
-    """task를 영속화하고 선택적으로 시작하며 생성 성공과 시작 실패를 분리한다."""
-    item_code = payload["item_code"]
-    operation = payload["operation"]
-    quantity = validated_quantity(int(payload["quantity"]))
-    auto_start = bool(payload.get("auto_start", False))
+    """기존 내부 호출 계약을 유지하며 생성 순서는 Work Order workflow가 소유한다."""
+    from app.domains.work_orders.workflow import create_work_order as run_workflow
 
-    if not items.exists(conn, item_code):
-        raise HTTPException(status_code=404, detail="item not found")
-
-    plan = plan_work_order(conn, payload)
-    planned_entries = plan["_planned_entries"]
-
-    batch_id = None
-    task_ids: list[int] = []
-    for entry in planned_entries:
-        slot = entry["slot"]
-        floor = int(entry["plan_summary"].get("floor") or DEFAULT_FLOOR)
-        task_id = _create_work_order_task(
-            conn,
-            operation,
-            item_code,
-            slot,
-            floor,
-            entry["plan_summary"],
-            payload,
-        )
-        task_ids.append(task_id)
-        batch_id = batch_id or task_id
-
-    operational_events.append(
-        conn,
-        event_type="WORK_ORDER_CREATED",
-        message=f"work order batch {batch_id} created ({operation} {item_code} x{quantity})",
-        payload={"order_id": batch_id, "task_ids": task_ids, **payload},
-    )
-
-    robot_id = payload.get("robot_id")
-    if robot_id:
-        for task_id in task_ids:
-            tasks.assign_work_order_robot(conn, task_id, str(robot_id))
-    elif auto_start:
-        tasks.auto_assign(conn, source="work_order")
-
-    execution_results: list[dict[str, Any]] = []
-    start_failed: list[dict[str, Any]] = []
-    if auto_start:
-        for task_id in task_ids:
-            task = postgres_tasks.get_task(conn, task_id)
-            if task and task.get("status") == tasks.ASSIGNED_STATUS:
-                try:
-                    execution_results.append(
-                        tasks.start_task_execution(
-                            conn,
-                            task_id,
-                            callback_base_url=callback_base_url,
-                            source="work_order",
-                        )
-                    )
-                except HTTPException as exc:
-                    start_failed.append({"task_id": task_id, "detail": exc.detail})
-
-    order = _response(conn, batch_id or task_ids[0], execution_results=execution_results or None)
-    if start_failed:
-        order["start_failed"] = start_failed
-    return order
+    return run_workflow(conn, payload, callback_base_url=callback_base_url)
 
 
 def get_work_order(conn, order_id: int) -> dict[str, Any]:
-    return _response(conn, order_id)
+    return assemble_work_order_response(conn, order_id)
 
 
 def cancel_work_order(conn, order_id: int) -> dict[str, Any]:
@@ -117,7 +50,7 @@ def cancel_work_order(conn, order_id: int) -> dict[str, Any]:
     if status not in {"CREATED", "QUEUED", "ASSIGNED"}:
         raise HTTPException(status_code=409, detail=f"work_order_not_cancellable(status={status})")
     tasks.cancel_task(conn, order_id, source="work_order")
-    return _response(conn, order_id)
+    return assemble_work_order_response(conn, order_id)
 
 
 def stop_work_order(conn, order_id: int) -> dict[str, Any]:
@@ -144,7 +77,7 @@ def set_work_order_priority(conn, order_id: int, priority: int) -> dict[str, Any
         message=f"work order {order_id} priority set to {priority}",
         payload={"order_id": order_id, "priority": priority},
     )
-    return _response(conn, order_id)
+    return assemble_work_order_response(conn, order_id)
 
 
 def list_work_orders(conn, limit: int = 50, status: str | None = None) -> list[dict[str, Any]]:
@@ -157,7 +90,7 @@ def list_work_orders(conn, limit: int = 50, status: str | None = None) -> list[d
         if oid in seen:
             continue
         seen.add(oid)
-        order = _response(conn, oid)
+        order = assemble_work_order_response(conn, oid)
         if status and order.get("status") != status:
             continue
         orders.append(order)
@@ -220,7 +153,9 @@ def _active_command_id(conn, task_id: int) -> str | None:
     return None
 
 
-def _response(conn, order_id: int, execution_results: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def assemble_work_order_response(
+    conn, order_id: int, execution_results: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     task = postgres_tasks.get_task(conn, order_id)
     if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
         raise HTTPException(status_code=404, detail="work order not found")
@@ -271,51 +206,3 @@ def _map_order_status(task_status: str) -> str:
     if s in {"CREATED", "QUEUED"}:
         return "QUEUED"
     return s
-
-
-def _create_work_order_task(
-    conn,
-    operation: str,
-    item_code: str,
-    slot: dict[str, Any],
-    floor: int,
-    plan_summary: dict[str, Any],
-    payload: dict[str, Any] | None = None,
-) -> int:
-    payload = payload or {}
-    inbound = locations.get_inbound(conn, payload.get("inbound_waypoint_id"))
-    outbound = locations.get_outbound(conn, payload.get("outbound_waypoint_id"))
-    task_qty = validated_quantity(int(payload.get("quantity") or 1))
-    task_type = operation.upper()
-    if task_type == "INBOUND":
-        from_location_id, to_location_id = inbound["slot_id"], slot["slot_id"]
-    else:
-        from_location_id, to_location_id = slot["slot_id"], outbound["slot_id"]
-    data = {
-        "task_type": task_type,
-        "status": "QUEUED",
-        "item_id": item_code,
-        "quantity": task_qty,
-        "from_location_id": from_location_id,
-        "from_floor": floor,
-        "to_location_id": to_location_id,
-        "to_floor": floor,
-        # priority: 높을수록 먼저 배정(list_assignable이 priority DESC 정렬). 미지정 시 0(보통).
-        "priority": int(payload.get("priority") or 0),
-    }
-    task_id = postgres_tasks.create_task_record(conn, data)
-    operational_events.append(
-        conn,
-        event_type="WORK_ORDER_TASK_CREATED",
-        message=f"task {task_id} created ({operation})",
-        payload={
-            "order_id": task_id,
-            "task_id": task_id,
-            "operation": operation,
-            "item_code": item_code,
-            "slot_id": slot["slot_id"],
-            "floor": floor,
-            "plan_summary": plan_summary,
-        },
-    )
-    return task_id
