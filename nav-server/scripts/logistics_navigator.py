@@ -32,6 +32,7 @@ from nav_app.services.scan_map_alignment import (
     global_align_scan_to_map,
     select_temporal_global_hypothesis,
 )
+from nav_app.services.vision_aruco import fetch_detector_payload
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.duration import Duration
@@ -100,6 +101,12 @@ class LogisticsNavigator(Node):
         self.latest_aruco_receipt_monotonic = 0.0
         self.latest_aruco_source_stamp_sec = None
         self.aruco_lock = threading.Lock()
+        self.aruco_observation_config = {}
+        self.aruco_observation_poll_lock = threading.Lock()
+        self.aruco_observation_last_poll_monotonic = 0.0
+        self.aruco_observation_last_success_monotonic = 0.0
+        self.aruco_observation_last_error = None
+        self.aruco_observation_last_error_log_monotonic = 0.0
         self.camera_topic = None
         self.camera_sub = None
         self.camera_lock = threading.Lock()
@@ -479,7 +486,51 @@ class LogisticsNavigator(Node):
         source_age = now_wall - source_stamp_sec if source_stamp_sec else None
         return receipt_age, source_age
 
-    def docking_sensor_freshness(self, *, require_aruco=False, max_scan_age_sec=None, max_tf_age_sec=None, max_aruco_age_sec=None):
+    def refresh_localization_pose(self, timeout_sec=1.0):
+        """Request one fresh AMCL sample without moving the robot."""
+        client = getattr(self, "request_nomotion_update_client", None)
+        if client is None or not client.wait_for_service(timeout_sec=0.2):
+            return False
+        lock = getattr(self, "localization_refresh_lock", None)
+        if lock is None:
+            lock = self.localization_refresh_lock = threading.Lock()
+        with lock:
+            with self.last_pose_lock:
+                previous = (
+                    self.last_pose.get("receipt_monotonic")
+                    if self.last_pose
+                    else None
+                )
+            future = client.call_async(Empty.Request())
+            timeout = max(0.05, min(1.5, float(timeout_sec)))
+            if self._wait_for_future(future, timeout_sec=min(1.0, timeout)) is None:
+                return False
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                with self.last_pose_lock:
+                    receipt = (
+                        self.last_pose.get("receipt_monotonic")
+                        if self.last_pose
+                        else None
+                    )
+                try:
+                    fresh = float(receipt)
+                    prior = float(previous) if previous is not None else None
+                except (TypeError, ValueError):
+                    fresh, prior = None, None
+                if fresh is not None and math.isfinite(fresh) and (
+                    prior is None or fresh > prior
+                ):
+                    return True
+                self._spin_once_if_needed()
+                time.sleep(0.02)
+        return False
+
+    def docking_sensor_freshness(
+        self, *, require_aruco=False, max_scan_age_sec=None,
+        max_tf_age_sec=None, max_aruco_age_sec=None,
+        _allow_localization_refresh=True,
+    ):
         """Return fail-closed local receipt/header freshness for physical docking motion."""
         now_monotonic = time.monotonic()
         now_wall = time.time()
@@ -507,6 +558,7 @@ class LogisticsNavigator(Node):
             "aruco_age_sec": None,
             "localization_age_sec": None,
             "localization_source_age_sec": None,
+            "localization_refreshed": False,
             "velocity_loop_latency_sec": self.last_velocity_loop_latency_sec,
         }
         if not scan_present or scan_receipt_age is None:
@@ -533,16 +585,47 @@ class LogisticsNavigator(Node):
         if not self.latest_tf_continuous:
             result["reason"] = "tf_unavailable"
             return result
-        with self.last_pose_lock:
-            amcl = dict(self.last_pose) if self.last_pose else None
-        if not amcl:
-            result["reason"] = "localization_missing_or_stale"
-            return result
-        stamp = amcl.get("stamp") or {}
-        amcl_stamp = float(stamp.get("sec", 0)) + float(stamp.get("nanosec", 0)) / 1e9
-        amcl_receipt_age, amcl_source_age = self._freshness_age(
-            now_monotonic, amcl.get("receipt_monotonic"), now_wall, amcl_stamp
+        def localization_ages():
+            with self.last_pose_lock:
+                amcl = dict(self.last_pose) if self.last_pose else None
+            if not amcl:
+                return None, None
+            stamp = amcl.get("stamp") or {}
+            amcl_stamp = (
+                float(stamp.get("sec", 0))
+                + float(stamp.get("nanosec", 0)) / 1e9
+            )
+            return self._freshness_age(
+                time.monotonic(),
+                amcl.get("receipt_monotonic"),
+                time.time(),
+                amcl_stamp,
+            )
+
+        amcl_receipt_age, amcl_source_age = localization_ages()
+        localization_stale = (
+            amcl_receipt_age is None
+            or amcl_source_age is None
+            or amcl_receipt_age > tf_limit
+            or amcl_source_age > tf_limit
         )
+        if localization_stale and _allow_localization_refresh:
+            refreshed = self.refresh_localization_pose(
+                timeout_sec=min(1.0, max(0.05, tf_limit))
+            )
+            if refreshed:
+                # Re-evaluate every sensor after the bounded wait. A refresh
+                # must not accidentally admit scan/TF/ArUco data that became
+                # stale while AMCL produced the new sample.
+                refreshed_health = self.docking_sensor_freshness(
+                    require_aruco=require_aruco,
+                    max_scan_age_sec=max_scan_age_sec,
+                    max_tf_age_sec=max_tf_age_sec,
+                    max_aruco_age_sec=max_aruco_age_sec,
+                    _allow_localization_refresh=False,
+                )
+                refreshed_health["localization_refreshed"] = True
+                return refreshed_health
         result["localization_age_sec"] = amcl_receipt_age
         result["localization_source_age_sec"] = amcl_source_age
         if (
@@ -695,6 +778,40 @@ class LogisticsNavigator(Node):
         self.get_logger().info(f"ArUco detection topic subscribed: {topic}")
         return self.aruco_detection_sub
 
+    def configure_aruco_observation(self, config):
+        """Configure the profile-selected, request-driven ArUco metadata source."""
+        resolved = dict(config) if isinstance(config, dict) else {}
+        env_base = (
+            os.getenv("NAV_VISION_API_BASE_URL")
+            or os.getenv("VISION_API_BASE_URL")
+            or os.getenv("LMS_VISION_API_BASE_URL")
+        )
+        if env_base and resolved.get("transport") == "vision_http":
+            resolved["api_base_url"] = env_base.rstrip("/")
+        self.aruco_observation_config = resolved
+        if resolved.get("transport") == "vision_http":
+            self.get_logger().info(
+                "ArUco observations use on-demand Vision HTTP metadata: "
+                f"source={resolved.get('source')} base={resolved.get('api_base_url')}"
+            )
+        return dict(resolved)
+
+    def aruco_observation_status(self):
+        config = dict(getattr(self, "aruco_observation_config", {}) or {})
+        now = time.monotonic()
+        last_poll = float(getattr(self, "aruco_observation_last_poll_monotonic", 0.0) or 0.0)
+        last_success = float(getattr(self, "aruco_observation_last_success_monotonic", 0.0) or 0.0)
+        return {
+            "transport": config.get("transport", "ros_topic"),
+            "source": config.get("source"),
+            "api_base_url": config.get("api_base_url"),
+            "request_driven": config.get("transport") == "vision_http",
+            "last_poll_age_sec": max(0.0, now - last_poll) if last_poll else None,
+            "last_success_age_sec": max(0.0, now - last_success) if last_success else None,
+            "last_error": getattr(self, "aruco_observation_last_error", None),
+            "ros_topic_fallback": self.aruco_detection_topic,
+        }
+
     def configure_camera_topic(self, topic):
         """Pi camera compressed JPEG — insert vision 정지 시 스크린샷용."""
         if not topic:
@@ -810,14 +927,11 @@ class LogisticsNavigator(Node):
             self.get_logger().info(f"camera snapshot saved: {out}")
         return bool(ok)
 
-    def _aruco_detection_callback(self, msg):
-        try:
-            payload = json.loads(msg.data)
-        except json.JSONDecodeError:
-            self.get_logger().warning("invalid ArUco detection JSON received")
-            return
-        receipt_monotonic = time.monotonic()
-        receipt_wall = time.time()
+    def _record_aruco_payload(
+        self, payload, *, receipt_monotonic=None, receipt_wall=None, transport=None
+    ):
+        receipt_monotonic = time.monotonic() if receipt_monotonic is None else float(receipt_monotonic)
+        receipt_wall = time.time() if receipt_wall is None else float(receipt_wall)
         source_stamp = payload.get("source_header_stamp", payload.get("stamp"))
         if isinstance(source_stamp, dict):
             source_stamp_sec = float(source_stamp.get("sec", 0)) + float(source_stamp.get("nanosec", 0)) / 1e9
@@ -845,9 +959,72 @@ class LogisticsNavigator(Node):
                 saved["source_header_stamp_sec"] = source_stamp_sec if source_stamp_sec and source_stamp_sec > 0.0 else None
                 saved["source_header_stamp"] = source_stamp if isinstance(source_stamp, dict) else None
                 saved["topic"] = self.aruco_detection_topic
+                saved["transport"] = transport or payload.get("transport") or "ros_topic"
                 self.latest_aruco_detections[marker_id] = saved
 
+    def _aruco_detection_callback(self, msg):
+        try:
+            payload = json.loads(msg.data)
+        except json.JSONDecodeError:
+            self.get_logger().warning("invalid ArUco detection JSON received")
+            return
+        self._record_aruco_payload(payload, transport="ros_topic")
+
+    def _refresh_vision_aruco(self):
+        config = dict(getattr(self, "aruco_observation_config", {}) or {})
+        if config.get("transport") != "vision_http":
+            return False
+        poll_lock = getattr(self, "aruco_observation_poll_lock", None)
+        if poll_lock is None or not poll_lock.acquire(blocking=False):
+            return False
+        try:
+            now = time.monotonic()
+            interval = max(0.02, float(config.get("poll_interval_sec", 0.1)))
+            last_poll = float(getattr(self, "aruco_observation_last_poll_monotonic", 0.0) or 0.0)
+            if last_poll and now - last_poll < interval:
+                return False
+            self.aruco_observation_last_poll_monotonic = now
+            try:
+                payload = fetch_detector_payload(
+                    api_base_url=str(config["api_base_url"]),
+                    source=str(config["source"]),
+                    limit=int(config.get("limit", 20)),
+                    timeout_sec=float(config.get("request_timeout_sec", 0.3)),
+                )
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                self.aruco_observation_last_error = error
+                last_log = float(
+                    getattr(self, "aruco_observation_last_error_log_monotonic", 0.0) or 0.0
+                )
+                if now - last_log >= 5.0:
+                    self.get_logger().warning(f"Vision ArUco observation unavailable: {error}")
+                    self.aruco_observation_last_error_log_monotonic = now
+                return False
+            if payload is None:
+                self.aruco_observation_last_error = "no_valid_aruco_event"
+                return False
+            self._record_aruco_payload(
+                payload,
+                receipt_monotonic=time.monotonic(),
+                receipt_wall=time.time(),
+                transport="vision_http",
+            )
+            self.aruco_observation_last_success_monotonic = time.monotonic()
+            self.aruco_observation_last_error = None
+            return True
+        finally:
+            poll_lock.release()
+
     def get_latest_aruco_detection(self, marker_id=None, max_age_sec=1.0):
+        if marker_id is not None:
+            try:
+                marker_id = int(marker_id)
+            except (TypeError, ValueError):
+                return None
+            # Marker-specific reads are docking intent. Generic health reads
+            # remain cache-only so the Vision API is not polled continuously.
+            self._refresh_vision_aruco()
         now_monotonic = time.monotonic()
         now_wall = time.time()
         future_limit = float(os.getenv("SENSOR_FUTURE_TOLERANCE_SEC", "0.25"))
@@ -868,10 +1045,6 @@ class LogisticsNavigator(Node):
             if marker_id is None:
                 detections = [dict(value) for value in self.latest_aruco_detections.values()]
                 return [valid for item in detections if (valid := fresh(item)) is not None]
-            try:
-                marker_id = int(marker_id)
-            except (TypeError, ValueError):
-                return None
             detection = self.latest_aruco_detections.get(marker_id)
             if not detection:
                 return None
@@ -1121,7 +1294,18 @@ class LogisticsNavigator(Node):
     def _localization_alignment_observation_locked(self, profile):
         config = alignment_config(profile)
         if not config["enabled"]:
-            return {"accepted": True, "refinement_required": False, "reason": "disabled", "attempts": 0}
+            global_search = profile.get("localization", {}).get("global_search", {})
+            reason = (
+                "initial_match_only"
+                if global_search.get("map_wide_scan_matching") is True
+                else "disabled"
+            )
+            return {
+                "accepted": True,
+                "refinement_required": False,
+                "reason": reason,
+                "attempts": 0,
+            }
         with self.scan_lock:
             scan = self.latest_scan
             scan_token = self.latest_scan_monotonic

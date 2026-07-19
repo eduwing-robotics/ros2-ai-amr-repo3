@@ -12,12 +12,15 @@ from nav_app.runtime import runtime
 from nav_app.services.docking import (
     _require_center_before_insert,
     compute_fork_insert_motion,
+    execute_dock_reverse,
     execute_dock_transfer_step,
+    execute_fork_insert,
     execute_metric_precision_insert,
     execute_precision_docking,
     execute_reverse_to_map_pose,
     hold_fork_insert_enabled,
     insert_vision_stop_enabled,
+    apply_slot_fork_defaults,
     leave_dock_motion_params,
     marker_close_enough,
     marker_normal_aligned,
@@ -26,6 +29,7 @@ from nav_app.services.docking import (
     resolve_align_mode,
     resolve_dock_reverse_distance_m,
     resolve_insert_stop_width_px,
+    resolve_insert_extra_after_vision_m,
     resolve_leave_dock_distance_m,
     resolve_post_insert_dwell_sec,
 )
@@ -63,6 +67,97 @@ def _live_map_pose(x: float, y: float, yaw: float = 0.0):
 
 
 class DockingMotionTests(unittest.TestCase):
+    def test_insert_extra_after_vision_is_explicit_and_defaults_off(self):
+        self.assertAlmostEqual(resolve_insert_extra_after_vision_m({}), 0.0)
+        self.assertAlmostEqual(
+            resolve_insert_extra_after_vision_m({"insert_extra_m": 0.11}),
+            0.11,
+        )
+
+    def test_slot_defaults_include_validated_reverse_clearance(self):
+        payload = {}
+        apply_slot_fork_defaults(payload, 0)
+        self.assertAlmostEqual(payload["reverse_extra_m"], 0.12)
+
+    def test_insert_runs_odom_extra_after_pixel_target(self):
+        old_navigator = runtime.navigator
+        navigator = MagicMock()
+        navigator.safety.estop = False
+        navigator.get_latest_aruco_detection.side_effect = [
+            {"marker_width_px": 60.0},
+            {"marker_width_px": 135.0},
+            {"marker_width_px": 140.0},
+            {"marker_width_px": 140.0},
+        ]
+        navigator.publish_velocity_for_distance.return_value = {
+            "ok": True,
+            "distance_m": 0.106,
+            "reason": "distance_reached",
+            "feedback": True,
+            "feedback_source": "odom_tf",
+        }
+        runtime.navigator = navigator
+        payload = {
+            "aruco_marker_id": 0,
+            "insert_vision_stop": True,
+            "insert_stop_width_px": 135,
+            "fork_insert_max_marker_width_px": 190,
+            "insert_extra_m": 0.11,
+            "fork_insert_distance_m": 0.40,
+            "fork_insert_speed_mps": 0.02,
+            "fork_insert_slip_compensation_m": 0.0,
+            "require_center_before_insert": False,
+        }
+        try:
+            with (
+                patch(
+                    "nav_app.services.docking._require_docking_motion_or_abort"
+                ),
+                patch(
+                    "nav_app.services.docking._publish_docking_velocity",
+                    return_value=True,
+                ),
+                patch("nav_app.services.docking._save_insert_vision_snapshot"),
+            ):
+                self.assertTrue(execute_fork_insert(payload))
+        finally:
+            runtime.navigator = old_navigator
+
+        navigator.publish_velocity_for_distance.assert_called_once()
+        call = navigator.publish_velocity_for_distance.call_args
+        self.assertAlmostEqual(call.kwargs["distance_m"], 0.11)
+        self.assertEqual(call.kwargs["forward_margin_m"], -1.0)
+        self.assertAlmostEqual(payload["_insert_extra_after_vision_odom_m"], 0.106)
+        self.assertAlmostEqual(payload["_actual_insert_distance_m"], 0.106)
+
+    def test_dock_reverse_does_not_require_marker_after_insert(self):
+        old_navigator = runtime.navigator
+        runtime.navigator = MagicMock()
+        runtime.navigator.docking_sensor_freshness.return_value = {
+            "ok": True,
+            "reason": "ok",
+        }
+        try:
+            with patch(
+                "nav_app.services.docking._publish_docking_velocity",
+                return_value=True,
+            ) as publish:
+                self.assertTrue(
+                    execute_dock_reverse(
+                        {"reverse_speed": 0.05, "reverse_distance_m": 0.20}
+                    )
+                )
+            self.assertFalse(publish.call_args.kwargs["require_aruco"])
+            self.assertTrue(
+                all(
+                    call.kwargs["require_aruco"] is False
+                    for call in runtime.navigator.docking_sensor_freshness.call_args_list
+                )
+            )
+            runtime.navigator.publish_stop_velocity.assert_called_once()
+        finally:
+            runtime.navigator = old_navigator
+
     def test_metric_only_never_falls_back_to_pixel_width(self):
         payload = {
             "metric_distance_only": True,

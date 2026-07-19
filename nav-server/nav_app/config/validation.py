@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import math
+import ipaddress
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence
+from urllib.parse import urlparse
 
 ROBOT_REQUIRED_FIELDS: Sequence[str] = (
     "robot_id",
@@ -170,6 +172,60 @@ def validate_metric_docking_config(robot_id: str, metric: Any) -> List[str]:
         "return_pose_yaw_tolerance_rad",
     ):
         _validate_number(robot_id, metric, field, errors)
+    return errors
+
+
+def validate_aruco_observation_config(
+    robot_id: str, bridge_robot_id: Any, config: Any
+) -> List[str]:
+    errors: List[str] = []
+    if config in (None, ""):
+        return errors
+    if not isinstance(config, Mapping):
+        return [f"{robot_id}: aruco_observation must be an object"]
+    transport = str(config.get("transport", "")).strip()
+    if transport not in {"vision_http", "ros_topic", "disabled"}:
+        errors.append(f"{robot_id}: aruco_observation.transport is unsupported: {transport}")
+    if transport == "vision_http":
+        source = str(config.get("source", "")).strip()
+        expected_source = f"{bridge_robot_id}_picam"
+        if source != expected_source:
+            errors.append(
+                f"{robot_id}: aruco_observation.source must be {expected_source}, got {source or '<empty>'}"
+            )
+        base_url = str(config.get("api_base_url", "")).strip()
+        parsed = urlparse(base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            errors.append(f"{robot_id}: aruco_observation.api_base_url must be an HTTP URL")
+        else:
+            try:
+                ipaddress.ip_address(parsed.hostname)
+            except ValueError:
+                pass
+            else:
+                errors.append(
+                    f"{robot_id}: aruco_observation.api_base_url must be hostname-first, not a raw IP"
+                )
+        for field, minimum, maximum in (
+            ("poll_interval_sec", 0.02, 2.0),
+            ("request_timeout_sec", 0.05, 2.0),
+        ):
+            try:
+                value = float(config.get(field))
+            except (TypeError, ValueError):
+                errors.append(f"{robot_id}: aruco_observation.{field} must be numeric")
+            else:
+                if not minimum <= value <= maximum:
+                    errors.append(
+                        f"{robot_id}: aruco_observation.{field} must be between {minimum} and {maximum}"
+                    )
+        try:
+            limit = _integer(config.get("limit"))
+        except (TypeError, ValueError):
+            errors.append(f"{robot_id}: aruco_observation.limit must be an integer")
+        else:
+            if not 1 <= limit <= 50:
+                errors.append(f"{robot_id}: aruco_observation.limit must be between 1 and 50")
     return errors
 
 
@@ -469,6 +525,11 @@ def validate_robot_profile(robot: Mapping[str, Any]) -> List[str]:
             errors.append(f"{robot_id}: localization.map_id must equal active_map_yaml stem")
     errors.extend(validate_lift_config(robot_id, robot.get("lift")))
     errors.extend(validate_metric_docking_config(robot_id, robot.get("metric_docking")))
+    errors.extend(
+        validate_aruco_observation_config(
+            robot_id, robot.get("bridge_robot_id"), robot.get("aruco_observation")
+        )
+    )
     errors.extend(validate_localization_config(robot_id, robot.get("localization")))
     return errors
 

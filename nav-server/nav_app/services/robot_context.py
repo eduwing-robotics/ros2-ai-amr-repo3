@@ -165,7 +165,13 @@ def localization_health(*, refresh_alignment: bool = True):
     if alignment is not None:
         health["scan_map_alignment"] = alignment
         config = alignment_config(gate.profile)
-        if config.get("enabled") and not alignment.get("accepted"):
+        initial_search_active = (
+            alignment.get("reason") == "global_localization_search_active"
+        )
+        if (
+            not alignment.get("accepted")
+            and (config.get("enabled") or initial_search_active)
+        ):
             health["localized"] = False
             if health.get("state") == "LOCALIZED":
                 if alignment.get("reason") == "confirmation_pending":

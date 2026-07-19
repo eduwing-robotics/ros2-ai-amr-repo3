@@ -89,6 +89,103 @@ def _navigator(cls, *, scan_stamp, tf_stamp, aruco=True):
     return navigator, now_wall
 
 
+def _vision_navigator(cls):
+    navigator = cls.__new__(cls)
+    navigator.aruco_detection_topic = "/mission/tb3_2/aruco/detections"
+    navigator.latest_aruco_detections = {}
+    navigator.latest_aruco_payload = None
+    navigator.latest_aruco_receipt_monotonic = 0.0
+    navigator.latest_aruco_source_stamp_sec = None
+    navigator.aruco_lock = threading.Lock()
+    navigator.aruco_observation_config = {
+        "transport": "vision_http",
+        "api_base_url": "http://smartfactory-vision.local:8100",
+        "source": "tb3_2_picam",
+        "poll_interval_sec": 0.1,
+        "request_timeout_sec": 0.3,
+        "limit": 20,
+    }
+    navigator.aruco_observation_poll_lock = threading.Lock()
+    navigator.aruco_observation_last_poll_monotonic = 0.0
+    navigator.aruco_observation_last_success_monotonic = 0.0
+    navigator.aruco_observation_last_error = None
+    navigator.aruco_observation_last_error_log_monotonic = 0.0
+    navigator.get_logger = lambda: SimpleNamespace(warning=lambda *_args: None)
+    return navigator
+
+
+def _vision_payload(*, observed_at=None):
+    observed_at = time.time() if observed_at is None else float(observed_at)
+    sec = int(observed_at)
+    return {
+        "source_header_stamp": {
+            "sec": sec,
+            "nanosec": int((observed_at - sec) * 1e9),
+        },
+        "transport": "vision_http",
+        "source": "tb3_2_picam",
+        "detections": [
+            {
+                "marker_id": 4,
+                "center_px": [160.0, 120.0],
+                "center_error_norm": 0.0,
+                "marker_width_px": 120.0,
+                "image_width": 320,
+                "image_height": 240,
+            }
+        ],
+    }
+
+
+def test_marker_specific_read_polls_profile_vision_api_but_generic_health_does_not(
+    navigator_class, monkeypatch
+):
+    navigator = _vision_navigator(navigator_class)
+    calls = []
+
+    def _fetch(**kwargs):
+        calls.append(kwargs)
+        return _vision_payload()
+
+    monkeypatch.setitem(
+        navigator_class._refresh_vision_aruco.__globals__,
+        "fetch_detector_payload",
+        _fetch,
+    )
+
+    assert navigator.get_latest_aruco_detection(max_age_sec=1.0) == []
+    assert calls == []
+
+    detection = navigator.get_latest_aruco_detection(4, max_age_sec=1.0)
+    assert detection["marker_id"] == 4
+    assert detection["transport"] == "vision_http"
+    assert calls == [
+        {
+            "api_base_url": "http://smartfactory-vision.local:8100",
+            "source": "tb3_2_picam",
+            "limit": 20,
+            "timeout_sec": 0.3,
+        }
+    ]
+
+    # The 100 ms profile throttle prevents a docking loop from flooding AI.
+    assert navigator.get_latest_aruco_detection(4, max_age_sec=1.0)
+    assert len(calls) == 1
+
+
+def test_vision_http_receipt_cannot_make_an_old_ai_event_fresh(
+    navigator_class, monkeypatch
+):
+    navigator = _vision_navigator(navigator_class)
+    monkeypatch.setitem(
+        navigator_class._refresh_vision_aruco.__globals__,
+        "fetch_detector_payload",
+        lambda **_kwargs: _vision_payload(observed_at=time.time() - 10.0),
+    )
+
+    assert navigator.get_latest_aruco_detection(4, max_age_sec=1.0) is None
+
+
 @pytest.mark.parametrize(
     ("scan_offset", "tf_offset", "expected"),
     [(-3.0, 0.0, "scan_stale"), (0.0, -3.0, "tf_stale"), (1.0, 0.0, "scan_timestamp_future")],
@@ -123,6 +220,127 @@ def test_stale_localization_fails_closed(navigator_class):
 
     assert health["ok"] is False
     assert health["reason"] == "localization_missing_or_stale"
+
+
+def test_stale_localization_requests_one_nomotion_refresh_before_motion(
+    navigator_class, monkeypatch
+):
+    now = time.time()
+    navigator, _ = _navigator(navigator_class, scan_stamp=now, tf_stamp=now)
+    navigator.last_pose["receipt_monotonic"] = time.monotonic() - 3.0
+    navigator.external_spin = True
+    calls = []
+
+    class _Future:
+        @staticmethod
+        def done():
+            return True
+
+        @staticmethod
+        def result():
+            return object()
+
+    class _Client:
+        @staticmethod
+        def wait_for_service(timeout_sec):
+            return timeout_sec > 0.0
+
+        @staticmethod
+        def call_async(_request):
+            calls.append(True)
+            refreshed = time.time()
+            with navigator.last_pose_lock:
+                navigator.last_pose["receipt_monotonic"] = time.monotonic()
+                navigator.last_pose["stamp"] = {
+                    "sec": int(refreshed),
+                    "nanosec": int((refreshed % 1.0) * 1e9),
+                }
+            return _Future()
+
+    navigator.request_nomotion_update_client = _Client()
+    monkeypatch.setitem(
+        navigator_class.refresh_localization_pose.__globals__,
+        "Empty",
+        SimpleNamespace(Request=lambda: object()),
+    )
+
+    health = navigator.docking_sensor_freshness(
+        require_aruco=True, max_tf_age_sec=1.0
+    )
+
+    assert health["ok"] is True
+    assert health["reason"] == "ok"
+    assert health["localization_refreshed"] is True
+    assert calls == [True]
+
+
+def test_nomotion_refresh_rechecks_scan_before_motion(navigator_class, monkeypatch):
+    now = time.time()
+    navigator, _ = _navigator(navigator_class, scan_stamp=now, tf_stamp=now)
+    navigator.last_pose["receipt_monotonic"] = time.monotonic() - 3.0
+    navigator.external_spin = True
+
+    class _Future:
+        @staticmethod
+        def done():
+            return True
+
+        @staticmethod
+        def result():
+            return object()
+
+    class _Client:
+        @staticmethod
+        def wait_for_service(timeout_sec):
+            return timeout_sec > 0.0
+
+        @staticmethod
+        def call_async(_request):
+            refreshed = time.time()
+            with navigator.last_pose_lock:
+                navigator.last_pose["receipt_monotonic"] = time.monotonic()
+                navigator.last_pose["stamp"] = {
+                    "sec": int(refreshed),
+                    "nanosec": int((refreshed % 1.0) * 1e9),
+                }
+            navigator.latest_scan_monotonic = time.monotonic() - 3.0
+            navigator.latest_scan_header_stamp_sec = time.time() - 3.0
+            return _Future()
+
+    navigator.request_nomotion_update_client = _Client()
+    monkeypatch.setitem(
+        navigator_class.refresh_localization_pose.__globals__,
+        "Empty",
+        SimpleNamespace(Request=lambda: object()),
+    )
+
+    health = navigator.docking_sensor_freshness(
+        require_aruco=True, max_scan_age_sec=1.0, max_tf_age_sec=1.0
+    )
+
+    assert health["ok"] is False
+    assert health["reason"] == "scan_stale"
+    assert health["localization_refreshed"] is True
+
+
+def test_mapwide_only_matcher_reports_initial_match_scope(navigator_class):
+    navigator = navigator_class.__new__(navigator_class)
+
+    result = navigator._localization_alignment_observation_locked(
+        {
+            "localization": {
+                "global_search": {"map_wide_scan_matching": True},
+                "scan_map_alignment": {"enabled": False},
+            }
+        }
+    )
+
+    assert result == {
+        "accepted": True,
+        "refinement_required": False,
+        "reason": "initial_match_only",
+        "attempts": 0,
+    }
 
 
 def test_amcl_postdated_tf_within_transform_tolerance_is_accepted(navigator_class, monkeypatch):

@@ -48,6 +48,7 @@ def startup_runtime() -> None:
     runtime.navigator = LogisticsNavigator()
     runtime.navigator.set_external_spin(True)
     runtime.navigator.configure_aruco_detection_topic(robot_context.aruco_detection_topic())
+    runtime.navigator.configure_aruco_observation(profile.get("aruco_observation"))
     runtime.navigator.configure_camera_topic(profile.get("camera_topic"))
     runtime.ros_executor = SingleThreadedExecutor()
     runtime.ros_executor.add_node(runtime.navigator)

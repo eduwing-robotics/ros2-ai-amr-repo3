@@ -75,7 +75,7 @@ jitter, consecutive-sample, and minimum-stable-duration limits. An accepted
 global-search request only starts this evaluation; it does not mean the robot
 is localized. Poll until convergence:
 
-When the initial pose is unknown, the robot1 profile runs map-wide scan
+When the initial pose is unknown, the live TB1 and TB2 profiles run map-wide scan
 matching. It publishes an AMCL seed only when the same candidate appears in
 three of five fresh scans, then proceeds through the normal convergence gate.
 Direction alignment only breaks near-equal distance fits. Short returns from

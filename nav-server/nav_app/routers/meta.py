@@ -82,5 +82,6 @@ def movement_health():
         "lift": active_lift_status(active_robot_profile()),
         **lift_provenance(backend=getattr(runtime, "lift_client", None)),
         "aruco_detection_topic": robot_context.aruco_detection_topic(),
+        "aruco_observation": runtime.navigator.aruco_observation_status() if runtime.navigator else None,
         "latest_aruco_detections": runtime.navigator.get_latest_aruco_detection(max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC) if runtime.navigator else [],
     }

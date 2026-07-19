@@ -524,10 +524,20 @@ def test_tb1_full_readiness_matches_selected_hardware_bridge(tmp_path, base_node
 
 @pytest.mark.parametrize("include_lift, succeeds", [(True, True), (False, False)])
 def test_tb2_external_readiness_checks_lift_topics(tmp_path, include_lift, succeeds):
+    port = _free_port()
+    robots = json.loads((ROOT / "config/robots.json").read_text())
+    robots["robots"] = [
+        robot for robot in robots["robots"]
+        if robot["robot_id"] == "tb3_burger_02"
+    ]
+    robots["robots"][0]["api_port"] = port
+    robots_path = tmp_path / "robots.json"
+    robots_path.write_text(json.dumps(robots))
     fake_run = _health_server_script(tmp_path / "fake-run.sh")
     env = {
         **os.environ,
         "PATH": f"{_fake_ros2(tmp_path, include_lift=include_lift)}:{os.environ['PATH']}",
+        "ROBOTS_CONFIG_PATH": str(robots_path),
         "SF_NAV_STATE_DIR": str(tmp_path / "state"),
         "SF_NAV_RUN_SCRIPT": str(fake_run),
         "FAKE_LIFT_READY": "1" if include_lift else "0",

@@ -14,7 +14,9 @@ from nav_app.services.capabilities import (
 from nav_app.services.robot_commands import (
     apply_slot_aruco_defaults,
     apply_slot_lift_defaults,
+    approach_waypoint_id_for_marker,
     fork_insert_distance_for_marker,
+    load_waypoint_goals,
 )
 from nav_app.services.robot_context import (
     aruco_detection_topic as _aruco_detection_topic,
@@ -1304,6 +1306,22 @@ def resolve_insert_stop_width_px(payload: Dict[str, Any]) -> float:
     return INSERT_STOP_WIDTH_PX
 
 
+def resolve_insert_extra_after_vision_m(payload: Dict[str, Any]) -> float:
+    """Return an explicitly commissioned post-vision insertion distance.
+
+    The safe default is zero.  Physical pallet slots opt in through zones.json,
+    which keeps ordinary ArUco parking and uncommissioned docks unchanged.
+    """
+    for key in (
+        "insert_extra_after_vision_m",
+        "insert_extra_m",
+        "fork_insert_extra_after_vision_m",
+    ):
+        if payload.get(key) is not None:
+            return max(0.0, float(payload[key]))
+    return 0.0
+
+
 def resolve_fork_insert_distance_m(payload: Dict[str, Any]) -> float:
     """payload 명시값 → zones.json 슬롯 실측값 → env 기본값 순으로 삽입 거리를 결정한다."""
     explicit = payload.get("fork_insert_distance_m", payload.get("insert_distance_m"))
@@ -1322,11 +1340,22 @@ def resolve_fork_insert_distance_m(payload: Dict[str, Any]) -> float:
 
 
 def apply_slot_fork_defaults(payload: Dict[str, Any], marker_id: int):
-    """dock_transfer payload에 슬롯별 삽입 거리를 zones.json에서 주입한다."""
+    """dock_transfer payload에 슬롯별 삽입 거리와 후진 여유를 주입한다."""
     if "fork_insert_distance_m" not in payload and "insert_distance_m" not in payload:
         calibrated = fork_insert_distance_for_marker(marker_id)
         if calibrated is not None:
             payload["fork_insert_distance_m"] = calibrated
+    if payload.get("reverse_extra_m") is None:
+        waypoint_id = approach_waypoint_id_for_marker(marker_id)
+        waypoint = load_waypoint_goals().get(waypoint_id or "") or {}
+        extra = waypoint.get("reverse_extra_m")
+        if extra is None and isinstance(waypoint.get("aruco_align"), dict):
+            extra = waypoint["aruco_align"].get("reverse_extra_m")
+        if extra is not None:
+            try:
+                payload["reverse_extra_m"] = max(0.0, float(extra))
+            except (TypeError, ValueError):
+                pass
 
 
 def compute_fork_insert_motion(payload: Dict[str, Any]):
@@ -1676,6 +1705,15 @@ def execute_fork_insert(payload: Dict[str, Any]):
     target_width = float(payload.get("target_marker_width_px", ARUCO_DOCK_TARGET_WIDTH_PX))
     max_width = float(payload.get("fork_insert_max_marker_width_px", max(target_width * 1.65, target_width + 30.0)))
     insert_margin = float(payload.get("fork_insert_forward_margin_m", payload.get("insert_forward_margin_m", 0.0)))
+    if (
+        "fork_insert_forward_margin_m" not in payload
+        and "insert_forward_margin_m" not in payload
+    ):
+        # This segment intentionally closes on the pallet.  A positive generic
+        # obstacle margin would reject the commissioned final few centimetres;
+        # marker-width and distance caps remain active below.
+        insert_margin = -1.0
+    extra_after_vision_m = resolve_insert_extra_after_vision_m(payload) if vision_stop else 0.0
     start_width = 0.0
     if vision_stop:
         start_detection = runtime.navigator.get_latest_aruco_detection(
@@ -1685,7 +1723,8 @@ def execute_fork_insert(payload: Dict[str, Any]):
         print(
             f"[dock_transfer] fork insert vision: speed={speed:.3f}m/s "
             f"cap={requested_distance:.3f}m start_width={start_width:.0f}px "
-            f"stop_at={stop_width:.0f}px safety_max={max_width:.0f}px duration_cap={duration:.2f}s"
+            f"stop_at={stop_width:.0f}px extra_after={extra_after_vision_m:.3f}m "
+            f"safety_max={max_width:.0f}px duration_cap={duration:.2f}s"
         )
         _save_insert_vision_snapshot(
             payload,
@@ -1706,6 +1745,7 @@ def execute_fork_insert(payload: Dict[str, Any]):
     moved_duration = 0.0
     segment_sec = max(0.08, min(0.25, float(payload.get("fork_insert_segment_sec", 0.12))))
     stop_width_px = float(stop_width) if stop_width is not None else None
+    vision_hit = False
     while moved_duration < duration:
         if runtime.navigator.safety.estop:
             result = False
@@ -1751,6 +1791,7 @@ def execute_fork_insert(payload: Dict[str, Any]):
                         moved_m=speed * moved_duration,
                         reason="vision_target",
                     )
+                    vision_hit = True
                     break
             elif detection and not vision_stop and width >= max_width:
                 print(
@@ -1769,7 +1810,60 @@ def execute_fork_insert(payload: Dict[str, Any]):
             result = False
             break
         moved_duration += step
-    payload["_actual_insert_distance_m"] = speed * moved_duration
+
+    measured_extra_m = 0.0
+    if result and vision_hit and extra_after_vision_m > 1e-4 and not runtime.navigator.safety.estop:
+        extra_duration_cap = extra_after_vision_m / max(0.01, speed) * 2.0 + 0.5
+
+        def _insert_extra_stop_condition():
+            # Keep cancellation, scan/TF and lift freshness live during the
+            # blocking odom drive.  Marker loss after the width target is not a
+            # failure, but an excessive visible width still stops the segment.
+            _require_docking_motion_or_abort(
+                payload,
+                "insert_extra",
+                require_aruco=False,
+            )
+            detection = runtime.navigator.get_latest_aruco_detection(
+                int(marker_id), max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
+            )
+            width = _marker_width_px(detection)
+            if detection and width >= max_width:
+                return "marker_width_safety"
+            return None
+
+        print(
+            f"[dock_transfer] fork insert extra after vision: "
+            f"target=+{extra_after_vision_m:.3f}m odom_closed_loop "
+            f"cap={extra_duration_cap:.2f}s @ {speed:.3f}m/s"
+        )
+        try:
+            distance_drive = runtime.navigator.publish_velocity_for_distance(
+                linear_x=speed,
+                distance_m=extra_after_vision_m,
+                rate_hz=12.0,
+                forward_margin_m=insert_margin,
+                max_duration_sec=extra_duration_cap,
+                tolerance_m=float(payload.get("insert_extra_tolerance_m", 0.005)),
+                stop_condition=_insert_extra_stop_condition,
+            )
+        except Exception:
+            _abort_docking_motion()
+            raise
+        measured_extra_m = float(distance_drive.get("distance_m", 0.0) or 0.0)
+        payload["_insert_extra_after_vision_m"] = extra_after_vision_m
+        payload["_insert_extra_after_vision_odom_m"] = measured_extra_m
+        payload["_insert_extra_after_vision_feedback"] = bool(distance_drive.get("feedback"))
+        payload["_insert_extra_after_vision_reason"] = distance_drive.get("reason")
+        if not distance_drive.get("ok"):
+            print(
+                f"[dock_transfer] fork insert extra failed: "
+                f"reason={distance_drive.get('reason')} measured={measured_extra_m:.3f}m "
+                f"target={extra_after_vision_m:.3f}m"
+            )
+            result = False
+
+    payload["_actual_insert_distance_m"] = speed * moved_duration + measured_extra_m
     runtime.navigator.publish_stop_velocity()
     return result
 
@@ -2124,7 +2218,18 @@ def execute_dock_reverse(payload: Dict[str, Any]):
         raise ValueError("reverse_duration_sec or reverse_distance_m must be greater than 0")
     _require_docking_motion_or_abort(payload, "reverse")
     print(f"[dock_transfer] dock reverse speed={speed:.3f}m/s distance={distance:.3f}m duration={duration:.2f}s")
-    result = _publish_docking_velocity(payload, "reverse", linear_x=-speed, angular_z=0.0, duration_sec=duration)
+    # The marker is deliberately allowed to leave the camera frame after the
+    # insert/lift completes.  Reverse remains fail-closed on fresh scan, TF,
+    # localization, lift telemetry, and E-stop; requiring continuous ArUco here
+    # turns a normal close-range field of view loss into a false task failure.
+    result = _publish_docking_velocity(
+        payload,
+        "reverse",
+        require_aruco=False,
+        linear_x=-speed,
+        angular_z=0.0,
+        duration_sec=duration,
+    )
     runtime.navigator.publish_stop_velocity()
     return result
 
@@ -2230,6 +2335,63 @@ def leave_dock_skip_on_rear_blocked(payload: Dict[str, Any]) -> bool:
     return str(value).strip().lower() not in ("0", "false", "no", "off", "fail")
 
 
+def _fresh_pose_matches_parking(payload: Dict[str, Any]) -> bool:
+    parking_pose = payload.get("parking_pose")
+    if not isinstance(parking_pose, dict) or not runtime.navigator:
+        return False
+    current = runtime.navigator.get_current_pose()
+    if not isinstance(current, dict):
+        return False
+    try:
+        age_sec = float(current.get("age_sec"))
+        dx = float(current["x"]) - float(parking_pose["x"])
+        dy = float(current["y"]) - float(parking_pose["y"])
+        yaw_error = abs(
+            _normalize_angle(float(current["yaw"]) - float(parking_pose["yaw"]))
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+    if not all(math.isfinite(value) for value in (age_sec, dx, dy, yaw_error)):
+        return False
+    max_age_sec = max(0.05, float(payload.get("parking_pose_max_age_sec", 2.0)))
+    position_tolerance_m = max(
+        0.02, float(payload.get("parking_position_tolerance_m", 0.18))
+    )
+    yaw_tolerance_rad = max(
+        0.02, float(payload.get("parking_yaw_tolerance_rad", math.radians(20.0)))
+    )
+    return bool(
+        0.0 <= age_sec <= max_age_sec
+        and math.hypot(dx, dy) <= position_tolerance_m
+        and yaw_error <= yaw_tolerance_rad
+    )
+
+
+def _fresh_marker_requires_leave_dock(
+    detection: Optional[Dict[str, Any]], payload: Dict[str, Any]
+) -> bool:
+    if not detection:
+        return False
+    clearance_m = max(
+        0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40))
+    )
+    distance = _metric_forward_distance(detection)
+    if distance is not None:
+        return distance < clearance_m - 0.005
+    try:
+        width_px = float(detection.get("marker_width_px", 0.0))
+        min_width_px = float(
+            payload.get("reverse_marker_min_width_px", ARUCO_DOCK_TARGET_WIDTH_PX)
+        )
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        math.isfinite(width_px)
+        and math.isfinite(min_width_px)
+        and width_px >= max(8.0, min_width_px)
+    )
+
+
 def execute_leave_dock_step(step: MovementStep):
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
@@ -2237,39 +2399,43 @@ def execute_leave_dock_step(step: MovementStep):
     force = bool(payload.get("force", False))
     parked = runtime.get_standby_parked()
 
-    # Process-local parking state can be stale after recovery or a physical
-    # reposition. A fresh close marker is stronger evidence that reverse-out is
-    # still required than the old in-memory False flag.
-    marker_requires_reverse = False
+    # Process-local parking state can be stale after a restart or physical
+    # reposition. Prefer fresh physical evidence from the expected marker or
+    # the authoritative map pose carried by Main.
     marker_id = payload.get("aruco_marker_id")
-    if parked is False and marker_id is not None:
+    detection = None
+    if marker_id is not None:
         detection = runtime.navigator.get_latest_aruco_detection(
             int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
         )
-        if detection and detection.get("estimated_distance_m") is not None:
-            try:
-                marker_distance = float(detection["estimated_distance_m"])
-                clearance_m = max(
-                    0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40))
-                )
-                marker_requires_reverse = (
-                    math.isfinite(marker_distance)
-                    and marker_distance >= 0.0
-                    and marker_distance < clearance_m - 0.005
-                )
-            except (TypeError, ValueError):
-                marker_requires_reverse = False
-            if marker_requires_reverse:
-                print(
-                    f"[leave_dock] stale standby_parked=False overridden by fresh "
-                    f"marker={int(marker_id)} distance={marker_distance:.3f}m"
-                )
+    marker_requires_reverse = _fresh_marker_requires_leave_dock(detection, payload)
+    pose_requires_reverse = _fresh_pose_matches_parking(payload)
+    has_parking_pose_contract = isinstance(payload.get("parking_pose"), dict)
+    if force:
+        reverse_required = True
+        evidence = "operator_force"
+    elif marker_requires_reverse:
+        reverse_required = True
+        evidence = "fresh_expected_marker"
+    elif pose_requires_reverse:
+        reverse_required = True
+        evidence = "fresh_parking_pose"
+    elif has_parking_pose_contract:
+        reverse_required = False
+        evidence = "fresh_pose_not_at_parking"
+    elif parked is True:
+        reverse_required = True
+        evidence = "process_parking_state"
+    else:
+        reverse_required = False
+        evidence = "parking_not_confirmed"
 
-    # 상태 게이트: '대기 도킹이 아님(False)'을 확실히 아는 경우에만 후진을 건너뛴다.
-    # None(기동 직후 등 미상)은 대기 상태일 수 있으므로 후방 안전체크를 거쳐 후진한다.
-    if parked is False and not force and not marker_requires_reverse:
-        print("[leave_dock] 대기-도킹 상태가 아님(standby_parked=False) → 후진 생략(no-op). "
-              "강제하려면 params.force=true")
+    if not reverse_required:
+        print(
+            f"[leave_dock] reverse no-op: {evidence} "
+            f"(standby_parked={parked}, marker={marker_id})"
+        )
+        runtime.set_standby_parked(False)
         return True
 
     duration_requested = (
@@ -2282,12 +2448,15 @@ def execute_leave_dock_step(step: MovementStep):
         requested_distance = speed * duration
     else:
         requested_distance = resolve_leave_dock_distance_m(payload)
-        speed, duration = leave_dock_motion_params({**payload, "distance_m": requested_distance})
     if requested_distance <= 0.005:
         print("[leave_dock] marker clearance already satisfied; handoff=Nav2")
         runtime.navigator.publish_stop_velocity()
         runtime.set_standby_parked(False)
         return True
+    if not duration_requested:
+        speed, duration = leave_dock_motion_params(
+            {**payload, "distance_m": requested_distance}
+        )
     try:
         _require_docking_motion_or_abort(payload, "leave_dock")
     except Exception as exc:
@@ -2327,7 +2496,7 @@ def execute_leave_dock_step(step: MovementStep):
                 print(f"[leave_dock] 후방 여유 {rear:.2f}m → 후진거리 {allowed:.2f}m 로 제한")
 
     print(f"[leave_dock] reversing out speed={speed:.3f}m/s distance={requested_distance:.3f}m "
-          f"(parked={parked}, force={force})")
+          f"(parked={parked}, evidence={evidence})")
     try:
         result = runtime.navigator.publish_velocity_for_distance(
             linear_x=-speed,
@@ -2335,7 +2504,7 @@ def execute_leave_dock_step(step: MovementStep):
             max_duration_sec=duration * 2.0 + 0.5,
             tolerance_m=float(payload.get("reverse_tolerance_m", 0.005)),
             stop_condition=lambda: (
-                _require_docking_motion_or_abort(payload, "leave_dock", require_aruco=True) or None
+                _require_docking_motion_or_abort(payload, "leave_dock", require_aruco=False) or None
             ),
         )
     except Exception:

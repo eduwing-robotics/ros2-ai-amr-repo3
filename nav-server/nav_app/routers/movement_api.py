@@ -61,6 +61,7 @@ def movement_latest_aruco(marker_id: Optional[int] = None):
     return {
         "robot_name": robot_context.active_bridge_robot_id(),
         "topic": robot_context.aruco_detection_topic(),
+        "observation": runtime.navigator.aruco_observation_status(),
         "marker_id": marker_id,
         "detections": detections,
         "max_age_sec": ARUCO_DETECTION_MAX_AGE_SEC,

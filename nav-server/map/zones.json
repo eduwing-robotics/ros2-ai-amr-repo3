@@ -87,6 +87,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 180,
+        "insert_extra_m": 0.06,
         "close_from_marker_width_only": true
       }
     },
@@ -139,6 +140,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 180,
+        "insert_extra_m": 0.06,
         "close_from_marker_width_only": true
       }
     },
@@ -185,6 +187,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 160,
+        "insert_extra_m": 0.06,
         "close_from_marker_width_only": true
       }
     },
@@ -231,6 +234,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 148,
+        "insert_extra_m": 0.06,
         "close_from_marker_width_only": true
       }
     },
@@ -252,6 +256,7 @@
       "theta": 1.571,
       "role": "입고 슬롯1 접근",
       "fork_insert_distance_m": 0.4,
+      "reverse_extra_m": 0.12,
       "soft_xy_tolerance_m": 0.22,
       "metric_two_stage": {
         "enabled": true,
@@ -285,6 +290,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 135,
+        "insert_extra_m": 0.11,
         "close_from_marker_width_only": true
       }
     },
@@ -300,6 +306,7 @@
       "theta": 1.571,
       "role": "입고 슬롯2 접근",
       "fork_insert_distance_m": 0.4,
+      "reverse_extra_m": 0.12,
       "soft_xy_tolerance_m": 0.12,
       "metric_two_stage": {
         "enabled": true,
@@ -333,6 +340,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 135,
+        "insert_extra_m": 0.11,
         "close_from_marker_width_only": true
       }
     },
@@ -380,6 +388,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 135,
+        "insert_extra_m": 0.11,
         "close_from_marker_width_only": true
       }
     },
@@ -428,6 +437,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 135,
+        "insert_extra_m": 0.11,
         "close_from_marker_width_only": true
       }
     },

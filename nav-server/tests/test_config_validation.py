@@ -90,6 +90,63 @@ def test_validate_robot_profile_accepts_lift_config():
     assert not errors
 
 
+def test_vision_aruco_sources_are_profile_specific_and_hostname_first():
+    import json
+    from pathlib import Path
+
+    robots = json.loads(
+        (Path(__file__).resolve().parents[1] / "config" / "robots.json").read_text()
+    )["robots"]
+    by_bridge = {robot["bridge_robot_id"]: robot for robot in robots}
+
+    assert by_bridge["tb3_1"]["aruco_observation"] == {
+        "transport": "vision_http",
+        "api_base_url": "http://smartfactory-vision.local:8100",
+        "source": "tb3_1_picam",
+        "poll_interval_sec": 0.1,
+        "request_timeout_sec": 0.3,
+        "limit": 20,
+    }
+    assert by_bridge["tb3_2"]["aruco_observation"] == {
+        "transport": "vision_http",
+        "api_base_url": "http://smartfactory-vision.local:8100",
+        "source": "tb3_2_picam",
+        "poll_interval_sec": 0.1,
+        "request_timeout_sec": 0.3,
+        "limit": 20,
+    }
+    assert not validate_robot_profile(by_bridge["tb3_1"])
+    assert not validate_robot_profile(by_bridge["tb3_2"])
+
+
+def test_vision_aruco_contract_rejects_cross_robot_source_and_raw_ip():
+    profile = {
+        "robot_id": "tb3_burger_01",
+        "bridge_robot_id": "tb3_1",
+        "ros_domain_id": 2,
+        "center_domain_id": 1,
+        "namespace": "/tb3_burger_01",
+        "teleop_command_topic": "/mission/tb3_1/teleop_cmd",
+        "camera_topic": "/mission/tb3_1/camera/compressed",
+        "active_map_yaml": "map/robot2_map.yaml",
+        "localization": _localization("robot2_map", "map/robot2_map.yaml"),
+        "field_dispatch": {"inbound": False, "outbound": False, "status": "BLOCKED"},
+        "aruco_observation": {
+            "transport": "vision_http",
+            "api_base_url": "http://192.168.30.12:8100",
+            "source": "tb3_2_picam",
+            "poll_interval_sec": 0.1,
+            "request_timeout_sec": 0.3,
+            "limit": 20,
+        },
+    }
+
+    errors = validate_robot_profile(profile)
+
+    assert any("aruco_observation.source" in error for error in errors)
+    assert any("hostname-first" in error for error in errors)
+
+
 def test_metric_docking_live_enable_requires_commissioned_measured_offsets():
     profile = {
         "robot_id": "tb3_burger_02",
@@ -378,6 +435,36 @@ def test_robot1_uses_confirmed_map_without_changing_robot_ownership():
     assert robot2["field_dispatch"]["outbound"] is True
     assert not validate_robot_profile(robot1)
     assert not validate_robot_profile(robot2)
+
+
+def test_tb2_stationary_global_search_reuses_robust_map_matcher_without_continuous_gate():
+    import json
+    from pathlib import Path
+
+    config_dir = Path(__file__).resolve().parents[1] / "config"
+    for filename in ("robots.json", "robots.nohardware.json"):
+        robots = json.loads((config_dir / filename).read_text())["robots"]
+        robot1 = next(item for item in robots if item["bridge_robot_id"] == "tb3_1")
+        robot2 = next(item for item in robots if item["bridge_robot_id"] == "tb3_2")
+        search = robot2["localization"]["global_search"]
+        matcher = robot2["localization"]["scan_map_alignment"]
+
+        assert search["default_strategy"] == "observe_only"
+        assert search["map_wide_scan_matching"] is True
+        assert search["motion_requires_explicit_request"] is True
+        assert matcher["enabled"] is False
+        assert matcher["point_selector"] == "wall_segments"
+        assert matcher["loss_backend"] == "hybrid_trimmed_huber"
+        assert matcher["global_loss_backend"] == "trimmed_huber"
+        assert matcher["scan_mount_fallback"] == {"x": -0.032, "y": 0.0, "yaw": 0.0}
+        assert {
+            key: value for key, value in matcher.items() if key != "enabled"
+        } == {
+            key: value
+            for key, value in robot1["localization"]["scan_map_alignment"].items()
+            if key != "enabled"
+        }
+        assert not validate_robot_profile(robot2)
 
 
 def test_warehouse_approaches_pass_map_free_space_audit():

@@ -16,6 +16,14 @@
       "enabled": true,
       "active_map_yaml": "map/robot2_map.yaml",
       "aruco_detection_topic": "/mission/tb3_1/aruco/detections",
+      "aruco_observation": {
+        "transport": "vision_http",
+        "api_base_url": "http://smartfactory-vision.local:8100",
+        "source": "tb3_1_picam",
+        "poll_interval_sec": 0.1,
+        "request_timeout_sec": 0.3,
+        "limit": 20
+      },
       "lift": {
         "enabled": false,
         "topics": {
@@ -199,6 +207,14 @@
       "enabled": true,
       "active_map_yaml": "map/robot2_map.yaml",
       "aruco_detection_topic": "/mission/tb3_2/aruco/detections",
+      "aruco_observation": {
+        "transport": "vision_http",
+        "api_base_url": "http://smartfactory-vision.local:8100",
+        "source": "tb3_2_picam",
+        "poll_interval_sec": 0.1,
+        "request_timeout_sec": 0.3,
+        "limit": 20
+      },
       "lift": {
         "enabled": true,
         "topics": {
@@ -240,12 +256,17 @@
         "max_covariance_x": 0.25,
         "max_covariance_y": 0.25,
         "max_covariance_yaw": 0.35,
-        "consecutive_samples": 10,
-        "convergence_timeout_sec": 120.0,
+        "consecutive_samples": 6,
+        "convergence_timeout_sec": 180.0,
         "persisted_seed_max_age_sec": 3600.0,
         "kidnapped_jump_distance_m": 1.5,
         "global_search": {
           "default_strategy": "observe_only",
+          "map_wide_scan_matching": true,
+          "map_wide_confirmation_scans": 3,
+          "map_wide_confirmation_window_scans": 5,
+          "map_wide_confirmation_translation_tolerance_m": 0.08,
+          "map_wide_confirmation_yaw_tolerance_rad": 0.05235988,
           "allowed_strategies": [
             "observe_only",
             "bounded_linear_wiggle"
@@ -272,7 +293,7 @@
             "yaw": 0.7
           },
           "coarse_consecutive_samples": 3,
-          "fine_consecutive_samples": 10,
+          "fine_consecutive_samples": 6,
           "coarse_stable_min_duration_sec": 1.5,
           "fine_stable_min_duration_sec": 3.0,
           "coarse_max_pose_jitter_m": 0.15,
@@ -286,7 +307,70 @@
         },
         "stable_min_duration_sec": 3.0,
         "max_pose_jitter_m": 0.08,
-        "max_yaw_jitter_rad": 0.15
+        "max_yaw_jitter_rad": 0.15,
+        "scan_map_alignment": {
+          "enabled": false,
+          "point_selector": "wall_segments",
+          "map_feature_field": "wall_centerline",
+          "loss_backend": "hybrid_trimmed_huber",
+          "global_point_selector": "all_points",
+          "global_map_feature_field": "occupied_surface",
+          "global_loss_backend": "trimmed_huber",
+          "loss_trim_fraction": 0.12,
+          "loss_huber_delta_m": 0.05,
+          "loss_area_weight": 0.2,
+          "outside_map_penalty_m": 0.1,
+          "segment_mismatch_weight": 1.0,
+          "segment_mismatch_quantile": 0.75,
+          "segment_mismatch_tolerance_m": 0.04,
+          "max_segment_mismatch_m": 0.015,
+          "wall_direction_weight_m_per_rad": 0.03,
+          "wall_direction_max_distance_m": 0.08,
+          "wall_direction_distance_slack_m": 0.0005,
+          "max_wall_direction_error_rad": 0.07853982,
+          "global_refine_candidates": 4,
+          "global_max_points": 180,
+          "global_fine_translation_step_m": 0.01,
+          "global_fine_yaw_step_rad": 0.00349066,
+          "global_min_score_margin_m": 0.003,
+          "global_max_mean_distance_m": 0.02,
+          "max_refinement_passes": 3,
+          "max_points": 240,
+          "max_range_m": 3.0,
+          "max_mean_distance_m": 0.018,
+          "min_match_ratio": 0.65,
+          "min_improvement_m": 0.001,
+          "accept_translation_residual_m": 0.02,
+          "accept_yaw_residual_rad": 0.00436332,
+          "search_translation_m": 0.06,
+          "search_yaw_rad": 0.06981317,
+          "coarse_yaw_step_rad": 0.00872665,
+          "fine_translation_window_m": 0.015,
+          "fine_yaw_window_rad": 0.01047198,
+          "fine_yaw_step_rad": 0.00174533,
+          "confirmation_scans": 3,
+          "confirmation_window_scans": 5,
+          "failure_confirmation_scans": 3,
+          "continuous_check_interval_sec": 1.0,
+          "localized_exit_translation_m": 0.05,
+          "localized_exit_yaw_rad": 0.08726646,
+          "localized_exit_mean_distance_m": 0.03,
+          "localized_exit_min_match_ratio": 0.5,
+          "confirmation_translation_tolerance_m": 0.005,
+          "confirmation_yaw_tolerance_rad": 0.00174533,
+          "correction_confirmation_translation_tolerance_m": 0.02,
+          "correction_confirmation_yaw_tolerance_rad": 0.01308997,
+          "scan_mount_fallback": {
+            "x": -0.032,
+            "y": 0.0,
+            "yaw": 0.0
+          },
+          "initial_covariance": {
+            "x": 0.02,
+            "y": 0.02,
+            "yaw": 0.01
+          }
+        }
       },
       "field_dispatch": {
         "inbound": true,

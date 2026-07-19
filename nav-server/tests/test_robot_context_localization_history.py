@@ -307,6 +307,30 @@ def test_scan_alignment_does_not_start_refinement_while_global_search_owns_local
     navigator.localization_alignment_observation.assert_not_called()
 
 
+def test_initial_match_only_keeps_commands_closed_while_global_search_runs(
+    localization_runtime, monkeypatch
+):
+    gate, navigator = localization_runtime
+    samples = [_sample(100.0 + index * 0.5) for index in range(10)]
+    navigator.localization_observation = lambda: _observation(samples)
+    navigator.scan_map_alignment_status = {"accepted": False, "reason": "not_checked"}
+    navigator.localization_alignment_observation = MagicMock()
+    navigator.global_localization_search_active = lambda: True
+    navigator.global_localization_search_status = lambda: {
+        "reason": "map_wide_candidate_pending",
+        "stage": "map_wide",
+    }
+    monkeypatch.setattr(robot_context, "alignment_config", lambda _profile: {"enabled": False})
+
+    health = robot_context.localization_health()
+
+    assert gate.state == "LOCALIZED"
+    assert health["localized"] is False
+    assert health["state"] == "CONVERGING"
+    assert health["reason"] == "global_localization_search_active"
+    navigator.localization_alignment_observation.assert_not_called()
+
+
 def test_concurrent_alignment_admission_claims_one_refinement(localization_runtime, monkeypatch):
     gate, _ = localization_runtime
     gate.state = "LOCALIZED"
