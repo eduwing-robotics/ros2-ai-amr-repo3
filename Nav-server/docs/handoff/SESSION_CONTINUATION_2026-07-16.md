@@ -164,3 +164,48 @@ cargo_state=EMPTY
 4. 실제 실행 전 Main이 생성한 payload를 preview로 보내 valid=true와 dropoff=warehouse_c_approach를 확인한다.
 5. task-389는 이미 FAILED이므로 반복하지 말고 수정 후 새 작업 ID로 1개 수량부터 검증한다.
 6. STORAGE_03/04는 API 변환 검증만 완료됐고 해당 위치 실차 주행은 아직 미검증이다.
+
+## 2026-07-19 robot1 리프트 장착 및 스택 정합 완료
+
+### robot1 식별값과 하드웨어
+
+- 대상: `tb3_burger_01` / bridge `tb3_1` / ROS domain `2` / Movement API `:8001`.
+- SBC: `codelab@192.168.30.101`.
+- Arduino Uno 리프트 컨트롤러 by-id: `/dev/serial/by-id/usb-Arduino__www.arduino.cc__0043_1344B435234351A077B6-if00`.
+- OpenCR와 Arduino Uno, LDS 장치를 서로 구분해 연결했다.
+- TMC2209 EN 배선 오류를 수정한 뒤 6mm 상승을 실물로 확인했다.
+- 이후 홈 복귀 피드백은 `POS 0`, `HOMED 1`, lower limit active였다.
+- 43mm/50mm 절대 높이 교정은 사용자 지시에 따라 보류했다. 재개 시 반드시 홈부터 시작해 각각 별도로 실측한다.
+
+### lift bridge 정리
+
+- robot1 SBC의 `/home/codelab/lift_project/ros2_ws`를 clean rebuild했다.
+- 이전 `/home/musk` install 경로 잔재를 제거했다.
+- production firmware는 `lift_turtlebot_final.ino`를 사용한다.
+- 최종 읽기 전용 확인에서 `/lift/position` publisher가 존재했다.
+
+### robot1 전체 스택 수정
+
+- `scripts/start_all_tb3_1.sh`를 robot2 런처의 준비 대기와 상태 검증 수준에 맞췄다.
+- robot1 고유값인 domain `2`, API `8001`, SBC `.101`, `tb3_burger_01`, ArUco marker size `0.04m`는 유지했다.
+- 로컬 `.env` 자동 로딩을 추가했다. `.env`는 Git ignore 대상이며 자격증명은 이 문서와 커밋에 포함하지 않는다.
+- 정식 저장소에 `venv`가 없을 때 `/home/lucas/slam_nav_ws/venv`를 사용하는 fallback을 추가했다.
+- robot SBC용 Fast DDS 프로필의 interface whitelist가 robot2 주소 `.102`로 고정되어 robot1 ROS discovery를 차단하던 문제를 확인했다.
+- robot1 배포 시 whitelist를 `192.168.30.101`로 치환해 `/odom`, `/scan`, `/cmd_vel` discovery를 복구했다.
+
+### 최종 읽기 전용 검증
+
+- Movement API `:8001`: `robot_online=true`, `command_accepting=true`, `nav2_ready=true`, `localized=true`.
+- `/cmd_vel` subscriber: robot1 `turtlebot3_node` 1개.
+- `/odom`, `/scan`, `/camera/image_raw/compressed`, `/mission/tb3_1/aruco/detections`, `/lift/position` publisher 확인.
+- ArUco marker `3` 실시간 검출 확인.
+- Nav2 lifecycle: `map_server`, `amcl`, `controller_server`, `planner_server`, `bt_navigator` 모두 active.
+- 대상 테스트: `18 passed` (`test_stack_launcher_contract.py`, `test_config_validation.py`, `test_lift_client.py`).
+- 이 과정에서는 로봇 주행 명령을 보내지 않았고, 6mm 확인 이후 추가 리프트 이동도 수행하지 않았다.
+
+### 다음 안전한 작업 순서
+
+1. robot1 전원 재인가가 필요한 시점에 stack 자동 복구를 검증한다.
+2. 주행 없이 API health, `/odom`, `/scan`, camera, ArUco, Nav2 lifecycle을 먼저 확인한다.
+3. 리프트 43mm/50mm 교정은 별도 작업으로 두고 홈 기준 실측 절차를 따른다.
+4. 실차 시나리오는 Movement preview가 valid인 것을 확인한 뒤 사용자에게 별도 실행 허용을 받는다.

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# tb3_1 전체 스택 원샷 런처 (tb3_2와 동일 구성)
+# tb3_1 전체 스택 원샷 런처
 #
 # 한 번에 띄우는 것:
 #   [로봇 SBC] bringup(odom/scan/TF) + lift_bridge + 카메라 (기본 ON, ssh)
 #   [Nav PC]   Nav2+RViz / Movement API(:8001) / ArUco detector
 #
 # 사용법:
-#   scripts/start_all_tb3_1.sh              # terminator split (기본, 로봇 SBC 포함)
+#   scripts/start_all_tb3_1.sh start        # terminator split (기본, 로봇 SBC 포함)
 #   scripts/start_all_tb3_1.sh restart      # 이 로봇만 종료 후 재기동 (tb3_2 유지)
 #   scripts/start_all_tb3_1.sh stop         # 이 로봇만 종료 (API :8001 / domain 2)
 #   scripts/start_all_tb3_1.sh status       # 상태 점검
@@ -16,7 +16,7 @@
 #
 #   WITH_ROBOT=0 scripts/start_all_tb3_1.sh # 로봇 SBC ssh 생략 (SBC에서 직접 기동할 때)
 #   WITH_LIFT=0 scripts/start_all_tb3_1.sh # lift_bridge pane 생략 (도킹만 테스트)
-#   WITH_EKF=1 scripts/start_all_tb3_1.sh # robot_localization EKF (wheel odom + IMU)
+#   WITH_EKF=1 scripts/start_all_tb3_1.sh # 선택: robot_localization EKF (기본은 검증된 wheel odom TF)
 #
 # Lift env (SBC 경로):
 #   WITH_LIFT=1 (기본)
@@ -27,6 +27,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ -f "$ROOT/.env" ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$ROOT/.env"
+  set +a
+fi
 ROBOT_SBC_DIR="$SCRIPT_DIR/robot_sbc"
 LOG_DIR="${LOG_DIR:-$ROOT/logs}"
 SESSION_MARKER="$LOG_DIR/tb3_1_stack.session"
@@ -47,11 +53,15 @@ else
   INIT_YAW="${INIT_YAW:-1.571}"
 fi
 ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
+ROS_NETWORK_SETUP="${ROS_NETWORK_SETUP:-$SCRIPT_DIR/setup_ros_robot_network_env.sh}"
+PROJECT_VENV="${PROJECT_VENV:-$ROOT/venv}"
+if [[ ! -x "$PROJECT_VENV/bin/python" && -x "/home/lucas/slam_nav_ws/venv/bin/python" ]]; then
+  PROJECT_VENV="/home/lucas/slam_nav_ws/venv"
+fi
 export DISPLAY="${DISPLAY:-:1}"
 
 # 기본: 로봇 SBC bringup/카메라/lift까지 ssh로 함께 기동
 WITH_ROBOT="${WITH_ROBOT:-1}"
-# 리프트: 로봇1에 Arduino Uno USB가 없으면 WITH_LIFT=0 권장
 WITH_LIFT="${WITH_LIFT:-1}"
 WITH_EKF="${WITH_EKF:-0}"
 LIFT_WS_SETUP="${LIFT_WS_SETUP:-/home/codelab/lift_project/ros2_ws/install/setup.bash}"
@@ -154,7 +164,7 @@ ssh_robot_bringup_body() {
     ekf_exports="TB3_EKF_MODE=1 TB3_EKF_OVERLAY=/tmp/tb3_ekf_bringup_overlay.yaml"
   fi
   cat <<EOF
-${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN LDS_MODEL=$ROBOT_LDS_MODEL USB_PORT='$ROBOT_USB' WS_SETUP='$ROBOT_WS_SETUP' $ekf_exports; bash -s" < "$ROBOT_SBC_DIR/start_bringup.sh"
+${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET ROS_STATIC_PEERS=192.168.30.12 FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/fastdds_robot_sbc.xml LDS_MODEL=$ROBOT_LDS_MODEL USB_PORT='$ROBOT_USB' WS_SETUP='$ROBOT_WS_SETUP' $ekf_exports; bash -s" < "$ROBOT_SBC_DIR/start_bringup.sh"
 EOF
 }
 
@@ -183,15 +193,19 @@ source '$SCRIPT_DIR/setup_ros_robot_network_env.sh' 2>/dev/null || true
 [[ -f "\$HOME/ros2_env.sh" ]] && source "\$HOME/ros2_env.sh" || true
 export ROS_DOMAIN_ID=$DOMAIN ROS_LOCALHOST_ONLY=0 DISPLAY='$DISPLAY' WITH_EKF=$WITH_EKF
 unset ROS_LOCALHOST_ONLY
-export ROS_AUTOMATIC_DISCOVERY_RANGE="\${ROS_AUTOMATIC_DISCOVERY_RANGE:-LOCALHOST}"
-export ROS_STATIC_PEERS="\${ROS_STATIC_PEERS:-192.168.30.101;192.168.30.102;192.168.30.12}"
+export ROS_AUTOMATIC_DISCOVERY_RANGE="\${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
+# Keep the complete peer roster loaded by ROS_NETWORK_SETUP.
 echo '========================================'
 echo '  ROBOT1 | Nav2+RViz | domain $DOMAIN | API :8001'
 echo "  DDS peers=\$ROS_STATIC_PEERS range=\$ROS_AUTOMATIC_DISCOVERY_RANGE"
 echo '========================================'
 echo '[nav2-rviz] bringup 토픽 대기... (WITH_EKF=$WITH_EKF)'
-'$SCRIPT_DIR/wait_for_robot_topics.sh' $DOMAIN $ROBOT_TOPIC_WAIT_SEC || echo '[nav2-rviz] WARNING: odom/scan 미수신 — Nav2 계속 시도'
-exec scripts/run_nav2_with_initial_pose.sh --robot tb3_1 --domain $DOMAIN --map '$MAP' --x '$INIT_X' --y '$INIT_Y' --yaw='$INIT_YAW' --delay 16 --repeat 10 --startup-retry 90 $ekf_flag
+until '$SCRIPT_DIR/wait_for_robot_topics.sh' $DOMAIN $ROBOT_TOPIC_WAIT_SEC; do
+  echo '[nav2-rviz] odom/scan 미수신 — 빈 RViz를 띄우지 않고 5s 후 다시 대기'
+  sleep 5
+done
+echo '[nav2-rviz] 로봇 토픽 준비 완료 — Nav2/RViz 기동'
+exec scripts/run_nav2_with_initial_pose.sh --robot tb3_1 --domain $DOMAIN --map '$MAP' --x '$INIT_X' --y '$INIT_Y' --yaw='$INIT_YAW' --delay 12 --repeat 5 --startup-retry 180 $ekf_flag
 EOF
 }
 
@@ -199,8 +213,10 @@ EOF
 cmd_detector1() {
   cat <<EOF
 cd '$ROOT'
+source '$ROS_NETWORK_SETUP' 2>/dev/null || true
 export ROS_DOMAIN_ID=$DOMAIN
 export ROBOT_ID=tb3_burger_01
+# Keep the complete peer roster loaded by ROS_NETWORK_SETUP.
 export ARUCO_MARKER_SIZE_M=0.04
 export START_CAMERA_LAUNCH=0
 export START_CAMERA_RELAY=1
@@ -214,7 +230,7 @@ echo "  log: $LOG_DIR/detector1_tb3_1.log"
 echo "========================================"
 while true; do
   echo '[detector1] 카메라 /camera/image_raw/compressed 대기 중...'
-  until timeout 4 ros2 topic echo /camera/image_raw/compressed --once --qos-reliability best_effort >/dev/null 2>&1; do
+  until [[ "\$(timeout --signal=INT --kill-after=2s 4s ros2 topic info /camera/image_raw/compressed 2>/dev/null | awk '/Publisher count:/ {print \$3}' | head -1)" =~ ^[1-9][0-9]*$ ]]; do
     sleep 3
   done
   echo '[detector1] 카메라 OK — detector 기동'
@@ -229,13 +245,52 @@ EOF
 }
 
 cmd_nav_servers() {
-  printf "cd '%s' && exec env ONLY_ROBOT=tb3_1 scripts/start_nav_servers.sh foreground\n" "$ROOT"
+  cat <<EOF
+cd '$ROOT'
+# shellcheck source=/dev/null
+source '$ROS_SETUP' 2>/dev/null || true
+# shellcheck source=/dev/null
+source '$ROS_NETWORK_SETUP' 2>/dev/null || true
+export ROS_DOMAIN_ID=$DOMAIN
+# Keep the complete peer roster loaded by ROS_NETWORK_SETUP.
+echo '[api-8001] bringup /odom + /scan 준비 대기...'
+'$SCRIPT_DIR/wait_for_robot_topics.sh' $DOMAIN 30 || \
+  echo '[api-8001] WARNING: bringup readiness timeout — API는 시작하고 health에서 연결 상태를 차단'
+echo '[api-8001] 준비 검사 종료 — Movement API 시작'
+exec env ONLY_ROBOT=tb3_1 PROJECT_VENV='$PROJECT_VENV' scripts/start_nav_servers.sh foreground
+EOF
 }
 
 cmd_status() {
   cat <<EOF
 cd '$ROOT'
-sleep $STATUS_DELAY_SEC
+# shellcheck source=/dev/null
+source '$ROS_SETUP' 2>/dev/null || true
+# shellcheck source=/dev/null
+source '$ROS_NETWORK_SETUP' 2>/dev/null || true
+export ROS_DOMAIN_ID=$DOMAIN
+echo '[status] 1/3 bringup /odom + /scan 대기...'
+'$SCRIPT_DIR/wait_for_robot_topics.sh' $DOMAIN $ROBOT_TOPIC_WAIT_SEC || true
+echo '[status] 2/3 Movement API :8001 health 대기...'
+deadline=\$(( \$(date +%s) + $ROBOT_TOPIC_WAIT_SEC ))
+while [[ \$(date +%s) -lt \$deadline ]]; do
+  if curl -fsS --max-time 2 'http://127.0.0.1:8001/movement-api/v1/health' >/dev/null 2>&1; then
+    echo '[status] API :8001 ready'
+    break
+  fi
+  sleep 2
+done
+echo '[status] 3/3 ArUco publisher 대기...'
+deadline=\$(( \$(date +%s) + $CAMERA_TOPIC_WAIT_SEC ))
+while [[ \$(date +%s) -lt \$deadline ]]; do
+  publishers=\$(timeout --signal=INT --kill-after=2s 3s ros2 topic info /mission/tb3_1/aruco/detections 2>/dev/null | awk '/Publisher count:/ {print \$3}' | head -1)
+  if [[ "\${publishers:-0}" -ge 1 ]]; then
+    echo '[status] ArUco publisher ready'
+    break
+  fi
+  sleep 2
+done
+echo '[status] readiness 대기 완료 — 최종 상태 점검'
 scripts/start_all_tb3_1.sh status
 echo
 echo '(재점검: scripts/start_all_tb3_1.sh status)'
@@ -390,6 +445,10 @@ start_terminator() {
   [[ -n "$TERMINATOR_BIN" ]] || die "terminator 필요 (sudo apt install terminator)"
   preflight_robot_ssh
   if [[ "$WITH_ROBOT" == "1" ]]; then
+    log "로봇 SBC Fast DDS 프로필 배포 → $ROBOT_SSH"
+    sed 's/192\.168\.30\.102/192.168.30.101/g' "$ROOT/config/fastdds_robot_sbc.xml" | \
+      "${SSH_CMD[@]}" "$ROBOT_SSH" "tee /tmp/fastdds_robot_sbc.xml >/dev/null" || \
+      die "SBC Fast DDS 프로필 배포 실패"
     log "로봇 SBC 카메라 스크립트 배포 → $ROBOT_SSH"
     ROBOT_SSH="$ROBOT_SSH" ROBOT_PW="$ROBOT_PW" \
       "$ROBOT_SBC_DIR/deploy_camera_to_sbc.sh" || die "카메라 스크립트 SBC 배포 실패"
@@ -407,7 +466,12 @@ start_terminator() {
     local w="$tmpd/pane_${idx}.sh"
     {
       printf '#!/usr/bin/env bash\nset +e\n'
+      # Keep this wrapper alive while the pane command runs. Some pane bodies
+      # use `exec`, which previously replaced the wrapper and made the health
+      # check falsely report those live panes as missing.
+      printf '(\n'
       printf '%s\n' "$body"
+      printf ')\n'
       printf 'ec=$?\n'
       printf 'echo\n'
       printf 'echo "[%s] 종료됨(exit=$ec) - Enter로 이 pane 닫기"\n' "$title"
@@ -499,7 +563,6 @@ lines = [
 ]
 
 # WITH_LIFT=0 이면 robot_row HPaned에 자식 1개만 남아 terminator가 레이아웃을 깨뜨림.
-# lift 있을 때만 robot_row를 쓰고, 없으면 bringup을 left_col에 직접 붙인다.
 has_lift = "R1-lift" in by_title
 if has_lift:
     lines.extend(
@@ -570,7 +633,7 @@ PY
   }
 
   local tlog="$tmpd/terminator.log"
-  terminator -m -u -g "$cfg" -l tb3_1 >"$tlog" 2>&1 &
+  nohup setsid dbus-run-session -- terminator -m -u -g "$cfg" -l tb3_1 >"$tlog" 2>&1 < /dev/null &
   local tpid=$!
   disown 2>/dev/null || true
   sleep 2
@@ -612,26 +675,30 @@ status_stack() {
   # shellcheck source=/dev/null
   source "$ROS_SETUP" 2>/dev/null
   set -u
+  # status must use the same DDS discovery settings as the launched stack.
+  # shellcheck source=/dev/null
+  source "$ROS_NETWORK_SETUP" 2>/dev/null || true
   export ROS_DOMAIN_ID="$DOMAIN"
+  # Keep the complete peer roster loaded by ROS_NETWORK_SETUP.
 
   printf '/odom 발행: '
-  if timeout 5 ros2 topic echo /odom --once >/dev/null 2>&1; then echo "OK"
+  if timeout --signal=INT --kill-after=2s 45s ros2 topic echo /odom --once >/dev/null 2>&1; then echo "OK"
   else echo "없음 (bringup/OpenCR 확인)"; fi
 
   printf '/scan 발행: '
-  if timeout 5 ros2 topic echo /scan --once >/dev/null 2>&1; then echo "OK"
+  if timeout --signal=INT --kill-after=2s 45s ros2 topic echo /scan --once --qos-reliability best_effort >/dev/null 2>&1; then echo "OK"
   else echo "없음 (bringup/LDS 확인)"; fi
 
   printf 'odom->base_footprint TF: '
-  if timeout 4 ros2 run tf2_ros tf2_echo odom base_footprint 2>/dev/null | head -1 | grep -q "At time"; then echo "OK"
+  if timeout --signal=INT --kill-after=2s 30s ros2 run tf2_ros tf2_echo odom base_footprint 2>/dev/null | head -1 | grep -q "At time"; then echo "OK"
   else echo "없음"; fi
 
   printf '카메라 /camera/image_raw/compressed: '
-  if timeout 5 ros2 topic echo /camera/image_raw/compressed --once --qos-reliability best_effort >/dev/null 2>&1; then echo "OK"
+  if timeout --signal=INT --kill-after=2s 45s ros2 topic echo /camera/image_raw/compressed --once --qos-reliability best_effort >/dev/null 2>&1; then echo "OK"
   else echo "없음 (카메라 pane 확인)"; fi
 
   printf 'ArUco /mission/tb3_1/aruco/detections: '
-  aruco_pub=$(timeout 3 ros2 topic info /mission/tb3_1/aruco/detections 2>/dev/null | awk '/Publisher count:/ {print $3}' | head -1)
+  aruco_pub=$(timeout --signal=INT --kill-after=2s 3s ros2 topic info /mission/tb3_1/aruco/detections 2>/dev/null | awk '/Publisher count:/ {print $3}' | head -1)
   if [[ "${aruco_pub:-0}" -ge 1 ]]; then
     echo "OK (publisher=$aruco_pub)"
   else
@@ -642,15 +709,29 @@ status_stack() {
   fi
 
   echo ""
+  echo "===== Nav2 lifecycle ====="
+  local lifecycle_node lifecycle_state
+  for lifecycle_node in map_server amcl controller_server planner_server bt_navigator; do
+    lifecycle_state=$(timeout --signal=INT --kill-after=2s 20s ros2 lifecycle get "/$lifecycle_node" 2>/dev/null || true)
+    if [[ "$lifecycle_state" == *"active [3]"* ]]; then
+      echo "$lifecycle_node: active"
+    elif [[ -n "$lifecycle_state" ]]; then
+      echo "$lifecycle_node: $lifecycle_state"
+    else
+      echo "$lifecycle_node: 없음/응답없음"
+    fi
+  done
+
+  echo ""
   echo "===== Lift (DOMAIN=$DOMAIN) ====="
-  lift_subs=$(timeout 4 ros2 topic info /lift/cmd_move 2>/dev/null | awk '/Subscription count:/ {print $3}' | head -1)
-  lift_pub=$(timeout 4 ros2 topic info /lift/position 2>/dev/null | awk '/Publisher count:/ {print $3}' | head -1)
+  lift_subs=$(timeout --signal=INT --kill-after=2s 4s ros2 topic info /lift/cmd_move 2>/dev/null | awk '/Subscription count:/ {print $3}' | head -1)
+  lift_pub=$(timeout --signal=INT --kill-after=2s 4s ros2 topic info /lift/position 2>/dev/null | awk '/Publisher count:/ {print $3}' | head -1)
   if [[ "${lift_subs:-0}" -ge 1 && "${lift_pub:-0}" -ge 1 ]]; then
     echo "lift_bridge OK (cmd_move subs=$lift_subs, position pub=$lift_pub)"
   elif [[ "${lift_subs:-0}" -ge 1 ]]; then
     echo "lift_bridge partial (cmd_move subs=$lift_subs, position pub=${lift_pub:-0})"
   else
-    echo "lift_bridge 없음 — robot-lift pane 또는: ROBOT_ID=tb3_burger_01 scripts/test_lift_tb3_2.sh status"
+    echo "lift_bridge 없음 — robot-lift pane 또는: scripts/test_lift_tb3_1.sh status"
     echo "  (lift 생략: WITH_LIFT=0 scripts/start_all_tb3_1.sh restart)"
   fi
 
