@@ -187,7 +187,7 @@ cargo_state=EMPTY
 ### robot1 전체 스택 수정
 
 - `scripts/start_all_tb3_1.sh`를 robot2 런처의 준비 대기와 상태 검증 수준에 맞췄다.
-- robot1 고유값인 domain `2`, API `8001`, SBC `.101`, `tb3_burger_01`, ArUco marker size `0.04m`는 유지했다.
+- robot1 고유값인 domain `2`, API `8001`, SBC `.101`, `tb3_burger_01`는 유지했다. ArUco marker size는 실제 공통 규격인 `0.05m`로 통일했다.
 - 로컬 `.env` 자동 로딩을 추가했다. `.env`는 Git ignore 대상이며 자격증명은 이 문서와 커밋에 포함하지 않는다.
 - 정식 저장소에 `venv`가 없을 때 `/home/lucas/slam_nav_ws/venv`를 사용하는 fallback을 추가했다.
 - robot SBC용 Fast DDS 프로필의 interface whitelist가 robot2 주소 `.102`로 고정되어 robot1 ROS discovery를 차단하던 문제를 확인했다.

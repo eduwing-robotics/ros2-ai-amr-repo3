@@ -216,7 +216,7 @@ source '$ROS_NETWORK_SETUP' 2>/dev/null || true
 export ROS_DOMAIN_ID=$DOMAIN
 export ROBOT_ID=tb3_burger_01
 # Keep the complete peer roster loaded by ROS_NETWORK_SETUP.
-export ARUCO_MARKER_SIZE_M=0.04
+export ARUCO_MARKER_SIZE_M=0.05
 export START_CAMERA_LAUNCH=0
 export START_CAMERA_RELAY=1
 DETECTOR_LOG='$LOG_DIR/detector1_tb3_1.log'

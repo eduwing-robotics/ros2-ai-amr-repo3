@@ -117,3 +117,9 @@ def test_robot1_launcher_stays_scoped_and_does_not_mask_failed_panes():
     pane_check = script[pane_check_start:pane_check_end]
     assert "detector1_fallback.log" not in pane_check
     assert "nohup bash" not in pane_check
+
+def test_robot1_uses_verified_five_centimeter_aruco_markers():
+    script = (ROOT / "scripts/start_all_tb3_1.sh").read_text()
+
+    assert "export ARUCO_MARKER_SIZE_M=0.05" in script
+    assert "export ARUCO_MARKER_SIZE_M=0.04" not in script

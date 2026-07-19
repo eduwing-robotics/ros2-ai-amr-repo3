@@ -18,7 +18,7 @@
 | Lift Arduino | `/dev/serial/by-id/usb-Arduino__www.arduino.cc__0043_1344B435234351A077B6-if00` |
 | Camera input | `/camera/image_raw/compressed` |
 | ArUco output | `/mission/tb3_1/aruco/detections` |
-| ArUco marker size | `0.04m` |
+| ArUco marker size | `0.05m` |
 
 기본 스택은 7개 pane으로 구성된다.
 
