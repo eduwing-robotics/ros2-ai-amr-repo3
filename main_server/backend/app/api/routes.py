@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from app.api.routers.comm import router as comm_router
 from app.api.routers.map_runtime import router as map_runtime_router
+from app.api.routers.movement_callbacks import router as movement_callbacks_router
 from app.api.routers.robots import router as robots_router
 from app.api.routers.scenario import router as scenario_router
 from app.api.routers.system import router as system_router
@@ -22,6 +23,7 @@ from app.domains.work_orders.router import router as work_orders_router
 router = APIRouter()
 router.include_router(system_router)
 router.include_router(movement_router)
+router.include_router(movement_callbacks_router)
 router.include_router(cameras_router)
 router.include_router(comm_router)
 router.include_router(db_admin_router)

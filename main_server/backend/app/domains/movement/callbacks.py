@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import zlib
+from collections.abc import Callable
 from typing import Any
 
 from app.core.config import settings
 from app.db.connection import MOVEMENT_CALLBACK_LOCK_NAMESPACE, advisory_xact_lock_for_key
 from app.db.postgres import operational_events
-from app.domains.execution import callback_workflow
 from app.domains.movement.pose_runtime import pose_runtime
 
 
@@ -48,13 +48,15 @@ def _lock_callback_event(conn, payload: dict[str, Any]) -> None:
     advisory_xact_lock_for_key(conn, MOVEMENT_CALLBACK_LOCK_NAMESPACE, key)
 
 
-def ingest_command_event(conn, payload: dict[str, Any]) -> dict[str, Any]:
-    """Persist a command callback and advance Execution when applicable."""
+def ingest_command_event(
+    conn, payload: dict[str, Any], apply_event: Callable[[Any, dict[str, Any]], bool]
+) -> dict[str, Any]:
+    """event ID를 직렬화·중복 확인한 뒤 주입된 상위 workflow 적용 결과를 반환한다."""
     payload = _with_callback_event_id(payload, "event")
     _lock_callback_event(conn, payload)
     if _is_duplicate_callback(conn, payload):
         return {"message": "duplicate movement callback ignored", "duplicate": True, "task_advanced": False}
-    advanced = callback_workflow.apply_command_event(conn, payload)
+    advanced = apply_event(conn, payload)
     return {"message": "movement command event saved", "duplicate": False, "task_advanced": advanced}
 
 

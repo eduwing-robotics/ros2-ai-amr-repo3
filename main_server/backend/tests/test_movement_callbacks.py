@@ -16,6 +16,7 @@ try:
 except ImportError:
     TestClient = None  # type: ignore[misc, assignment]
 
+from app.api.routers import movement_callbacks as callback_routes
 from app.domains.execution import callback_workflow
 from app.domains.movement import callbacks
 from app.domains.movement import router as routes
@@ -44,32 +45,33 @@ class MovementCallbackServiceTest(unittest.TestCase):
         for robot_id in ("r1", "r2", "r3"):
             set_robot_emergency(robot_id, False)
 
-    @patch("app.domains.movement.callbacks.callback_workflow.apply_command_event")
     @patch("app.domains.movement.callbacks.operational_events")
-    def test_ingest_command_event_appends_and_forwards(self, operational_events, apply_event) -> None:
+    def test_ingest_command_event_appends_and_forwards(self, operational_events) -> None:
+        apply_event = MagicMock(return_value=True)
         operational_events.callback_event_exists = self.event.callback_event_exists
         payload = {"command_id": "cmd-1", "robot_name": "r1", "event": "ACCEPTED"}
 
-        callbacks.ingest_command_event(self.conn, payload)
+        callbacks.ingest_command_event(self.conn, payload, apply_event)
 
         apply_event.assert_called_once_with(self.conn, payload)
 
-    @patch("app.domains.movement.callbacks.callback_workflow.apply_command_event")
     @patch("app.domains.movement.callbacks.operational_events")
-    def test_duplicate_event_id_is_acknowledged_without_reapply(self, operational_events, apply_event) -> None:
+    def test_duplicate_event_id_is_acknowledged_without_reapply(self, operational_events) -> None:
+        apply_event = MagicMock()
         operational_events.callback_event_exists = self.event.callback_event_exists
         self.event.callback_event_exists.return_value = True
         result = callbacks.ingest_command_event(
             self.conn,
             {"command_id": "cmd-1", "robot_name": "r1", "event": "DONE", "event_id": "evt-1"},
+            apply_event,
         )
         self.assertTrue(result["duplicate"])
         apply_event.assert_not_called()
 
     @patch("app.domains.movement.callbacks.advisory_xact_lock_for_key")
-    @patch("app.domains.movement.callbacks.callback_workflow.apply_command_event")
     @patch("app.domains.movement.callbacks.operational_events")
-    def test_event_id_is_locked_and_task_id_is_linked(self, operational_events, apply_event, advisory_lock) -> None:
+    def test_event_id_is_locked_and_task_id_is_linked(self, operational_events, advisory_lock) -> None:
+        apply_event = MagicMock(return_value=True)
         operational_events.callback_event_exists.return_value = False
         payload = {
             "event_id": "exec-344:6:completed",
@@ -78,7 +80,7 @@ class MovementCallbackServiceTest(unittest.TestCase):
             "robot_name": "tb3_2",
             "event": "STEP_COMPLETED",
         }
-        callbacks.ingest_command_event(self.conn, payload)
+        callbacks.ingest_command_event(self.conn, payload, apply_event)
 
         lock_args = advisory_lock.call_args.args
         self.assertIs(lock_args[0], self.conn)
@@ -230,8 +232,8 @@ class MovementCallbackRouteTest(unittest.TestCase):
         for p in reversed(self._patches):
             p.stop()
 
-    @patch("app.domains.movement.router.transaction")
-    @patch("app.domains.movement.router.callbacks.ingest_command_event")
+    @patch("app.api.routers.movement_callbacks.transaction")
+    @patch("app.api.routers.movement_callbacks.callbacks.ingest_command_event")
     def test_command_events_route_shape(self, ingest, transaction_ctx) -> None:
         conn = MagicMock()
         transaction_ctx.return_value.__enter__.return_value = conn
@@ -243,7 +245,7 @@ class MovementCallbackRouteTest(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         body = res.json()
         self.assertEqual(body["message"], "movement command event saved")
-        ingest.assert_called_once_with(conn, payload)
+        ingest.assert_called_once_with(conn, payload, callback_routes.callback_workflow.apply_command_event)
 
     @patch("app.main.transaction")
     @patch("app.main.operational_events")
@@ -258,8 +260,8 @@ class MovementCallbackRouteTest(unittest.TestCase):
         events.append.assert_called_once()
         self.assertEqual(events.append.call_args.kwargs["event_type"], "MOVEMENT_CALLBACK_VALIDATION_FAILED")
 
-    @patch("app.domains.movement.router.transaction")
-    @patch("app.domains.movement.router.callbacks.ingest_command_event")
+    @patch("app.api.routers.movement_callbacks.transaction")
+    @patch("app.api.routers.movement_callbacks.callbacks.ingest_command_event")
     def test_callback_token_is_required_when_configured(self, ingest, transaction_ctx) -> None:
         conn = MagicMock()
         transaction_ctx.return_value.__enter__.return_value = conn

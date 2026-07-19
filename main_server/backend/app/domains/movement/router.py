@@ -30,9 +30,7 @@ from app.domains.movement.teleop import execute_teleop
 from app.domains.records import movement_commands
 from app.models.common import ApiMessage
 from app.models.movement import (
-    MovementCallbackAck,
     MovementRobotStatusCallback,
-    RobotCommandEvent,
 )
 from app.models.robot_commands import RobotCommandRequest, RobotCommandResponse
 from app.models.robots import (
@@ -246,14 +244,6 @@ def movement_command_trace(command_id: str, robot_id: str | None = Query(default
         "polling_error": polling_error,
         "source": "polling" if polling else "callback" if callbacks else "db" if command else "none",
     }
-
-
-@router.post("/movement/command-events", response_model=MovementCallbackAck)
-def movement_command_event(payload: RobotCommandEvent, request: Request) -> MovementCallbackAck:
-    """Movement callback_url 이벤트를 수신해 이벤트 타임라인에 기록한다."""
-    require_callback_token(request)
-    with transaction() as conn:
-        return MovementCallbackAck(**callbacks.ingest_command_event(conn, payload.to_payload()))
 
 
 @router.post("/movement/robots/{robot_name}/status", response_model=ApiMessage)
