@@ -172,7 +172,9 @@ class AdvanceTaskEstopTest(unittest.TestCase):
             postgres_tasks.get_task.return_value = task
             evidence.attach_orchestration.side_effect = lambda row, _conn: row
             evidence.resolve_command_definition_id.return_value = "cmddef"
-            orchestrator.advance_on_command_event(conn, 7, {"event": "ABORTED", "reason": "path_blocked", "command_id": "cmd-1"})
+            orchestrator.advance_on_command_event(
+                conn, 7, {"event": "ABORTED", "reason": "path_blocked", "command_id": "cmd-1"}
+            )
 
         postgres_tasks.set_status.assert_called_once_with(conn, 7, "FAILED", clear_robot=True)
         postgres_robots.set_task.assert_called_once_with(conn, "robot1", "IDLE", None)
@@ -405,6 +407,46 @@ class MovementOwnedScenarioTest(unittest.TestCase):
         self.assertEqual(saved["phase"], "AWAITING_OPERATOR")
         self.assertEqual(saved["recovery"]["cargo_state"], "LOADED")
         self.assertEqual(task["status"], "RUNNING")
+
+    def test_command_failed_after_business_completion_marks_only_parking_failed(self) -> None:
+        conn = MagicMock()
+        task = self._task(business_completed=True)
+        patches = self._patches(task)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4] as save,
+            patches[5] as events,
+            patches[6],
+            patch.object(orchestrator, "finalize_running_task_as_done", return_value={"status": "DONE"}) as finalize,
+        ):
+            result = orchestrator.advance_on_command_event(
+                conn,
+                344,
+                {
+                    "contract_version": "1.0",
+                    "command_id": "main-task-344-scenario-001",
+                    "event": "COMMAND_FAILED",
+                    "current_step_index": 7,
+                    "current_step_code": "RETURN_HOME",
+                    "last_completed_step_index": 6,
+                    "cargo_state": "EMPTY",
+                    "business_completed": True,
+                    "authority_owner": "MOVEMENT",
+                    "authority_released": False,
+                    "navigator_status": "ERROR",
+                    "is_emergency": False,
+                },
+            )
+
+        self.assertEqual(result, {"status": "DONE"})
+        saved = save.call_args.args[2]
+        self.assertEqual(saved["phase"], "DONE")
+        self.assertEqual(saved["return_status"], "PARK_FAILED")
+        self.assertEqual(events.append.call_args.kwargs["event_type"], "TASK_PARKING_FAILED")
+        finalize.assert_called_once_with(conn, 344, source="callback")
 
 
 class PollRunningTasksGateTest(unittest.TestCase):

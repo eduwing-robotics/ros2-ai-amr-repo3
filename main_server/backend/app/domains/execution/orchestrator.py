@@ -29,21 +29,21 @@ logger = logging.getLogger(__name__)
 TERMINAL_STEP_STATES = {"DONE", "FAILED", "ABORTED", "CANCELLED"}
 
 
-def _accept_event_sequence(step: dict[str, Any], event: dict[str, Any], source: str) -> tuple[bool, int | None]:
+def _accept_event_sequence(step: dict[str, Any], event: dict[str, Any], source: str) -> bool:
     sequence = event.get("sequence")
     if sequence is None:
-        return True, None
+        return True
     sequence = int(sequence)
     last_sequence = step.get("last_event_sequence")
     if last_sequence is not None and sequence <= int(last_sequence):
-        return False, sequence
+        return False
     expected_sequence = int(last_sequence) + 1 if last_sequence is not None else 0
     if sequence > expected_sequence:
         step["callback_sequence_gap"] = {"expected": expected_sequence, "received": sequence}
     elif source == "task_progress_poller":
         step.pop("callback_sequence_gap", None)
     step["last_event_sequence"] = sequence
-    return True, sequence
+    return True
 
 
 def _handle_cancel_requested(
@@ -94,9 +94,7 @@ def _handle_cancel_requested(
         result = finalize_running_task_as_done(conn, task_id, source=source)
     elif cargo_state == "LOADED":
         execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
-        execution.replace_recovery(
-            {"reason": "operator_safe_stop", "robot_id": robot_id, "cargo_state": cargo_state}
-        )
+        execution.replace_recovery({"reason": "operator_safe_stop", "robot_id": robot_id, "cargo_state": cargo_state})
         evidence.save_orchestration(conn, task_id, execution.data)
         result = _task(conn, task_id)
     else:
@@ -158,7 +156,9 @@ def _handle_failed_event(
     cargo_state = str(scenario_progress.get("cargo_state") or "").upper()
     if cargo_state not in {"EMPTY", "LOADED"}:
         cargo_state = (
-            "UNKNOWN" if str(step.get("kind")) == "inout_scenario" else orch_state.cargo_state_after_steps(execution.steps)
+            "UNKNOWN"
+            if str(step.get("kind")) == "inout_scenario"
+            else orch_state.cargo_state_after_steps(execution.steps)
         )
     estop_failure = event_name == "ABORTED" and "estop" in reason
     if cargo_state in {"LOADED", "UNKNOWN"} or estop_failure:
@@ -330,6 +330,7 @@ def _handle_successful_event(
     )
     return _task(conn, task_id)
 
+
 def _orchestration_phase(conn, task_id: int) -> str | None:
     task = evidence.attach_orchestration(tasks.get_task(conn, task_id), conn)
     if not task:
@@ -399,8 +400,6 @@ def _task(conn, task_id: int) -> dict[str, Any] | None:
     return evidence.attach_orchestration(tasks.get_task(conn, task_id), conn)
 
 
-
-
 def _orch(task: dict[str, Any]) -> dict[str, Any]:
     snap = task.get("preset_snapshot") or {}
     orch = snap.get("_orchestration")
@@ -438,8 +437,12 @@ def start_task_orchestration(
         tasks.unassign_to_queue(conn, task_id)
         robots.set_task(conn, str(robot_id), "IDLE", None)
         tasks.add_history(
-            conn, task_id, "ASSIGNED", "QUEUED",
-            f"Movement readiness deferred: {readiness_reason}", source,
+            conn,
+            task_id,
+            "ASSIGNED",
+            "QUEUED",
+            f"Movement readiness deferred: {readiness_reason}",
+            source,
         )
         operational_events.append(
             conn,
@@ -514,7 +517,10 @@ def dispatch_current_step(conn, task_id: int) -> str:
 
     if str(step.get("kind")) in {"move_to_point", "inout_scenario"}:
         monitor_ready = person_hazard.enable_monitor(
-            robot_id, task_id, command_id=command_id, step_kind=str(step.get("kind")),
+            robot_id,
+            task_id,
+            command_id=command_id,
+            step_kind=str(step.get("kind")),
         )
         if not monitor_ready:
             raise HTTPException(
@@ -676,8 +682,7 @@ def advance_on_command_event(
             return None
     if source == "task_progress_poller":
         step.pop("callback_sequence_gap", None)
-    accepted_sequence, sequence = _accept_event_sequence(step, event, source)
-    if not accepted_sequence:
+    if not _accept_event_sequence(step, event, source):
         return None
 
     scenario_progress: dict[str, Any] = {}
@@ -709,13 +714,9 @@ def advance_on_command_event(
     _settle_scenario_unload(conn, task_id, task, execution, event, scenario_progress)
 
     if event_name in {"FAILED", "ABORTED", "REJECTED", "CANCELLED"}:
-        return _handle_failed_event(
-            conn, task_id, task, execution, event, event_name, scenario_progress, source
-        )
+        return _handle_failed_event(conn, task_id, task, execution, event, event_name, scenario_progress, source)
 
     return _handle_successful_event(conn, task_id, task, execution, event, source, command_definition_id)
-
-
 
 
 def _bind_missing_callback_command(conn, task_id: int, task: dict[str, Any], payload: dict[str, Any]) -> bool:
@@ -779,7 +780,9 @@ def handle_command_event(conn, payload: dict[str, Any]) -> dict[str, Any] | None
     _bind_missing_callback_command(conn, int(task_id), task, payload)
     orch = _orch(task)
     recovery_state = orch.get("recovery") or {}
-    if str(orch.get("phase") or "") == orch_state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING and recovery_state.get("active_command_id"):
+    if str(orch.get("phase") or "") == orch_state.RobotTaskOrchestrationPhase.RECOVERY_RUNNING and recovery_state.get(
+        "active_command_id"
+    ):
         result = recovery.handle_recovery_command_event(conn, int(task_id), payload)
         if result is not None:
             return result

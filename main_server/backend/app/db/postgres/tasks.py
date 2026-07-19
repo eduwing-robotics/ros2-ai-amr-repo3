@@ -116,8 +116,7 @@ def active_outbound_claims_by_location(conn, item_id: str) -> dict[tuple[str, in
         (list(ACTIVE_TASK_STATUSES), item_id),
     ).fetchall()
     return {
-        (str(row["from_location_id"]), int(row.get("from_floor") or DEFAULT_FLOOR)): int(row["claimed"])
-        for row in rows
+        (str(row["from_location_id"]), int(row.get("from_floor") or DEFAULT_FLOOR)): int(row["claimed"]) for row in rows
     }
 
 

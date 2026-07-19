@@ -150,14 +150,17 @@ class CallbackConsistencyTest(unittest.TestCase):
             patch.object(orchestrator, "operational_events") as events,
             patch.object(orchestrator, "advance_on_command_event") as advance,
         ):
-            orchestrator.handle_command_event(conn, {
-                "task_id": 1,
-                "robot_name": "r1",
-                "command_id": "cmd-1",
-                "event": "ACCEPTED",
-                "current_step_index": 0,
-                "current_step_action": "leave_dock",
-            })
+            orchestrator.handle_command_event(
+                conn,
+                {
+                    "task_id": 1,
+                    "robot_name": "r1",
+                    "command_id": "cmd-1",
+                    "event": "ACCEPTED",
+                    "current_step_index": 0,
+                    "current_step_action": "leave_dock",
+                },
+            )
 
         step = task["preset_snapshot"]["_orchestration"]["steps"][0]
         self.assertEqual(step["status"], "DISPATCHED")
@@ -185,13 +188,16 @@ class CallbackConsistencyTest(unittest.TestCase):
             patch.object(orchestrator, "evidence") as evidence,
             patch.object(orchestrator, "advance_on_command_event"),
         ):
-            orchestrator.handle_command_event(conn, {
-                "task_id": 1,
-                "robot_name": "r1",
-                "command_id": "cmd-foreign",
-                "current_step_index": 1,
-                "current_step_action": "move_to_point",
-            })
+            orchestrator.handle_command_event(
+                conn,
+                {
+                    "task_id": 1,
+                    "robot_name": "r1",
+                    "command_id": "cmd-foreign",
+                    "current_step_index": 1,
+                    "current_step_action": "move_to_point",
+                },
+            )
 
         self.assertIsNone(task["preset_snapshot"]["_orchestration"]["steps"][0]["command_id"])
         evidence.save_orchestration.assert_not_called()
@@ -226,6 +232,15 @@ class CallbackConsistencyTest(unittest.TestCase):
             )
         self.assertIsNone(result)
         evidence.record_movement_evidence.assert_not_called()
+
+    def test_sequence_gap_is_recorded_and_status_poll_clears_it(self) -> None:
+        step = {"last_event_sequence": 2}
+
+        self.assertTrue(orchestrator._accept_event_sequence(step, {"sequence": 5}, "callback"))
+        self.assertEqual(step["callback_sequence_gap"], {"expected": 3, "received": 5})
+        self.assertTrue(orchestrator._accept_event_sequence(step, {"sequence": 6}, "task_progress_poller"))
+        self.assertNotIn("callback_sequence_gap", step)
+        self.assertEqual(step["last_event_sequence"], 6)
 
 
 if __name__ == "__main__":

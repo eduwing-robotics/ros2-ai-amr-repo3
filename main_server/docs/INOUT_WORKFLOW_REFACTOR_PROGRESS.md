@@ -41,7 +41,7 @@
 ## Change Budget
 
 - New production files: 4 / 4
-- Production net lines: +151 / +300 target
+- Production net lines: +153 / +300 target
 - Database migrations: 0 planned
 - Physical commands during phases 1–6: none
 
@@ -57,6 +57,7 @@
 - 2026-07-19: 물리 회귀 preflight에서 ESTOP은 `clear`이나 `tb3_2`는 `OFFLINE`·`command_enabled=false`, Movement `192.168.10.54:8002`는 연결 거부. 실패 작업을 만들지 않도록 입출고 명령과 서버 교체는 수행하지 않음.
 - 2026-07-19: worktree 서버에서 입고 #391 `INBOUND_02 → STORAGE_02` 실행. 9단계와 LOAD·UNLOAD·RETURN_HOME·PARK 모두 완료, `bolt_1` 재고 `0 → 1`, 최종 `DONE/PARKED` 확인.
 - 2026-07-19: callback 취소·실패·업무 완료·정상 완료를 기존 orchestrator 내부 책임 함수로 분리해 `advance_on_command_event` 복잡도 `39 → 13`으로 축소. 단계 index 정본화와 Work Order operation별 위치 조회를 적용하고 Backend `282 passed, 54 skipped, 3 subtests`, Ruff와 Frontend 전체 gate 통과.
+- 2026-07-19: 업무 완료 후 중단·Movement 실패의 `PARK_FAILED` 보존과 callback sequence gap 기록·poll 보정을 직접 검증하는 테스트 3건 추가. sequence helper를 bool 계약으로 축소하고 변경 파일 formatter 적용. Backend `285 passed, 54 skipped, 3 subtests`, Ruff·compile/import·Frontend 전체 gate 통과.
 
 ## Next
 

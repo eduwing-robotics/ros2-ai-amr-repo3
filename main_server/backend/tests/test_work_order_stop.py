@@ -146,7 +146,9 @@ def test_stop_without_active_command_requires_confirmed_robot_stop() -> None:
 def test_stop_work_order_facade_delegates_to_execution() -> None:
     conn = MagicMock()
     expected = {"status": "CANCEL_REQUESTED"}
-    with patch.object(work_orders.execution_safe_stop, "request_work_order_stop", return_value=expected) as request_stop:
+    with patch.object(
+        work_orders.execution_safe_stop, "request_work_order_stop", return_value=expected
+    ) as request_stop:
         assert work_orders.stop_work_order(conn, 42) == expected
     request_stop.assert_called_once_with(conn, 42)
 
@@ -247,6 +249,34 @@ def test_stop_callback_with_empty_robot_cancels_task() -> None:
     robots.set_task.assert_called_once_with(conn, "robot1", "IDLE", None)
 
 
+def test_stop_callback_after_business_completion_keeps_done_and_marks_parking_failed() -> None:
+    conn = MagicMock()
+    task = _task(business_completed=True)
+    orch = task["preset_snapshot"]["_orchestration"]
+    orch["phase"] = "CANCEL_REQUESTED"
+    orch["stop_request"] = {"cargo_state": "EMPTY", "business_completed": True}
+    with (
+        patch.object(orchestrator, "tasks") as tasks,
+        patch.object(orchestrator, "evidence") as evidence,
+        patch.object(orchestrator, "operational_events"),
+        patch.object(orchestrator, "finalize_running_task_as_done", return_value={"status": "DONE"}) as finalize,
+    ):
+        tasks.get_task.return_value = task
+        evidence.attach_orchestration.side_effect = lambda row, _conn: row
+        result = orchestrator.advance_on_command_event(
+            conn,
+            42,
+            {"command_id": "cmd-active", "state": "STOPPED"},
+        )
+
+    assert result == {"status": "DONE"}
+    saved = evidence.save_orchestration.call_args.args[2]
+    assert saved["phase"] == "DONE"
+    assert saved["return_status"] == "PARK_FAILED"
+    assert saved["parking_error"]["reason"] == "operator_safe_stop"
+    finalize.assert_called_once_with(conn, 42, source="callback")
+
+
 def test_stop_terminal_event_is_not_applied_twice() -> None:
     conn = MagicMock()
     task = _task()
@@ -262,12 +292,8 @@ def test_stop_terminal_event_is_not_applied_twice() -> None:
     ):
         tasks.get_task.return_value = task
         evidence.attach_orchestration.side_effect = lambda row, _conn: row
-        first = orchestrator.advance_on_command_event(
-            conn, 42, {"command_id": "cmd-active", "state": "STOPPED"}
-        )
-        second = orchestrator.advance_on_command_event(
-            conn, 42, {"command_id": "cmd-active", "state": "STOPPED"}
-        )
+        first = orchestrator.advance_on_command_event(conn, 42, {"command_id": "cmd-active", "state": "STOPPED"})
+        second = orchestrator.advance_on_command_event(conn, 42, {"command_id": "cmd-active", "state": "STOPPED"})
 
     assert first is not None
     assert second is None
