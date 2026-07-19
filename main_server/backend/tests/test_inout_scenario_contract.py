@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.domains.execution import evidence, inout_scenarios, orchestrator
+from app.domains.execution import steps as scenario_steps
 from app.domains.movement import commands
 from app.models.movement import RobotCommandEvent
 from app.models.robot_commands import RobotCommandRequest
@@ -89,7 +90,7 @@ def test_task_builds_one_scenario_command_with_db_approach_snapshot(task_type: s
     assert len(planned) == 1
     assert planned[0]["kind"] == "inout_scenario"
     assert [step["step_code"] for step in planned[0]["route_timeline"]] == [
-        code for code, _label in inout_scenarios.BUSINESS_STEPS
+        code for code, _label in scenario_steps.BUSINESS_STEPS
     ]
     assert all(step["status"] == "PENDING" for step in planned[0]["route_timeline"])
 
@@ -212,7 +213,7 @@ def test_uncertain_post_retries_same_body_only_after_status_404() -> None:
 
 
 def test_timeline_advances_only_with_matching_business_step_code() -> None:
-    step = {"route_timeline": inout_scenarios.business_timeline()}
+    step = {"route_timeline": scenario_steps.business_timeline()}
     orchestrator._update_route_timeline(
         step,
         {"current_step_index": 3, "current_step_code": "LOAD", "event": "STEP_STARTED"},

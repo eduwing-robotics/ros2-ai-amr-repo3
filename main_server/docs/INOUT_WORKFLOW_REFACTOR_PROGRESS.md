@@ -25,8 +25,8 @@
 | Phase | Status | Deliverable | Verification |
 | --- | --- | --- | --- |
 | 1. Characterization | Complete | 기존 성공·거절·callback·재고 의미 고정 | 64 passed, 17 skipped, 3 subtests |
-| 2. Shared definitions | In progress | 9단계·상태·operation 정본 통합 | 단위 테스트·TypeScript |
-| 3. Work Order workflow | Pending | 계획→Task→배정→Movement 접수 순서 추출 | Work Order 테스트 |
+| 2. Shared definitions | Complete | 9단계 정본을 `execution/steps.py`로 통합 | 32 passed, Ruff passed |
+| 3. Work Order workflow | In progress | 계획→Task→배정→Movement 접수 순서 추출 | Work Order 테스트 |
 | 4. Callback workflow | Pending | 순수 전이 판단과 DB effect 반영 분리 | 중복·역순·복구 테스트 |
 | 5. Performance | Pending | claim 일괄 조회·Frontend Map 계산 | SQL 횟수·Frontend 테스트 |
 | 6. Quality gates | Pending | 전체 정적 검사·테스트·production build | CI와 동일 명령 |
@@ -40,8 +40,8 @@
 
 ## Change Budget
 
-- New production files: 0 / 4
-- Production net lines: 0 / +300 target
+- New production files: 1 / 4
+- Production net lines: approximately +6 / +300 target
 - Database migrations: 0 planned
 - Physical commands during phases 1–6: none
 
@@ -49,7 +49,8 @@
 
 - 2026-07-19: worktree와 작업 브랜치 생성, 기준 커밋 및 기존 테스트 범위 확인.
 - 2026-07-19: 입출고 관련 baseline `64 passed, 17 skipped, 3 subtests passed`; 기존 테스트가 접수 거절, callback 중복, 단계 계약, safe-stop cargo 상태를 이미 고정함을 확인.
+- 2026-07-19: 9단계와 transfer action을 `execution/steps.py`로 이동. 관련 계약·진행·안전 테스트 32건과 Ruff 통과.
 
 ## Next
 
-9단계 정의를 `execution/steps.py`로 이동하고 기존 API·timeline 결과가 바뀌지 않는지 검증한다.
+Work Order 생성·자동 시작의 현재 호출 순서와 transaction 경계를 분석한 뒤 얇은 workflow 진입점을 추출한다.

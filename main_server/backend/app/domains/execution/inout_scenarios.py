@@ -15,19 +15,6 @@ from app.domains.movement.client import movement_robot_key
 CONTRACT_VERSION = "1.0"
 FRAME_ID = "map"
 
-BUSINESS_STEPS: tuple[tuple[str, str], ...] = (
-    ("LEAVE_HOME", "대기 위치 출차"),
-    ("PICKUP_APPROACH", "적재 위치 이동"),
-    ("PICKUP_ALIGN", "적재 위치 정밀 접근"),
-    ("LOAD", "화물 적재"),
-    ("TRANSPORT", "목적 위치 이동"),
-    ("DROPOFF_ALIGN", "하역 위치 정밀 접근"),
-    ("UNLOAD", "화물 하역"),
-    ("RETURN_HOME", "대기 위치 복귀"),
-    ("PARK", "대기 위치 주차"),
-)
-STEP_CODE_TO_INDEX = {code: index for index, (code, _label) in enumerate(BUSINESS_STEPS)}
-
 # DB schema를 바꾸지 않고 기존 업무 위치와 release-managed 접근 waypoint를 연결하는 정본.
 # 좌표와 yaw는 이 표에 넣지 않고 반드시 locations row에서 실행 시 snapshot한다.
 APPROACH_WAYPOINT_BY_LOCATION: dict[str, str] = {
@@ -44,25 +31,6 @@ APPROACH_WAYPOINT_BY_LOCATION: dict[str, str] = {
     "STORAGE_S3": "warehouse_c_approach",
     "STORAGE_S4": "warehouse_d_approach",
 }
-
-
-def business_timeline() -> list[dict[str, Any]]:
-    """Create the nine Main-owned business steps before Movement dispatch."""
-    timeline: list[dict[str, Any]] = []
-    for index, (code, label) in enumerate(BUSINESS_STEPS):
-        transfer_action = "load" if code == "LOAD" else "unload" if code == "UNLOAD" else None
-        timeline.append(
-            {
-                "step_index": index,
-                "kind": code,
-                "step_code": code,
-                "label": label,
-                "status": "PENDING",
-                "command_id": None,
-                "transfer_action": transfer_action,
-            }
-        )
-    return timeline
 
 
 def _require_business_location(conn, location_id: str, expected_type: str) -> dict[str, Any]:

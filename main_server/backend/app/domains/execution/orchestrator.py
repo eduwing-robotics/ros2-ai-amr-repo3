@@ -13,6 +13,7 @@ from app.db.connection import TASK_EVENT_LOCK_NAMESPACE, advisory_xact_lock_for_
 from app.db.postgres import operational_events, robots, runtime_records, tasks
 from app.domains.execution import evidence, inout_scenarios, recovery
 from app.domains.execution import state as orch_state
+from app.domains.execution import steps as scenario_steps
 from app.domains.movement import commands
 from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
 from app.domains.movement.health import get_movement_health
@@ -146,7 +147,7 @@ def _scenario_event_contract_errors(step: dict[str, Any], event: dict[str, Any])
         except (TypeError, ValueError):
             index = -1
         code = str(event.get("current_step_code") or "")
-        if inout_scenarios.STEP_CODE_TO_INDEX.get(code) != index:
+        if scenario_steps.STEP_CODE_TO_INDEX.get(code) != index:
             errors.append("current_step")
     previous = step.get("scenario_progress") or {}
     old_last = previous.get("last_completed_step_index")

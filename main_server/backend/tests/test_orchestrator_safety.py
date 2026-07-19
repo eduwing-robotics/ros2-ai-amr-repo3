@@ -14,6 +14,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 from fastapi import HTTPException
 
 from app.domains.execution import orchestrator, tasks
+from app.domains.execution import steps as scenario_steps
 from app.domains.movement.client import MovementClientError
 
 
@@ -222,7 +223,7 @@ class MovementOwnedScenarioTest(unittest.TestCase):
                             "kind": "inout_scenario",
                             "status": "DISPATCHED",
                             "command_id": "main-task-344-scenario-001",
-                            "route_timeline": orchestrator.inout_scenarios.business_timeline(),
+                            "route_timeline": scenario_steps.business_timeline(),
                         }
                     ],
                 }

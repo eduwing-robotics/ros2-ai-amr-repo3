@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from app.core.config import settings
 from app.db.postgres import locations, robot_command_definitions, runtime_records, safety_stops, tasks
 from app.domains.execution import inout_scenarios
+from app.domains.execution import steps as scenario_steps
 from app.domains.movement.commands import normalize_dock_transfer_params
 
 CRITICAL_SEVERITIES = {"CRITICAL", "HIGH"}
@@ -36,7 +37,7 @@ def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: s
                     "params": dict(step.get("params") or {}),
                     "status": "pending",
                     "command_id": None,
-                    "route_timeline": inout_scenarios.business_timeline(),
+                    "route_timeline": scenario_steps.business_timeline(),
                     "route_timeline_current_index": 0,
                 }
             )
