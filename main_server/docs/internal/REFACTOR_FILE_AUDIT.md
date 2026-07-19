@@ -6,7 +6,7 @@
 난이도: 개발
 소유: Main Architecture
 최종 갱신: 2026-07-19 17:45 KST
-구현 기준: `codex/module-workflow-alignment`의 `backend/app`·`frontend/web/src`·`scripts`
+구현 기준: `main-server`에 통합된 `codex/module-workflow-alignment` 감사 범위와 후속 변경
 목적: workflow 중심 리팩터링 정책에 대한 파일별 판정과 후속 변경 계획을 고정한다.
 
 ## 판정 기준
@@ -345,6 +345,7 @@
 | `movement/commands.py` | 완료 | Scenario 특수 body 구현 제거, adapter 호출만 유지 |
 | `execution/inout_scenarios.py` | 완료 | DB 위치 snapshot 소유, Movement client helper 의존 제거 |
 | `execution/transitions.py` | 완료 | contract version을 Scenario adapter 정본에서 직접 사용 |
+| `execution/reconciliation.py` | 완료(후속 추가) | Movement status polling과 반복 단절 hold를 소유하고 callback과 동일한 전이를 재사용 |
 | `app/api/routers/movement_callbacks.py` | 완료(추가) | Movement callback adapter와 Execution workflow를 API transaction에서 조합 |
 | `movement/callbacks.py` | 완료 | event lock·중복 확인만 소유하고 상위 workflow를 인자로 받음 |
 | `movement/router.py` | 부분 완료 | command callback route 제거. 나머지는 동일 Movement HTTP 소유라 추가 분리 불필요 |
@@ -367,7 +368,6 @@
 | --- | --- |
 | `execution/orchestrator.py` 추가 분해 | 필요 없음. callback terminal 함수 복잡도는 이미 13이며 시작·dispatch·callback이 같은 orchestration snapshot transaction을 공유한다. 지금 이동하면 private helper 복제 또는 facade만 증가한다. |
 | `execution/task_workflow.py` 추가 | 추가하지 않음. `tasks.start_task_execution → orchestrator.start_task_orchestration` 진입이 명확하고 별도 상태 소유가 없다. |
-| `execution/reconciliation.py` 추가 | 추가하지 않음. polling은 callback의 `advance_on_command_event`를 직접 재사용하며 독립 상태 규칙이 없다. |
 | `execution/poller.py`, `tasks.py`, `callback_workflow.py` | 필요 없음. 각각 tick, Task facade, raw evidence 우선 기록이라는 단일 책임을 유지한다. |
 | `safety/hazard.py` | 필요 없음. ESTOP·Task hold·Vision advisory를 하나의 안전 transaction에서 조율하며 분리는 안전 순서를 숨긴다. |
 | `warehouse/router.py` | 필요 없음. raw SQL이 없고 단순 CRUD transaction→PostgreSQL adapter 연결이다. |
@@ -393,17 +393,17 @@ work_orders/service.py 참조                     0건
 공개 API·좌표·물리 profile 변경                 0건
 ```
 
-production 변경은 문서·테스트를 제외하면 약 +160줄 순증이며, 신규 파일은 검증된 독립 변경 이유가 있는
-adapter·projection·DB capability·API composition에 한정했다. 전체 gate 결과와 commit 목록은 최종 검증 후
-이 절에 추가한다.
+최초 구조 정리 범위의 production 변경은 문서·테스트를 제외하면 약 +160줄 순증이었다. 이후 실제 운영
+책임이 분리된 `execution/reconciliation.py`를 추가해 polling과 반복 단절 hold를 orchestrator에서 이동했다.
+신규 파일은 adapter·projection·DB capability·API composition과 이 reconciliation 책임에 한정했다.
 
 ### 최종 품질 gate
 
 - 문서 링크·경로·메타데이터: 통과(시간 기반 drift warning은 관련 정본 직접 검토 완료).
 - repository hygiene: 통과.
-- Backend: Ruff·compile, `288 passed, 54 skipped, 3 subtests`.
+- Backend: Ruff·compile, 현재 `300 passed, 54 skipped, 3 subtests`.
 - Frontend: typecheck·lint·production build 통과.
 - UX Playwright: `60 passed`.
-- 파생 PostgreSQL integration DB: `342 passed, 3 subtests`.
+- 파생 PostgreSQL integration DB: 현재 `354 passed, 3 subtests`.
 - 구조 검사: API raw SQL, Movement→Execution, Maps→Movement, 삭제 service 참조 모두 0건.
 - `git diff --check`: 통과.

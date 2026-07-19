@@ -5,7 +5,7 @@
 보조 독자: 통합 QA
 난이도: 운영
 소유: Main·Movement Integration
-최종 갱신: 2026-07-19 16:30 KST
+최종 갱신: 2026-07-19 17:03 KST
 구현 기준: Scenario API v1·2026-07-17 task 362/363·2026-07-19 work order 391 통합 진단
 목적: 자동 입출고 명령의 생성, 수락, callback, 실패를 중복 실행 없이 진단하고 복구한다.
 
@@ -109,7 +109,7 @@ reason_code, message, authority_owner, authority_released, reported_at
 
 ## 7. 2026-07-19 성공 회귀
 
-- Main: `codex/inout-workflow-refactor` worktree 서버
+- Main: 이후 `main-server`에 통합된 `codex/inout-workflow-refactor` worktree 서버
 - Robot/map: `tb3_2` / `robot2_map`
 - Work Order: `#391`, `INBOUND_02 → STORAGE_02` 1층, `bolt_1` 1개
 - Command: `task-391-tb3_2-inout_scenario-20260719T033011913525`
@@ -117,4 +117,6 @@ reason_code, message, authority_owner, authority_released, reported_at
 - 재고: `bolt_1` `0 → 1`, 최종 업무 `DONE`, `business_completed=true`, 주차 `PARKED`
 
 이 회귀는 Scenario 명령 접수, 물류 완료, 재고 반영, 복귀·주차가 서로 다른 확인 지점임을 검증한다.
-출고 경로 `STORAGE_02 → OUTBOUND_02 → WAIT2`의 물리 회귀는 아직 수행하지 않았다.
+후속 task-384는 출고 경로 `STORAGE_02 → OUTBOUND_02 → WAIT2`에서 `simulation_mode=false`,
+9단계 `DONE`, `PARKED`인 Movement 증거를 남겼다. 다만 이 기록에는 운영자 확인과 재고 전후 값이 한
+인수 보고서로 묶이지 않았으므로 정식 HW 회귀 완료로 판정하지 않는다.

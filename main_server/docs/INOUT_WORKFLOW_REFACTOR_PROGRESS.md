@@ -5,8 +5,8 @@
 보조 독자: 통합 QA·현장 검증 담당자
 난이도: 개발
 소유: Main Backend
-최종 갱신: 2026-07-19 16:30 KST
-구현 기준: `codex/inout-workflow-refactor` 변경 예산과 검증 기록
+최종 갱신: 2026-07-19 17:03 KST
+구현 기준: `main-server`에 통합된 입출고 workflow와 후속 reconciliation 변경
 목적: 리팩터링 목표·단계별 결과·품질 예산·남은 물리 회귀를 추적한다.
 
 ## Objective
@@ -24,9 +24,9 @@
 
 ## Baseline
 
-- Branch: `codex/inout-workflow-refactor`
+- Integration branch: `main-server`
 - Base: `d0ebedc Add configurable person hazard monitoring`
-- Worktree: `.worktrees/inout-workflow-refactor`
+- Original implementation branch: `codex/inout-workflow-refactor` (통합 완료)
 - Validated physical routes: `INBOUND_02 → STORAGE_02`, `STORAGE_02 → OUTBOUND_02 → WAIT2`
 
 ## Progress
@@ -38,7 +38,7 @@
 | 3. Work Order workflow | Complete | 계획→Task→배정→Movement 접수 순서를 `workflow.py`로 추출 | 66 passed, 3 subtests, Ruff passed |
 | 4. Callback workflow | Complete | 순수 계약 판정과 callback 증거·Task 반영 순서 분리 | 64 passed, Ruff passed |
 | 5. Performance | Complete | claim 일괄 조회·Frontend Map 계산·빈 `limit` 수정 | 3 passed, Ruff·Frontend typecheck/lint/build passed |
-| 6. Quality gates | Complete | 전체 정적 검사·테스트·production build | 285 passed, 54 skipped, 3 subtests; Ruff·Frontend gates passed |
+| 6. Quality gates | Complete | 전체 정적 검사·테스트·production build | 현재 Backend 300 passed, 54 skipped, 3 subtests; Ruff·Frontend gates passed |
 | 7. Physical regression | In progress | 검증 경로 입고·출고 1회씩 | 입고 #391 9단계·리프트·재고·PARK 성공; 출고 #384 9단계·WAIT2/PARK Movement 증거 확인; 정식 HW 인수 기록 pending |
 
 ## Decisions
@@ -71,8 +71,11 @@
 
 - 2026-07-19: status polling과 반복 단절 hold 전환을 `execution/reconciliation.py`로 분리하고 poller가 새 소유 모듈을 직접 호출하도록 변경. Backend 294 passed(54 skipped), PostgreSQL 348 passed, Frontend gate와 UX 60건, docs·hygiene 통과.
 - 2026-07-19: 비동작 `tb3_2` preflight에서 Main·map·작업 API는 정상이나 Movement `command_accepting=false`로 물리 회귀를 차단. 인수 스크립트의 awk 삼항식이 파일 `0`을 만들던 괄호 누락도 수정.
+- 2026-07-19: `main-server` 통합 후 실제 모듈·브랜치·회귀 기록을 문서와 재대조. Backend `300 passed, 54 skipped, 3 subtests`, PostgreSQL `354 passed, 3 subtests`, UX `60 passed`, Ruff·compile, Frontend typecheck·lint·production build, docs·hygiene 통과.
 
 ## Next
 
-정본 문서와 구현의 일치를 재검증하고 `main-server`에 통합한다. 통합 뒤
-task-384는 `STORAGE_02 → OUTBOUND_02 → WAIT2`를 `simulation_mode=false`, 9단계 `DONE`, `PARKED`로 완료한 Movement 증거가 있다. 다만 운영자·재고 전후·현장 증거를 묶은 정식 HW 인수 기록은 별도 현장 검증으로 남긴다.
+구현과 정본 문서의 `main-server` 통합은 완료했다. task-384는
+`STORAGE_02 → OUTBOUND_02 → WAIT2`를 `simulation_mode=false`, 9단계 `DONE`, `PARKED`로 완료한
+Movement 증거가 있다. 운영자·재고 전후·현장 증거를 한 실행 기록으로 묶는 정식 HW 인수만 별도 현장
+검증으로 남긴다.
