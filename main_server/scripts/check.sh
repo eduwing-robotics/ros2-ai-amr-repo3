@@ -84,6 +84,8 @@ while IFS= read -r file; do
   esac
 done < <(find . \
   -path './.git' -prune -o \
+  -path './.pytest_cache' -prune -o \
+  -path './.ruff_cache' -prune -o \
   -path './frontend/web/node_modules' -prune -o \
   -path './frontend/web/dist' -prune -o \
   -path './frontend/web/playwright-report' -prune -o \

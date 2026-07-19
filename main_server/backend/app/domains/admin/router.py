@@ -1,4 +1,5 @@
-"""Read-only DB admin viewer routes."""
+"""책임: 허용된 DB 진단 조회 capability를 읽기 전용 HTTP 계약에 연결한다.
+비책임: table 허용 정책, SQL 생성과 업무 데이터 변경."""
 
 from __future__ import annotations
 

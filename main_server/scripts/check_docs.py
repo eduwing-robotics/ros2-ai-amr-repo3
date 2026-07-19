@@ -1,4 +1,5 @@
-"""Validate tracked documentation links and repository path references."""
+"""책임: 추적 문서의 로컬 링크·경로 드리프트를 읽기 전용으로 검증한다.
+비책임: 문서 수정, 외부 URL 가용성과 실행 코드 회귀."""
 
 from __future__ import annotations
 

@@ -1,4 +1,5 @@
-"""Camera source management routes."""
+"""책임: Camera registry 조회·변경을 HTTP transaction에 연결한다.
+비책임: 영상 생성, stream transport와 Task 상태 전이."""
 
 from __future__ import annotations
 

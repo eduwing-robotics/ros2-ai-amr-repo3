@@ -1,5 +1,5 @@
-"""책임: Work Order 조회 모델을 공개 API 응답 구조로 조립한다.
-비책임: 식별자 별칭과 상태 전이 정책."""
+"""책임: canonical Work Order 조회 모델을 기존 `/api/v1` 필드 alias로 변환한다.
+비책임: 내부 식별자 명명, 상태 전이와 조회 데이터 생성."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from app.models.work_orders import RobotTaskSummary, WorkOrderOperation
 
 
 def robot_task_summary_to_v1(summary: RobotTaskSummary) -> dict[str, Any]:
-    """Flatten a canonical summary into the legacy tasks[] item shape."""
+    """canonical Task summary를 문서화된 legacy `tasks[]` 계약으로만 변환한다."""
 
     plan = summary.plan
     return {

@@ -1,4 +1,5 @@
-"""Pure read-model assembly for work-order robot tasks."""
+"""책임: Work Order의 Task·실행·계획 값을 부작용 없는 read model로 조립한다.
+비책임: DB 조회, API alias 변환과 상태 변경."""
 
 from __future__ import annotations
 

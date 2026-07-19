@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Local PostgreSQL bootstrap helpers for run_main.sh.
+# 책임: run_main이 사용하는 로컬 PostgreSQL 탐색·기동 helper를 제공한다.
+# 소유: 선택된 로컬 cluster 기동. 비책임: schema 변경과 운영 DB 설치·복구.
 # shellcheck disable=SC2034
 set -euo pipefail
 

@@ -1,4 +1,5 @@
-"""제한된 PostgreSQL DB admin 조회 서비스."""
+"""책임: allowlist table의 구조·row를 제한된 SQL로 읽는 Admin adapter다.
+비책임: 임의 SQL, 업무 데이터 변경과 table 소유 정책."""
 
 from __future__ import annotations
 

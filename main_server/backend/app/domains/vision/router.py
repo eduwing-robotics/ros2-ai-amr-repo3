@@ -1,4 +1,5 @@
-"""Vision proxy routes."""
+"""책임: 허용된 Vision 조회·stream을 Main 단일 origin HTTP 계약으로 중계한다.
+비책임: Vision 판정 생성, Task 상태 전이와 로봇 물리 제어."""
 
 from __future__ import annotations
 

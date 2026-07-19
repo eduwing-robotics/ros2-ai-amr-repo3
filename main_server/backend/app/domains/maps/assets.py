@@ -1,4 +1,5 @@
-"""ROS map.yaml/map.pgm 파일을 관제용 맵 메타데이터로 변환한다."""
+"""책임: ROS YAML·PGM SoT를 map(m, rad)·pixel 메타데이터와 PNG로 변환한다.
+비책임: Nav2 runtime 상태, waypoint DB와 주행 정책."""
 
 from __future__ import annotations
 
