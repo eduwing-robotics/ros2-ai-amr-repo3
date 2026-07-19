@@ -20,7 +20,7 @@ from fastapi import HTTPException
 from app.db.connection import init_db, transaction, write_transaction
 from app.db.postgres import DEFAULT_FLOOR, inventory, tasks
 from app.domains.warehouse import inventory as inventory_ops
-from app.domains.work_orders import service as work_orders
+from app.domains.work_orders import planner, workflow
 from tests.support.postgres import apply_demo_fixture
 
 
@@ -51,7 +51,7 @@ class PostgresInOutTest(unittest.TestCase):
     def test_inbound_auto_preview_and_create(self) -> None:
         """자동 입고 — 슬롯과 층을 함께 자동 선택한다."""
         with transaction() as conn:
-            preview = work_orders.preview_work_order(
+            preview = planner.preview_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
@@ -60,7 +60,7 @@ class PostgresInOutTest(unittest.TestCase):
             self.assertEqual(preview["slots"][0]["floor"], 2)
             self.assertEqual(preview["slots"][0]["selection_reason"], "empty_slot")
             self.assertIsNone(preview["slots"][0]["available_qty_at_plan"])
-            order = work_orders.create_work_order(
+            order = workflow.create_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
@@ -71,13 +71,13 @@ class PostgresInOutTest(unittest.TestCase):
     def test_inbound_second_floor_uses_same_slot_independently(self) -> None:
         """2층 입고 — 1층 점유와 독립적으로 같은 슬롯의 2층을 사용할 수 있다."""
         with write_transaction() as conn:
-            preview = work_orders.preview_work_order(
+            preview = planner.preview_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 1, "floor": 2},
             )
             self.assertEqual(preview["slots"][0]["slot_id"], "STORAGE_S1")
             self.assertEqual(preview["slots"][0]["floor"], 2)
-            order = work_orders.create_work_order(
+            order = workflow.create_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 2},
             )
@@ -96,7 +96,7 @@ class PostgresInOutTest(unittest.TestCase):
         """2층 출고 — 1층 재고가 있어도 2층 재고가 없으면 부족으로 본다."""
         with write_transaction() as conn:
             with self.assertRaises(HTTPException) as ctx:
-                work_orders.create_work_order(
+                workflow.create_work_order(
                     conn,
                     {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 2},
                 )
@@ -104,7 +104,7 @@ class PostgresInOutTest(unittest.TestCase):
             self.assertEqual(ctx.exception.detail, "insufficient_inventory")
 
             inventory.adjust(conn, "STORAGE_S1", "BOX-A", 2, 2)
-            order = work_orders.create_work_order(
+            order = workflow.create_work_order(
                 conn,
                 {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 2},
             )
@@ -117,7 +117,7 @@ class PostgresInOutTest(unittest.TestCase):
         """지정 입고 — STORAGE_S1은 BOX-A(파레트)가 점유 중이라 같은 품목이라도 409."""
         with transaction() as conn:
             with self.assertRaises(HTTPException) as ctx:
-                work_orders.create_work_order(
+                workflow.create_work_order(
                     conn,
                     {"operation": "inbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1", "floor": 1},
                 )
@@ -130,7 +130,7 @@ class PostgresInOutTest(unittest.TestCase):
             qty = 3
             before = inventory.get_quantity(conn, "STORAGE_S3", "BOX-A", DEFAULT_FLOOR)
             self.assertEqual(before, 0)
-            order = work_orders.create_work_order(
+            order = workflow.create_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": qty, "slot_id": "STORAGE_S3"},
             )
@@ -150,7 +150,7 @@ class PostgresInOutTest(unittest.TestCase):
         """출고 성공 — 재고를 감소시키고 같은 task의 중복 완료는 반영하지 않는다."""
         with write_transaction() as conn:
             before = inventory.get_quantity(conn, "STORAGE_S1", "BOX-A", DEFAULT_FLOOR)
-            order = work_orders.create_work_order(
+            order = workflow.create_work_order(
                 conn,
                 {"operation": "outbound", "item_code": "BOX-A", "quantity": 2, "slot_id": "STORAGE_S1"},
             )
@@ -176,7 +176,7 @@ class PostgresInOutTest(unittest.TestCase):
     def test_inventory_completion_is_idempotent(self) -> None:
         """Unload callback and final parking completion may both request apply; inventory changes once."""
         with write_transaction() as conn:
-            order = work_orders.create_work_order(
+            order = workflow.create_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 2, "slot_id": "STORAGE_S3"},
             )
@@ -192,7 +192,7 @@ class PostgresInOutTest(unittest.TestCase):
         """지정 입고 — STORAGE_S2는 BOX-B 파레트가 점유 중이라 409."""
         with transaction() as conn:
             with self.assertRaises(HTTPException) as ctx:
-                work_orders.preview_work_order(
+                planner.preview_work_order(
                     conn,
                     {"operation": "inbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S2", "floor": 1},
                 )
@@ -201,13 +201,13 @@ class PostgresInOutTest(unittest.TestCase):
     def test_inbound_claim_blocks_slot_reuse(self) -> None:
         """진행 중 입고 claim이 있는 슬롯은 다음 입고 계획에서 제외된다."""
         with write_transaction() as conn:
-            first = work_orders.create_work_order(
+            first = workflow.create_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             self.assertEqual(first["tasks"][0]["slot_id"], "STORAGE_S1")
             self.assertEqual(first["tasks"][0]["floor"], 2)
-            second = work_orders.create_work_order(
+            second = workflow.create_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
@@ -216,16 +216,16 @@ class PostgresInOutTest(unittest.TestCase):
 
     def test_cancel_work_order_releases_inbound_claim(self) -> None:
         with write_transaction() as conn:
-            first = work_orders.create_work_order(
+            first = workflow.create_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             task_id = first["tasks"][0]["task_id"]
             self.assertEqual(first["tasks"][0]["slot_id"], "STORAGE_S1")
             self.assertEqual(first["tasks"][0]["floor"], 2)
-            cancelled = work_orders.cancel_work_order(conn, task_id)
+            cancelled = workflow.cancel_work_order(conn, task_id)
             self.assertEqual(cancelled["status"], "CANCELLED")
-            second = work_orders.create_work_order(
+            second = workflow.create_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
@@ -234,23 +234,23 @@ class PostgresInOutTest(unittest.TestCase):
 
     def test_cancel_running_work_order_requires_recovery(self) -> None:
         with write_transaction() as conn:
-            order = work_orders.create_work_order(
+            order = workflow.create_work_order(
                 conn,
                 {"operation": "inbound", "item_code": "BOX-A", "quantity": 1},
             )
             task_id = order["tasks"][0]["task_id"]
             tasks.set_status(conn, task_id, "RUNNING")
             with self.assertRaises(HTTPException) as ctx:
-                work_orders.cancel_work_order(conn, task_id)
+                workflow.cancel_work_order(conn, task_id)
             self.assertEqual(ctx.exception.status_code, 409)
             self.assertEqual(ctx.exception.detail, "work_order_running_requires_recovery")
 
     def test_outbound_quantity_limit(self) -> None:
         with transaction() as conn:
             with self.assertRaises(HTTPException) as ctx:
-                work_orders.create_work_order(
+                workflow.create_work_order(
                     conn,
-                    {"operation": "outbound", "item_code": "BOX-A", "quantity": work_orders.MAX_WORK_ORDER_QUANTITY + 1},
+                    {"operation": "outbound", "item_code": "BOX-A", "quantity": planner.MAX_WORK_ORDER_QUANTITY + 1},
                 )
             self.assertEqual(ctx.exception.status_code, 400)
             self.assertEqual(ctx.exception.detail, "quantity_exceeds_limit")
@@ -259,9 +259,9 @@ class PostgresInOutTest(unittest.TestCase):
         with transaction() as conn:
             on_hand = inventory.get_quantity(conn, "STORAGE_S1", "BOX-A", DEFAULT_FLOOR)
             with self.assertRaises(HTTPException) as ctx:
-                work_orders.create_work_order(
+                workflow.create_work_order(
                     conn,
-                    {"operation": "outbound", "item_code": "BOX-A", "quantity": min(on_hand + 1, work_orders.MAX_WORK_ORDER_QUANTITY)},
+                    {"operation": "outbound", "item_code": "BOX-A", "quantity": min(on_hand + 1, planner.MAX_WORK_ORDER_QUANTITY)},
                 )
             self.assertEqual(ctx.exception.status_code, 409)
             self.assertEqual(ctx.exception.detail, "insufficient_inventory")
@@ -269,7 +269,7 @@ class PostgresInOutTest(unittest.TestCase):
     def test_slot_ids_must_be_single(self) -> None:
         with transaction() as conn:
             with self.assertRaises(HTTPException) as ctx:
-                work_orders.create_work_order(
+                workflow.create_work_order(
                     conn,
                     {
                         "operation": "outbound",
@@ -288,12 +288,12 @@ class PostgresInOutTest(unittest.TestCase):
             qty = inventory.get_quantity(conn, "STORAGE_S1", "BOX-A", floor)
             # Leave exactly one unclaimed unit after existing active outbound tasks.
             inventory.adjust(conn, "STORAGE_S1", "BOX-A", (1 + reserved) - qty, floor)
-            work_orders.create_work_order(
+            workflow.create_work_order(
                 conn,
                 {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1"},
             )
             with self.assertRaises(HTTPException) as ctx:
-                work_orders.create_work_order(
+                workflow.create_work_order(
                     conn,
                     {"operation": "outbound", "item_code": "BOX-A", "quantity": 1, "slot_id": "STORAGE_S1"},
                 )
@@ -301,7 +301,7 @@ class PostgresInOutTest(unittest.TestCase):
 
     def test_manual_slot_visible_in_response(self) -> None:
         with transaction() as conn:
-            order = work_orders.create_work_order(
+            order = workflow.create_work_order(
                 conn,
                 {
                     "operation": "inbound",
@@ -319,7 +319,7 @@ class PostgresInOutTest(unittest.TestCase):
 
     def test_task_stores_selected_inbound_zone(self) -> None:
         with transaction() as conn:
-            order = work_orders.create_work_order(
+            order = workflow.create_work_order(
                 conn,
                 {
                     "operation": "inbound",

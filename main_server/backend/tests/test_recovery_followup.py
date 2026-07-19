@@ -118,7 +118,7 @@ class ListRecoveryTasksTest(unittest.TestCase):
 
 class ActiveCommandProjectionTest(unittest.TestCase):
     def test_active_command_prefers_recovery_command(self) -> None:
-        from app.domains.work_orders import service as wo
+        from app.domains.work_orders import projections as wo
 
         conn = MagicMock()
         task = {

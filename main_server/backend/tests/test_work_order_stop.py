@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.domains.execution import orchestrator, safe_stop
-from app.domains.work_orders import service as work_orders
+from app.domains.work_orders import workflow as work_orders
 
 
 def _task(*, cargo_loaded: bool = False, business_completed: bool = False) -> dict:
@@ -149,7 +149,7 @@ def test_stop_work_order_facade_delegates_to_execution() -> None:
     with patch.object(
         work_orders.execution_safe_stop, "request_work_order_stop", return_value=expected
     ) as request_stop:
-        assert work_orders.stop_work_order(conn, 42) == expected
+        assert work_orders.request_work_order_stop(conn, 42) == expected
     request_stop.assert_called_once_with(conn, 42)
 
 
