@@ -172,7 +172,7 @@ Main process group을 역순으로 종료한다. robot base는 SBC terminal에�
 - [ ] 현장 책임자가 최대 시험 속도, 사람 최소 이격거리, robot swept path와 출입 금지 구역을 정했다. 하나라도 정해지지 않았으면 시험하지 않는다.
 - [ ] 시험자와 별도의 정지 담당자가 물리 정지 수단을 잡고 로봇·시험자를 계속 볼 수 있다.
 
-현재 Main UI는 generic MOVE task를 생성하지 않는다. UI만 사용하는 person 시험은 TB2 live의 commissioned INBOUND/OUTBOUND task에서 수행한다. monitor는 `POST_PICK_UP` 승인 뒤 `PRE_DROP_OFF` 직전까지의 적재 주행에만 arm된다. `/operate/control`의 teleop·맵 이동만 실행한 뒤 이 단계를 PASS로 표시하지 않는다.
+현재 Main UI는 generic MOVE task를 생성하지 않는다. UI만 사용하는 person 시험은 TB2 live의 commissioned INBOUND/OUTBOUND task에서 수행한다. Main은 입고 접근, 보관소 접근, 출고 접근, 다음 작업 이동, 대기 위치 복귀를 포함한 모든 Nav2 이동 step 전에 person monitor를 arm한다. ArUco 정렬, dock 진입·후진, lift, AI 증거 확인에는 monitor를 arm하지 않는다. `/operate/control`의 teleop·맵 이동만 실행한 뒤 이 단계를 PASS로 표시하지 않는다.
 
 ### gate 해소 후 실행
 
@@ -284,6 +284,8 @@ scripts/sf_stack.sh --profile tb2-local-e2e foreground
 3. `http://smartfactory-integration.local:5173/operate/control`에서 `tb3_2` pose와 연결 상태, `global_cam_01`, `tb3_2_picam` 영상을 확인한다.
 4. Main 배경 map ID와 pose map ID가 모두 `robot2_map`인지 확인한다. `robot1_map` 배경이나 remap을 사용하지 않는다.
 
+TB2의 초기 위치 탐색은 로봇을 움직이지 않고 전체 map의 독립 벽 선분·방향 정합 후보를 비교한다. `scan_map_alignment.reason=initial_match_only`는 초기 전역 정합만 사용하고 주행 중 연속 정합 차단은 사용하지 않는다는 뜻이다. 작업 직전 AMCL 표본만 오래된 경우에는 Nav가 `/request_nomotion_update`로 한 번 갱신한 뒤 같은 freshness 기준을 다시 판정한다.
+
 이 네 조건을 통과하기 전에는 입고 작업을 생성하지 않는다.
 
 ### 8.4 UI에서 첫 물리 입고를 시작한다
@@ -299,7 +301,11 @@ Main UI `http://smartfactory-integration.local:5173/operate/control`의 **입출
 
 ### 8.5 실시간 작업 큐에서 진행을 확인한다
 
-UI의 **실시간 작업 큐**에서 `입고 접근 → load → POST_PICK_UP → 적재 주행(person monitor) → PRE_DROP_OFF → unload → HOME_02 복귀`가 같은 task와 runtime command ID 흐름으로 진행되는지 확인한다. 정적 recipe command와 실행별 runtime command ID는 구분돼야 한다. 재고는 `DONE`에서만 `INBOUND_01`에서 빠지고 `STORAGE_S1`에 더해져야 한다.
+UI의 **실시간 작업 큐**에서 `입고 접근(person monitor) → load → POST_PICK_UP → 보관소 이동(person monitor) → PRE_DROP_OFF → unload → HOME_02 복귀(person monitor)`가 같은 task와 runtime command ID 흐름으로 진행되는지 확인한다. 정적 recipe command와 실행별 runtime command ID는 구분돼야 한다. 재고는 `DONE`에서만 `INBOUND_01`에서 빠지고 `STORAGE_S1`에 더해져야 한다.
+
+실시간 작업 큐에는 `QUEUED`, `ASSIGNED`, `RUNNING`과 운영자 복구가 필요한 hold 작업만 표시한다. 완료·취소·복구 불가 실패 작업은 **작업 기록**에서 확인한다. 복구 가능한 실패 작업은 실시간 작업 큐의 **복구 열기**로 원래 task 복구 화면에 진입한다.
+
+unload가 끝났을 때 같은 로봇이 바로 수행할 수 있는 예약 작업이 있으면 Main은 현재 dock을 다음 task의 출발점으로 저장하고 HOME 복귀를 생략한다. 다음 task는 로봇이 localized·명령 수신 가능 상태이고 배터리가 20% 이상이며 필요한 `navigate`·`lift`·`charge` capability를 모두 가질 때만 원자적으로 할당한다. TB1과 TB2가 같은 작업을 경쟁하면 DB 잠금과 로봇당 활성 작업 1개 제약으로 한 대만 할당된다. 조건을 만족하는 작업이 없거나 경쟁에서 지면 기존 HOME 복귀를 수행한다. 다음 task 시작 요청만 실패하면 완료된 재고 변경을 되돌리지 않고 다음 task를 `ASSIGNED` 복구 대상으로 남긴다.
 
 ### 8.6 중단 상태를 복구한다
 
