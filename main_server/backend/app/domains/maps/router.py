@@ -6,18 +6,8 @@ from fastapi import APIRouter, Response
 from fastapi.responses import FileResponse
 
 from app.domains.maps.assets import cached_pgm_to_png, find_map_asset, import_map_assets, list_map_asset_records
-from app.domains.movement.navigation import get_runtime_map_context, overlay_nav_dims
-from app.models.maps import MapRecord
 
 router = APIRouter(tags=["maps"])
-
-
-@router.get("/maps", response_model=list[MapRecord])
-def list_maps() -> list[MapRecord]:
-    """관제 맵 목록. runtime context overlay로 좌표계 진단을 포함한다."""
-    ctx = get_runtime_map_context()
-    rows = [overlay_nav_dims(m, ctx) for m in list_map_asset_records()]
-    return [MapRecord(**m) for m in rows]
 
 
 @router.get("/map-assets")
