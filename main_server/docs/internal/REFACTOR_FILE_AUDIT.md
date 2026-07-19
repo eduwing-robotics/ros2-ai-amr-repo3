@@ -1,12 +1,12 @@
 # Refactor File Audit and Execution Plan
 
-상태: Draft
+상태: Active
 주 독자: Main Backend·Frontend 개발자
 보조 독자: 검토자·통합 QA
 난이도: 개발
 소유: Main Architecture
-최종 갱신: 2026-07-19 16:50 KST
-구현 기준: `main-server` commit `b6d7dcf`의 `backend/app`·`frontend/web/src`·`scripts`
+최종 갱신: 2026-07-19 17:45 KST
+구현 기준: `codex/module-workflow-alignment`의 `backend/app`·`frontend/web/src`·`scripts`
 목적: workflow 중심 리팩터링 정책에 대한 파일별 판정과 후속 변경 계획을 고정한다.
 
 ## 판정 기준
@@ -328,3 +328,82 @@
 - 공개 API field 또는 DB schema 변경이 필요해지면 해당 Phase를 중단하고 별도 계약 변경으로 분리한다.
 - cargo가 `LOADED`/`UNKNOWN`, ESTOP, localization/Nav2 미준비이면 물리 회귀를 실행하지 않는다.
 - 신규 파일 예산을 초과하거나 한 줄 위임 wrapper가 생기면 추가 분리를 취소하고 기존 모듈에 통합한다.
+
+## 변경 후 재평가
+
+이 절이 위 최초 판정보다 우선한다. `b6d7dcf` 기준 계획을 실제 변경 후 다시 검사한 결과다.
+
+### 완료된 변경
+
+| 파일 | 최종 판정 | 근거 |
+| --- | --- | --- |
+| `work_orders/router.py` | 완료 | command→`workflow`, query→`projections`, preview→`planner` 단방향 연결 |
+| `work_orders/workflow.py` | 완료 | 생성·취소·중단 접수·우선순위 상태 변경 순서 소유, projection 역참조 없음 |
+| `work_orders/projections.py` | 완료(추가) | 목록·상세 DB read와 read model 조립만 소유 |
+| `work_orders/service.py` | 완료(삭제) | production/test 참조 0건 확인 후 삭제 |
+| `work_orders/adapters.py` | 완료 | legacy alias 책임을 계약 주석에 명시; alias는 이 파일에만 유지 |
+| `work_orders/assembler.py` | 필요 없음으로 재판정 | DB 없는 순수 Task projection이라 `projections.py`와 변경 이유가 다름 |
+| `movement/scenario_adapter.py` | 완료(추가) | Scenario body 검증·POST 계약 정본; Movement→Execution import 제거 |
+| `movement/commands.py` | 완료 | Scenario 특수 body 구현 제거, adapter 호출만 유지 |
+| `execution/inout_scenarios.py` | 완료 | DB 위치 snapshot 소유, Movement client helper 의존 제거 |
+| `execution/transitions.py` | 완료 | contract version을 Scenario adapter 정본에서 직접 사용 |
+| `api/routers/movement_callbacks.py` | 완료(추가) | Movement callback adapter와 Execution workflow를 API transaction에서 조합 |
+| `movement/callbacks.py` | 완료 | event lock·중복 확인만 소유하고 상위 workflow를 인자로 받음 |
+| `movement/router.py` | 부분 완료 | command callback route 제거. 나머지는 동일 Movement HTTP 소유라 추가 분리 불필요 |
+| `db/postgres/location_routes.py` | 완료(추가) | route replace/delete SQL과 transaction 부작용 계약 소유 |
+| `domains/maps/routes.py` | 완료(추가) | transit→scan route 정책 소유 |
+| `api/routers/scenario.py` | 완료 | raw SQL 0건, HTTP·transaction·capability 연결만 유지 |
+| `api/routers/system.py` | 완료 | active Task raw SQL을 `tasks.has_active_assignment`로 이동 |
+| `api/routers/map_runtime.py` | 완료(추가) | Maps asset과 Movement runtime read projection 조합 |
+| `domains/maps/router.py` | 완료 | Movement import 제거, asset route만 유지 |
+| `records/recordMetrics.ts` | 완료(추가) | poll metric weighted average 순수 projection |
+| `Records.tsx` | 완료 | metric 계산 제거, 렌더링·filter orchestration 유지 |
+| `FleetTaskDock.tsx` | 완료 | timeline의 압축 JSX를 의미 단위로 전개; 동작·DOM 계약 유지 |
+| 책임 주석 지정 9개 파일 | 완료 | adapter·상태 소유·운영 script의 책임·비책임을 현재 구현과 일치시킴 |
+
+### 필요 없음으로 재판정
+
+| 최초 대상 | 최종 판정과 이유 |
+| --- | --- |
+| `execution/orchestrator.py` 추가 분해 | 필요 없음. callback terminal 함수 복잡도는 이미 13이며 시작·dispatch·callback이 같은 orchestration snapshot transaction을 공유한다. 지금 이동하면 private helper 복제 또는 facade만 증가한다. |
+| `execution/task_workflow.py` 추가 | 추가하지 않음. `tasks.start_task_execution → orchestrator.start_task_orchestration` 진입이 명확하고 별도 상태 소유가 없다. |
+| `execution/reconciliation.py` 추가 | 추가하지 않음. polling은 callback의 `advance_on_command_event`를 직접 재사용하며 독립 상태 규칙이 없다. |
+| `execution/poller.py`, `tasks.py`, `callback_workflow.py` | 필요 없음. 각각 tick, Task facade, raw evidence 우선 기록이라는 단일 책임을 유지한다. |
+| `safety/hazard.py` | 필요 없음. ESTOP·Task hold·Vision advisory를 하나의 안전 transaction에서 조율하며 분리는 안전 순서를 숨긴다. |
+| `warehouse/router.py` | 필요 없음. raw SQL이 없고 단순 CRUD transaction→PostgreSQL adapter 연결이다. |
+| Movement router 추가 4분할 | 필요 없음. callback composition을 제거한 뒤 남은 route는 동일 Movement 상태/client를 공유한다. 파일 수 증가 대비 독립 변경 이유가 부족하다. |
+| `OperatorShell.tsx` | 필요 없음. 대형 화면 composition이지만 정책·API I/O는 기존 hook/model에 위임되어 있고 local layout state 분리는 prop drilling을 늘린다. |
+| `WorkOrderForm.tsx`·신규 `useWorkOrderForm.ts` | 필요 없음. preview/submit I/O는 `useWorkOrders.ts`가 이미 소유하며 form local state는 렌더링과 함께 변경된다. |
+| `useWorkOrders.ts` | 필요 없음. query와 mutation별 invalidation·접수 메시지가 공개 hook 단위로 읽힌다. |
+| `WorkOrderQueue.tsx` | 필요 없음. 계산은 기존 `workOrderQueueModel.ts`로 분리돼 있고 남은 정렬은 view-local이다. |
+| `LiveCamera.tsx`·`transport.ts` | 필요 없음. transport가 이미 별도 모듈이고 component는 media lifecycle owner라 추가 분리는 상태 동기화를 늘린다. |
+| `DashboardMap.tsx`·신규 runtime hook | 필요 없음. 좌표/overlay 계산은 기존 lib·hook으로 위임되어 화면 composition만 소유한다. |
+| `useMapEditorActions.ts` | 필요 없음. waypoint/route/import mutation이 같은 map-editor cache invalidation 경계를 공유한다. |
+| `useAdminData.ts`, `useScenarioData.ts` | 필요 없음. Admin/Scenario 화면의 query cache facade이며 API alias나 업무 정책을 만들지 않는다. |
+| `types/entities.ts` 분해 | 필요 없음. 타입 재수출·순환과 import churn만 늘고 runtime 책임 개선이 없다. |
+
+### 최종 구조 검사 결과
+
+```text
+API router raw SQL                              0건
+Movement production module → Execution import  0건
+Maps production module → Movement import        0건
+work_orders/service.py 참조                     0건
+신규 DB migration                              0건
+공개 API·좌표·물리 profile 변경                 0건
+```
+
+production 변경은 문서·테스트를 제외하면 약 +160줄 순증이며, 신규 파일은 검증된 독립 변경 이유가 있는
+adapter·projection·DB capability·API composition에 한정했다. 전체 gate 결과와 commit 목록은 최종 검증 후
+이 절에 추가한다.
+
+### 최종 품질 gate
+
+- 문서 링크·경로·메타데이터: 통과(시간 기반 drift warning은 관련 정본 직접 검토 완료).
+- repository hygiene: 통과.
+- Backend: Ruff·compile, `288 passed, 54 skipped, 3 subtests`.
+- Frontend: typecheck·lint·production build 통과.
+- UX Playwright: `60 passed`.
+- 파생 PostgreSQL integration DB: `342 passed, 3 subtests`.
+- 구조 검사: API raw SQL, Movement→Execution, Maps→Movement, 삭제 service 참조 모두 0건.
+- `git diff --check`: 통과.

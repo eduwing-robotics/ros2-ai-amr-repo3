@@ -7,7 +7,7 @@
 보조 독자: 신규 개발자·기술 평가자
 난이도: 개발
 소유: Docs
-최종 갱신: 2026-07-19 16:30 KST
+최종 갱신: 2026-07-19 18:10 KST
 구현 기준: backend/app 도메인 구조와 현재 서버 경계
 목적: Main_Control의 시스템 경계, 주요 업무 흐름, 도메인 책임과 의존 방향을 정의한다.
 
@@ -199,6 +199,7 @@ sequenceDiagram
 
 - `execution/steps.py`: 9단계 code·action 정본을 소유한다.
 - `work_orders/workflow.py`: 계획 → Task 영속화 → 배정 → 선택적 Movement 접수 순서를 조율한다.
+- `work_orders/projections.py`: Task·계획·실행 상태를 Work Order read model로 조립한다.
 - `execution/callback_workflow.py`: 원시 callback 증거를 먼저 기록한 뒤 Task 반영을 요청한다.
 - `execution/transitions.py`: 계약·타임라인·완료 gate의 순수 판정을 소유한다.
 - 실행 orchestrator는 취소·실패·하역·정상 완료 transaction을 조율하되 경로·리프트·재고 SQL은 소유하지 않는다.
@@ -242,8 +243,8 @@ flowchart LR
 
 - router는 HTTP 변환 경계이고, 업무 정책과 실행 순서는 소유 도메인 capability가 담당한다.
 - 목표 의존 방향은 API → domain capability → adapter다. DB adapter는 domain을 import하지 않고 Records가
-  runtime record의 Movement 조회 projection을 조합한다. Movement callback의 Execution 전진과 Maps/Movement
-  runtime adapter 조합은 §10의 명시적 coordination 경계로 남아 있다.
+  runtime record의 Movement 조회 projection을 조합한다. Movement callback→Execution과 Maps asset→Movement
+  runtime 조합은 `api/routers` composition 경계가 담당해 하위 도메인의 역참조를 만들지 않는다.
 - 실행 조율은 Step 전진과 중단·복구 순서를 연결한다. 현재는 재고 확정, Evidence 기록, Robot 해제,
   Safety·Vision 호출까지 함께 조율하며, 정책 판단의 최종 소유자는 각 도메인 경계를 따른다.
 - 외부 연동 실패는 감추지 않고 501이나 명시적 에러 코드로 드러낸다.
@@ -300,12 +301,12 @@ maps/            ROS map asset
 | `admin` | 허용된 PostgreSQL table의 구조와 row를 운영 진단용으로 조회한다. | 업무 데이터 정책과 임의 SQL 실행 | 없음 |
 | `work_orders` | 입출고 요청을 검증·계획하고 Task 생성·배정·Movement 접수 workflow를 제공한다. | Step 전진과 물리 실행 세부 | 없음 |
 | `execution` | Task 배정·상태 전이와 Step 실행·중단·복구 순서를 조율한다. | 경로 계산, 재고 SQL, Vision 판정 기준 | safe-stop coordinator가 외부 취소와 상태 저장을 같은 transaction 흐름에서 조율 |
-| `movement` | 외부 Movement 계약을 호출하고 Robot Command 결과를 canonical 입력으로 정규화한다. | Task 완료 정책과 슬롯 선택 | callback coordinator는 분리됐지만 fleet ESTOP는 router에 남음 |
+| `movement` | 외부 Movement 계약을 호출하고 Robot Command 결과를 canonical 입력으로 정규화한다. | Task 완료 정책과 슬롯 선택 | fleet ESTOP HTTP 조율은 router에 남음 |
 | `safety` | 사람 위험과 ESTOP 정책을 적용하고 운영자 개입이 필요한 중단을 조율한다. | 업무 완료 판정과 자동 재개 | Execution state와 Evidence를 직접 변경 |
 | `vision` | 카메라·인식 서버를 중계하고 lift/load 관측 결과를 기록한다. | Task 상태 전이와 안전 정책 | 없음 |
 | `warehouse` | 품목·슬롯·재고를 관리하고 Task 완료에 따른 재고 변화를 확정한다. | Step dispatch와 로봇 제어 | CRUD 정책 일부가 router에 존재 |
 | `records` | 여러 도메인이 만든 event·log·evidence의 읽기 projection을 제공한다. | 기록 생성 정책과 실행 의사결정 | 없음 |
-| `maps` | map asset, waypoint와 location route를 제공한다. | 로봇 실행 상태와 주행 정책 | runtime overlay 때문에 Movement와 양방향 참조 |
+| `maps` | map asset, waypoint와 location route를 제공한다. | 로봇 실행 상태와 주행 정책 | 없음 |
 | `db/postgres` | 물리 table별 SQL, transaction 연결과 DB↔내부 값 변환을 제공한다. | 업무 순서와 외부 HTTP 호출 | 없음 |
 
 `api/routers`는 여러 도메인을 조합하는 HTTP 경계이고, `models`는 request/response 및 상태 계약이며 독립 업무
