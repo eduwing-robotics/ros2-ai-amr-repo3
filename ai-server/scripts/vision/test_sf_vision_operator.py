@@ -577,6 +577,27 @@ def test_lab_gopro_tb3_low_load_profile_disables_optional_streams_without_hiding
     assert "global_cam_01/lift_roi,tb3_1_picam/full" not in result.stdout
 
 
+def test_lab_gopro_tb3_low_load_profile_matches_camera_sensor_data_qos() -> None:
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            (
+                "set -euo pipefail; "
+                f"cd {ROOT}; "
+                "source config/vision/profiles/lab-gopro-tb3-low-load.env; "
+                'printf "%s" "$VISION_GATEWAY_IMAGE_QOS_RELIABILITY"'
+            ),
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.stdout == "best_effort"
+
+
 def test_lab_gopro_tb3_low_load_sidecar_uses_only_low_load_receiver_paths() -> None:
     result = subprocess.run(
         [
