@@ -121,7 +121,7 @@ write_report() {
   pass=$(awk -F '\t' 'NR>1 && $3=="PASS" {n++} END {print n+0}' "$RESULTS")
   fail=$(awk -F '\t' 'NR>1 && $3=="FAIL" {n++} END {print n+0}' "$RESULTS")
   unverified=$(awk -F '\t' 'NR>1 && $3=="UNVERIFIED" {n++} END {print n+0}' "$RESULTS")
-  recorded=$(awk 'END {print NR > 0 ? NR-1 : 0}' "$RESULTS")
+  recorded=$(awk 'END {print (NR > 0 ? NR-1 : 0)}' "$RESULTS")
   {
     echo "REAL ROBOT ACCEPTANCE REPORT"
     echo "run_id: $RUN_ID"

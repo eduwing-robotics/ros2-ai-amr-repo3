@@ -13,7 +13,7 @@ sys.path.insert(0, str(BACKEND_ROOT))
 
 from fastapi import HTTPException
 
-from app.domains.execution import orchestrator, tasks
+from app.domains.execution import orchestrator, reconciliation, tasks
 from app.domains.execution import steps as scenario_steps
 from app.domains.movement.client import MovementClientError
 
@@ -458,11 +458,11 @@ class PollRunningTasksGateTest(unittest.TestCase):
             "preset_snapshot": {"_orchestration": {"phase": "AWAITING_OPERATOR", "step_index": 0, "steps": []}},
         }
         with (
-            patch.object(orchestrator, "evidence") as evidence,
+            patch.object(reconciliation, "evidence") as evidence,
             patch.object(orchestrator, "advance_on_command_event") as advance,
         ):
             evidence.list_orchestrated_running.return_value = [held]
-            advanced = orchestrator.poll_running_tasks(conn)
+            advanced = reconciliation.poll_running_tasks(conn)
         self.assertEqual(advanced, 0)
         advance.assert_not_called()
 
@@ -478,10 +478,10 @@ class PollRunningTasksGateTest(unittest.TestCase):
         }
         steps = orch["steps"]
         with (
-            patch.object(orchestrator, "evidence") as evidence,
-            patch.object(orchestrator, "operational_events") as events,
+            patch.object(reconciliation, "evidence") as evidence,
+            patch.object(reconciliation, "operational_events") as events,
         ):
-            held = orchestrator._record_status_poll_failure(
+            held = reconciliation.record_status_poll_failure(
                 conn, task, orch, steps, 0, MovementClientError("movement down")
             )
         self.assertTrue(held)

@@ -9,7 +9,7 @@ import logging
 from app.core.config import settings
 from app.db.connection import AUTO_ASSIGN_LOCK_ID, TASK_PROGRESS_LOCK_ID, transaction, try_advisory_xact_lock
 from app.domains.execution import tasks
-from app.domains.execution.orchestrator import poll_running_tasks
+from app.domains.execution.reconciliation import poll_running_tasks
 from app.domains.execution.recovery import poll_recovery_tasks
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,9 @@ async def poll_task_progress_loop() -> None:
             if result["assigned"]:
                 logger.info(
                     "poller assigned %s task(s), started %s, failed %s",
-                    len(result["assigned"]), len(result["started"]), len(result["start_failed"]),
+                    len(result["assigned"]),
+                    len(result["started"]),
+                    len(result["start_failed"]),
                 )
         except Exception:
             logger.exception("task progress poller tick failed")

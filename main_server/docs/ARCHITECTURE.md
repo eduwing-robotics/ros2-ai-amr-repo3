@@ -202,6 +202,7 @@ sequenceDiagram
 - `work_orders/projections.py`: Task·계획·실행 상태를 Work Order read model로 조립한다.
 - `execution/callback_workflow.py`: 원시 callback 증거를 먼저 기록한 뒤 Task 반영을 요청한다.
 - `execution/transitions.py`: 계약·타임라인·완료 gate의 순수 판정을 소유한다.
+- `execution/reconciliation.py`: Movement status polling과 반복 단절의 운영자 hold 전환을 소유하며 새 command를 만들지 않는다.
 - 실행 orchestrator는 취소·실패·하역·정상 완료 transaction을 조율하되 경로·리프트·재고 SQL은 소유하지 않는다.
 
 입고 업무 단계: 출차 → pickup 접근·정렬·적재 → 운송 → dropoff 정렬·하역 → 홈 복귀·주차.
@@ -343,8 +344,7 @@ latch를 복원하며 기존 Task는 `AWAITING_OPERATOR`에 유지하고 자동 
 ### 10.3 알려진 구현 한계
 
 - Step의 `kind`와 `params`는 외부 계약에서 검증하지만 persisted runtime의 사건별 payload는 아직 동적 구조를
-  포함한다. kind별 discriminated union과 저장 adapter의 전면 typed validation은 공개 계약을 바꾸지 않는 후속
-  강화 항목이다.
+  포함한다. kind별 discriminated union과 저장 adapter의 전면 typed validation은 기존 DB snapshot의 kind·상태·optional 필드 호환성 검사를 먼저 통과한 뒤 적용하는 후속 강화 항목이다.
 - DB 변경과 외부 Movement 명령 사이에는 분산 transaction이나 Outbox가 없다. 현재는 command ID 멱등성,
   callback sequence 검증과 상태 polling으로 수렴하며, 전달 보장이 더 강해질 때 Outbox를 별도 설계한다.
 - 광범위 예외 처리는 background loop의 tick 격리, readiness·cache fallback, DB rollback 후 재발생,

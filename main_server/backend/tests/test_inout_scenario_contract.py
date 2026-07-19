@@ -8,7 +8,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.domains.execution import evidence, inout_scenarios, orchestrator, transitions
+from app.domains.execution import evidence, inout_scenarios, orchestrator, reconciliation, transitions
 from app.domains.execution import steps as scenario_steps
 from app.domains.movement import commands, scenario_adapter
 from app.models.movement import RobotCommandEvent
@@ -148,9 +148,7 @@ def test_scenario_request_rejects_legacy_tuning_fields() -> None:
         ("STORAGE_04", "warehouse_d_approach", 1.225, -0.377),
     ],
 )
-def test_rounded_pi_yaw_keeps_validated_storage_mapping(
-    storage_id: str, waypoint_id: str, x: float, y: float
-) -> None:
+def test_rounded_pi_yaw_keeps_validated_storage_mapping(storage_id: str, waypoint_id: str, x: float, y: float) -> None:
     assert inout_scenarios.APPROACH_WAYPOINT_BY_LOCATION[storage_id] == waypoint_id
     params = _scenario_params()
     params["dropoff"] = {
@@ -172,9 +170,7 @@ def test_rounded_pi_yaw_keeps_validated_storage_mapping(
 
 def test_scenario_request_rejects_yaw_beyond_rounding_tolerance() -> None:
     params = _scenario_params()
-    params["dropoff"]["approach"]["yaw"] = (
-        math.pi + scenario_adapter.YAW_ROUNDING_TOLERANCE_RAD + 0.001
-    )
+    params["dropoff"]["approach"]["yaw"] = math.pi + scenario_adapter.YAW_ROUNDING_TOLERANCE_RAD + 0.001
 
     with pytest.raises(HTTPException) as exc:
         inout_scenarios.build_command(
@@ -412,11 +408,11 @@ def test_status_poll_reconciles_changed_business_step() -> None:
         "updated_at": "2026-07-16T10:20:00Z",
     }
     with (
-        patch.object(orchestrator.evidence, "list_orchestrated_running", return_value=[task]),
-        patch.object(orchestrator.movement_client, "inout_scenario_status", return_value=status),
+        patch.object(reconciliation.evidence, "list_orchestrated_running", return_value=[task]),
+        patch.object(reconciliation.movement_client, "inout_scenario_status", return_value=status),
         patch.object(orchestrator, "advance_on_command_event", return_value=None) as advance,
     ):
-        orchestrator.poll_running_tasks(MagicMock())
+        reconciliation.poll_running_tasks(MagicMock())
     forwarded = advance.call_args.args[2]
     assert forwarded["contract_version"] == "1.0"
     assert forwarded["current_step_code"] == "LOAD"

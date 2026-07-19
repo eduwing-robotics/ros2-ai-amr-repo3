@@ -39,7 +39,7 @@
 | 4. Callback workflow | Complete | 순수 계약 판정과 callback 증거·Task 반영 순서 분리 | 64 passed, Ruff passed |
 | 5. Performance | Complete | claim 일괄 조회·Frontend Map 계산·빈 `limit` 수정 | 3 passed, Ruff·Frontend typecheck/lint/build passed |
 | 6. Quality gates | Complete | 전체 정적 검사·테스트·production build | 285 passed, 54 skipped, 3 subtests; Ruff·Frontend gates passed |
-| 7. Physical regression | In progress | 검증 경로 입고·출고 1회씩 | 입고 #391 9단계·리프트·재고·PARK 성공; 출고 pending |
+| 7. Physical regression | In progress | 검증 경로 입고·출고 1회씩 | 입고 #391 9단계·리프트·재고·PARK 성공; 출고 #384 9단계·WAIT2/PARK Movement 증거 확인; 정식 HW 인수 기록 pending |
 
 ## Decisions
 
@@ -69,7 +69,10 @@
 - 2026-07-19: 업무 완료 후 중단·Movement 실패의 `PARK_FAILED` 보존과 callback sequence gap 기록·poll 보정을 직접 검증하는 테스트 3건 추가. sequence helper를 bool 계약으로 축소하고 변경 파일 formatter 적용. Backend `285 passed, 54 skipped, 3 subtests`, Ruff·compile/import·Frontend 전체 gate 통과.
 - 2026-07-19: Architecture·API·운영 runbook을 workflow와 callback 책임에 맞춰 갱신. 문서 검사, Backend `285 passed, 54 skipped, 3 subtests`, Ruff·compile/import, Frontend typecheck·lint·production build와 `git diff --check` 재통과.
 
+- 2026-07-19: status polling과 반복 단절 hold 전환을 `execution/reconciliation.py`로 분리하고 poller가 새 소유 모듈을 직접 호출하도록 변경. Backend 294 passed(54 skipped), PostgreSQL 348 passed, Frontend gate와 UX 60건, docs·hygiene 통과.
+- 2026-07-19: 비동작 `tb3_2` preflight에서 Main·map·작업 API는 정상이나 Movement `command_accepting=false`로 물리 회귀를 차단. 인수 스크립트의 awk 삼항식이 파일 `0`을 만들던 괄호 누락도 수정.
+
 ## Next
 
 정본 문서와 구현의 일치를 재검증하고 `main-server`에 통합한다. 통합 뒤
-`STORAGE_02 → OUTBOUND_02 → WAIT2` 출고 물리 회귀는 별도 현장 검증으로 남긴다.
+task-384는 `STORAGE_02 → OUTBOUND_02 → WAIT2`를 `simulation_mode=false`, 9단계 `DONE`, `PARKED`로 완료한 Movement 증거가 있다. 다만 운영자·재고 전후·현장 증거를 묶은 정식 HW 인수 기록은 별도 현장 검증으로 남긴다.
