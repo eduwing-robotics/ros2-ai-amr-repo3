@@ -14,6 +14,7 @@
 - `location_id`는 Main의 업무·재고 식별자다.
 - `waypoint_id`는 Movement의 물리 접근 profile 조회 키다.
 - `x`, `y`, `yaw`는 Main DB에서 command 생성 시 snapshot한 `map` frame 좌표다.
+- `yaw` 정본이 소수 셋째 자리이면 ±π 경계의 반올림 오차를 최대 `0.0005 rad` 허용하며, Main은 snapshot 값을 변환하지 않는다.
 - `STORAGE_02`, 물리 이름 `Warehouse B`, `warehouse_b_approach`를 숫자·문자로 추론해 연결하지 않는다.
 - Main은 아래 표의 명시적 연결만 사용하고 Movement는 수신한 location/profile/좌표 조합을 검증한다.
 

@@ -118,7 +118,7 @@ Idempotency-Key: task-355-tb3_2-inbound-20260716-001
 | `approach.waypoint_id` | string | 예 | Movement 물리 profile 조회 키 |
 | `approach.x` | number | 예 | `frame_id` 기준 미터 |
 | `approach.y` | number | 예 | `frame_id` 기준 미터 |
-| `approach.yaw` | number | 예 | 라디안, `-π` 이상 `π` 이하 |
+| `approach.yaw` | number | 예 | 라디안, `-π` 이상 `π` 이하. 소수 셋째 자리 정본의 `±3.142`는 반올림 경계로 허용 |
 
 좌표는 유한한 숫자여야 한다. Main은 업무 위치 자체의 표시 좌표가 아니라 그 위치에 연결된
 `approach/scan waypoint` 좌표를 전송한다.

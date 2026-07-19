@@ -12,6 +12,8 @@ from app.domains.movement.client import movement_robot_key
 
 CONTRACT_VERSION = "1.0"
 FRAME_ID = "map"
+# 검증 좌표는 소수 셋째 자리 정본을 유지하므로 π의 반올림값 3.142까지 허용한다.
+YAW_ROUNDING_TOLERANCE_RAD = 0.0005
 
 
 def build_scenario_command(
@@ -60,5 +62,10 @@ def _validate_location(location: object, role: str) -> None:
         values = tuple(float(approach[key]) for key in ("x", "y", "yaw"))
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail={"code": "scenario_approach_invalid", "role": role}) from exc
-    if not str(approach.get("waypoint_id") or "") or not all(math.isfinite(value) for value in values) or not -math.pi <= values[2] <= math.pi:
+    yaw_limit = math.pi + YAW_ROUNDING_TOLERANCE_RAD
+    if (
+        not str(approach.get("waypoint_id") or "")
+        or not all(math.isfinite(value) for value in values)
+        or not -yaw_limit <= values[2] <= yaw_limit
+    ):
         raise HTTPException(status_code=400, detail={"code": "scenario_approach_invalid", "role": role})

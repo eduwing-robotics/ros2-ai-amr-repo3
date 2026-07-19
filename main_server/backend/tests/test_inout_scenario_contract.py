@@ -1,6 +1,7 @@
 # 기능 책임: Main–Movement 단일 입출고 scenario 공개 계약을 검증한다. 비책임: 실장비의 물리 동작.
 from __future__ import annotations
 
+import math
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +10,7 @@ from pydantic import ValidationError
 
 from app.domains.execution import evidence, inout_scenarios, orchestrator, transitions
 from app.domains.execution import steps as scenario_steps
-from app.domains.movement import commands
+from app.domains.movement import commands, scenario_adapter
 from app.models.movement import RobotCommandEvent
 from app.models.robot_commands import RobotCommandRequest
 
@@ -138,6 +139,53 @@ def test_scenario_request_rejects_legacy_tuning_fields() -> None:
             callback_url="http://main/callback",
         )
     assert exc.value.detail["code"] == "scenario_params_invalid"
+
+
+@pytest.mark.parametrize(
+    ("storage_id", "waypoint_id", "x", "y"),
+    [
+        ("STORAGE_03", "warehouse_d_approach", 1.225, -0.377),
+        ("STORAGE_04", "warehouse_c_approach", 1.239, -0.631),
+    ],
+)
+def test_rounded_pi_yaw_keeps_validated_storage_mapping(
+    storage_id: str, waypoint_id: str, x: float, y: float
+) -> None:
+    assert inout_scenarios.APPROACH_WAYPOINT_BY_LOCATION[storage_id] == waypoint_id
+    params = _scenario_params()
+    params["dropoff"] = {
+        "location_id": storage_id,
+        "floor": 1,
+        "approach": {"waypoint_id": waypoint_id, "x": x, "y": y, "yaw": 3.142},
+    }
+
+    body = inout_scenarios.build_command(
+        params,
+        command_id=f"cmd-{storage_id.lower()}",
+        task_id=389,
+        robot_id="tb3_2",
+        callback_url="http://main/callback",
+    )
+
+    assert body["dropoff"] == params["dropoff"]
+
+
+def test_scenario_request_rejects_yaw_beyond_rounding_tolerance() -> None:
+    params = _scenario_params()
+    params["dropoff"]["approach"]["yaw"] = (
+        math.pi + scenario_adapter.YAW_ROUNDING_TOLERANCE_RAD + 0.001
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        inout_scenarios.build_command(
+            params,
+            command_id="cmd-invalid-yaw",
+            task_id=390,
+            robot_id="tb3_2",
+            callback_url="http://main/callback",
+        )
+
+    assert exc.value.detail == {"code": "scenario_approach_invalid", "role": "dropoff"}
 
 
 def test_scenario_dispatch_posts_exact_contract_once() -> None:
