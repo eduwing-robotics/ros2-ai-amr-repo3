@@ -9,8 +9,9 @@ from fastapi import HTTPException
 
 from app.db.postgres import DEFAULT_FLOOR, items, locations, operational_events
 from app.db.postgres import tasks as postgres_tasks
+from app.domains.execution import safe_stop as execution_safe_stop
 from app.domains.execution import tasks
-from app.domains.work_orders import planner, service
+from app.domains.work_orders import planner, projections
 
 
 def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | None = None) -> dict[str, Any]:
@@ -52,10 +53,51 @@ def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | No
         auto_start=auto_start,
         callback_base_url=callback_base_url,
     )
-    order = service.assemble_work_order_response(conn, order_id, execution_results=execution_results or None)
+    order = projections.assemble_work_order_response(conn, order_id, execution_results=execution_results or None)
     if start_failed:
         order["start_failed"] = start_failed
     return order
+
+
+def cancel_work_order(conn, order_id: int) -> dict[str, Any]:
+    """미실행 Work Order만 취소하고 갱신된 projection을 반환한다."""
+    task = _require_work_order(conn, order_id)
+    status = str(task.get("status") or "").upper()
+    if status in {"RUNNING", "IN_PROGRESS"}:
+        raise HTTPException(status_code=409, detail="work_order_running_requires_recovery")
+    if status not in {"CREATED", "QUEUED", "ASSIGNED"}:
+        raise HTTPException(status_code=409, detail=f"work_order_not_cancellable(status={status})")
+    tasks.cancel_task(conn, order_id, source="work_order")
+    return projections.assemble_work_order_response(conn, order_id)
+
+
+def request_work_order_stop(conn, order_id: int) -> dict[str, Any]:
+    """물리 중단 접수 결과를 반환하며 로봇 정지 완료를 뜻하지 않는다."""
+    return execution_safe_stop.request_work_order_stop(conn, order_id)
+
+
+def set_work_order_priority(conn, order_id: int, priority: int) -> dict[str, Any]:
+    """대기 Work Order 우선순위를 저장하고 갱신된 projection을 반환한다."""
+    task = _require_work_order(conn, order_id)
+    status = str(task.get("status") or "").upper()
+    if status not in {"CREATED", "QUEUED"}:
+        raise HTTPException(status_code=409, detail=f"work_order_priority_locked(status={status})")
+    bounded = max(0, min(int(priority), 1000))
+    postgres_tasks.set_priority(conn, order_id, bounded)
+    operational_events.append(
+        conn,
+        event_type="WORK_ORDER_PRIORITY_SET",
+        message=f"work order {order_id} priority set to {bounded}",
+        payload={"order_id": order_id, "priority": bounded},
+    )
+    return projections.assemble_work_order_response(conn, order_id)
+
+
+def _require_work_order(conn, order_id: int) -> dict[str, Any]:
+    task = postgres_tasks.get_task(conn, order_id)
+    if not task or task.get("task_type") not in {"INBOUND", "OUTBOUND"}:
+        raise HTTPException(status_code=404, detail="work order not found")
+    return task
 
 
 def _assign_tasks(conn, task_ids: list[int], *, robot_id: Any, auto_start: bool) -> None:

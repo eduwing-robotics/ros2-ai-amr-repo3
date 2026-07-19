@@ -25,7 +25,7 @@ def test_create_work_order_exposes_planned_task_to_assignment_and_start() -> Non
         patch.object(workflow, "_start_tasks", return_value=([{"command_id": "cmd-384"}], [])) as start_tasks,
         patch.object(workflow.operational_events, "append"),
         patch.object(
-            workflow.service,
+            workflow.projections,
             "assemble_work_order_response",
             return_value={"order_id": 384},
         ) as assemble,
