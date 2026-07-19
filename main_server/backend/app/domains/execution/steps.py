@@ -18,6 +18,8 @@ BUSINESS_STEPS: tuple[tuple[str, str], ...] = (
 )
 STEP_CODE_TO_INDEX = {code: index for index, (code, _label) in enumerate(BUSINESS_STEPS)}
 TRANSFER_ACTION_BY_STEP = {"LOAD": "load", "UNLOAD": "unload"}
+UNLOAD_STEP_INDEX = STEP_CODE_TO_INDEX["UNLOAD"]
+PARK_STEP_INDEX = STEP_CODE_TO_INDEX["PARK"]
 
 
 def business_timeline() -> list[dict[str, Any]]:

@@ -1,3 +1,6 @@
+"""책임: Task 상태·배정·활성 입출고 claim의 PostgreSQL 영속화를 소유한다.
+비책임: Work Order 순서 조정, Movement 명령과 물리 완료 판정."""
+
 from __future__ import annotations
 
 import json
@@ -103,7 +106,6 @@ def active_outbound_claims(conn, item_id: str, location_id: str, floor: int = DE
 
 
 def active_outbound_claims_by_location(conn, item_id: str) -> dict[tuple[str, int], int]:
-    """품목의 활성 출고 예약량을 슬롯·층별로 한 번에 조회하며 DB 상태는 변경하지 않는다."""
     rows = conn.execute(
         "\n            SELECT from_location_id, from_floor, COALESCE(SUM(quantity), 0) AS claimed\n"
         "            FROM tasks\n"

@@ -30,7 +30,7 @@
 | 4. Callback workflow | Complete | 순수 계약 판정과 callback 증거·Task 반영 순서 분리 | 64 passed, Ruff passed |
 | 5. Performance | Complete | claim 일괄 조회·Frontend Map 계산·빈 `limit` 수정 | 3 passed, Ruff·Frontend typecheck/lint/build passed |
 | 6. Quality gates | Complete | 전체 정적 검사·테스트·production build | 281 passed, 54 skipped, 3 subtests; Ruff·Frontend gates passed |
-| 7. Physical regression | Blocked | 검증 경로 입고·출고 1회씩 | `tb3_2` OFFLINE, Movement `:8002` connection refused |
+| 7. Physical regression | In progress | 검증 경로 입고·출고 1회씩 | 입고 #391 9단계·리프트·재고·PARK 성공; 출고 pending |
 
 ## Decisions
 
@@ -41,7 +41,7 @@
 ## Change Budget
 
 - New production files: 4 / 4
-- Production net lines: +74 / +300 target
+- Production net lines: +151 / +300 target
 - Database migrations: 0 planned
 - Physical commands during phases 1–6: none
 
@@ -55,7 +55,9 @@
 - 2026-07-19: 출고 claim을 품목당 1회 `GROUP BY` 조회로 변경하고 Frontend 슬롯 탐색을 `Set`/`Map` 인덱스로 전환. 빈 `/tasks?limit=` 요청도 실제 limit 값으로 수정. Backend 3건 통과(환경 의존 17건 skip), Ruff와 Frontend typecheck·lint·production build 통과.
 - 2026-07-19: 전체 Backend `281 passed, 54 skipped, 3 subtests`, 전체 Ruff, Frontend typecheck·lint·production build와 `git diff --check` 통과.
 - 2026-07-19: 물리 회귀 preflight에서 ESTOP은 `clear`이나 `tb3_2`는 `OFFLINE`·`command_enabled=false`, Movement `192.168.10.54:8002`는 연결 거부. 실패 작업을 만들지 않도록 입출고 명령과 서버 교체는 수행하지 않음.
+- 2026-07-19: worktree 서버에서 입고 #391 `INBOUND_02 → STORAGE_02` 실행. 9단계와 LOAD·UNLOAD·RETURN_HOME·PARK 모두 완료, `bolt_1` 재고 `0 → 1`, 최종 `DONE/PARKED` 확인.
+- 2026-07-19: callback 취소·실패·업무 완료·정상 완료를 기존 orchestrator 내부 책임 함수로 분리해 `advance_on_command_event` 복잡도 `39 → 13`으로 축소. 단계 index 정본화와 Work Order operation별 위치 조회를 적용하고 Backend `282 passed, 54 skipped, 3 subtests`, Ruff와 Frontend 전체 gate 통과.
 
 ## Next
 
-Movement `:8002`와 `tb3_2`가 online이 되면 worktree 서버를 기동하고 `INBOUND_02 → STORAGE_02`, `STORAGE_02 → OUTBOUND_02 → WAIT2`를 순서대로 검증한다.
+후속 품질 변경 서버를 기동한 뒤 `STORAGE_02 → OUTBOUND_02 → WAIT2` 출고 물리 회귀를 별도 실행한다.

@@ -13,6 +13,7 @@ from app.db.connection import TASK_EVENT_LOCK_NAMESPACE, advisory_xact_lock_for_
 from app.db.postgres import operational_events, robots, runtime_records, tasks
 from app.domains.execution import evidence, inout_scenarios, recovery, transitions
 from app.domains.execution import state as orch_state
+from app.domains.execution import steps as scenario_steps
 from app.domains.movement import commands
 from app.domains.movement.client import MovementClientError, movement_client, movement_robot_key
 from app.domains.movement.health import get_movement_health
@@ -26,6 +27,308 @@ from app.models.tasks import RobotTaskStepStatus
 logger = logging.getLogger(__name__)
 
 TERMINAL_STEP_STATES = {"DONE", "FAILED", "ABORTED", "CANCELLED"}
+
+
+def _accept_event_sequence(step: dict[str, Any], event: dict[str, Any], source: str) -> tuple[bool, int | None]:
+    sequence = event.get("sequence")
+    if sequence is None:
+        return True, None
+    sequence = int(sequence)
+    last_sequence = step.get("last_event_sequence")
+    if last_sequence is not None and sequence <= int(last_sequence):
+        return False, sequence
+    expected_sequence = int(last_sequence) + 1 if last_sequence is not None else 0
+    if sequence > expected_sequence:
+        step["callback_sequence_gap"] = {"expected": expected_sequence, "received": sequence}
+    elif source == "task_progress_poller":
+        step.pop("callback_sequence_gap", None)
+    step["last_event_sequence"] = sequence
+    return True, sequence
+
+
+def _handle_cancel_requested(
+    conn,
+    task_id: int,
+    task: dict[str, Any],
+    execution: orch_state.RobotTaskExecutionState,
+    event: dict[str, Any],
+    event_name: str,
+    scenario_progress: dict[str, Any],
+    source: str,
+) -> tuple[bool, dict[str, Any] | None]:
+    """중단 callback을 화물·업무 완료 상태에 맞게 확정하고 처리 여부와 Task를 반환한다."""
+    if execution.phase != orch_state.RobotTaskOrchestrationPhase.CANCEL_REQUESTED:
+        return False, None
+    step = execution.steps[execution.step_index]
+    stop_request = execution.data.get("stop_request") or {}
+    if event_name not in {"CANCELLED", "CANCELED", "STOPPED", "ABORTED"}:
+        if event_name in _step_done_events(str(step.get("kind") or "move_to_point")):
+            execution.transition_to(orch_state.RobotTaskOrchestrationPhase.RUNNING)
+            execution.data.pop("stop_request", None)
+            evidence.save_orchestration(conn, task_id, execution.data)
+            return False, None
+        return True, None
+
+    step["status"] = "CANCELLED"
+    business_completed = bool(
+        scenario_progress.get("business_completed")
+        if str(step.get("kind")) == "inout_scenario"
+        else stop_request.get("business_completed")
+    )
+    reported_cargo = str(scenario_progress.get("cargo_state") or "").upper()
+    cargo_state = (
+        reported_cargo
+        if reported_cargo in {"EMPTY", "LOADED", "UNKNOWN"}
+        else str(stop_request.get("cargo_state") or "UNKNOWN")
+    )
+    robot_id = task.get("assigned_robot_id")
+    if business_completed:
+        execution.return_status = "PARK_FAILED"
+        execution.data["parking_error"] = {
+            "state": event_name,
+            "reason": "operator_safe_stop",
+            "event": event,
+        }
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.DONE)
+        evidence.save_orchestration(conn, task_id, execution.data)
+        result = finalize_running_task_as_done(conn, task_id, source=source)
+    elif cargo_state == "LOADED":
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
+        execution.replace_recovery(
+            {"reason": "operator_safe_stop", "robot_id": robot_id, "cargo_state": cargo_state}
+        )
+        evidence.save_orchestration(conn, task_id, execution.data)
+        result = _task(conn, task_id)
+    else:
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.CANCELLED)
+        evidence.save_orchestration(conn, task_id, execution.data)
+        tasks.set_status(conn, task_id, "CANCELLED", clear_robot=True)
+        if robot_id:
+            robots.set_task(conn, str(robot_id), "IDLE", None)
+            person_hazard.on_robot_task_terminal(str(robot_id))
+        result = _task(conn, task_id)
+    operational_events.append(
+        conn,
+        event_type="WORK_ORDER_STOPPED",
+        task_id=task_id,
+        robot_id=robot_id,
+        message=f"work order {task_id} safe stop confirmed ({cargo_state})",
+        payload={"event": event, "cargo_state": cargo_state, "business_completed": business_completed},
+    )
+    return True, result
+
+
+def _handle_failed_event(
+    conn,
+    task_id: int,
+    task: dict[str, Any],
+    execution: orch_state.RobotTaskExecutionState,
+    event: dict[str, Any],
+    event_name: str,
+    scenario_progress: dict[str, Any],
+    source: str,
+) -> dict[str, Any] | None:
+    """실패 callback을 주차 실패·운영자 복구·일반 실패 중 하나로 확정해 반환한다."""
+    step_index = execution.step_index
+    step = execution.steps[step_index]
+    event_command_id = event.get("command_id")
+    step["status"] = event_name
+    if execution.business_completed and str(step.get("kind")) in {"move_to_point", "aruco_align", "inout_scenario"}:
+        execution.return_status = "PARK_FAILED"
+        execution.data["parking_error"] = {
+            "state": event_name,
+            "command_id": event_command_id,
+            "event": event,
+        }
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.DONE)
+        evidence.save_orchestration(conn, task_id, execution.data)
+        finished = finalize_running_task_as_done(conn, task_id, source=source)
+        operational_events.append(
+            conn,
+            event_type="TASK_PARKING_FAILED",
+            task_id=task_id,
+            robot_id=task.get("assigned_robot_id"),
+            message=f"task {task_id} business completed; parking {event_name.lower()}",
+            payload={"task_id": task_id, "event": event},
+        )
+        return finished
+
+    event_payload = event.get("event") if isinstance(event.get("event"), dict) else event
+    reason = str((event_payload or {}).get("reason_code") or (event_payload or {}).get("reason") or "").lower()
+    cargo_state = str(scenario_progress.get("cargo_state") or "").upper()
+    if cargo_state not in {"EMPTY", "LOADED"}:
+        cargo_state = (
+            "UNKNOWN" if str(step.get("kind")) == "inout_scenario" else orch_state.cargo_state_after_steps(execution.steps)
+        )
+    estop_failure = event_name == "ABORTED" and "estop" in reason
+    if cargo_state in {"LOADED", "UNKNOWN"} or estop_failure:
+        recovery_reason = "movement_failure_loaded_cargo" if cargo_state in {"LOADED", "UNKNOWN"} else "movement_estop"
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
+        execution.replace_recovery(
+            {
+                "reason": recovery_reason,
+                "robot_id": task.get("assigned_robot_id"),
+                "cargo_state": cargo_state,
+                "failed_step_index": step_index,
+                "failed_command_id": event_command_id,
+                "movement_state": event_name,
+            }
+        )
+        evidence.save_orchestration(conn, task_id, execution.data)
+        operational_events.append(
+            conn,
+            event_type=orch_state.EVENT_AWAITING_OPERATOR,
+            task_id=task_id,
+            robot_id=task.get("assigned_robot_id"),
+            message=f"task {task_id} step {step_index} {event_name.lower()} — recovery required ({cargo_state})",
+            payload={
+                "task_id": task_id,
+                "event": event,
+                "step_index": step_index,
+                "cargo_state": cargo_state,
+                "reason": recovery_reason,
+            },
+        )
+        return _task(conn, task_id)
+
+    execution.transition_to(event_name)
+    evidence.save_orchestration(conn, task_id, execution.data)
+    tasks.set_status(conn, task_id, "FAILED", clear_robot=True)
+    robot_id = task.get("assigned_robot_id")
+    if robot_id:
+        robots.set_task(conn, robot_id, "IDLE", None)
+        person_hazard.on_robot_task_terminal(str(robot_id))
+    operational_events.append(
+        conn,
+        event_type=f"TASK_STEP_{event_name}",
+        task_id=task_id,
+        robot_id=robot_id,
+        message=f"task {task_id} step {step_index} {event_name}",
+        payload={"task_id": task_id, "event": event, "step_index": step_index},
+    )
+    return _task(conn, task_id)
+
+
+def _settle_scenario_unload(
+    conn,
+    task_id: int,
+    task: dict[str, Any],
+    execution: orch_state.RobotTaskExecutionState,
+    event: dict[str, Any],
+    scenario_progress: dict[str, Any],
+) -> None:
+    """검증된 UNLOAD 완료에서만 재고와 업무 완료를 같은 transaction에 한 번 반영한다."""
+    unload_completed = (
+        str(event.get("event") or event.get("state") or "").upper() == "STEP_COMPLETED"
+        and str(scenario_progress.get("current_step_code") or "") == "UNLOAD"
+        and int(scenario_progress.get("last_completed_step_index") or -1) == scenario_steps.UNLOAD_STEP_INDEX
+        and str(scenario_progress.get("cargo_state") or "").upper() == "EMPTY"
+        and scenario_progress.get("business_completed") is True
+    )
+    if str(execution.steps[execution.step_index].get("kind")) != "inout_scenario":
+        return
+    if execution.business_completed or not unload_completed:
+        return
+    inventory_ops.settle_inventory_for_completed_task(conn, task_id)
+    execution.mark_business_completed(at_step=scenario_steps.UNLOAD_STEP_INDEX)
+    operational_events.append(
+        conn,
+        event_type="TASK_BUSINESS_COMPLETED",
+        task_id=task_id,
+        robot_id=task.get("assigned_robot_id"),
+        command_id=str(event.get("command_id")),
+        message=f"task {task_id} scenario UNLOAD completed; parking remains",
+        payload={"task_id": task_id, "scenario_progress": scenario_progress},
+    )
+
+
+def _handle_successful_event(
+    conn,
+    task_id: int,
+    task: dict[str, Any],
+    execution: orch_state.RobotTaskExecutionState,
+    event: dict[str, Any],
+    source: str,
+    command_definition_id: int,
+) -> dict[str, Any] | None:
+    """정상 callback을 현재 단계 완료 또는 진행 증거로 저장하고 다음 명령 접수 결과를 반환한다."""
+    steps = execution.steps
+    step_index = execution.step_index
+    step = steps[step_index]
+    event_name = transitions.normalize_movement_event(event)
+    event_command_id = event.get("command_id")
+    scenario_progress = execution.data.get("scenario_progress") or {}
+    if event_name == "DONE" and str(step.get("kind")) == "inout_scenario":
+        gate_errors = transitions.scenario_done_gate_errors(scenario_progress)
+        if gate_errors:
+            step["completion_gate_errors"] = gate_errors
+            evidence.save_orchestration(conn, task_id, execution.data)
+            operational_events.append(
+                conn,
+                event_type="TASK_SCENARIO_DONE_GATE_BLOCKED",
+                task_id=task_id,
+                robot_id=task.get("assigned_robot_id"),
+                command_id=str(event_command_id),
+                message=f"task {task_id} COMMAND_DONE missing final safety fields",
+                payload={"missing_or_invalid": gate_errors, "scenario_progress": scenario_progress},
+            )
+            return None
+        step.pop("completion_gate_errors", None)
+
+    if event_name not in _step_done_events(str(step.get("kind") or "move_to_point")):
+        if event.get("sequence") is not None or str(step.get("kind")) == "inout_scenario":
+            evidence.save_orchestration(conn, task_id, execution.data)
+        return None
+
+    if str(step.get("kind")) == "dock_transfer":
+        try:
+            lift_load_evidence.evaluate_lift_load_evidence_and_record(conn, task, step, command_definition_id)
+        except Exception:
+            logger.exception("lift-load evidence record-only hook failed")
+
+    transfer_action = str(step.get("transfer_action") or (step.get("params") or {}).get("action") or "").lower()
+    if transfer_action == "unload":
+        inventory_ops.settle_inventory_for_completed_task(conn, task_id)
+        execution.mark_business_completed(at_step=step_index)
+
+    step["status"] = "DONE"
+    if str(step.get("kind")) == "move_to_point" and task.get("assigned_robot_id"):
+        person_hazard.on_move_to_point_step_done(str(task["assigned_robot_id"]))
+    step_index = execution.advance_step()
+    if execution.business_completed and step_index < len(steps):
+        next_kind = str(steps[step_index].get("kind") or "")
+        execution.return_status = "PARKING" if next_kind == "aruco_align" else "RETURNING_HOME"
+
+    if step_index >= len(steps):
+        if execution.business_completed:
+            execution.return_status = "PARKED"
+        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.DONE)
+        evidence.save_orchestration(conn, task_id, execution.data)
+        finished = finalize_running_task_as_done(conn, task_id, source=source)
+        operational_events.append(
+            conn,
+            event_type="TASK_ORCHESTRATION_DONE",
+            task_id=task_id,
+            robot_id=task.get("assigned_robot_id"),
+            message=f"task {task_id} all steps done",
+            payload={"task_id": task_id},
+        )
+        return finished
+
+    evidence.save_orchestration(conn, task_id, execution.data)
+    try:
+        dispatch_current_step(conn, task_id)
+    except HTTPException as exc:
+        return _handle_step_dispatch_exception(conn, task_id, exc, source)
+    operational_events.append(
+        conn,
+        event_type="TASK_STEP_DONE",
+        task_id=task_id,
+        robot_id=task.get("assigned_robot_id"),
+        message=f"task {task_id} step advanced to {step_index}",
+        payload={"task_id": task_id, "step_index": step_index, "event": event},
+    )
+    return _task(conn, task_id)
 
 def _orchestration_phase(conn, task_id: int) -> str | None:
     task = evidence.attach_orchestration(tasks.get_task(conn, task_id), conn)
@@ -373,84 +676,20 @@ def advance_on_command_event(
             return None
     if source == "task_progress_poller":
         step.pop("callback_sequence_gap", None)
-    sequence = event.get("sequence")
-    if sequence is not None:
-        sequence = int(sequence)
-        last_sequence = step.get("last_event_sequence")
-        if last_sequence is not None and sequence <= int(last_sequence):
-            return None
-        expected_sequence = int(last_sequence) + 1 if last_sequence is not None else 0
-        if sequence > expected_sequence:
-            step["callback_sequence_gap"] = {
-                "expected": expected_sequence,
-                "received": sequence,
-            }
-        elif source == "task_progress_poller":
-            step.pop("callback_sequence_gap", None)
-        step["last_event_sequence"] = sequence
+    accepted_sequence, sequence = _accept_event_sequence(step, event, source)
+    if not accepted_sequence:
+        return None
 
     scenario_progress: dict[str, Any] = {}
     if str(step.get("kind")) == "inout_scenario":
         scenario_progress = transitions.update_scenario_progress(orch, step, event)
         transitions.update_route_timeline(step, event, event_name)
 
-    if orch_state.normalize_phase(orch.get("phase")) == orch_state.RobotTaskOrchestrationPhase.CANCEL_REQUESTED:
-        stop_request = orch.get("stop_request") or {}
-        if event_name in {"CANCELLED", "CANCELED", "STOPPED", "ABORTED"}:
-            step["status"] = "CANCELLED"
-            execution.steps = steps
-            business_completed = bool(
-                scenario_progress.get("business_completed")
-                if str(step.get("kind")) == "inout_scenario"
-                else stop_request.get("business_completed")
-            )
-            reported_cargo = str(scenario_progress.get("cargo_state") or "").upper()
-            cargo_state = (
-                reported_cargo
-                if reported_cargo in {"EMPTY", "LOADED", "UNKNOWN"}
-                else str(stop_request.get("cargo_state") or "UNKNOWN")
-            )
-            robot_id = task.get("assigned_robot_id")
-            if business_completed:
-                execution.return_status = "PARK_FAILED"
-                orch["parking_error"] = {"state": event_name, "reason": "operator_safe_stop", "event": event}
-                execution.transition_to(orch_state.RobotTaskOrchestrationPhase.DONE)
-                evidence.save_orchestration(conn, task_id, orch)
-                result = finalize_running_task_as_done(conn, task_id, source=source)
-            elif cargo_state == "LOADED":
-                execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
-                execution.replace_recovery(
-                    {
-                        "reason": "operator_safe_stop",
-                        "robot_id": robot_id,
-                        "cargo_state": cargo_state,
-                    }
-                )
-                evidence.save_orchestration(conn, task_id, orch)
-                result = _task(conn, task_id)
-            else:
-                execution.transition_to(orch_state.RobotTaskOrchestrationPhase.CANCELLED)
-                evidence.save_orchestration(conn, task_id, orch)
-                tasks.set_status(conn, task_id, "CANCELLED", clear_robot=True)
-                if robot_id:
-                    robots.set_task(conn, str(robot_id), "IDLE", None)
-                    person_hazard.on_robot_task_terminal(str(robot_id))
-                result = _task(conn, task_id)
-            operational_events.append(
-                conn,
-                event_type="WORK_ORDER_STOPPED",
-                task_id=task_id,
-                robot_id=robot_id,
-                message=f"work order {task_id} safe stop confirmed ({cargo_state})",
-                payload={"event": event, "cargo_state": cargo_state, "business_completed": business_completed},
-            )
-            return result
-        if event_name in _step_done_events(str(step.get("kind") or "move_to_point")):
-            execution.transition_to(orch_state.RobotTaskOrchestrationPhase.RUNNING)
-            orch.pop("stop_request", None)
-            evidence.save_orchestration(conn, task_id, orch)
-        else:
-            return None
+    cancel_handled, cancel_result = _handle_cancel_requested(
+        conn, task_id, task, execution, event, event_name, scenario_progress, source
+    )
+    if cancel_handled:
+        return cancel_result
 
     task = _task(conn, task_id) or {}
     command_definition_id = evidence.resolve_command_definition_id(
@@ -467,185 +706,14 @@ def advance_on_command_event(
         data_json={"command_id": event_command_id, "event": event, "command_definition_id": command_definition_id},
     )
 
-    raw_event = str(event.get("event") or event.get("state") or "").upper()
-    unload_completed = (
-        raw_event == "STEP_COMPLETED"
-        and str(scenario_progress.get("current_step_code") or "") == "UNLOAD"
-        and int(scenario_progress.get("last_completed_step_index") or -1) == 6
-        and str(scenario_progress.get("cargo_state") or "").upper() == "EMPTY"
-        and scenario_progress.get("business_completed") is True
-    )
-    if str(step.get("kind")) == "inout_scenario" and not execution.business_completed and unload_completed:
-        inventory_ops.settle_inventory_for_completed_task(conn, task_id)
-        execution.mark_business_completed(at_step=6)
-        operational_events.append(
-            conn,
-            event_type="TASK_BUSINESS_COMPLETED",
-            task_id=task_id,
-            robot_id=task.get("assigned_robot_id"),
-            command_id=str(event_command_id),
-            message=f"task {task_id} scenario UNLOAD completed; parking remains",
-            payload={"task_id": task_id, "scenario_progress": scenario_progress},
-        )
+    _settle_scenario_unload(conn, task_id, task, execution, event, scenario_progress)
 
     if event_name in {"FAILED", "ABORTED", "REJECTED", "CANCELLED"}:
-        step["status"] = event_name
-        execution.steps = steps
-        if execution.business_completed and str(step.get("kind")) in {"move_to_point", "aruco_align", "inout_scenario"}:
-            execution.return_status = "PARK_FAILED"
-            orch["parking_error"] = {
-                "state": event_name,
-                "command_id": event_command_id,
-                "event": event,
-            }
-            execution.transition_to(orch_state.RobotTaskOrchestrationPhase.DONE)
-            evidence.save_orchestration(conn, task_id, orch)
-            finished = finalize_running_task_as_done(conn, task_id, source=source)
-            operational_events.append(
-                conn,
-                event_type="TASK_PARKING_FAILED",
-                task_id=task_id,
-                robot_id=task.get("assigned_robot_id"),
-                message=f"task {task_id} business completed; parking {event_name.lower()}",
-                payload={"task_id": task_id, "event": event},
-            )
-            return finished
-        event_payload = event.get("event") if isinstance(event.get("event"), dict) else event
-        reason = str((event_payload or {}).get("reason_code") or (event_payload or {}).get("reason") or "").lower()
-        cargo_state = str(scenario_progress.get("cargo_state") or "").upper()
-        if cargo_state not in {"EMPTY", "LOADED"}:
-            cargo_state = (
-                "UNKNOWN" if str(step.get("kind")) == "inout_scenario" else orch_state.cargo_state_after_steps(steps)
-            )
-        estop_failure = event_name == "ABORTED" and "estop" in reason
-        awaiting_operator = cargo_state in {"LOADED", "UNKNOWN"} or estop_failure
-        if awaiting_operator:
-            recovery_reason = (
-                "movement_failure_loaded_cargo" if cargo_state in {"LOADED", "UNKNOWN"} else "movement_estop"
-            )
-            execution.transition_to(orch_state.RobotTaskOrchestrationPhase.AWAITING_OPERATOR)
-            execution.replace_recovery(
-                {
-                    "reason": recovery_reason,
-                    "robot_id": task.get("assigned_robot_id"),
-                    "cargo_state": cargo_state,
-                    "failed_step_index": step_index,
-                    "failed_command_id": event_command_id,
-                    "movement_state": event_name,
-                }
-            )
-            evidence.save_orchestration(conn, task_id, orch)
-            robot_id = task.get("assigned_robot_id")
-            operational_events.append(
-                conn,
-                event_type=orch_state.EVENT_AWAITING_OPERATOR,
-                task_id=task_id,
-                robot_id=robot_id,
-                message=f"task {task_id} step {step_index} {event_name.lower()} — recovery required ({cargo_state})",
-                payload={
-                    "task_id": task_id,
-                    "event": event,
-                    "step_index": step_index,
-                    "cargo_state": cargo_state,
-                    "reason": recovery_reason,
-                },
-            )
-            return _task(conn, task_id)
-
-        execution.transition_to(event_name)
-        evidence.save_orchestration(conn, task_id, orch)
-        tasks.set_status(conn, task_id, "FAILED", clear_robot=True)
-        robot_id = task.get("assigned_robot_id")
-        if robot_id:
-            robots.set_task(conn, robot_id, "IDLE", None)
-            person_hazard.on_robot_task_terminal(str(robot_id))
-        operational_events.append(
-            conn,
-            event_type=f"TASK_STEP_{event_name}",
-            task_id=task_id,
-            robot_id=robot_id,
-            message=f"task {task_id} step {step_index} {event_name}",
-            payload={"task_id": task_id, "event": event, "step_index": step_index},
+        return _handle_failed_event(
+            conn, task_id, task, execution, event, event_name, scenario_progress, source
         )
-        return _task(conn, task_id)
 
-    if event_name == "DONE" and str(step.get("kind")) == "inout_scenario":
-        gate_errors = transitions.scenario_done_gate_errors(scenario_progress)
-        if gate_errors:
-            step["completion_gate_errors"] = gate_errors
-            execution.steps = steps
-            evidence.save_orchestration(conn, task_id, orch)
-            operational_events.append(
-                conn,
-                event_type="TASK_SCENARIO_DONE_GATE_BLOCKED",
-                task_id=task_id,
-                robot_id=task.get("assigned_robot_id"),
-                command_id=str(event_command_id),
-                message=f"task {task_id} COMMAND_DONE missing final safety fields",
-                payload={"missing_or_invalid": gate_errors, "scenario_progress": scenario_progress},
-            )
-            return None
-        step.pop("completion_gate_errors", None)
-
-    if event_name not in _step_done_events(str(step.get("kind") or "move_to_point")):
-        if sequence is not None or str(step.get("kind")) == "inout_scenario":
-            execution.steps = steps
-            evidence.save_orchestration(conn, task_id, orch)
-        return None
-
-    if str(step.get("kind")) == "dock_transfer":
-        try:
-            lift_load_evidence.evaluate_lift_load_evidence_and_record(conn, task, step, command_definition_id)
-        except Exception:
-            logger.exception("lift-load evidence record-only hook failed")
-
-    transfer_action = str(step.get("transfer_action") or (step.get("params") or {}).get("action") or "").lower()
-    if transfer_action == "unload":
-        inventory_ops.settle_inventory_for_completed_task(conn, task_id)
-        execution.mark_business_completed(at_step=step_index)
-
-    step["status"] = "DONE"
-    if str(step.get("kind")) == "move_to_point":
-        robot_id = task.get("assigned_robot_id")
-        if robot_id:
-            person_hazard.on_move_to_point_step_done(str(robot_id))
-    execution.steps = steps
-    step_index = execution.advance_step()
-
-    if execution.business_completed and step_index < len(steps):
-        next_kind = str(steps[step_index].get("kind") or "")
-        execution.return_status = "PARKING" if next_kind == "aruco_align" else "RETURNING_HOME"
-
-    if step_index >= len(steps):
-        if execution.business_completed:
-            execution.return_status = "PARKED"
-        execution.transition_to(orch_state.RobotTaskOrchestrationPhase.DONE)
-        evidence.save_orchestration(conn, task_id, orch)
-        finished = finalize_running_task_as_done(conn, task_id, source=source)
-        operational_events.append(
-            conn,
-            event_type="TASK_ORCHESTRATION_DONE",
-            task_id=task_id,
-            robot_id=task.get("assigned_robot_id"),
-            message=f"task {task_id} all steps done",
-            payload={"task_id": task_id},
-        )
-        return finished
-
-    evidence.save_orchestration(conn, task_id, orch)
-    try:
-        dispatch_current_step(conn, task_id)
-    except HTTPException as exc:
-        return _handle_step_dispatch_exception(conn, task_id, exc, source)
-    operational_events.append(
-        conn,
-        event_type="TASK_STEP_DONE",
-        task_id=task_id,
-        robot_id=task.get("assigned_robot_id"),
-        message=f"task {task_id} step advanced to {step_index}",
-        payload={"task_id": task_id, "step_index": step_index, "event": event},
-    )
-    return _task(conn, task_id)
+    return _handle_successful_event(conn, task_id, task, execution, event, source, command_definition_id)
 
 
 

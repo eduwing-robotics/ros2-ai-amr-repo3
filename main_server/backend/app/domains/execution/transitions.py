@@ -49,6 +49,7 @@ def normalize_movement_event(event: dict[str, Any]) -> str:
 def update_scenario_progress(
     orchestration: dict[str, Any], step: dict[str, Any], event: dict[str, Any]
 ) -> dict[str, Any]:
+    """계약 필드만 orchestration과 현재 step에 같은 snapshot으로 반영해 반환한다."""
     previous = step.get("scenario_progress") or {}
     progress = dict(previous) if isinstance(previous, dict) else {}
     progress.update({field: event[field] for field in SCENARIO_PROGRESS_FIELDS if field in event})
@@ -58,6 +59,7 @@ def update_scenario_progress(
 
 
 def update_route_timeline(step: dict[str, Any], event: dict[str, Any], event_name: str) -> None:
+    """현재 단계와 code가 일치할 때만 step의 9단계 timeline을 전진시킨다."""
     timeline = step.get("route_timeline")
     if not isinstance(timeline, list) or not timeline:
         return
@@ -98,7 +100,9 @@ def scenario_done_gate_errors(progress: dict[str, Any]) -> list[str]:
         "is_emergency": progress.get("is_emergency") is False,
     }
     try:
-        checks["last_completed_step_index"] = int(progress.get("last_completed_step_index")) >= 8
+        checks["last_completed_step_index"] = (
+            int(progress.get("last_completed_step_index")) >= scenario_steps.PARK_STEP_INDEX
+        )
     except (TypeError, ValueError):
         checks["last_completed_step_index"] = False
     return [field for field, valid in checks.items() if not valid]

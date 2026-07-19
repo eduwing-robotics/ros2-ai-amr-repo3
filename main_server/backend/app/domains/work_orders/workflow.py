@@ -29,6 +29,7 @@ def create_work_order(conn, payload: dict[str, Any], callback_base_url: str | No
             conn,
             operation=operation,
             item_code=item_code,
+            quantity=quantity,
             slot=entry["slot"],
             floor=int(entry["plan_summary"].get("floor") or DEFAULT_FLOOR),
             plan_summary=entry["plan_summary"],
@@ -99,26 +100,26 @@ def _create_task(
     *,
     operation: str,
     item_code: str,
+    quantity: int,
     slot: dict[str, Any],
     floor: int,
     plan_summary: dict[str, Any],
     payload: dict[str, Any],
 ) -> int:
-    inbound = locations.get_inbound(conn, payload.get("inbound_waypoint_id"))
-    outbound = locations.get_outbound(conn, payload.get("outbound_waypoint_id"))
     task_type = operation.upper()
-    from_location_id, to_location_id = (
-        (inbound["slot_id"], slot["slot_id"])
-        if task_type == "INBOUND"
-        else (slot["slot_id"], outbound["slot_id"])
-    )
+    if task_type == "INBOUND":
+        inbound = locations.get_inbound(conn, payload.get("inbound_waypoint_id"))
+        from_location_id, to_location_id = inbound["slot_id"], slot["slot_id"]
+    else:
+        outbound = locations.get_outbound(conn, payload.get("outbound_waypoint_id"))
+        from_location_id, to_location_id = slot["slot_id"], outbound["slot_id"]
     task_id = postgres_tasks.create_task_record(
         conn,
         {
             "task_type": task_type,
             "status": "QUEUED",
             "item_id": item_code,
-            "quantity": planner.validated_quantity(int(payload.get("quantity") or 1)),
+            "quantity": quantity,
             "from_location_id": from_location_id,
             "from_floor": floor,
             "to_location_id": to_location_id,

@@ -57,3 +57,30 @@ def test_start_tasks_reports_movement_rejection_without_hiding_created_task() ->
 
     assert started == []
     assert failed == [{"task_id": 383, "detail": {"code": "waypoint_location_mismatch"}}]
+
+
+def test_inbound_task_resolves_only_its_source_zone_and_uses_validated_quantity() -> None:
+    with (
+        patch.object(workflow.locations, "get_inbound", return_value={"slot_id": "INBOUND_02"}) as inbound,
+        patch.object(workflow.locations, "get_outbound") as outbound,
+        patch.object(workflow.postgres_tasks, "create_task_record", return_value=392) as create_task,
+        patch.object(workflow.operational_events, "append"),
+    ):
+        task_id = workflow._create_task(
+            MagicMock(),
+            operation="inbound",
+            item_code="bolt_1",
+            quantity=3,
+            slot={"slot_id": "STORAGE_02"},
+            floor=1,
+            plan_summary={"selection_reason": "operator_specified"},
+            payload={"inbound_waypoint_id": "INBOUND_02"},
+        )
+
+    assert task_id == 392
+    inbound.assert_called_once()
+    outbound.assert_not_called()
+    record = create_task.call_args.args[1]
+    assert record["quantity"] == 3
+    assert record["from_location_id"] == "INBOUND_02"
+    assert record["to_location_id"] == "STORAGE_02"
