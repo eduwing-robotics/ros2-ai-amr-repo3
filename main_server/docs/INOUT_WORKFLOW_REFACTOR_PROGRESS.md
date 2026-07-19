@@ -29,8 +29,8 @@
 | 3. Work Order workflow | Complete | 계획→Task→배정→Movement 접수 순서를 `workflow.py`로 추출 | 66 passed, 3 subtests, Ruff passed |
 | 4. Callback workflow | Complete | 순수 계약 판정과 callback 증거·Task 반영 순서 분리 | 64 passed, Ruff passed |
 | 5. Performance | Complete | claim 일괄 조회·Frontend Map 계산·빈 `limit` 수정 | 3 passed, Ruff·Frontend typecheck/lint/build passed |
-| 6. Quality gates | In progress | 전체 정적 검사·테스트·production build | CI와 동일 명령 |
-| 7. Physical regression | Pending | 검증 경로 입고·출고 1회씩 | 9단계·리프트·재고·PARK |
+| 6. Quality gates | Complete | 전체 정적 검사·테스트·production build | 281 passed, 54 skipped, 3 subtests; Ruff·Frontend gates passed |
+| 7. Physical regression | Blocked | 검증 경로 입고·출고 1회씩 | `tb3_2` OFFLINE, Movement `:8002` connection refused |
 
 ## Decisions
 
@@ -53,7 +53,9 @@
 - 2026-07-19: Work Order 생성·배정·Movement 접수를 `work_orders/workflow.py`로 이동하고 service를 조회·호환 facade로 축소. 회귀 테스트 66건과 Ruff 통과.
 - 2026-07-19: callback 계약·timeline·완료 gate를 `transitions.py`로, 증거 기록과 Task 반영 순서를 `callback_workflow.py`로 이동. 관련 테스트 64건과 Ruff 통과.
 - 2026-07-19: 출고 claim을 품목당 1회 `GROUP BY` 조회로 변경하고 Frontend 슬롯 탐색을 `Set`/`Map` 인덱스로 전환. 빈 `/tasks?limit=` 요청도 실제 limit 값으로 수정. Backend 3건 통과(환경 의존 17건 skip), Ruff와 Frontend typecheck·lint·production build 통과.
+- 2026-07-19: 전체 Backend `281 passed, 54 skipped, 3 subtests`, 전체 Ruff, Frontend typecheck·lint·production build와 `git diff --check` 통과.
+- 2026-07-19: 물리 회귀 preflight에서 ESTOP은 `clear`이나 `tb3_2`는 `OFFLINE`·`command_enabled=false`, Movement `192.168.10.54:8002`는 연결 거부. 실패 작업을 만들지 않도록 입출고 명령과 서버 교체는 수행하지 않음.
 
 ## Next
 
-Backend 전체 테스트·Ruff와 Frontend production build를 다시 실행하고 diff·구조 경계를 점검한다.
+Movement `:8002`와 `tb3_2`가 online이 되면 worktree 서버를 기동하고 `INBOUND_02 → STORAGE_02`, `STORAGE_02 → OUTBOUND_02 → WAIT2`를 순서대로 검증한다.
