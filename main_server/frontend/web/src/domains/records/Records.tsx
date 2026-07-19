@@ -9,6 +9,7 @@ import { useCommLogs } from "../../hooks/useCommLogs";
 import type { CommLog } from "../../hooks/useCommLogs";
 import type { ItemChangeLogRecord, RobotCommandRecord, TaskLogRecord } from "../../types";
 import type { TimelineEvent } from "./useEvents";
+import { summarizePollMetrics } from "./recordMetrics";
 
 const PAGE_SIZE = 25;
 
@@ -205,11 +206,7 @@ function CommunicationsTab() {
   const { data, isLoading } = useCommLogs(service, 200);
   const rows = data?.logs ?? [];
   const metrics = data?.poll_metrics ?? [];
-  const metricRequests = metrics.reduce((sum, metric) => sum + metric.request_count, 0);
-  const metricSuccesses = metrics.reduce((sum, metric) => sum + metric.success_count, 0);
-  const metricElapsed = metrics.reduce((sum, metric) => sum + metric.average_elapsed_ms * metric.request_count, 0);
-  const metricSuccessRate = metricRequests ? (metricSuccesses * 100 / metricRequests).toFixed(1) : "—";
-  const metricAverageMs = metricRequests ? (metricElapsed / metricRequests).toFixed(1) : "—";
+  const metricSummary = summarizePollMetrics(metrics);
   const columns: Column<CommLog>[] = [
     { header: "시각", className: "mono", cell: (r) => <span title={cell(r.finished_at || r.started_at)}>{formatServerTime(r.finished_at || r.started_at)}</span> },
     { header: "서비스", cell: (r) => cell(r.service) },
@@ -229,7 +226,7 @@ function CommunicationsTab() {
         <option value="camera">Camera</option>
       </select>
       <span className="rowcount">운영 사건 {rows.length}건</span>
-      <span className="rowcount">폴링 {metricRequests.toLocaleString()}회 · 성공률 {metricSuccessRate}% · 평균 {metricAverageMs}ms</span>
+      <span className="rowcount">폴링 {metricSummary.requests.toLocaleString()}회 · 성공률 {metricSummary.successRate}% · 평균 {metricSummary.averageMs}ms</span>
     </div>
     {isLoading ? <div className="empty">불러오는 중…</div> : <FilterableTable columns={columns} rows={rows}
       getKey={(r, i) => [r.started_at, r.service, i].join("-")}

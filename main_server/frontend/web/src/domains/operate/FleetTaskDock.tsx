@@ -27,7 +27,23 @@ function TaskTimeline({ task }: { task: WorkOrderRobotTask }) {
   const progress = task.progress;
   if (!progress?.steps.length) return <div className="fleet-idle-line"><span />실행 전 · 단계 대기</div>;
   const completed = progress.steps.filter(isTaskStepDone).length;
-  return <div className="fleet-timeline" aria-label={`Task ${task.task_id} 진행도 ${completed}/${progress.steps.length}`}><div className="fleet-timeline-track" aria-hidden="true">{progress.steps.map((step) => <span className={`fleet-timeline-segment is-${taskStepVisualState(step, progress.current_step_index, progress.phase)}`} key={step.step_index} />)}</div><ol className="fleet-timeline-steps">{progress.steps.map((step) => { const state = taskStepVisualState(step, progress.current_step_index, progress.phase); return <li className={`is-${state}`} key={step.step_index} aria-current={state === "active" ? "step" : undefined}><span>{step.step_index + 1}</span><small>{taskStepLabel(step, "compact")}</small></li>; })}</ol></div>;
+  return (
+    <div className="fleet-timeline" aria-label={`Task ${task.task_id} 진행도 ${completed}/${progress.steps.length}`}>
+      <div className="fleet-timeline-track" aria-hidden="true">
+        {progress.steps.map((step) => (
+          <span className={`fleet-timeline-segment is-${taskStepVisualState(step, progress.current_step_index, progress.phase)}`} key={step.step_index} />
+        ))}
+      </div>
+      <ol className="fleet-timeline-steps">
+        {progress.steps.map((step) => {
+          const state = taskStepVisualState(step, progress.current_step_index, progress.phase);
+          return <li className={`is-${state}`} key={step.step_index} aria-current={state === "active" ? "step" : undefined}>
+            <span>{step.step_index + 1}</span><small>{taskStepLabel(step, "compact")}</small>
+          </li>;
+        })}
+      </ol>
+    </div>
+  );
 }
 
 type QueueRow = { order: WorkOrder; task: WorkOrderRobotTask | null };
