@@ -12,6 +12,7 @@ from nav_app.runtime import runtime
 from nav_app.services.docking import (
     _require_center_before_insert,
     compute_fork_insert_motion,
+    execute_camera_distance_insert,
     execute_dock_reverse,
     execute_dock_transfer_step,
     execute_fork_insert,
@@ -40,12 +41,14 @@ from nav_app.services.robot_commands import (
     apply_metric_docking_gate,
     apply_slot_aruco_defaults,
     aruco_align_defaults_for_marker,
+    camera_distance_insert_profile_for_robot,
     docking_approach_goal_overrides,
     is_wall_adjacent_approach,
     marker_id_for_approach_waypoint,
     metric_docking_live_config,
     metric_pose_calibration_available,
     metric_two_stage_for_waypoint,
+    movement_request_from_robot_command,
     move_to_point_steps,
 )
 from nav_app.settings import (
@@ -148,6 +151,69 @@ class DockingMotionTests(unittest.TestCase):
         self.assertEqual(call.kwargs["forward_margin_m"], -1.0)
         self.assertAlmostEqual(payload["_insert_extra_after_vision_odom_m"], 0.106)
         self.assertAlmostEqual(payload["_actual_insert_distance_m"], 0.106)
+
+    def test_camera_distance_insert_uses_one_current_to_target_leg(self):
+        old_navigator = runtime.navigator
+        navigator = MagicMock()
+        navigator.get_latest_aruco_detection.return_value = {
+            "marker_id": 7,
+            "center_error_norm": 0.0,
+            "forward_distance_m": 0.31,
+            "transport": "ros_topic",
+        }
+        runtime.navigator = navigator
+        payload = {
+            "aruco_marker_id": 7,
+            "camera_distance_insert": True,
+            "target_distance_m": 0.18,
+            "metric_distance_tolerance_m": 0.02,
+        }
+        try:
+            with patch(
+                "nav_app.services.docking.execute_precision_docking",
+                return_value={
+                    "marker_id": 7,
+                    "center_error_norm": 0.0,
+                    "forward_distance_m": 0.18,
+                    "transport": "ros_topic",
+                },
+            ) as precision:
+                self.assertTrue(execute_camera_distance_insert(payload))
+        finally:
+            runtime.navigator = old_navigator
+
+        precision.assert_called_once_with(7, payload)
+        self.assertAlmostEqual(payload["_requested_insert_distance_m"], 0.13)
+        self.assertAlmostEqual(payload["_actual_insert_distance_m"], 0.13)
+        self.assertFalse(payload["fork_insert_enabled"])
+        self.assertFalse(payload["insert_vision_stop"])
+
+    def test_camera_distance_insert_rejects_missing_metric_before_motion(self):
+        old_navigator = runtime.navigator
+        navigator = MagicMock()
+        navigator.get_latest_aruco_detection.return_value = {
+            "marker_id": 7,
+            "center_error_norm": 0.0,
+            "marker_width_px": 180.0,
+            "transport": "ros_topic",
+        }
+        runtime.navigator = navigator
+        try:
+            with (
+                patch("nav_app.services.docking.execute_precision_docking") as precision,
+                self.assertRaisesRegex(RuntimeError, "valid calibrated forward distance"),
+            ):
+                execute_camera_distance_insert(
+                    {
+                        "aruco_marker_id": 7,
+                        "camera_distance_insert": True,
+                        "target_distance_m": 0.18,
+                    }
+                )
+            precision.assert_not_called()
+            navigator.publish_stop_velocity.assert_called()
+        finally:
+            runtime.navigator = old_navigator
 
     def test_dock_reverse_does_not_require_marker_after_insert(self):
         old_navigator = runtime.navigator
@@ -397,6 +463,86 @@ class DockingMotionTests(unittest.TestCase):
             self.assertAlmostEqual(resolve_leave_dock_distance_m({"distance_m": 0.2}), 0.2, places=3)
         finally:
             runtime.set_standby_parked(False)
+
+    def test_camera_distance_dock_transfer_keeps_e2e_order_and_skips_legacy_insert(self):
+        old_navigator = runtime.navigator
+        old_manager = runtime.mission_manager
+        runtime.navigator = MagicMock()
+        runtime.navigator.safety.estop = False
+        runtime.mission_manager = SimpleNamespace(dry_run=False)
+        step = MovementStep(
+            action="dock_transfer",
+            payload={
+                "aruco_marker_id": 7,
+                "action": "load",
+                "level": 1,
+                "align_mode": "skip",
+                "skip_approach_yaw_rotate": True,
+                "camera_distance_insert": True,
+                "target_distance_m": 0.18,
+                "insert_extra_m": 0.11,
+                "fork_insert_distance_m": 0.40,
+            },
+        )
+        order = []
+        try:
+            with (
+                patch("nav_app.services.docking.apply_slot_fork_defaults") as fork_defaults,
+                patch("nav_app.services.docking.apply_slot_lift_defaults"),
+                patch(
+                    "nav_app.services.docking.apply_slot_aruco_defaults",
+                    side_effect=lambda payload, _marker: payload.setdefault(
+                        "insert_extra_after_vision_m", 0.06
+                    ),
+                ),
+                patch("nav_app.services.docking.ensure_lift_ready_for_dock_transfer"),
+                patch("nav_app.services.docking.acquire_dock_marker", return_value={"marker_id": 7}),
+                patch(
+                    "nav_app.services.docking.execute_pre_insert_lift",
+                    side_effect=lambda *_: order.append("pre_lift"),
+                ),
+                patch(
+                    "nav_app.services.docking.execute_camera_distance_insert",
+                    side_effect=lambda payload: order.append("camera_insert") or True,
+                ) as camera_insert,
+                patch("nav_app.services.docking.execute_fork_insert") as legacy_insert,
+                patch(
+                    "nav_app.services.docking.execute_post_insert_dwell",
+                    side_effect=lambda *_: order.append("dwell"),
+                ),
+                patch(
+                    "nav_app.services.docking.execute_lift_action",
+                    side_effect=lambda *_: order.append("lift"),
+                ),
+                patch(
+                    "nav_app.services.docking.execute_carry_after_load",
+                    side_effect=lambda *_: order.append("carry"),
+                ),
+                patch(
+                    "nav_app.services.docking.execute_dock_reverse",
+                    side_effect=lambda *_: order.append("reverse") or True,
+                ),
+            ):
+                self.assertTrue(
+                    execute_dock_transfer_step(step, metric_docking_admitted=True)
+                )
+        finally:
+            runtime.navigator = old_navigator
+            runtime.mission_manager = old_manager
+
+        self.assertEqual(
+            order,
+            ["pre_lift", "camera_insert", "dwell", "lift", "carry", "reverse"],
+        )
+        fork_defaults.assert_not_called()
+        legacy_insert.assert_not_called()
+        camera_payload = camera_insert.call_args.args[0]
+        for field in (
+            "fork_insert_distance_m",
+            "insert_extra_m",
+            "insert_extra_after_vision_m",
+        ):
+            self.assertNotIn(field, camera_payload)
 
     def test_metric_dock_transfer_keeps_lift_and_reverse_sequence(self):
         old_navigator = runtime.navigator
@@ -752,6 +898,61 @@ class ApproachChainingTests(unittest.TestCase):
         self.assertTrue(metric_pose_calibration_available("tb3_2"))
         self.assertFalse(metric_pose_calibration_available("tb3_1"))
         self.assertEqual(metric_docking_live_config("tb3_2"), {})
+
+    def test_tb2_camera_distance_profile_uses_only_the_final_dock_target(self):
+        profile = camera_distance_insert_profile_for_robot("tb3_2", 7)
+
+        self.assertTrue(profile["camera_distance_insert"])
+        self.assertEqual(profile["target_distance_m"], 0.18)
+        self.assertEqual(profile["metric_distance_tolerance_m"], 0.02)
+        self.assertFalse(profile["fork_insert_enabled"])
+        self.assertFalse(profile["insert_vision_stop"])
+        self.assertNotIn("stage1_target_distance_m", profile)
+        self.assertNotIn("insert_extra_m", profile)
+        self.assertEqual(camera_distance_insert_profile_for_robot("tb3_1", 7), {})
+
+    def test_tb2_dock_request_injects_server_owned_camera_distance_contract(self):
+        request = RobotCommandRequest(
+            command_id="camera-distance-dock",
+            robot_id="tb3_2",
+            kind="dock_transfer",
+            params={
+                "aruco_marker_id": 7,
+                "action": "load",
+                "level": 1,
+                "insert_extra_m": 0.50,
+            },
+        )
+        gate = {
+            "command_id": "arrived-before-camera-dock",
+            "post_align_done": True,
+            "traffic_segments": [],
+        }
+
+        with (
+            patch(
+                "nav_app.services.robot_commands._active_bridge_robot_id",
+                return_value="tb3_2",
+            ),
+            patch(
+                "nav_app.services.robot_commands._consume_arrived_gate",
+                return_value=gate,
+            ),
+            patch(
+                "nav_app.services.robot_commands.capabilities.ensure_dock_transfer_supported"
+            ),
+        ):
+            movement = movement_request_from_robot_command(request)
+
+        payload = movement.steps[0].payload
+        self.assertTrue(movement.metric_docking_admitted())
+        self.assertTrue(payload["camera_distance_insert"])
+        self.assertEqual(payload["target_distance_m"], 0.18)
+        self.assertEqual(payload["align_mode"], "skip")
+        self.assertFalse(payload["fork_insert_enabled"])
+        self.assertFalse(payload["insert_vision_stop"])
+        self.assertNotIn("insert_extra_m", payload)
+        self.assertNotIn("stage1_target_distance_m", payload)
 
     def test_warehouse_c_has_marker_and_tolerances(self):
         marker_id = marker_id_for_approach_waypoint("warehouse_c_approach")

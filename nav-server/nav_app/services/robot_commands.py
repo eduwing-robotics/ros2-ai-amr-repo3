@@ -30,6 +30,7 @@ from nav_app.settings import (
 NAV_ARUCO_FINALS = {"hold", "return_approach"}
 MAIN_ARUCO_FINAL_ALIASES = {"park": "hold", "charge": "hold"}
 METRIC_DOCKING_RESERVED_FIELDS = {
+    "camera_distance_insert",
     "metric_precision_insert",
     "metric_distance_only",
     "metric_docking_profile",
@@ -52,6 +53,16 @@ METRIC_DOCKING_CLIENT_FIELDS = frozenset({
     "pre_insert_lift_mm",
     "pre_insert_force_move",
 })
+CAMERA_DISTANCE_LEGACY_INSERT_FIELDS = (
+    "fork_insert_distance_m",
+    "insert_distance_m",
+    "insert_stop_width_px",
+    "insert_stop_marker_width_px",
+    "insert_reference_start_width_px",
+    "insert_extra_after_vision_m",
+    "insert_extra_m",
+    "fork_insert_extra_after_vision_m",
+)
 
 
 def normalize_aruco_final_payload(payload: Dict[str, Any]) -> None:
@@ -243,6 +254,11 @@ def _strip_metric_docking_reserved_fields(payload: Dict[str, Any]) -> None:
         payload.pop(field, None)
 
 
+def strip_camera_distance_legacy_insert_fields(payload: Dict[str, Any]) -> None:
+    for field in CAMERA_DISTANCE_LEGACY_INSERT_FIELDS:
+        payload.pop(field, None)
+
+
 def _metric_profile_float(
     profile: Dict[str, Any],
     field: str,
@@ -271,10 +287,83 @@ def _metric_profile_float(
     return value
 
 
+def camera_distance_insert_profile_for_robot(
+    robot_id: str, marker_id: int
+) -> Dict[str, Any]:
+    """Build the dock-only camera-distance contract for a calibrated robot."""
+    robot = _robot_profile(robot_id)
+    metric = robot.get("metric_docking")
+    observation = robot.get("aruco_observation")
+    if not isinstance(metric, dict) or metric.get("enabled") is not True:
+        return {}
+    if not isinstance(observation, dict) or observation.get("transport") != "ros_topic":
+        return {}
+    if not metric_pose_calibration_available(robot_id):
+        return {}
+
+    waypoint_id = approach_waypoint_id_for_marker(int(marker_id))
+    profile = metric_two_stage_for_waypoint(waypoint_id)
+    if not profile:
+        return {}
+
+    target = _metric_profile_float(
+        profile, "stage2_target_distance_m", 0.20, minimum=0.10, maximum=0.30
+    )
+    tolerance = _metric_profile_float(
+        profile, "metric_distance_tolerance_m", 0.02, minimum=0.005, maximum=0.05
+    )
+    center_tolerance = _metric_profile_float(
+        profile, "center_tolerance_norm", 0.03, minimum=0.005, maximum=0.15
+    )
+    linear_speed = _metric_profile_float(
+        profile, "dock_linear_speed", 0.018, minimum=0.005, maximum=0.03
+    )
+    min_linear_speed = _metric_profile_float(
+        profile,
+        "dock_min_linear_speed",
+        0.006,
+        minimum=0.001,
+        maximum=linear_speed,
+    )
+    return {
+        "camera_distance_insert": True,
+        "metric_distance_only": True,
+        "target_distance_m": target,
+        "metric_distance_tolerance_m": tolerance,
+        "center_tolerance_norm": center_tolerance,
+        "forward_center_tolerance_norm": center_tolerance,
+        "dock_linear_speed": linear_speed,
+        "dock_min_linear_speed": min_linear_speed,
+        "control_period_sec": _metric_profile_float(
+            profile,
+            "control_period_sec",
+            METRIC_DOCK_CONTROL_PERIOD_SEC,
+            minimum=0.05,
+            maximum=0.20,
+        ),
+        "docking_timeout_sec": _metric_profile_float(
+            profile,
+            "docking_timeout_sec",
+            ARUCO_DOCKING_TIMEOUT_SEC,
+            minimum=1.0,
+            maximum=None,
+        ),
+        "straight_when_normal_aligned": True,
+        "require_normal_alignment": False,
+        "allow_marker_lost_at_insert_start": False,
+        "marker_lost_grace_sec": 0.0,
+        "fork_insert_enabled": False,
+        "insert_vision_stop": False,
+        "close_from_marker_width_only": False,
+        "use_good_enough": False,
+    }
+
+
 def _admit_server_metric_request(request: MovementCommandRequest) -> MovementCommandRequest:
     if any(
         isinstance(step.payload.get("metric_docking_profile"), dict)
         or step.payload.get("metric_precision_insert") is True
+        or step.payload.get("camera_distance_insert") is True
         for step in request.steps
     ):
         request.admit_metric_docking()
@@ -847,6 +936,13 @@ def movement_request_from_robot_command(
             if is_wall_adjacent_approach(wp):
                 dock_payload["wall_adjacent_approach"] = True
                 dock_payload.setdefault("relax_forward_clearance", True)
+            if not metric_gate:
+                camera_profile = camera_distance_insert_profile_for_robot(
+                    req.robot_id, int(marker_id)
+                )
+                if camera_profile:
+                    dock_payload.update(camera_profile)
+                    strip_camera_distance_legacy_insert_fields(dock_payload)
         if dock_payload.get("metric_precision_insert"):
             dock_payload["align_mode"] = "skip"
             dock_payload["skip_approach_yaw_rotate"] = True

@@ -17,6 +17,7 @@ from nav_app.services.robot_commands import (
     approach_waypoint_id_for_marker,
     fork_insert_distance_for_marker,
     load_waypoint_goals,
+    strip_camera_distance_legacy_insert_fields,
 )
 from nav_app.services.robot_context import (
     aruco_detection_topic as _aruco_detection_topic,
@@ -1608,6 +1609,59 @@ def execute_post_insert_dwell(payload: Dict[str, Any]):
     time.sleep(dwell)
 
 
+def execute_camera_distance_insert(payload: Dict[str, Any]):
+    """Drive once from the current calibrated camera distance to the dock target."""
+    if not runtime.navigator:
+        raise RuntimeError("runtime.navigator is not initialized")
+    marker_value = payload.get("aruco_marker_id")
+    if marker_value is None:
+        raise ValueError("camera distance insert requires aruco_marker_id")
+    marker_id = int(marker_value)
+
+    payload.update(
+        {
+            "metric_distance_only": True,
+            "straight_when_normal_aligned": True,
+            "require_normal_alignment": False,
+            "fork_insert_enabled": False,
+            "insert_vision_stop": False,
+            "allow_marker_lost_at_insert_start": False,
+            "marker_lost_grace_sec": 0.0,
+        }
+    )
+    start_detection = runtime.navigator.get_latest_aruco_detection(
+        marker_id, max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
+    )
+    start_state = metric_distance_state(start_detection, payload)
+    if start_state == "invalid":
+        _abort_docking_motion()
+        raise RuntimeError(
+            f"ArUco marker {marker_id} has no valid calibrated forward distance"
+        )
+    if start_state == "overshot":
+        _abort_docking_motion()
+        start_distance = _metric_forward_distance(start_detection)
+        target = float(payload.get("target_distance_m", ARUCO_DOCK_TARGET_DISTANCE_M))
+        raise RuntimeError(
+            f"camera distance target already overshot: "
+            f"distance={start_distance:.3f}m target={target:.3f}m"
+        )
+
+    start_distance = _metric_forward_distance(start_detection)
+    target = float(payload.get("target_distance_m", ARUCO_DOCK_TARGET_DISTANCE_M))
+    print(
+        f"[dock_transfer] camera distance insert marker={marker_id} "
+        f"start={start_distance:.3f}m target={target:.3f}m"
+    )
+    final_detection = execute_precision_docking(marker_id, payload)
+    if metric_distance_state(final_detection, payload) != "within":
+        raise RuntimeError("camera distance insert did not finish inside the target band")
+    final_distance = _metric_forward_distance(final_detection)
+    payload["_actual_insert_distance_m"] = max(0.0, start_distance - final_distance)
+    payload["_requested_insert_distance_m"] = max(0.0, start_distance - target)
+    return True
+
+
 def execute_metric_precision_insert(payload: Dict[str, Any]):
     """Recheck the 0.40 m normal, then drive the calibrated final leg straight."""
     if not runtime.navigator:
@@ -2656,11 +2710,16 @@ def execute_dock_transfer_step(
     level = int(payload["level"])
     if level not in (1, 2):
         raise ValueError("dock_transfer level must be 1 or 2")
-    if payload.get("metric_precision_insert") and not metric_docking_admitted:
+    if (
+        payload.get("metric_precision_insert") or payload.get("camera_distance_insert")
+    ) and not metric_docking_admitted:
         raise ValueError("metric docking requires a server-issued ARRIVED admission")
-    apply_slot_fork_defaults(payload, marker_id)
+    if not payload.get("camera_distance_insert"):
+        apply_slot_fork_defaults(payload, marker_id)
     apply_slot_lift_defaults(payload, marker_id)
     apply_slot_aruco_defaults(payload, marker_id)
+    if payload.get("camera_distance_insert"):
+        strip_camera_distance_legacy_insert_fields(payload)
     if payload.get("metric_precision_insert"):
         payload.setdefault("skip_approach_yaw_rotate", True)
         payload.setdefault("align_mode", "skip")
@@ -2725,7 +2784,9 @@ def execute_dock_transfer_step(
     except Exception as exc:
         raise StageError("pre_insert_lift", str(exc)) from exc
     try:
-        if payload.get("metric_precision_insert"):
+        if payload.get("camera_distance_insert"):
+            insert_ok = execute_camera_distance_insert(payload)
+        elif payload.get("metric_precision_insert"):
             insert_ok = execute_metric_precision_insert(payload)
         else:
             insert_ok = execute_fork_insert(payload)

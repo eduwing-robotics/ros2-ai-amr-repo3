@@ -212,12 +212,7 @@
       "active_map_yaml": "map/robot2_map.yaml",
       "aruco_detection_topic": "/mission/tb3_2/aruco/detections",
       "aruco_observation": {
-        "transport": "vision_http",
-        "api_base_url": "http://smartfactory-vision.local:8100",
-        "source": "tb3_2_picam",
-        "poll_interval_sec": 0.1,
-        "request_timeout_sec": 0.3,
-        "limit": 20
+        "transport": "ros_topic"
       },
       "lift": {
         "enabled": true,
