@@ -24,15 +24,17 @@ Content-Type: application/json
   "expected_marker_id": 20,
   "expected_item_count": 1,
   "vision_zone_id": "inbound_static_item_zone",
-  "burst_frames": 5,
+  "burst_frames": 10,
   "min_pass_frames": 1,
   "sample_interval_ms": 80
 }
 ```
 
-Default policy: sample up to five distinct latest frames. One accepted expected
-marker frame is enough for `PASS` only when the same burst does not observe extra
-item markers/count in the requested ZoneROI.
+Default policy: sample up to ten distinct latest frames. One accepted expected
+marker frame is enough for `PASS` only when the same burst does not observe an
+extra registered item marker/count in the requested ZoneROI. Registered item
+markers are `20`, `22`, `23`, `24`, `27`, and `29`; the explicitly requested
+expected marker is also evaluated even before it is added to that default set.
 
 ## Fields
 
@@ -103,7 +105,7 @@ must not guess.
       "expected_item_count": 1,
       "observed_count": 1,
       "accepted_frames": 1,
-      "total_frames": 5,
+      "total_frames": 10,
       "command_satisfying": true
     }
   }

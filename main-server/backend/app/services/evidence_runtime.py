@@ -171,10 +171,12 @@ def _dock_step(
         "level": floor,
     }
     if action == "load" and floor == 1:
-        # The field-proven level-1 sequence begins from raw lift home (0 mm).
-        # Use the existing dock_transfer pre-insert phase instead of adding a
-        # second lift-only orchestration API.
-        params.update({"pre_insert_lift_mm": 0, "pre_insert_force_move": True})
+        # The field-proven level-1 sequence begins at the lower limit switch.
+        params["pre_insert_home"] = True
+    if action == "unload" and floor == 1:
+        # A level-1 unload finishes at the lower limit switch, not an inferred
+        # encoder zero.
+        params["home_on_unload"] = True
     return {
         "action_type": "dock_transfer",
         "name": f"dock:{dock_id}:{action}",

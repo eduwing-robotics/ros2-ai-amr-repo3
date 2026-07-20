@@ -178,7 +178,8 @@ class Settings:
     lift_load_evidence_enabled: bool = os.getenv("LMS_LIFT_LOAD_EVIDENCE_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
     lift_load_evidence_mode: str = os.getenv("LMS_LIFT_LOAD_EVIDENCE_MODE", "record").strip().lower()
     lift_load_evidence_source: str = os.getenv("LMS_LIFT_LOAD_EVIDENCE_SOURCE", "global_cam_01").strip()
-    lift_load_burst_frames: int = int(os.getenv("LMS_LIFT_LOAD_BURST_FRAMES", "5"))
+    lift_load_burst_frames: int = int(os.getenv("LMS_LIFT_LOAD_BURST_FRAMES", "10"))
+    lift_load_evidence_timeout_sec: float = float(os.getenv("LMS_LIFT_LOAD_EVIDENCE_TIMEOUT_SEC", "5.0"))
     lift_load_min_pass_frames: int = int(os.getenv("LMS_LIFT_LOAD_MIN_PASS_FRAMES", "1"))
     lift_load_sample_interval_ms: int = int(os.getenv("LMS_LIFT_LOAD_SAMPLE_INTERVAL_MS", "80"))
     lift_load_max_frame_age_s: float = float(os.getenv("LMS_LIFT_LOAD_MAX_FRAME_AGE_S", "2.0"))
@@ -205,7 +206,7 @@ class Settings:
     person_hazard_poll_hz: float = float(os.getenv("LMS_PERSON_HAZARD_POLL_HZ", "3"))
     person_hazard_stale_sec: float = float(os.getenv("LMS_PERSON_HAZARD_STALE_SEC", "2.0"))
     person_hazard_cooldown_sec: float = float(os.getenv("LMS_PERSON_HAZARD_COOLDOWN_SEC", "2.0"))
-    person_hazard_min_confidence: float = float(os.getenv("LMS_PERSON_HAZARD_MIN_CONFIDENCE", "0.50"))
+    person_hazard_min_confidence: float = float(os.getenv("LMS_PERSON_HAZARD_MIN_CONFIDENCE", "0.80"))
     person_hazard_timeout_sec: float = min(float(os.getenv("LMS_PERSON_HAZARD_TIMEOUT_SEC", "0.5")), 1.0)
     # Operator-approved recovery moves only to this safe home location.
     recovery_safe_location_id: str = os.getenv("LMS_RECOVERY_SAFE_LOCATION_ID", "HOME_01").strip()

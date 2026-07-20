@@ -72,6 +72,7 @@ class MonitorRuntime:
     enable_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_command_id: str | None = None
     last_leg_kind: str | None = None
+    last_healthy_monotonic: float = field(default_factory=time.monotonic)
     # Once the monitor is unavailable during a drive, Main has already made its
     # trusted stop decision.  Repeated failed polls must not create an E-stop
     # or safety-stop storm.
@@ -489,6 +490,14 @@ def _record_degraded(robot_id: str, detail: str) -> None:
     logger.warning("person hazard degraded robot=%s: %s", robot_id, detail)
 
 
+def _monitor_outage_is_stale(runtime: MonitorRuntime) -> bool:
+    stale_sec = max(
+        0.0,
+        float(getattr(settings, "person_hazard_stale_sec", 2.0)),
+    )
+    return time.monotonic() - runtime.last_healthy_monotonic >= stale_sec
+
+
 def _attempt_estop(robot_id: str) -> tuple[bool, str | None]:
     try:
         response = movement_client.estop(robot_id)
@@ -727,16 +736,19 @@ def poll_robot(conn, runtime: MonitorRuntime) -> None:
         payload = fetch_person_hazard_latest(runtime.robot_id)
     except VisionUpstreamError as exc:
         _record_degraded(runtime.robot_id, str(exc))
-        fail_safe_monitor_outage(
-            conn, runtime.robot_id, runtime.task_id, detail=f"poll_failed: {exc}", runtime=runtime,
-        )
+        if _monitor_outage_is_stale(runtime):
+            fail_safe_monitor_outage(
+                conn, runtime.robot_id, runtime.task_id, detail=f"poll_failed: {exc}", runtime=runtime,
+            )
         return
     except Exception as exc:
         logger.exception("unexpected person hazard poll failure robot=%s", runtime.robot_id)
-        fail_safe_monitor_outage(
-            conn, runtime.robot_id, runtime.task_id, detail=f"poll_exception: {exc}", runtime=runtime,
-        )
+        if _monitor_outage_is_stale(runtime):
+            fail_safe_monitor_outage(
+                conn, runtime.robot_id, runtime.task_id, detail=f"poll_exception: {exc}", runtime=runtime,
+            )
         return
+    runtime.last_healthy_monotonic = time.monotonic()
     handle_hazard_response(conn, runtime, payload)
 
 

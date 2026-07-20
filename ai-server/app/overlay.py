@@ -7,6 +7,7 @@ from typing import Any
 import cv2
 import numpy as np
 
+from .config import get_settings
 from .evidence_cache import DEFAULT_VIEW_ID, normalize_view_id
 from .frame_store import StoredFrame
 
@@ -183,12 +184,21 @@ def _draw_overlay_polygon(image: np.ndarray, event: dict[str, Any], *, stale: bo
         )
 
 
-def _is_visual_overlay_event(event: dict[str, Any]) -> bool:
+def _is_visual_overlay_event(
+    event: dict[str, Any],
+    *,
+    min_confidence: float,
+) -> bool:
     # Keep model fallback/unknown candidates available in event payloads for
     # diagnostics, but do not clutter the live operator overlay with ambiguous
     # boxes.  Main-facing hazard/evidence read models still decide from their
     # own compact policies, not from this visual filter.
-    return event.get("class_name") != "unknown"
+    if event.get("class_name") == "unknown":
+        return False
+    confidence = event.get("confidence")
+    if isinstance(confidence, int | float):
+        return float(confidence) >= min_confidence
+    return True
 
 
 def _short_marker_id(marker_id: Any) -> str | None:
@@ -222,6 +232,7 @@ def render_overlay(
     events: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
     stale: bool = False,
     view: str | None = None,
+    min_confidence: float | None = None,
 ) -> OverlayRenderResult:
     """Render visual evidence overlay for the latest frame.
 
@@ -229,7 +240,13 @@ def render_overlay(
     implies Main/WMS task success.
     """
 
-    image = render_overlay_bgr(frame, events=events, stale=stale, view=view)
+    image = render_overlay_bgr(
+        frame,
+        events=events,
+        stale=stale,
+        view=view,
+        min_confidence=min_confidence,
+    )
 
     ok, buffer = cv2.imencode(".jpg", image)
     if not ok:
@@ -266,6 +283,7 @@ def render_overlay_bgr(
     events: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
     stale: bool = False,
     view: str | None = None,
+    min_confidence: float | None = None,
 ) -> np.ndarray:
     """Render visual evidence overlay and return BGR pixels without JPEG encoding."""
 
@@ -279,7 +297,16 @@ def render_overlay_bgr(
     else:
         image = frame.decoded_bgr.copy()
 
-    visual_events = [event for event in events if _is_visual_overlay_event(event)]
+    confidence_floor = (
+        get_settings().vision_overlay_min_confidence
+        if min_confidence is None
+        else max(0.0, min(1.0, float(min_confidence)))
+    )
+    visual_events = [
+        event
+        for event in events
+        if _is_visual_overlay_event(event, min_confidence=confidence_floor)
+    ]
 
     for event in visual_events:
         _draw_overlay_polygon(image, event, stale=stale)

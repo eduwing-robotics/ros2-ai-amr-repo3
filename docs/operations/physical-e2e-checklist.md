@@ -250,6 +250,18 @@ UI 입고 세부 조작은 [Inbound Scenario Test](../../main-server/docs/operat
 
 ### 8.1 장비와 AI를 시작한다
 
+시험 전에 Main의 E2E 재고를 아래 명령으로 초기화한다. 이 명령은 활성 작업이
+없을 때만 기존 `inventory`를 교체하며, A22는 `INBOUND_01`, A23은
+`INBOUND_02`, A20·A24는 `STORAGE_S3` 1·2층, A27·A29는
+`STORAGE_S4` 1·2층에 각각 한 개를 둔다.
+
+```bash
+cd <repository-root>/main-server
+./scripts/reset_e2e_inventory.sh
+```
+
+현재 값만 볼 때는 `./scripts/reset_e2e_inventory.sh --show`를 사용한다.
+
 1. TB2 SBC에서 base, LDS, PiCam, lift controller bringup을 시작한다.
 2. Nav PC에서 `/scan`, odom/TF, lift position·limit telemetry, `cmd_stop` subscriber가 fresh인지 확인한다.
 3. AI laptop에서 `global_cam_01`과 `tb3_2_picam` source를 포함한 low-load profile을 시작한다.

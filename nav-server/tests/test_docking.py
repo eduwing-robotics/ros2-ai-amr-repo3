@@ -16,6 +16,7 @@ from nav_app.services.docking import (
     execute_dock_transfer_step,
     execute_fork_insert,
     execute_metric_precision_insert,
+    execute_pre_insert_lift,
     execute_precision_docking,
     execute_reverse_to_map_pose,
     hold_fork_insert_enabled,
@@ -67,6 +68,24 @@ def _live_map_pose(x: float, y: float, yaw: float = 0.0):
 
 
 class DockingMotionTests(unittest.TestCase):
+    def test_pre_insert_zero_or_explicit_home_uses_lower_limit_home(self):
+        old_lift_client = runtime.lift_client
+        lift_client = MagicMock()
+        lift_client.enabled = True
+        lift_client.config = {}
+        runtime.lift_client = lift_client
+        try:
+            for payload in ({"pre_insert_home": True}, {"pre_insert_lift_mm": 0}):
+                with self.subTest(payload=payload), patch(
+                    "nav_app.services.docking._require_docking_motion_or_abort"
+                ):
+                    execute_pre_insert_lift("load", 1, payload)
+        finally:
+            runtime.lift_client = old_lift_client
+
+        self.assertEqual(lift_client.home.call_count, 2)
+        lift_client.execute_pre_insert.assert_not_called()
+
     def test_insert_extra_after_vision_is_explicit_and_defaults_off(self):
         self.assertAlmostEqual(resolve_insert_extra_after_vision_m({}), 0.0)
         self.assertAlmostEqual(

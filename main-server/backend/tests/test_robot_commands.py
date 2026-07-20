@@ -48,7 +48,7 @@ class RobotCommandServiceTest(unittest.TestCase):
                 "lift_height_mm": 48,
                 "lift_timeout_sec": 25,
                 "home_on_unload": True,
-                "pre_insert_lift_mm": 0,
+                "pre_insert_home": True,
                 "pre_insert_force_move": True,
             },
         )
@@ -57,7 +57,7 @@ class RobotCommandServiceTest(unittest.TestCase):
         self.assertEqual(echoed["lift_height_mm"], 48.0)
         self.assertEqual(echoed["lift_timeout_sec"], 25.0)
         self.assertTrue(echoed["home_on_unload"])
-        self.assertEqual(echoed["pre_insert_lift_mm"], 0.0)
+        self.assertTrue(echoed["pre_insert_home"])
         self.assertTrue(echoed["pre_insert_force_move"])
 
     def test_dock_transfer_optional_fields_passthrough_execute(self) -> None:
@@ -71,7 +71,7 @@ class RobotCommandServiceTest(unittest.TestCase):
                 "level": 2,
                 "lift_height_mm": 50,
                 "lift_timeout_sec": 30,
-                "pre_insert_lift_mm": 0,
+                "pre_insert_home": True,
                 "pre_insert_force_move": True,
             },
         )
@@ -80,7 +80,7 @@ class RobotCommandServiceTest(unittest.TestCase):
         sent = robot_command.call_args.args[1]
         self.assertEqual(sent["params"]["lift_height_mm"], 50.0)
         self.assertEqual(sent["params"]["lift_timeout_sec"], 30.0)
-        self.assertEqual(sent["params"]["pre_insert_lift_mm"], 0.0)
+        self.assertTrue(sent["params"]["pre_insert_home"])
         self.assertTrue(sent["params"]["pre_insert_force_move"])
         self.assertNotIn("home_on_unload", sent["params"])
 

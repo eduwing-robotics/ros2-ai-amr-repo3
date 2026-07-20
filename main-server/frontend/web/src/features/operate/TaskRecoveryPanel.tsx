@@ -44,6 +44,13 @@ function evidenceResultLabel(result?: string | null) {
   return "확인 필요";
 }
 
+function evidenceActionLabel(operation?: unknown) {
+  const normalized = String(operation ?? "").trim().toUpperCase().replace("DROPOFF", "DROP_OFF");
+  return normalized === "PRE_DROP_OFF"
+    ? { check: "하역 전 적재 확인", retry: "하역 전 적재 다시 확인" }
+    : { check: "적재 확인", retry: "적재 다시 확인" };
+}
+
 const RECOVERY_ERROR_LABELS: Record<string, string> = {
   recovery_blocked_active_safety_stop:
     "이 작업의 안전정지 기록이 아직 열려 있습니다. 해당 로봇 E-stop을 해제한 뒤 다시 실행하세요.",
@@ -71,6 +78,7 @@ function EvidenceOnlyRecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const evidence = ctx.evidence ?? {};
+  const evidenceLabel = evidenceActionLabel(evidence.operation);
 
   const refresh = async () => {
     await Promise.all([
@@ -85,9 +93,9 @@ function EvidenceOnlyRecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
       const result = await retryEvidenceOnly(ctx.task_id);
       await refresh();
       const decision = (result.decision ?? {}) as Record<string, unknown>;
-      toast(decision.approved === true ? "증거 확인 통과" : "증거가 아직 조건과 맞지 않습니다", decision.approved === true ? "ok" : "err");
+      toast(decision.approved === true ? `${evidenceLabel.check} 통과` : `${evidenceLabel.check} 조건과 맞지 않습니다`, decision.approved === true ? "ok" : "err");
     } catch (e) {
-      toast(`증거 재확인 실패: ${(e as Error).message}`, "err");
+      toast(`${evidenceLabel.retry} 실패: ${(e as Error).message}`, "err");
     } finally {
       setBusy(false);
     }
@@ -109,7 +117,7 @@ function EvidenceOnlyRecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
 
   return (
     <div className="recovery-panel evidence-only-recovery">
-      <p className="recovery-banner">비물리 증거 확인 필요 — task #{ctx.task_id}</p>
+      <p className="recovery-banner">비물리 {evidenceLabel.check} 필요 — task #{ctx.task_id}</p>
       <p><strong>{evidenceResultLabel(evidence.result)}</strong> · {evidence.operation ?? "evidence checkpoint"}</p>
       <p className="muted">
         구역 {evidence.vision_zone_id ?? "—"} · 기대 마커 {evidence.expected_marker_id ?? "—"} · 이유 {evidence.reason_code ?? ctx.hold_reason ?? "—"}
@@ -117,7 +125,7 @@ function EvidenceOnlyRecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
       <p className="muted">NONPHYSICAL · 물리 리프트 검증 아님 · 재고 변경 없음</p>
       <div className="recovery-actions">
         <Button type="button" variant="secondary" disabled={busy} onClick={() => navigate("/operate/control")}>카메라 보기</Button>
-        <Button type="button" disabled={busy} onClick={() => void retry()}>증거 다시 확인</Button>
+        <Button type="button" disabled={busy} onClick={() => void retry()}>{evidenceLabel.retry}</Button>
         <Button type="button" variant="secondary" disabled={busy} onClick={() => void cancel()}>시험 중단</Button>
       </div>
     </div>
@@ -148,6 +156,7 @@ function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
     && hasKnownCargo
     && (strategy !== "resume_task" || ctx.resume_available === true);
   const isEvidenceHold = ctx.hold_reason === "evidence_gate";
+  const evidenceLabel = evidenceActionLabel(ctx.evidence?.operation);
 
   const executeLabel = strategy === "resume_task"
     ? "원래 작업 계속"
@@ -254,9 +263,9 @@ function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
         queryClient.invalidateQueries({ queryKey: ["tasks"] }),
       ]);
       const decision = (result.decision ?? {}) as Record<string, unknown>;
-      toast(decision.approved === true ? "증거 확인 통과" : "증거가 아직 조건과 맞지 않습니다", decision.approved === true ? "ok" : "err");
+      toast(decision.approved === true ? `${evidenceLabel.check} 통과` : `${evidenceLabel.check} 조건과 맞지 않습니다`, decision.approved === true ? "ok" : "err");
     } catch (e) {
-      toast(`증거 재확인 실패: ${(e as Error).message}`, "err");
+      toast(`${evidenceLabel.retry} 실패: ${(e as Error).message}`, "err");
     } finally {
       setBusy(false);
     }
@@ -345,7 +354,7 @@ function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
         <p className="muted recovery-strategy-hint">{resumeUnavailableLabel(ctx.resume_block_reason)}</p>
       ) : null}
       {isEvidenceHold ? (
-        <p className="muted recovery-strategy-hint">증거 불일치로 보류되었습니다. 현장·자세·적재 상태를 확인한 뒤 같은 증거 단계를 다시 판정할 수 있습니다.</p>
+        <p className="muted recovery-strategy-hint">{evidenceLabel.check} 불일치로 보류되었습니다. 현장·자세·적재 상태를 확인한 뒤 같은 단계를 다시 판정할 수 있습니다.</p>
       ) : null}
       {!hasKnownCargo && (
         <p className="muted recovery-strategy-hint">적재 상태를 확인해야 복구 단계를 실행할 수 있습니다.</p>
@@ -366,7 +375,7 @@ function RecoveryPanel({ ctx }: { ctx: RecoveryContext }) {
         ) : null}
         {isEvidenceHold ? (
           <Button type="button" disabled={!allChecks || busy} onClick={() => void onRetryEvidence()}>
-            증거 다시 확인
+            {evidenceLabel.retry}
           </Button>
         ) : null}
         <Button type="button" variant="secondary" disabled={!hasKnownCargo || busy} onClick={() => void onPreview()}>

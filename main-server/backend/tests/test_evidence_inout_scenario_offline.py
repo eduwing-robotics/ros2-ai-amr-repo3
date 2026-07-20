@@ -76,9 +76,9 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         self.assertAlmostEqual(steps[1]["x"], 1.8)
         self.assertEqual(steps[2]["action_type"], "dock_transfer")
         self.assertEqual(steps[2]["params"]["action"], "load")
-        self.assertEqual(steps[2]["params"]["pre_insert_lift_mm"], 0)
-        self.assertIs(steps[2]["params"]["pre_insert_force_move"], True)
+        self.assertIs(steps[2]["params"]["pre_insert_home"], True)
         self.assertEqual(steps[4]["params"]["action"], "unload")
+        self.assertIs(steps[4]["params"]["home_on_unload"], True)
         self.assertEqual(steps[5]["action_type"], "move")
         self.assertEqual(steps[5]["waypoint_id"], "vehicle_1_approach")
         self.assertEqual(steps[6]["action_type"], "aruco_align")
@@ -102,7 +102,9 @@ class InOutScenarioOfflineTest(unittest.TestCase):
         self.assertEqual(len(steps), 7)
         self.assertEqual(steps[0]["action_type"], "leave_dock")
         self.assertEqual(steps[2]["params"]["action"], "load")
+        self.assertIs(steps[2]["params"]["pre_insert_home"], True)
         self.assertEqual(steps[4]["params"]["action"], "unload")
+        self.assertIs(steps[4]["params"]["home_on_unload"], True)
         self.assertEqual(steps[5]["waypoint_id"], "vehicle_1_approach")
         self.assertEqual(steps[6]["action_type"], "aruco_align")
         self.assertEqual(steps[6]["params"], {"aruco_marker_id": 3, "final": "park"})
@@ -146,7 +148,8 @@ class InOutScenarioOfflineTest(unittest.TestCase):
             "reverse_clearance_marker_distance_m": 0.70,
             "reverse_clearance_fallback_m": 0.50,
         })
-        self.assertEqual(inbound[2]["params"]["pre_insert_lift_mm"], 0)
+        self.assertIs(inbound[2]["params"]["pre_insert_home"], True)
+        self.assertIs(inbound[4]["params"]["home_on_unload"], True)
         self.assertEqual(inbound[-2]["waypoint_id"], "vehicle_2_approach")
         self.assertEqual(
             [step["params"]["aruco_marker_id"] for step in outbound if step["action_type"] in {"dock_transfer", "aruco_align"}],
@@ -163,7 +166,8 @@ class InOutScenarioOfflineTest(unittest.TestCase):
             "reverse_clearance_marker_distance_m": 0.70,
             "reverse_clearance_fallback_m": 0.50,
         })
-        self.assertEqual(outbound[2]["params"]["pre_insert_lift_mm"], 0)
+        self.assertIs(outbound[2]["params"]["pre_insert_home"], True)
+        self.assertIs(outbound[4]["params"]["home_on_unload"], True)
         self.assertEqual(outbound[-2]["waypoint_id"], "vehicle_2_approach")
 
     @patch("app.services.evidence_runtime.location_repo")

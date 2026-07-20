@@ -47,6 +47,8 @@ METRIC_DOCKING_CLIENT_FIELDS = frozenset({
     "aruco_marker_id",
     "action",
     "level",
+    "home_on_unload",
+    "pre_insert_home",
     "pre_insert_lift_mm",
     "pre_insert_force_move",
 })

@@ -305,6 +305,7 @@ def post_lift_load_evaluate(payload: dict[str, object]) -> dict:
         payload,
         service="vision",
         kind="lift_load_evaluate",
+        timeout_sec=settings.lift_load_evidence_timeout_sec,
     )
 
 
@@ -321,6 +322,7 @@ def _post_json(
     *,
     service: str = "vision",
     kind: str = "json_post",
+    timeout_sec: float | None = None,
 ) -> dict:
     """POST JSON to the configured service base and preserve HTTP errors."""
     bases = bases or _api_bases()
@@ -336,7 +338,10 @@ def _post_json(
         )
         ctx = begin_call(service, kind, "POST", url, source=str(payload.get("source") or ""))
         try:
-            with urlopen(req, timeout=settings.vision_timeout_sec) as res:
+            with urlopen(
+                req,
+                timeout=settings.vision_timeout_sec if timeout_sec is None else timeout_sec,
+            ) as res:
                 resp_body = res.read()
                 finish_call(ctx, True, 200, "application/json")
                 return json.loads(resp_body.decode("utf-8")) if resp_body else {}

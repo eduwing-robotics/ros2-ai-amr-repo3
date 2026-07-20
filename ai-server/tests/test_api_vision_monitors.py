@@ -584,9 +584,44 @@ def test_lift_load_evaluate_default_burst_passes_with_one_frame_hit():
     body = response.json()
     assert body["result"] == "PASS"
     assert body["reason_code"] == "EXPECTED_ITEM_COUNT_MATCH_AND_STABLE"
-    assert body["event"]["confidence"] == 0.2
+    assert body["event"]["confidence"] == 0.1
     assert body["event"]["data_json"]["accepted_frames"] == 1
     assert body["event"]["data_json"]["total_frames"] == 1
+
+
+def test_lift_load_evaluate_ignores_unregistered_extra_marker():
+    context = create_runtime_context()
+    client = TestClient(create_app(runtime_context=context))
+    context.frame_store.put_decoded(
+        source="global_cam_01",
+        image_bgr=_global_frame_with_markers(
+            [
+                (20, (0.29, 0.85)),
+                (21, (0.34, 0.85)),
+            ]
+        ),
+    )
+
+    response = client.post(
+        "/api/v1/vision/evidence/lift-load/evaluate",
+        json={
+            "source": "global_cam_01",
+            "robot_id": "tb3_1",
+            "operation": "PICK_UP",
+            "expected_marker_id": 20,
+            "expected_item_count": 1,
+            "vision_zone_id": "inbound_static_item_zone",
+            "burst_frames": 1,
+            "min_pass_frames": 1,
+            "sample_interval_ms": 0,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["result"] == "PASS"
+    assert body["event"]["data_json"]["detected_marker_ids"] == ["ARUCO_4X4_50_20"]
+    assert body["event"]["data_json"]["observed_count"] == 1
 
 
 def test_lift_load_evaluate_resolves_location_id_only_through_zone_alias_config():

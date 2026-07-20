@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -347,6 +348,60 @@ class TaskRecoveryTest(unittest.TestCase):
         self.assertEqual(step["retry_generation"], 1)
         self.assertNotIn("command_id", step)
         self.assertNotIn("transition_id", step)
+
+    def test_resume_timeout_after_durable_claim_returns_pending(self) -> None:
+        task = self._held_task()
+        held = task["preset_snapshot"]["_orchestration"]
+        dispatching = copy.deepcopy(held)
+        dispatching["phase"] = orch_state.PHASE_RUNNING
+        dispatching["steps"][0].update({
+            "status": "dispatching",
+            "command_id": "retry-command",
+            "retry_generation": 1,
+        })
+        evidence = MagicMock()
+        evidence.get_orchestration.side_effect = [held, held, dispatching]
+        evidence.list_for_task.return_value = []
+        tasks = MagicMock()
+        tasks.get.return_value = task
+        gate = {
+            "held_orchestration_fingerprint": recovery._orchestration_fingerprint(held),
+            "live_health": {"estop_state": "clear"},
+        }
+        conn = MagicMock()
+        with (
+            patch.object(recovery, "evidence_repo", return_value=evidence),
+            patch.object(recovery, "task_repo", return_value=tasks),
+            patch.object(recovery, "_assert_needs_attention_phase"),
+            patch.object(recovery, "_active_task_safety_stops", return_value=[]),
+            patch.object(recovery, "_verify_recovery_safety_gate", return_value=gate),
+            patch.object(
+                recovery,
+                "_verify_interrupted_step_terminal",
+                return_value={"state": "ABORTED", "command_id": "old-command"},
+            ),
+            patch.object(recovery.evidence_runtime, "attach_orchestration", return_value=task),
+            patch.object(recovery.evidence_runtime, "save_orchestration"),
+            patch(
+                "app.services.orchestrator.dispatch_current_step",
+                side_effect=HTTPException(status_code=504, detail="movement timeout"),
+            ),
+        ):
+            result = recovery.execute_recovery(
+                conn,
+                1,
+                cargo_state="EMPTY",
+                strategy="resume_task",
+                checks={"site_clear": True, "pose_ok": True, "cargo_ok": True},
+            )
+
+        self.assertTrue(result["pending"])
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["command_id"], "retry-command")
+        self.assertEqual(
+            evidence.append.call_args_list[-1].kwargs["event_type"],
+            "TASK_RECOVERY_DISPATCH_PENDING",
+        )
 
     def test_evidence_hold_context_uses_db_item_catalog_for_operator_ui(self) -> None:
         conn = MagicMock()

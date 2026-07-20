@@ -167,6 +167,7 @@ class PersonHazardPolicyTest(unittest.TestCase):
 
     def test_poll_failure_fails_safe_once_with_untrusted_outage_and_trusted_stop(self) -> None:
         runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        runtime.last_healthy_monotonic = 0.0
         conn = MagicMock()
         repo = MagicMock()
         repo.append.side_effect = [11, 22, 33]
@@ -191,6 +192,7 @@ class PersonHazardPolicyTest(unittest.TestCase):
 
     def test_poll_failure_commits_hold_before_unexpected_estop_error(self) -> None:
         runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        runtime.last_healthy_monotonic = 0.0
         conn = MagicMock()
         repo = MagicMock()
         repo.append.side_effect = [11, 22, 33]
@@ -220,6 +222,21 @@ class PersonHazardPolicyTest(unittest.TestCase):
         self.assertFalse(outcome["estop_ok"])
         self.assertIn("unexpected movement failure", outcome["estop_error"])
         self.assertEqual(conn.commit.call_count, 2)
+
+    def test_single_fresh_poll_timeout_does_not_trigger_estop(self) -> None:
+        runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)
+        runtime.last_healthy_monotonic = 100.0
+        conn = MagicMock()
+        with (
+            patch.object(ph, "settings", SimpleNamespace(person_hazard_stale_sec=2.0)),
+            patch("app.services.person_hazard.time.monotonic", return_value=101.0),
+            patch("app.services.person_hazard.fetch_person_hazard_latest", side_effect=ph.VisionUpstreamError("down")),
+            patch("app.services.person_hazard.fail_safe_monitor_outage") as fail_safe,
+        ):
+            ph.poll_robot(conn, runtime)
+
+        fail_safe.assert_not_called()
+        self.assertFalse(runtime.fail_safe_triggered)
 
     def test_invalid_estop_response_is_recorded_unknown_after_durable_hazard_hold(self) -> None:
         runtime = ph.MonitorRuntime(robot_id="tb3_1", source="tb3_1_picam", task_id=101)

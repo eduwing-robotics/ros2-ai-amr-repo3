@@ -183,12 +183,13 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             self.assertTrue(all(step.get("command_sequence_no") == 1 for step in steps[1:load_index]))
             self.assertEqual(steps[load_index]["command_sequence_no"], 2)
             self.assertEqual(steps[load_index]["evidence_sequence_no"], 3)
-            self.assertEqual(steps[load_index]["params"]["pre_insert_lift_mm"], 0)
+            self.assertIs(steps[load_index]["params"]["pre_insert_home"], True)
             self.assertTrue(
                 all(step.get("human_hazard_monitor") is True for step in steps[load_index + 1:unload_index])
             )
             self.assertEqual(steps[unload_index]["command_sequence_no"], 6)
             self.assertEqual(steps[unload_index]["evidence_sequence_no"], 5)
+            self.assertIs(steps[unload_index]["params"]["home_on_unload"], True)
             self.assertEqual(steps[-2].get("waypoint_id"), "vehicle_1_approach")
             self.assertEqual(steps[-2].get("command_sequence_no"), 7)
             self.assertEqual(steps[-1].get("action_type"), "aruco_align")
@@ -260,7 +261,8 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             "reverse_clearance_marker_distance_m": 0.70,
             "reverse_clearance_fallback_m": 0.50,
         })
-        self.assertEqual(inbound[2]["params"]["pre_insert_lift_mm"], 0)
+        self.assertIs(inbound[2]["params"]["pre_insert_home"], True)
+        self.assertIs(inbound[4]["params"]["home_on_unload"], True)
         self.assertEqual(
             [step["params"]["aruco_marker_id"] for step in inbound if step["action_type"] == "dock_transfer"],
             [1, 7],
@@ -271,7 +273,8 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
             [7, 6],
         )
         self.assertEqual(outbound[-2]["waypoint_id"], "vehicle_2_approach")
-        self.assertEqual(outbound[2]["params"]["pre_insert_lift_mm"], 0)
+        self.assertIs(outbound[2]["params"]["pre_insert_home"], True)
+        self.assertIs(outbound[4]["params"]["home_on_unload"], True)
 
 
 if __name__ == "__main__":

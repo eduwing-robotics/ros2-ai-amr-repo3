@@ -299,7 +299,7 @@ class LiftLoadEvaluateRequest(BaseModel):
     expected_item_count: int = Field(default=1, ge=1, le=10)
     location_id: str | None = None
     vision_zone_id: str | None = None
-    burst_frames: int = Field(default=5, ge=1, le=10)
+    burst_frames: int = Field(default=10, ge=1, le=10)
     min_pass_frames: int = Field(default=1, ge=1, le=10)
     sample_interval_ms: int = Field(default=80, ge=0, le=500)
     max_frame_age_s: float = Field(default=2.0, ge=0)
@@ -2415,6 +2415,7 @@ DEFAULT_ARUCO_ITEM_MARKER_IDS = (
     "ARUCO_4X4_50_27",
     "ARUCO_4X4_50_29",
 )
+REGISTERED_ARUCO_ITEM_MARKER_IDS = frozenset(DEFAULT_ARUCO_ITEM_MARKER_IDS)
 
 
 def _normalize_lift_operation(operation: str) -> str:
@@ -2613,22 +2614,10 @@ def _resolve_lift_evidence_zone(
     return find_zone_by_id(config, mapped_zone_id), mapped_zone_id, "location_aliases"
 
 
-def _is_item_marker_id(marker_id: str) -> bool:
-    """Return whether an ArUco marker id is in the item marker namespace.
+def _is_item_marker_id(marker_id: str, item_marker_ids: set[str]) -> bool:
+    """Return whether a marker belongs to the active item catalog."""
 
-    0..19 are reserved for map/zone/spare reference markers. The currently
-    recommended MVP candidates are a stable subset of 20..29, but accepting the
-    whole 20..49 namespace keeps this endpoint compatible with future Main-owned
-    marker/item mapping without changing the public contract.
-    """
-
-    if not marker_id.startswith("ARUCO_4X4_50_"):
-        return False
-    try:
-        marker_int = int(marker_id.rsplit("_", 1)[-1])
-    except ValueError:
-        return False
-    return 20 <= marker_int <= 49
+    return marker_id in item_marker_ids
 
 
 def _frame_marker_ids_in_zone(
@@ -2641,6 +2630,7 @@ def _frame_marker_ids_in_zone(
         return 0, 0, [], []
     expected_hits: list[str] = []
     any_item_hits: list[str] = []
+    item_marker_ids = set(REGISTERED_ARUCO_ITEM_MARKER_IDS) | expected_marker_ids
     for detection in detect_markers(frame.decoded_bgr):
         bbox = detection.bbox_xyxy
         x = (bbox[0] + bbox[2]) / 2.0
@@ -2653,7 +2643,7 @@ def _frame_marker_ids_in_zone(
             image_height=frame.image_height,
         ):
             continue
-        if _is_item_marker_id(detection.marker_id):
+        if _is_item_marker_id(detection.marker_id, item_marker_ids):
             any_item_hits.append(detection.marker_id)
         if detection.marker_id in expected_marker_ids:
             expected_hits.append(detection.marker_id)

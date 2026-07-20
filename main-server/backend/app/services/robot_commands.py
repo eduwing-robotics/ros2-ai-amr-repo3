@@ -176,7 +176,7 @@ def _normalize_aruco_tolerance(raw: Any) -> dict[str, float]:
 
 
 DOCK_TRANSFER_NUMERIC_KEYS = ("lift_height_mm", "lift_timeout_sec", "pre_insert_lift_mm")
-DOCK_TRANSFER_BOOL_KEYS = ("home_on_unload", "pre_insert_force_move")
+DOCK_TRANSFER_BOOL_KEYS = ("home_on_unload", "pre_insert_home", "pre_insert_force_move")
 DOCK_TRANSFER_OPTIONAL_KEYS = DOCK_TRANSFER_NUMERIC_KEYS + DOCK_TRANSFER_BOOL_KEYS
 
 

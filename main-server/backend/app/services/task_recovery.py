@@ -590,7 +590,42 @@ def _execute_resume_task(
 
     from app.services import orchestrator
 
-    command_id = orchestrator.dispatch_current_step(conn, task_id)
+    try:
+        command_id = orchestrator.dispatch_current_step(conn, task_id)
+    except HTTPException:
+        current = evidence_repo(conn).get_orchestration(task_id) or {}
+        current_steps = orch_state.get_steps(current)
+        current_index = orch_state.get_step_index(current)
+        current_step = current_steps[current_index] if current_index < len(current_steps) else {}
+        pending_command_id = str(current_step.get("command_id") or "")
+        if (
+            orch_state.normalize_phase(current.get("phase")) != orch_state.PHASE_RUNNING
+            or current_index != step_index
+            or str(current_step.get("status") or "").lower() != "dispatching"
+            or not pending_command_id
+        ):
+            raise
+        evidence_repo(conn).append(
+            task_id=task_id,
+            event_type="TASK_RECOVERY_DISPATCH_PENDING",
+            source="main_recovery",
+            trusted=True,
+            data_json={
+                "robot_id": robot_id,
+                "step_index": step_index,
+                "command_id": pending_command_id,
+                "retry_generation": int(current_step.get("retry_generation") or 0),
+            },
+        )
+        return {
+            "task_id": task_id,
+            "command_id": pending_command_id,
+            "accepted": False,
+            "pending": True,
+            "strategy": "resume_task",
+            "message": "복구 명령 확인 중입니다. 같은 명령 ID로 자동 확인을 계속합니다.",
+            "plan": plan,
+        }
     if not command_id:
         raise HTTPException(status_code=409, detail="resume_task_dispatch_not_claimed")
     evidence_repo(conn).append(

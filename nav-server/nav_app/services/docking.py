@@ -1882,7 +1882,16 @@ def execute_pre_insert_lift(action: str, level: int, payload: Dict[str, Any]):
         return
     from nav_app.services.lift_phases import resolve_pre_insert_height_mm
 
+    home_requested = payload.get("pre_insert_home", False)
+    if isinstance(home_requested, str):
+        home_requested = home_requested.strip().lower() in ("1", "true", "yes", "on")
     target = resolve_pre_insert_height_mm(action, level, payload, lift_client.config)
+    if home_requested or target == 0.0:
+        _require_docking_motion_or_abort(payload, "pre_insert_lift", require_lift=True)
+        print(f"[dock_transfer] pre-insert lift home action={action} level={level}")
+        result = lift_client.home(timeout_sec=payload.get("lift_timeout_sec"))
+        print(f"[dock_transfer] pre-insert lift home complete: {result}")
+        return
     if target is None:
         print(f"[dock_transfer] pre-insert lift skipped action={action} level={level}")
         return

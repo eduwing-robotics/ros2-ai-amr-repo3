@@ -17,6 +17,24 @@ from app.services import vision_proxy
 class VisionProxyTest(unittest.TestCase):
     @patch("app.services.vision_proxy.urlopen")
     @patch("app.services.vision_proxy.settings")
+    def test_lift_load_evaluate_uses_dedicated_timeout(self, mock_settings, mock_urlopen) -> None:
+        mock_settings.vision_api_base_url = "http://vision:8100"
+        mock_settings.vision_timeout_sec = 2.0
+        mock_settings.lift_load_evidence_timeout_sec = 5.0
+        mock_settings.vision_hmac_secret = "test-vision-hmac-secret"
+        mock_res = MagicMock()
+        mock_res.read.return_value = b'{"result":"PASS"}'
+        mock_res.__enter__ = lambda s: s
+        mock_res.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_res
+
+        result = vision_proxy.post_lift_load_evaluate({"source": "global_cam_01"})
+
+        self.assertEqual(result["result"], "PASS")
+        self.assertEqual(mock_urlopen.call_args.kwargs["timeout"], 5.0)
+
+    @patch("app.services.vision_proxy.urlopen")
+    @patch("app.services.vision_proxy.settings")
     def test_fetch_stream_transports(self, mock_settings, mock_urlopen) -> None:
         mock_settings.vision_api_base_url = "http://vision:8100"
         mock_settings.vision_timeout_sec = 1.0

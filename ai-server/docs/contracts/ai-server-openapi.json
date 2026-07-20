@@ -8736,7 +8736,7 @@
             "maximum": 10.0,
             "minimum": 1.0,
             "title": "Burst Frames",
-            "default": 5
+            "default": 10
           },
           "min_pass_frames": {
             "type": "integer",

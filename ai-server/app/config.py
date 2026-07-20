@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     vision_model_unmapped_class: str = "unknown"
     vision_model_max_events: int = 20
     vision_model_source_config_json: str = ""
+    vision_overlay_min_confidence: float = Field(default=0.70, ge=0.0, le=1.0)
     contract_schema_path: Path = Field(
         default=REPO_ROOT / "docs" / "contracts" / "vision-event.schema.json"
     )

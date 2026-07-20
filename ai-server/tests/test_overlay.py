@@ -149,6 +149,46 @@ def test_overlay_banner_counts_only_visual_events(monkeypatch):
     assert captured_labels[-1] == "tb3_2_picam last=12:35:01 valid=1"
 
 
+def test_overlay_hides_events_below_confidence_floor_without_dropping_metadata(monkeypatch):
+    store = LatestFrameStore()
+    image = np.zeros((120, 320, 3), dtype=np.uint8)
+    frame = store.put_decoded(
+        source="global_cam_01",
+        image_bgr=image,
+        timestamp="2026-07-02T12:35:01+09:00",
+    )
+    captured_labels = []
+
+    def capture_label(image, text, x, y, color, **_kwargs):
+        captured_labels.append(text)
+
+    monkeypatch.setattr(overlay_module, "_draw_label", capture_label)
+
+    overlay = render_overlay(
+        frame,
+        events=[
+            {
+                "timestamp": "2026-07-02T12:35:01+09:00",
+                "class_name": "person",
+                "confidence": 0.69,
+                "bbox_xyxy": [1, 1, 10, 10],
+            },
+            {
+                "timestamp": "2026-07-02T12:35:01+09:00",
+                "class_name": "box",
+                "confidence": 0.70,
+                "bbox_xyxy": [12, 12, 20, 20],
+            },
+        ],
+        min_confidence=0.70,
+    )
+
+    assert "person 0.69" not in captured_labels
+    assert "box 0.70" in captured_labels
+    assert captured_labels[-1] == "global_cam_01 last=12:35:01 valid=1"
+    assert overlay.metadata()["event_count"] == 2
+
+
 def test_overlay_renderer_draws_map_roi_polygon_with_distinct_color():
     store = LatestFrameStore()
     image = np.zeros((120, 160, 3), dtype=np.uint8)
