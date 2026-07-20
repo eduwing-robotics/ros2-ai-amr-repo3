@@ -51,7 +51,7 @@ Navigation PC only for a deliberate fallback run.
 
 ## Lift bridge
 
-Start this only for a robot whose `lift.enabled` configuration is enabled:
+Start this for either TB1 or TB2. Use the selected robot's configured domain:
 
 ```bash
 export LIFT_WS_SETUP="<lift-overlay>/install/setup.bash"
@@ -60,6 +60,8 @@ LIFT_WS_SETUP="$LIFT_WS_SETUP" \
 LIFT_SERIAL_PORT="<lift-controller-device>" \
 scripts/robot_sbc/start_lift_bridge.sh
 ```
+
+TB1 uses `ROS_DOMAIN_ID=2`; TB2 uses `ROS_DOMAIN_ID=5`.
 
 ## Stop
 

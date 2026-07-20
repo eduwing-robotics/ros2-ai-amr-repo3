@@ -17,7 +17,7 @@
    ./scripts/operator-preflight.sh --software
    ```
 
-3. 선택 로봇의 SBC에서 hardware/ROS base를 시작한다. TB1 PiCam이 필요하면 두 번째 SBC terminal에서 `ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py`를 실행한다. TB2 camera/lift를 포함한 상세 명령은 [LMS Full Startup Runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)을 따른다. 이 외부 프로세스는 stack 실행기가 임의로 종료하지 않는다.
+3. 선택 로봇의 SBC에서 hardware/ROS base와 실물 lift bridge를 시작한다. TB1 PiCam이 필요하면 별도 SBC terminal에서 `ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py`를 실행한다. 로봇별 domain을 포함한 상세 명령은 [LMS Full Startup Runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)을 따른다. 이 외부 프로세스는 stack 실행기가 임의로 종료하지 않는다.
 4. 각 host에서 공통 stack profile을 확인하고 실행한다. 프로파일을 생략하면
    로컬 `192.168.30.x` 주소에 따라 `.5=tb1-local-e2e`, `.9=main-field`,
    `.12=nav-field-tb1`이 선택된다. 다른 구성은 반드시 `--profile`로 명시한다.

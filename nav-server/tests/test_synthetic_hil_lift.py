@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException
 
 from nav_app.config.runtime_profiles import resolve_runtime_profile
-from nav_app.models import MovementCommandRequest, MovementStep, RobotCommandRequest
+from nav_app.models import MovementStep, RobotCommandRequest
 from nav_app.routers import movement_api, robot_commands as robot_command_routes
 from nav_app.runtime import runtime
 from nav_app.services import capabilities, command_state, docking
@@ -86,7 +86,8 @@ def test_live_execution_and_physical_capability_do_not_claim_lift_verification(m
     assert provenance["physical_lift_verified"] is False
     assert provenance["physical_lift_reason"] == PHYSICAL_LIFT_NOT_VERIFIED
     assert provenance["lift_evidence_reason"] == PHYSICAL_LIFT_NOT_VERIFIED
-    assert tb1_status["reason"] == "robot_missing_capability:lift"
+    assert "lift" in _tb1()["capabilities"]
+    assert tb1_status["reason"] == "lift_client_not_initialized"
     assert tb1_status["physical_lift_verified"] is False
     assert tb1_status["physical_lift_reason"] == PHYSICAL_LIFT_NOT_VERIFIED
 
@@ -134,41 +135,17 @@ def test_backend_selection_is_two_key_fail_closed(resolved, environment, reason)
         create_lift_backend(MagicMock(), _tb1(), resolved_profile=resolved, environment=environment)
 
 
-def test_synthetic_grant_is_explicit_and_allows_only_dock_transfer_without_mutating_tb1(monkeypatch):
+def test_synthetic_profile_keeps_tb1_hardware_capability_while_selecting_virtual_backend(monkeypatch):
     profile = _tb1()
-    assert profile["capabilities"] == ["navigate", "charge"]
+    assert profile["capabilities"] == ["navigate", "charge", "lift"]
     monkeypatch.setattr(capabilities, "synthetic_hil_admitted", lambda: True)
 
-    with pytest.raises(HTTPException):
-        capabilities.ensure_steps_supported(
-            [MovementStep(action="dock_transfer", payload={"aruco_marker_id": 1, "action": "load", "level": 1})],
-            profile=profile,
-        )
     capabilities.ensure_steps_supported(
         [MovementStep(action="dock_transfer", payload={"aruco_marker_id": 1, "action": "load", "level": 1})],
         profile=profile,
-        allow_runtime_test_dock_transfer=True,
     )
-
-    with pytest.raises(HTTPException):
-        capabilities.ensure_steps_supported(
-            [MovementStep(action="aruco_align", payload={"final": "hold", "fork_insert_on_hold": True})],
-            profile=profile,
-        )
-    assert capabilities.profile_capabilities(profile) == ["navigate", "charge"]
-
-
-def test_profile_without_process_gate_rejects_dock_transfer(tmp_path, monkeypatch):
-    _install_resolved_profile(tmp_path, monkeypatch)
-    monkeypatch.delenv("SF_NAV_ALLOW_SYNTHETIC_HIL", raising=False)
-
-    assert synthetic_hil_admitted() is False
-    with pytest.raises(HTTPException) as excinfo:
-        capabilities.ensure_steps_supported(
-            [MovementStep(action="dock_transfer", payload={"aruco_marker_id": 1, "action": "load", "level": 1})],
-            profile=_tb1(),
-        )
-    assert excinfo.value.detail["code"] == "robot_missing_capability:lift"
+    assert _resolved()["lift_backends"] == {"tb3_burger_01": "virtual"}
+    assert capabilities.profile_capabilities(profile) == ["navigate", "charge", "lift"]
 
 
 @pytest.mark.parametrize(
@@ -203,24 +180,7 @@ def test_resolved_profile_must_select_active_robot(tmp_path, monkeypatch):
         synthetic_hil_admitted()
 
 
-def test_direct_movement_path_does_not_receive_synthetic_dock_transfer_grant(tmp_path, monkeypatch):
-    _admitted_synthetic_hil(tmp_path, monkeypatch)
-    monkeypatch.setattr(runtime, "navigator", MagicMock())
-    monkeypatch.setattr(runtime, "mission_manager", SimpleNamespace(dry_run=False))
-    monkeypatch.setattr(capabilities, "active_robot_profile", _tb1)
-    req = MovementCommandRequest(
-        command_id="direct-hil-1",
-        robot_name="tb3_1",
-        steps=[MovementStep(action="dock_transfer", payload={"aruco_marker_id": 1, "action": "load", "level": 1})],
-    )
-
-    with pytest.raises(HTTPException) as excinfo:
-        movement_api.movement_accept_command(req, MagicMock())
-
-    assert excinfo.value.detail["code"] == "robot_missing_capability:lift"
-
-
-def test_main_robot_commands_path_receives_runtime_only_synthetic_grant(tmp_path, monkeypatch):
+def test_main_robot_commands_path_accepts_explicit_synthetic_profile(tmp_path, monkeypatch):
     _admitted_synthetic_hil(tmp_path, monkeypatch)
     navigator = MagicMock()
     navigator.ensure_nav2_ready.return_value = True
@@ -244,7 +204,7 @@ def test_main_robot_commands_path_receives_runtime_only_synthetic_grant(tmp_path
     response = robot_command_routes.accept_robot_command(req, MagicMock())
 
     assert response["accepted"] is True
-    assert capabilities.profile_capabilities(_tb1()) == ["navigate", "charge"]
+    assert capabilities.profile_capabilities(_tb1()) == ["navigate", "charge", "lift"]
 
 
 @pytest.mark.parametrize("bypass", ["request", "process", "mission"])

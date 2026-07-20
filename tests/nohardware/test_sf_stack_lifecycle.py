@@ -414,6 +414,8 @@ def test_repository_profiles_assign_one_safe_default_per_field_host() -> None:
         profiles["tb1-local-e2e"]["components"]["main"]["env"]["LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED"]
         == "false"
     )
+    assert profiles["tb1-local-e2e"]["components"]["main"]["env"]["LMS_LIFT_LOAD_EVIDENCE_ENABLED"] == "true"
+    assert profiles["tb1-local-e2e"]["components"]["main"]["env"]["LMS_LIFT_LOAD_EVIDENCE_MODE"] == "gate"
     assert profiles["tb2-local-e2e"]["site"]["allowed_local_ips"] == ["192.168.30.5"]
     assert profiles["tb2-local-e2e"]["components"]["bridge"]["enabled"] is False
     assert profiles["tb2-local-e2e"]["components"]["nav"]["profile"] == "tb2-live"

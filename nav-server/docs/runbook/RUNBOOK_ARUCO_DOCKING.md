@@ -329,7 +329,7 @@ Main
        → load/unload → 저장한 pose로 직선 후진
 ```
 
-이 흐름은 구현·nohardware 검증이 끝난 **현장 후보**다. 현재 checked-in `tb3_burger_02.metric_docking.live_enabled=false`이며, camera-to-base 목표 offset 측정과 실물 검증 뒤 `commissioning_status=COMMISSIONED`까지 함께 설정해야 활성화된다. `tb3_burger_01`은 TB2 intrinsics를 빌리지 않는다. TB1의 `tb1-synthetic-hil`은 실제 base/Nav/도킹 경로를 유지하고 lift만 virtual backend로 바꾸며 결과는 `nonphysical`이다.
+이 흐름은 TB1·TB2 live가 함께 사용하는 실물 pixel/odom 도킹 경로다. 별도의 metric camera-to-base 제어는 `metric_docking.live_enabled=false`이며 실측 commissioning 전에는 활성화되지 않는다. TB1의 `tb1-synthetic-hil`은 같은 base/Nav/도킹 경로에서 lift만 virtual backend로 바꾸며 결과는 `nonphysical`이다.
 
 ## 6. LMS 원자 명령 흐름
 
@@ -378,7 +378,7 @@ curl -X POST http://127.0.0.1:8002/robot-commands \
 
 보정 pose가 없거나 marker가 바뀌거나 0.40m 허용 band보다 이미 가깝거나 직선 진입 중 법선 정렬이 벗어나면 즉시 실패한다. 복귀 pose도 `map` frame, live TF/AMCL source, freshness, localization, yaw를 검증한다. metric 경로는 marker width, time-based insert, slip compensation으로 대체하지 않는다.
 
-TB1과 calibration이 없는 로봇은 기존 center/width 기반 align·insert 경로를 유지한다. `tb1-synthetic-hil`도 이 경로에서 lift 호출만 virtual backend로 바꾼다. 대기장(`vehicle_*`)은 pallet metric profile을 사용하지 않는다. 입·출고 합격 판정은 로컬 시나리오 스크립트가 아니라 Main task orchestration으로 수행한다.
+TB1·TB2는 기존 center/width 기반 align·insert 경로를 공통 사용한다. `tb1-synthetic-hil`은 이 경로에서 lift 호출만 virtual backend로 바꾼다. 대기장(`vehicle_*`)은 pallet metric profile을 사용하지 않는다. 입·출고 합격 판정은 로컬 시나리오 스크립트가 아니라 Main task orchestration으로 수행한다.
 
 ### 6.3 aruco_align 실행
 
@@ -543,23 +543,23 @@ export DOCK_REVERSE_DURATION_SEC=0.7
 2. `ARUCO_DOCK_CENTER_TOLERANCE_NORM`을 조정해 포크가 파레트 입구 중앙에 들어가도록 한다.
 3. `FORK_INSERT_DISTANCE_M`을 조정해 포크가 파레트 안으로 충분히 들어가되 충돌하지 않게 한다.
 4. `FORK_INSERT_SPEED_MPS`는 처음에는 낮게 유지한다. 기본 `0.035m/s`부터 시작한다.
-5. 리프트 하드웨어는 `config/robots.json`의 로봇별 `lift` 설정을 사용한다. 현재 로봇2는 enabled=true, 로봇1은 장착 전 enabled=false다.
+5. 리프트 하드웨어는 `config/robots.json`의 로봇별 `lift` 설정을 사용한다. TB1·TB2 모두 같은 실물 lift 계약을 사용한다.
 
 ## 11. 리프트 명령 연결
 
-리프트는 로봇별 ROS domain 안에서 `/lift/*` 토픽으로 제어한다. 현재 실제 장착 로봇은 `tb3_burger_02`이며 `ROS_DOMAIN_ID=5`다.
+리프트는 로봇별 ROS domain에서 `/lift/*` 토픽으로 제어한다. TB1은 `ROS_DOMAIN_ID=2`, TB2는 `ROS_DOMAIN_ID=5`다.
 
-로봇2 SBC에서 lift bridge를 먼저 실행한다.
+선택한 로봇 SBC에서 lift bridge를 먼저 실행한다.
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 export LIFT_WS_SETUP="<lift-overlay>/install/setup.bash"
 source "$LIFT_WS_SETUP"
-export ROS_DOMAIN_ID=5
+export ROS_DOMAIN_ID=2  # TB1; TB2는 5
 ros2 run lift_bridge lift_bridge
 ```
 
-Movement 서버는 `config/robots.json`의 `tb3_burger_02.lift.enabled=true` 설정을 보고 `dock_transfer`의 lift 단계에서 `/lift/cmd_move` 또는 `/lift/cmd_home`을 publish한다.
+Movement 서버는 선택된 로봇의 `lift.enabled=true` 설정을 보고 `dock_transfer`의 lift 단계에서 `/lift/cmd_move` 또는 `/lift/cmd_home`을 publish한다. TB1은 `tb3_1_hardware_nav.yaml`이 Nav domain 42와 하드웨어 domain 2 사이에서 해당 토픽을 전달하고, TB2는 domain 5에서 직접 연결한다.
 
 현재 slot profile 동작:
 
@@ -568,7 +568,7 @@ level=1 load -> pre_insert 0mm -> load 6mm -> carry 6mm
 level=2 unload -> pre_insert 50mm -> unload 43mm
 ```
 
-로봇1에 리프트를 장착하면 로봇1 SBC에서 같은 lift bridge를 `ROS_DOMAIN_ID=2`로 실행하고, `config/robots.json`의 `tb3_burger_01.lift.enabled`를 `true`로 바꾼다. 각 로봇은 domain이 다르므로 `/lift/*` 토픽 이름은 그대로 유지한다.
+두 로봇은 domain이 다르므로 `/lift/*` 토픽 이름을 공통으로 유지한다. TB1의 synthetic-HIL 프로파일은 실물 리프트 대신 virtual backend를 선택하는 별도 시험 경로다.
 
 호환용으로 `LIFT_UP_COMMAND`, `LIFT_DOWN_COMMAND` 환경변수도 남아 있다. 단, 로봇별 lift 설정이 enabled이면 ROS topic 방식이 우선이다.
 

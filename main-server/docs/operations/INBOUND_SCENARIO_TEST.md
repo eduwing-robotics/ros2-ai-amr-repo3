@@ -10,9 +10,9 @@ Cross-service 기동, 실제 장비 준비, physical/synthetic 판정은 [실물
 
 ## 현재 실행 제한
 
-- 실제 환경 맵은 `robot2_map` 하나다. TB1 live/no-hardware 입출고는 차단돼 있고, TB2 live의 1층 물리 E2E 경로만 열려 있다. 승인되지 않은 슬롯·층으로 범위를 임의 확장하지 않는다.
+- 실제 환경 맵은 `robot2_map` 하나다. TB1·TB2 live는 같은 1층 실물 리프트 경로를 사용하며 no-hardware 입출고는 차단한다. 시험하지 않은 슬롯·층으로 범위를 임의 확장하지 않는다.
 - 기존 `robot1_map` 좌표나 UI remap으로 실제 입고를 실행하지 않는다. Main background·pose와 Nav command의 map identity가 모두 `robot2_map`이어야 한다.
-- 현재 TB1 hardware fact는 lift disabled다. `tb1-synthetic-e2e` stack은 Main의 명시적 nonphysical admission과 Nav virtual lift를 함께 열며, UI에서 `가상 리프트`를 선택한 즉시 시작 작업만 허용한다. 결과는 lift-only synthetic 검증이며 물리 입고 합격 근거가 아니다.
+- TB1 hardware fact와 live profile은 physical lift다. `tb1-synthetic-e2e`는 별도의 보완 profile이며, UI에서 `가상 리프트`를 선택한 실행 결과는 물리 입고 합격 근거가 아니다.
 
 ## 사전 조건
 

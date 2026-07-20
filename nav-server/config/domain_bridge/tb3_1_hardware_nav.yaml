@@ -59,11 +59,56 @@ topics:
       depth: 5
       reliability: best_effort
       durability: volatile
+  lift/position:
+    type: std_msgs/msg/Float32
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: transient_local
+  lift/direction:
+    type: std_msgs/msg/String
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: transient_local
+  lift/limit_lower:
+    type: std_msgs/msg/Bool
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: transient_local
   cmd_vel:
     type: geometry_msgs/msg/TwistStamped
     reversed: true
     qos:
       history: keep_last
       depth: 1
+      reliability: reliable
+      durability: volatile
+  lift/cmd_move:
+    type: std_msgs/msg/Float32
+    reversed: true
+    qos:
+      history: keep_last
+      depth: 10
+      reliability: reliable
+      durability: volatile
+  lift/cmd_home:
+    type: std_msgs/msg/Bool
+    reversed: true
+    qos:
+      history: keep_last
+      depth: 10
+      reliability: reliable
+      durability: volatile
+  lift/cmd_stop:
+    type: std_msgs/msg/Bool
+    reversed: true
+    qos:
+      history: keep_last
+      depth: 10
       reliability: reliable
       durability: volatile

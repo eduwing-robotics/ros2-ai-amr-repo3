@@ -42,7 +42,7 @@ Nav는 configured Main origin과 고정 Movement callback path만 허용하고 r
 
 실물 위치·마커·도킹 값의 정본은 `nav-server/map/zones.json`이다. `main-server/backend/config/field-bindings.json`은 그 값을 Main location과 연결하는 실행 계약이며, 계약 테스트가 Nav zone·dock pose·scan marker와의 정적 불일치를 거부한다. 운영 DB row가 이 계약과 다르면 Main은 command 계획을 HTTP 409로 거부한다. 현재 field asset은 `robot2_map`이며 Main은 coordinate와 initial-pose dispatch 전에 Nav의 map ID·geometry·YAML/PGM digest를 exact match로 검증한다. UI/legacy map remap은 적용하지 않는다.
 
-`tb3_1`과 `tb3_2`는 production에서 `robot2_map`을 보고한다. TB1은 `HOME_01`/marker 3, TB2는 `HOME_02`/marker 4로 복귀한다. Main의 `robot2_map` dispatch는 승인된 TB2 물리 E2E를 위해 열려 있지만, Nav가 로봇별 gate를 최종 적용한다. 리프트가 없는 TB1 live와 no-hardware profile은 `field_dispatch.inbound/outbound=false`, 현장 1층 경로를 검증한 TB2 live만 `true`다.
+`tb3_1`과 `tb3_2`는 production에서 `robot2_map`을 보고한다. TB1은 `HOME_01`/marker 3, TB2는 `HOME_02`/marker 4로 복귀한다. 두 live profile은 동일한 실물 리프트·입출고 command 계약을 사용한다. TB1은 TB2에서 완료한 1층 물리 경로를 공통 baseline으로 활성화했으며 TB1 현장 결과는 별도로 기록한다. no-hardware의 field dispatch는 두 로봇 모두 차단한다.
 
 Nav의 현재 `robot2_map` 현장 scan approach는 다음과 같다. 같은 실물 장비와 맵으로 검증한 Nav tag `pre-scenario-api-v1-20260716` (`3ed56bf`)의 값만 `nav-server/map/zones.json`에 선별 반영했다.
 
@@ -68,7 +68,7 @@ TB2에서 실물 완료된 최소 경로는 `HOME_02(#4) → INBOUND_02(#1) → 
 
 `commands.id`는 task type별 정적 레시피 단계이며 Nav·AI runtime command ID가 아니다. Main은 실행·재시도마다 별도 runtime ID를 만들고, `evidence_events.command_id`에는 정적 레시피 FK를, `data_json.runtime_command_id`에는 실제 송신 ID를 기록한다. Load 완료 뒤 Main stage `POST_PICK_UP`이 AI wire operation `PICK_UP` evidence를 요청하고, unload 직전에는 `PRE_DROP_OFF` evidence를 평가한다. request binding과 freshness를 통과한 `PASS`, `command_satisfying=true`만 다음 command를 허용한다.
 
-TB2의 보정 카메라 경로는 `move_to_point`가 마커 법선의 약 0.40m 실제 map pose를 `ARRIVED` gate에 저장하고, `dock_transfer`가 같은 marker를 다시 확인한 뒤 0.18~0.20m까지 조향 없이 진입한다. lift/load 또는 drop을 끝내면 저장한 pose로 직선 후진한다. 이 경로는 구현·nohardware 검증이 끝난 후보지만 robot-scoped `metric_docking.live_enabled=false`가 기본이며, camera-to-base offset 측정과 실물 commissioning 전에는 활성화되지 않는다. TB1은 TB2 intrinsics를 빌리지 않으며 `tb1-synthetic-hil`에서 실제 base/Nav 경로와 별개의 virtual-lift backend만 사용한다. 해당 실행은 항상 `nonphysical`이다.
+공통 실물 도킹 경로는 `move_to_point`가 마커 법선의 약 0.40m 실제 map pose를 `ARRIVED` gate에 저장하고, `dock_transfer`가 같은 marker를 다시 확인한 뒤 검증된 pixel/odom 경로로 진입한다. lift/load 또는 drop을 끝내면 저장한 pose로 직선 후진한다. 별도의 metric camera-to-base 제어는 robot-scoped `metric_docking.live_enabled=false`가 기본이며, 실측 commissioning 전에는 활성화되지 않는다. `tb1-synthetic-hil`은 같은 base/Nav/도킹 흐름에서 lift backend만 virtual로 선택하며 해당 실행은 항상 `nonphysical`이다.
 
 AI 사람 monitor는 `POST_PICK_UP` 승인 뒤 `PRE_DROP_OFF` 평가 전까지의 적재 운송 NAV에만 붙는다. Person advisory 또는 그 구간의 monitor outage는 Main trusted safety stop과 `AWAITING_OPERATOR`를 만든다. E-stop clear나 단순 timeout만으로 재개하지 않는다. 운영자가 현장·pose·화물 상태를 확인하고 Main safety stop이 닫혔으며 live Movement health와 이전 명령의 terminal 상태가 확인된 경우, `resume_task`는 같은 Task의 현재 `move_to_point`·`aruco_align`·`leave_dock` step을 새 retry command ID로 다시 dispatch한다. 원래 step이 적재 운송 구간일 때만 person monitor를 재활성화한다. 부분 완료 가능성이 있는 `dock_transfer`는 자동 재시도하지 않는다. `safe_move`는 cargo가 `LOADED`일 때만 person monitor를 붙여 configured safe location으로 이동한 뒤 다시 `AWAITING_OPERATOR`가 되며, `manual_abort`는 로봇 정지를 확인한 뒤 task를 종료한다.
 

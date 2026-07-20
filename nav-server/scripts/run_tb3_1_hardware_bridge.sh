@@ -15,8 +15,9 @@ usage() {
 Usage:
   scripts/run_tb3_1_hardware_bridge.sh [--check|--print-plan]
 
-The bridge exposes robot1 sensors from hardware domain 2 to local Nav domain
-42 and returns only /cmd_vel. It never starts robot2 or publishes movement.
+The bridge exposes robot1 sensors and lift telemetry from hardware domain 2 to
+local Nav domain 42. It returns /cmd_vel and lift commands only. It never
+starts robot2 or generates commands on its own.
 EOF
 }
 

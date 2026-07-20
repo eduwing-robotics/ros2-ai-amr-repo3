@@ -503,6 +503,7 @@ def test_tb1_full_readiness_matches_selected_hardware_bridge(tmp_path, base_node
         "SF_NAV_START_SETTLE_SEC": "0.02",
         "SF_NAV_READINESS_MODE": "full",
         "SF_NAV_READINESS_TIMEOUT_SEC": "1",
+        "FAKE_LIFT_READY": "1",
     }
     result = subprocess.run(
         [str(SCRIPT), "--profile", "tb1-live", "up"], cwd=ROOT, env=env, capture_output=True, text=True

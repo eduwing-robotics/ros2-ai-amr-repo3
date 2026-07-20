@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
 
 from nav_app.models import RobotCommandRequest
 from nav_app.services import robot_commands
@@ -23,15 +22,15 @@ def _fixture_command(name: str) -> dict:
     raise AssertionError(f"missing fixture command: {name}")
 
 
-def test_nohardware_tb3_1_dock_transfer_envelope_is_rejected_without_lift_capability(monkeypatch):
+def test_nohardware_tb3_1_dock_transfer_envelope_uses_physical_lift_contract(monkeypatch):
     monkeypatch.setattr(robot_commands, "_consume_arrived_gate", lambda robot_id: {"command_id": "arrived-1", "traffic_segments": ["seg-a"]})
     req = RobotCommandRequest(**_fixture_command("dock_transfer_load"))
 
-    with pytest.raises(HTTPException) as excinfo:
-        robot_commands.movement_request_from_robot_command(req)
+    movement_req = robot_commands.movement_request_from_robot_command(req)
 
-    assert excinfo.value.status_code == 409
-    assert excinfo.value.detail["code"] == "robot_missing_capability:lift"
+    assert len(movement_req.steps) == 1
+    assert movement_req.steps[0].action == "dock_transfer"
+    assert movement_req.steps[0].payload["action"] == "load"
 
 
 @pytest.mark.parametrize(

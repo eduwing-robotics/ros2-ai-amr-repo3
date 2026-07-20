@@ -399,7 +399,7 @@ def test_robot2_field_dispatch_is_commissioned_with_physical_lift():
     assert not validate_robot_profile(robot)
 
 
-def test_robot1_uses_confirmed_map_without_changing_robot_ownership():
+def test_robot1_uses_confirmed_map_and_shared_physical_lift_path():
     import json
     from pathlib import Path
 
@@ -408,12 +408,6 @@ def test_robot1_uses_confirmed_map_without_changing_robot_ownership():
     )["robots"]
     robot1 = next(item for item in robots if item["robot_id"] == "tb3_burger_01")
     robot2 = next(item for item in robots if item["robot_id"] == "tb3_burger_02")
-    blocked = {
-        "inbound": False,
-        "outbound": False,
-        "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS",
-    }
-
     assert (robot1["bridge_robot_id"], robot1["ros_domain_id"], robot1["api_port"]) == ("tb3_1", 2, 8001)
     assert robot1["active_map_yaml"] == "map/robot2_map.yaml"
     assert robot1["localization"]["map_id"] == "robot2_map"
@@ -428,7 +422,10 @@ def test_robot1_uses_confirmed_map_without_changing_robot_ownership():
     assert robot1["localization"]["convergence_timeout_sec"] >= (
         robot1["localization"]["global_search"]["nomotion_update_timeout_sec"] + 30.0
     )
-    assert robot1["field_dispatch"] == blocked
+    assert robot1["lift"]["enabled"] is True and "lift" in robot1["capabilities"]
+    assert robot1["lift"]["command_scale"] == robot2["lift"]["command_scale"]
+    assert robot1["field_dispatch"]["inbound"] is True
+    assert robot1["field_dispatch"]["outbound"] is True
     assert (robot2["bridge_robot_id"], robot2["ros_domain_id"], robot2["api_port"]) == ("tb3_2", 5, 8002)
     assert robot2["lift"]["enabled"] is True and "lift" in robot2["capabilities"]
     assert robot2["field_dispatch"]["inbound"] is True

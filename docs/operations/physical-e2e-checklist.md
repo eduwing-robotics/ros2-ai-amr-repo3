@@ -14,9 +14,9 @@
 
 | 단계 | Nav profile | 실제로 합격시킬 범위 | 이 단계에서 합격으로 보지 않는 범위 |
 | --- | --- | --- | --- |
-| TB1 1차 | `tb1-live` | `robot2_map` localization, 실제 주행, Main 관제 UI, TB1 PiCam, Main↔Nav callback, 사람 안전 정지·복구 | lift, 완전한 입고·출고 |
-| TB1 보완 | `tb1-synthetic-hil` | 실제 base/Nav2 위에서 lift-only 가상 동작과 orchestration 흐름 | 물리 lift와 물리 입고·출고 |
-| TB2 최종 | `tb2-live` | 실제 lift, global camera load evidence, 입고·출고 전체 | synthetic/HIL 근거로 대체 불가 |
+| TB1 실물 | `tb1-live` | localization, 실제 주행, 실물 lift, Main·AI evidence, 입고·출고 | TB1 미실행 항목을 TB2 결과만으로 합격 처리하지 않음 |
+| TB1 보완 | `tb1-synthetic-hil` | 같은 base/Nav2 흐름에서 lift-only 가상 동작 | 물리 lift 합격 근거로 대체 불가 |
+| TB2 실물 | `tb2-live` | 실제 lift, global camera load evidence, 입고·출고 전체 | synthetic/HIL 근거로 대체 불가 |
 
 `tb1-synthetic-hil` 실행 전체의 evidence class는 `nonphysical`이다. 실제 base가 움직여도 그 실행으로 물리 lift 또는 완전한 물리 입고·출고를 합격 처리하지 않는다. profile 경계는 [Nav runtime profile contract](../../nav-server/docs/reference/NAV_RUNTIME_PROFILE_CONTRACT.md)를 따른다.
 
@@ -24,13 +24,13 @@
 
 - 실제 환경 맵은 `nav-server/map/robot2_map.yaml`과 `nav-server/map/robot2_map.pgm`이다.
 - 유일한 현장 맵은 `robot2_map`이다. Main 배경·pose·Nav command는 같은 map ID와 동일 YAML/PGM digest를 사용하며 `robot1_map` remap이나 fallback을 두지 않는다.
-- TB1은 `field_dispatch.inbound=false`, `field_dispatch.outbound=false`를 유지한다. TB2 live만 현장 검증된 `robot2_map`·실물 리프트 경로로 입고·출고가 허용되며, no-hardware 프로파일은 계속 차단된다.
-- 현재 TB1 hardware fact는 lift disabled다. 설치 전 lift 단계는 `tb1-synthetic-hil`로만 수행하고 `PHYSICAL_LIFT_NOT_VERIFIED`를 기록한다. 설치 후에는 hardware fact와 live profile의 `lift_backends=physical`을 함께 바꾸고 실물 telemetry를 별도 합격시킨다.
-- TB1 synthetic 경로는 TB2 카메라 보정값이나 TB2 metric docking profile을 사용하지 않는다. 실제 base/Nav2/카메라/도킹 경로에서 lift 단계만 virtual backend로 바꾼다.
+- TB1과 TB2 live는 `field_dispatch.inbound/outbound=true`와 physical lift backend를 사용한다. no-hardware field dispatch는 두 로봇 모두 차단된다.
+- TB1 hardware fact와 `tb1-live`는 실물 lift로 설정됐다. lift command subscriber와 position·direction·lower-limit telemetry가 준비되지 않으면 profile readiness가 완료되지 않는다.
+- TB1 synthetic 경로는 선택 가능한 보완 시험이다. 실제 base/Nav2/카메라/도킹 경로에서 lift 단계만 virtual backend로 바꾸며 물리 합격 근거가 아니다.
 - Main은 명시적으로 활성화한 `LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED=true`와 요청별 `admit_nonphysical=true`가 모두 있을 때만 TB1 nonphysical 실행을 허용한다. `evidence_only`와 `synthetic_hil`은 같은 provenance 계약을 쓰며 재고 변경과 물리 lift 합격 판정을 금지한다. 기본값은 차단이다.
 - TB2의 1층 실물 lift·후진 복귀 baseline은 동일 장비·`robot2_map` 현장 결과를 선별 반영했다. 다만 카메라 외부 보정이 필요한 정밀 metric docking은 별도 항목이며, 실측값을 가장하지 않도록 `metric_docking.live_enabled=false`를 유지한다.
 - `/operate/control`의 teleop·맵 이동은 직접 robot command다. 현재 person monitor는 task orchestration의 physical-motion step에서 arm되므로, **수동 주행만으로는 Main trusted person-stop E2E 합격 근거가 되지 않는다.**
-- TB1 기본 주행·영상과 TB2 1층 실물 입출고는 현장 시험을 시작할 수 있다. TB1 synthetic 입출고는 field gate가 남아 있고, TB2 정밀 metric docking은 camera-to-base 실측 전까지 별도 차단한다.
+- TB1·TB2 기본 주행·영상과 1층 실물 입출고는 현장 시험을 시작할 수 있다. 정밀 metric docking은 robot별 camera-to-base 실측 전까지 별도 비활성이다.
 
 | 실행 구간 | 현재 준비 상태 | 다음 조건 |
 | --- | --- | --- |
@@ -38,8 +38,8 @@
 | 4 ArUco 접근·주차 | TB2 baseline `READY_FOR_FIELD_E2E` | 정밀 metric docking은 camera-to-base 실측 전 차단 |
 | 5 TB1 PiCam·overlay | 외부 AI와 PiCam을 켠 뒤 실행 가능 | source freshness 확인 |
 | 6 person full-chain | `READY_FOR_FIELD_E2E` | 실제 사람이 아닌 통제된 시험 표적·운영자 E-stop 복구 확인 |
-| 7 TB1 synthetic 입·출고 | admission 구현 완료, field gate 차단 | field commissioning |
-| 8 TB2 물리 입·출고 | `READY_FOR_FIELD_E2E` | TB2 bringup·lift telemetry·AI를 켠 뒤 UI에서 1층 1개 경로 검증 |
+| 7 TB1 synthetic 입·출고 | 명시 선택 시 실행 가능 | nonphysical 결과로만 기록 |
+| 8 TB1·TB2 물리 입·출고 | `READY_FOR_FIELD_E2E` | 선택 로봇의 bringup·lift telemetry·AI를 켠 뒤 UI에서 1층 1개 경로 검증 |
 
 ### 코드에서 먼저 고정한 것과 현장에서 정할 것을 구분한다
 
@@ -61,7 +61,7 @@
 
 - ArUco 정렬·주차·충전: 현장에 고정되고 좌표가 검증된 marker와 docking 공간
 - load evidence: `global_cam_01`, 고정 마운트, 검증된 ZoneROI, 시험 화물
-- TB2 완전 물리 E2E: TB2 lift/fork, limit·position telemetry, `cmd_stop`, 시험 pallet와 안전한 적재대
+- 완전 물리 E2E: 선택 로봇의 lift/fork, limit·position telemetry, `cmd_stop`, 시험 pallet와 안전한 적재대
 
 TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera가 필수는 아니다. 사람 안전 E2E에는 TB1 PiCam과 실제 task envelope가 모두 필요하다.
 
@@ -84,7 +84,7 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 - [ ] `.5` 통합 시험이면 `smartfactory-integration.local`, `.9` Main 운용이면 `smartfactory-main.local`이 해당 PC의 canonical `192.168.30.x` interface로 해석되고 선택 stack profile의 bind 검사를 통과한다.
 - [ ] 각 host의 preflight credential-set ID가 같고, 선택한 표준 launcher가 `.secrets/service-hmac.env`의 Movement, Vision, frame gateway credential을 내부 로드한다. 운영자 명령마다 token이나 secret을 붙이지 않는다.
 - [ ] 주행 구역의 사람·장애물을 통제하고 정지 담당자를 정한다.
-- [ ] 선택 profile의 로봇별 field gate가 의도와 맞는지 확인한다. TB1 live/no-hardware는 차단, TB2 live 1층 물리 E2E만 허용 상태여야 한다.
+- [ ] 선택 profile의 로봇별 field gate가 의도와 맞는지 확인한다. TB1·TB2 live는 허용되고 no-hardware는 차단 상태여야 한다.
 
 `./scripts/operator-preflight.sh --software`는 첫 설치, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 실행한다. 정상 반복 운용의 필수 단계가 아니다.
 
@@ -92,7 +92,7 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 
 ## 1. 서비스 시작
 
-1. [Nav 전체 시작 runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)에 따라 TB1 SBC의 robot base를 시작한다. PiCam E2E도 확인할 때만 두 번째 SBC terminal에서 `ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py`를 실행한다.
+1. [Nav 전체 시작 runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)에 따라 TB1 SBC의 robot base와 lift bridge를 시작한다. PiCam E2E도 확인할 때만 별도 SBC terminal에서 `ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py`를 실행한다.
 2. `.5`에서 Main과 TB1 Nav를 함께 시험하면 저장소 루트에서 통합 profile을 실행한다. bridge, Movement API, TB1 Nav2/자동 localization, Main/UI가 profile 소유 순서로 시작된다.
 
    ```bash
@@ -231,22 +231,22 @@ scripts/sf_stack.sh --profile tb1-synthetic-e2e foreground
 
 UI 입고 세부 조작은 [Inbound Scenario Test](../../main-server/docs/operations/INBOUND_SCENARIO_TEST.md)를 따른다. 실패·취소·evidence hold도 각각 기록한다.
 
-## 8. TB2 완전 물리 입고·출고 단일 실행 절차
+## 8. TB1·TB2 완전 물리 입고·출고 단일 실행 절차
 
-이 절은 TB2 실물 입고를 기동부터 종료까지 한 번에 수행하는 순서다. TB2에서는 `tb2-live`와 실제 lift를 사용하며, 7단계의 synthetic profile과 nonphysical admission을 사용하지 않는다.
+이 절은 선택한 한 로봇의 실물 입고를 기동부터 종료까지 한 번에 수행하는 순서다. TB1은 `tb1-live`, TB2는 `tb2-live`와 실제 lift를 사용하며, 7단계의 synthetic profile과 nonphysical admission을 사용하지 않는다.
 
-`.5` 통합 시험 PC에서 TB2만 시작할 때는 `tb2-local-e2e`, TB1과 TB2를 함께
-시작할 때는 `all-local-e2e` stack profile을 사용한다. 프로파일을 생략하면 안전한
-기본값인 `tb1-local-e2e`가 선택된다. 실행 명령은 [시작과 종료](startup-shutdown.md)를
-따른다.
+`.5` 통합 시험 PC에서 TB1만 시작할 때는 `tb1-local-e2e`, TB2만 시작할 때는
+`tb2-local-e2e`, 두 로봇을 함께 시작할 때는 `all-local-e2e` stack profile을
+사용한다. 프로파일을 생략하면 기본값인 `tb1-local-e2e`가 선택된다. 실행 명령은
+[시작과 종료](startup-shutdown.md)를 따른다.
 
-| TB1 문서 값 | TB2에서 사용할 값 |
-| --- | --- |
-| `tb1-live` | `tb2-live` |
-| `tb3_burger_01` / `tb3_1` | `tb3_burger_02` / `tb3_2` |
-| `tb3_1_picam` | `tb3_2_picam` |
-| Nav API port `8001` | Nav API port `8002` |
-| virtual lift | 실제 lift와 fresh telemetry |
+| 항목 | TB1 | TB2 |
+| --- | --- | --- |
+| Nav profile | `tb1-live` | `tb2-live` |
+| robot ID / UI ID | `tb3_burger_01` / `tb3_1` | `tb3_burger_02` / `tb3_2` |
+| PiCam source | `tb3_1_picam` | `tb3_2_picam` |
+| Nav API port | `8001` | `8002` |
+| lift | 실제 lift와 fresh telemetry | 실제 lift와 fresh telemetry |
 
 ### 8.1 장비와 AI를 시작한다
 
@@ -262,9 +262,9 @@ cd <repository-root>/main-server
 
 현재 값만 볼 때는 `./scripts/reset_e2e_inventory.sh --show`를 사용한다.
 
-1. TB2 SBC에서 base, LDS, PiCam, lift controller bringup을 시작한다.
+1. 선택 로봇 SBC에서 base, LDS, PiCam, lift controller bringup을 시작한다.
 2. Nav PC에서 `/scan`, odom/TF, lift position·limit telemetry, `cmd_stop` subscriber가 fresh인지 확인한다.
-3. AI laptop에서 `global_cam_01`과 `tb3_2_picam` source를 포함한 low-load profile을 시작한다.
+3. AI laptop에서 `global_cam_01`과 선택한 PiCam source를 포함한 low-load profile을 시작한다.
 
    ```bash
    cd <repository-root>
@@ -277,26 +277,27 @@ cd <repository-root>/main-server
 
 ### 8.2 통합 stack을 시작한다
 
-TB1 통합 stack이 남아 있으면 내린 뒤 TB2 profile을 시작한다.
+남아 있는 통합 stack을 내린 뒤 선택 로봇 profile을 시작한다.
 
 ```bash
 cd <repository-root>
-scripts/sf_stack.sh --profile tb1-local-e2e down
-scripts/sf_stack.sh --profile tb2-local-e2e print-config
-scripts/sf_stack.sh --profile tb2-local-e2e check
-scripts/sf_stack.sh --profile tb2-local-e2e foreground
+PROFILE=tb1-local-e2e  # TB2 시험이면 tb2-local-e2e
+scripts/sf_stack.sh --profile "$PROFILE" down
+scripts/sf_stack.sh --profile "$PROFILE" print-config
+scripts/sf_stack.sh --profile "$PROFILE" check
+scripts/sf_stack.sh --profile "$PROFILE" foreground
 ```
 
-`print-config`에는 Nav profile `tb2-live`, Main `8088`, Nav `8002`, UI `5173`, map `robot2_map`, physical lift, `global_cam_01` evidence gate가 표시돼야 한다. profile 결과와 실제 health가 다르면 UI 작업을 만들지 않는다.
+`print-config`에는 선택한 Nav live profile, Main `8088`, 해당 Nav port, UI `5173`, map `robot2_map`, physical lift, `global_cam_01` evidence gate가 표시돼야 한다. profile 결과와 실제 health가 다르면 UI 작업을 만들지 않는다.
 
 ### 8.3 주행 전 상태를 확인한다
 
 1. `http://smartfactory-integration.local:8088/health`가 성공인지 확인한다.
-2. `http://smartfactory-integration.local:8002/movement-api/v1/health`에서 robot `tb3_burger_02`, profile `tb2-live`, map `robot2_map`, `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false`, lift ready를 확인한다.
-3. `http://smartfactory-integration.local:5173/operate/control`에서 `tb3_2` pose와 연결 상태, `global_cam_01`, `tb3_2_picam` 영상을 확인한다.
+2. TB1은 port `8001`·robot `tb3_burger_01`·profile `tb1-live`, TB2는 port `8002`·robot `tb3_burger_02`·profile `tb2-live`인지 확인한다. 같은 health에서 map `robot2_map`, `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false`, lift ready를 확인한다.
+3. `http://smartfactory-integration.local:5173/operate/control`에서 선택 로봇의 pose와 연결 상태, `global_cam_01`, 해당 PiCam 영상을 확인한다.
 4. Main 배경 map ID와 pose map ID가 모두 `robot2_map`인지 확인한다. `robot1_map` 배경이나 remap을 사용하지 않는다.
 
-TB2의 초기 위치 탐색은 로봇을 움직이지 않고 전체 map의 독립 벽 선분·방향 정합 후보를 비교한다. `scan_map_alignment.reason=initial_match_only`는 초기 전역 정합만 사용하고 주행 중 연속 정합 차단은 사용하지 않는다는 뜻이다. 작업 직전 AMCL 표본만 오래된 경우에는 Nav가 `/request_nomotion_update`로 한 번 갱신한 뒤 같은 freshness 기준을 다시 판정한다.
+선택 로봇의 초기 위치 탐색은 로봇을 움직이지 않고 전체 map의 독립 벽 선분·방향 정합 후보를 비교한다. 초기 전역 정합만 사용하고 주행 중 연속 정합 차단은 사용하지 않는다. 작업 직전 AMCL 표본만 오래된 경우에는 Nav가 `/request_nomotion_update`로 한 번 갱신한 뒤 같은 freshness 기준을 다시 판정한다.
 
 이 네 조건을 통과하기 전에는 입고 작업을 생성하지 않는다.
 
@@ -307,13 +308,13 @@ Main UI `http://smartfactory-integration.local:5173/operate/control`의 **입출
 1. `입고 재고 배치`
 2. `기어 (PART-GEAR · A22)`, 수량 `1`, `1층`
 3. 입고 위치 `INBOUND_01`, 보관 슬롯 `STORAGE_S1`
-4. `실물 리프트`, 로봇 `tb3_2`, `생성 후 자동 시작`
+4. `실물 리프트`, 시험할 로봇 `tb3_1` 또는 `tb3_2`, `생성 후 자동 시작`
 
 `INBOUND_01`은 이번 현장 commissioning 입력이고, 과거 동일 장비에서 완료된 최소 source baseline은 `INBOUND_02(#1)`다. 따라서 첫 실행에서는 INBOUND_01 접근·marker 0 정렬을 별도 현장 판정으로 남긴다. 보관 측은 검증 이력이 있는 `STORAGE_S1(#7)`·1층을 먼저 사용한다.
 
 ### 8.5 실시간 작업 큐에서 진행을 확인한다
 
-UI의 **실시간 작업 큐**에서 `입고 접근(person monitor) → load → POST_PICK_UP → 보관소 이동(person monitor) → PRE_DROP_OFF → unload → HOME_02 복귀(person monitor)`가 같은 task와 runtime command ID 흐름으로 진행되는지 확인한다. 정적 recipe command와 실행별 runtime command ID는 구분돼야 한다. 재고는 `DONE`에서만 `INBOUND_01`에서 빠지고 `STORAGE_S1`에 더해져야 한다.
+UI의 **실시간 작업 큐**에서 `입고 접근(person monitor) → load → POST_PICK_UP → 보관소 이동(person monitor) → PRE_DROP_OFF → unload → 선택 로봇 HOME 복귀(person monitor)`가 같은 task와 runtime command ID 흐름으로 진행되는지 확인한다. 정적 recipe command와 실행별 runtime command ID는 구분돼야 한다. 재고는 `DONE`에서만 `INBOUND_01`에서 빠지고 `STORAGE_S1`에 더해져야 한다.
 
 실시간 작업 큐에는 `QUEUED`, `ASSIGNED`, `RUNNING`과 운영자 복구가 필요한 hold 작업만 표시한다. 완료·취소·복구 불가 실패 작업은 **작업 기록**에서 확인한다. 복구 가능한 실패 작업은 실시간 작업 큐의 **복구 열기**로 원래 task 복구 화면에 진입한다.
 
@@ -327,19 +328,19 @@ unload가 끝났을 때 같은 로봇이 바로 수행할 수 있는 예약 작�
 
 ### 8.7 물리 합격을 판정하고 종료한다
 
-- [ ] TB2 health가 lift subscriber, fresh position/limit telemetry, `cmd_stop` readiness를 보고한다.
+- [ ] 선택 로봇 health가 lift subscriber, fresh position/limit telemetry, `cmd_stop` readiness를 보고한다.
 - [ ] `global_cam_01`의 ZoneROI·marker·load evidence가 실제 화물과 일치한다.
 - [ ] Main lift-load evidence가 `enabled=true`, `mode=gate`이며 wrong/stale evidence를 hold한다.
-- [ ] TB2 camera-to-base/fork 기준의 target lateral·yaw offset과 허용 reprojection error를 현장에서 측정한다. 측정 전에는 `live_enabled`를 켜지 않으며, 이후에도 안전 담당자가 있는 제한 commissioning 세션에서만 시험한다.
+- [ ] 정밀 metric docking을 사용할 로봇은 camera-to-base/fork 기준의 target lateral·yaw offset과 허용 reprojection error를 현장에서 측정한다. 측정 전에는 `live_enabled`를 켜지 않는다.
 - [ ] 각 pallet 위치에서 Nav2 접근 뒤 마커 법선의 0.40m pose와 yaw가 현장 기준에 맞는다.
 - [ ] load는 직선 진입·lift 뒤 `POST_PICK_UP`, unload는 `PRE_DROP_OFF` PASS 뒤 직선 진입·drop 순서다.
 - [ ] A/B는 0.18m, C/D·입고·출고는 0.20m 목표에서 멈추고 조향이 잠긴다.
 - [ ] transfer 뒤 저장한 0.40m map pose로 후진하며 lateral corridor 이탈 시 fail closed 한다.
 - [ ] 실제 load/unload와 pallet 상태를 현장 관찰·AI evidence·Nav telemetry로 함께 확인한다.
-- [ ] synthetic event나 TB1 결과를 TB2 물리 합격 근거로 사용하지 않는다.
-- [ ] 위 항목을 안전한 제한 시험으로 통과한 뒤에만 TB2 `metric_docking.live_enabled=true`, `commissioning_status=COMMISSIONED`, `camera_to_base.measured=true`를 한 변경으로 승인한다.
+- [ ] synthetic event나 다른 로봇의 결과를 선택 로봇의 물리 합격 근거로 사용하지 않는다.
+- [ ] 정밀 metric 항목을 안전한 제한 시험으로 통과한 로봇만 `metric_docking.live_enabled=true`, `commissioning_status=COMMISSIONED`, `camera_to_base.measured=true`를 한 변경으로 승인한다.
 
-작업이 `DONE`이고 로봇이 `HOME_02`에 복귀했으며 재고·기록이 일치하면 `Ctrl+C`로 통합 stack을 종료한다. `Ctrl+C`는 stack이 소유한 Main·Nav process group을 종료하며, TB2 SBC bringup과 외부 AI는 각 host에서 별도로 종료한다.
+작업이 `DONE`이고 선택 로봇이 자신의 HOME에 복귀했으며 재고·기록이 일치하면 `Ctrl+C`로 통합 stack을 종료한다. `Ctrl+C`는 stack이 소유한 Main·Nav process group을 종료하며, 로봇 SBC bringup과 외부 AI는 각 host에서 별도로 종료한다.
 
 ## 최종 판정
 
@@ -349,6 +350,7 @@ unload가 끝났을 때 같은 로봇이 바로 수행할 수 있는 예약 작�
 | `TB1_PERSON_SAFETY_ACCEPTED` | 6 PASS, 같은 task의 AI advisory→Main trusted stop→Nav E-stop→operator recovery 증거 있음 |
 | `TB1_FIRST_E2E_ACCEPTED` | `TB1_PHYSICAL_BASE_ACCEPTED`와 `TB1_PERSON_SAFETY_ACCEPTED`가 모두 PASS |
 | `TB1_SYNTHETIC_LIFT_FLOW_ACCEPTED` | field commissioning과 synthetic test admission 후 7 PASS, 모든 결과가 nonphysical로 표시됨 |
+| `TB1_PHYSICAL_INOUT_ACCEPTED` | TB1으로 0~6과 8 PASS, 실제 lift·화물·global camera evidence 있음 |
 | `TB2_PHYSICAL_INOUT_ACCEPTED` | TB2로 0~6과 8 PASS, 실제 lift·화물·global camera evidence 있음 |
 
 어느 단계든 `BLOCKED` 또는 `FAIL`이면 그 뒤 단계의 성공으로 덮지 않는다. [nohardware suite](../../tests/nohardware/README.md)는 software merge proof이며 여기의 실물 합격 근거를 대체하지 않는다.

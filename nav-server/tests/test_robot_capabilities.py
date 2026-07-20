@@ -7,13 +7,11 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import BackgroundTasks, HTTPException
 
 from nav_app.config.validation import validate_robot_profile
 from nav_app.errors import StageError
-from nav_app.models import MovementCommandRequest, MovementStep, RobotCommandRequest
+from nav_app.models import MovementStep
 from nav_app.runtime import runtime
-from nav_app.routers import movement_api, robot_commands as robot_command_routes
 from nav_app.services import docking
 from nav_app.services import capabilities
 
@@ -31,9 +29,12 @@ def test_robots_json_profiles_declare_capabilities_and_ports():
     tb3_1 = _robot("tb3_burger_01")
     tb3_2 = _robot("tb3_burger_02")
 
-    assert tb3_1["capabilities"] == ["navigate", "charge"]
+    assert tb3_1["capabilities"] == ["navigate", "charge", "lift"]
     assert tb3_1["api_port"] == 8001
-    assert tb3_1["lift"]["enabled"] is False
+    assert tb3_1["lift"]["enabled"] is True
+    assert tb3_1["lift"]["command_scale"] == tb3_2["lift"]["command_scale"]
+    assert tb3_1["field_dispatch"]["inbound"] is True
+    assert tb3_1["field_dispatch"]["outbound"] is True
 
     assert tb3_2["capabilities"] == ["navigate", "charge", "lift"]
     assert tb3_2["field_dispatch"]["inbound"] is True
@@ -58,60 +59,20 @@ def test_validation_rejects_bad_capabilities_and_lift_mismatches():
     assert any("inbound capability requires lift.enabled=true and lift capability" in error for error in validate_robot_profile(inbound_without_lift))
 
 
-def test_capability_helper_rejects_dock_transfer_without_lift_but_allows_alignment():
-    no_lift_profile = _robot("tb3_burger_01")
-
-    with pytest.raises(HTTPException) as excinfo:
-        capabilities.ensure_steps_supported(
-            [MovementStep(action="dock_transfer", payload={"aruco_marker_id": 1, "action": "load", "level": 1})],
-            profile=no_lift_profile,
-        )
-    assert excinfo.value.status_code == 409
-    assert excinfo.value.detail["code"] == "robot_missing_capability:lift"
-
+def test_tb1_capability_helper_allows_same_lift_steps_as_tb2():
+    profile = _robot("tb3_burger_01")
+    capabilities.ensure_steps_supported(
+        [MovementStep(action="dock_transfer", payload={"aruco_marker_id": 1, "action": "load", "level": 1})],
+        profile=profile,
+    )
     capabilities.ensure_steps_supported(
         [
             MovementStep(action="nav2_pose", payload={"goal": {"x": 1, "y": 2, "yaw": 0}}),
             MovementStep(action="aruco_align", payload={"aruco_marker_id": 1, "final": "hold"}),
             MovementStep(action="manual_drive", payload={"command": "stop"}),
         ],
-        profile=no_lift_profile,
+        profile=profile,
     )
-
-
-
-
-def test_direct_movement_commands_route_rejects_dock_transfer_without_lift(monkeypatch):
-    monkeypatch.setattr(runtime, "navigator", MagicMock())
-    monkeypatch.setattr(runtime, "mission_manager", MagicMock(dry_run=True))
-    req = MovementCommandRequest(
-        command_id="cap-direct-1",
-        robot_name="tb3_1",
-        steps=[MovementStep(action="dock_transfer", payload={"aruco_marker_id": 1, "action": "load", "level": 1})],
-    )
-
-    with pytest.raises(HTTPException) as excinfo:
-        movement_api.movement_accept_command(req, BackgroundTasks())
-
-    assert excinfo.value.status_code == 409
-    assert excinfo.value.detail["code"] == "robot_missing_capability:lift"
-
-
-def test_robot_command_route_rejects_dock_transfer_without_lift(monkeypatch):
-    monkeypatch.setattr(robot_command_routes.robot_commands, "_consume_arrived_gate", lambda robot_id: {"command_id": "arrived-1", "traffic_segments": []})
-    req = RobotCommandRequest(
-        command_id="cap-robot-command-1",
-        robot_id="tb3_1",
-        kind="dock_transfer",
-        dry_run=True,
-        params={"aruco_marker_id": 1, "action": "load", "level": 1},
-    )
-
-    with pytest.raises(HTTPException) as excinfo:
-        robot_command_routes.accept_robot_command(req, BackgroundTasks())
-
-    assert excinfo.value.status_code == 409
-    assert excinfo.value.detail["code"] == "robot_missing_capability:lift"
 
 
 def test_lift_status_summary_exposes_ready_reason(monkeypatch):

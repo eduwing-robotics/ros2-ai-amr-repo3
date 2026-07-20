@@ -27,15 +27,15 @@ def test_all_live_expands_in_canonical_config_order():
     resolved = resolve_runtime_profile(cli_profile="all-live")
     assert [robot["robot_id"] for robot in resolved["robots"]] == ["tb3_burger_01", "tb3_burger_02"]
     assert resolved["components"]["lift"]["required"] is True
-    assert resolved["components"]["lift"]["robot_ids"] == ["tb3_burger_02"]
+    assert resolved["components"]["lift"]["robot_ids"] == ["tb3_burger_01", "tb3_burger_02"]
     assert resolved["lift_backends"] == {
-        "tb3_burger_01": "disabled",
+        "tb3_burger_01": "physical",
         "tb3_burger_02": "physical",
     }
 
 
 def test_lift_backend_selection_is_explicit_for_each_robot():
-    assert resolve_runtime_profile(cli_profile="tb1-live")["lift_backends"] == {"tb3_burger_01": "disabled"}
+    assert resolve_runtime_profile(cli_profile="tb1-live")["lift_backends"] == {"tb3_burger_01": "physical"}
     assert resolve_runtime_profile(cli_profile="tb1-synthetic-hil")["lift_backends"] == {"tb3_burger_01": "virtual"}
     assert resolve_runtime_profile(cli_profile="tb2-live")["lift_backends"] == {"tb3_burger_02": "physical"}
 
@@ -116,6 +116,10 @@ def test_physical_lift_backend_requires_hardware_fact(tmp_path):
     manifest_path, robots_path, profile = _fixture(tmp_path)
     profile["lift_backends"] = {"tb3_burger_01": "physical"}
     (tmp_path / "profile.json").write_text(json.dumps(profile))
+    robots = json.loads(robots_path.read_text())
+    robots["robots"][0]["capabilities"] = ["navigate", "charge"]
+    robots["robots"][0]["lift"]["enabled"] = False
+    robots_path.write_text(json.dumps(robots))
     with pytest.raises(RuntimeProfileError, match="enabled lift hardware facts"):
         resolve_runtime_profile(manifest_path=manifest_path, robots_path=robots_path)
 

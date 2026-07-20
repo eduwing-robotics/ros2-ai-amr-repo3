@@ -10,7 +10,8 @@
       "camera_topic": "/mission/tb3_1/camera/compressed",
       "capabilities": [
         "navigate",
-        "charge"
+        "charge",
+        "lift"
       ],
       "enabled": true,
       "active_map_yaml": "map/robot2_map.yaml",
@@ -20,7 +21,7 @@
         "source": "tb3_1_picam"
       },
       "lift": {
-        "enabled": false,
+        "enabled": true,
         "topics": {
           "cmd_move": "/lift/cmd_move",
           "cmd_home": "/lift/cmd_home",
@@ -46,7 +47,8 @@
             "load_height_mm": 50.0,
             "unload_height_mm": 6.0
           }
-        }
+        },
+        "command_scale": 1.282
       },
       "api_port": 8001,
       "localization": {

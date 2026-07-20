@@ -23,18 +23,18 @@ launch, status, and compatibility wrappers. Profiles reference canonical robot
 IDs and express component ownership (`external` or `managed-script`);
 `service-managed` fails closed until an adapter exists.
 Required heterogeneous components may declare `robot_ids`; for example,
-`all-live` requires physical lift readiness only from lift-capable TB2. Base
+`all-live` requires physical lift readiness from both lift-capable robots. Base
 readiness requires an expected controller node on `/cmd_vel`, and physical lift
 readiness comes from the API's subscriber-and-fresh-telemetry `lift.ready` gate,
 not from topic names alone.
 
 Each selected robot also has one explicit `lift_backends` value:
-`disabled`, `virtual`, or `physical`. TB1 live currently selects `disabled`,
-TB1 synthetic HIL selects `virtual`, and TB2 live selects `physical`. A
+`disabled`, `virtual`, or `physical`. TB1 and TB2 live select `physical`, while
+TB1 synthetic HIL selects `virtual`. A
 `physical` selection is rejected unless the same robot's canonical hardware
-facts enable lift and advertise the lift capability. When a lift is installed
-on TB1, its hardware facts and a live profile are changed together; docking
-and task code do not need a robot-specific branch.
+facts enable lift and advertise the lift capability. Docking and task code use
+the same physical path for TB1 and TB2; robot ID, ROS domain, and camera source
+remain profile-specific.
 
 Every live or synthetic-HIL Nav profile owns its selected robots' Nav2 helper as
 `managed-script`. The supervisor starts Movement API endpoints first, then
@@ -48,6 +48,6 @@ selected endpoint reports both `localized=true` and `nav2_ready=true`.
 It keeps `SIMULATION_MODE=0`: Nav2, localization, alignment, base motion, and
 safety admission remain real; only the lift backend is virtual.
 
-Synthetic HIL never adds a physical lift capability to TB1. Health and command
-evidence must retain `physical_lift_verified=false` and
+Synthetic HIL never converts virtual execution into physical evidence. Health
+and command evidence must retain `physical_lift_verified=false` and
 `PHYSICAL_LIFT_NOT_VERIFIED`.

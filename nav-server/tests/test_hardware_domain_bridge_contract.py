@@ -24,12 +24,29 @@ def test_robot1_hardware_bridge_is_topic_allowlisted_and_robot2_free() -> None:
         "imu",
         "battery_state",
         "mission/tb3_1/aruco/detections",
+        "lift/position",
+        "lift/direction",
+        "lift/limit_lower",
         "cmd_vel",
+        "lift/cmd_move",
+        "lift/cmd_home",
+        "lift/cmd_stop",
     }
     assert config["topics"]["scan"]["qos"]["reliability"] == "best_effort"
     assert config["topics"]["mission/tb3_1/aruco/detections"]["qos"]["reliability"] == "best_effort"
     assert config["topics"]["tf_static"]["qos"]["durability"] == "transient_local"
+    for topic in ("lift/position", "lift/direction", "lift/limit_lower"):
+        assert config["topics"][topic]["qos"] == {
+            "history": "keep_last",
+            "depth": 1,
+            "reliability": "reliable",
+            "durability": "transient_local",
+        }
     assert config["topics"]["cmd_vel"]["reversed"] is True
+    for topic in ("lift/cmd_move", "lift/cmd_home", "lift/cmd_stop"):
+        assert config["topics"][topic]["reversed"] is True
+        assert config["topics"][topic]["qos"]["reliability"] == "reliable"
+        assert config["topics"][topic]["qos"]["durability"] == "volatile"
     assert "camera" not in config["topics"]
 
     runner = RUNNER.read_text(encoding="utf-8")
@@ -38,6 +55,7 @@ def test_robot1_hardware_bridge_is_topic_allowlisted_and_robot2_free() -> None:
     assert "tb3_2" not in runner
     assert 'flock -n 9' in runner
     assert "SMARTFACTORY_DDS_ALLOW_MULTICAST=true" in runner
+    assert "lift telemetry" in runner
 
 
 def test_local_domain_profile_uses_same_pc_peer_only() -> None:

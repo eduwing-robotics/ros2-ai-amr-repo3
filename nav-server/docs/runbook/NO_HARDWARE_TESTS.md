@@ -48,7 +48,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q \
 
 서비스 전체 검증은 `scripts/check_all.sh`로 실행한다. 이 문서의 targeted tests는 다음 계약을 고정한다.
 
-- lift capability가 없는 `tb3_burger_01`의 `dock_transfer`는 HTTP 409 `robot_missing_capability:lift`로 거부된다.
+- TB1·TB2는 같은 lift capability와 `dock_transfer` 명령 계약을 사용한다. nohardware에서는 실물 동작 없이 변환·backend 선택만 검증한다.
 - Main `aruco_align.final=charge|park`는 Nav executable final로 정규화된다.
 - HMAC-protected command boundary를 사용하는 root TCP seam과 호환된다.
 
@@ -74,4 +74,4 @@ alignment, dock/lift/reverse, leave-dock, and charging-approach legs.  Docking
 velocity bursts fail closed on stale scan/TF/localization and ArUco data where
 the marker is required; stale lift telemetry blocks lift phases.  E-stop always
 zeros the base and requests `lift_client.stop()` when the robot has an enabled
-lift; lift-less profiles remain supported.
+lift.

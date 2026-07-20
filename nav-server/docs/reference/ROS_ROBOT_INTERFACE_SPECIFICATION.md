@@ -2,7 +2,7 @@
 
 상태: Active
 분류: Reference
-작성: 2026-07-01 KST · 최종 갱신: 2026-07-05 KST
+작성: 2026-07-01 KST · 최종 갱신: 2026-07-20 KST
 
 **무엇을 적었나:** Movement 서버(Nav PC) ↔ TurtleBot3(로봇 SBC) ↔ Vision(ArUco) 사이 **ROS 2 topic/action**만 정리한다.
 **무엇은 안 적었나:** Main/LMS HTTP API, DB, AI evidence API.
@@ -20,7 +20,7 @@
 
 | 로봇 | API `robot_id` | bridge id | ROS domain | Center domain | 리프트 |
 | --- | --- | --- | --- | --- | --- |
-| 로봇1 | `tb3_burger_01` | `tb3_1` | **2** | 1 | 없음 |
+| 로봇1 | `tb3_burger_01` | `tb3_1` | **2** | 1 | 있음 |
 | 로봇2 | `tb3_burger_02` | `tb3_2` | **5** | 1 | 있음 (`tb3_2` API는 `tb3_2`) |
 
 > `{n}` = 1 또는 2 → topic 예: `/mission/tb3_2/aruco/detections`
@@ -98,7 +98,7 @@ twist:
 
 ---
 
-## 4. 리프트 (로봇2, robot domain 안에서만)
+## 4. 리프트
 
 | 토픽명 | 메시지 타입 | 발행자 | 구독자 | 데이터 구조 | 비고 |
 | --- | --- | --- | --- | --- | --- |
@@ -109,7 +109,9 @@ twist:
 | `/lift/direction` | `String` | lift bridge | Movement | `UP` / `DOWN` / `STOP` | 상태 |
 | `/lift/limit_lower` | `Bool` | lift bridge | Movement | `true` | 하단 리밋 |
 
-*리프트 topic은 domain bridge 안 탐.* 로봇 domain에서 Movement가 직접 publish/subscribe.
+TB1은 로봇 하드웨어 domain 2와 Nav domain 42가 분리되어 있으므로
+`config/domain_bridge/tb3_1_hardware_nav.yaml`이 리프트 명령과 텔레메트리를 함께 전달한다.
+TB2는 Movement와 lift bridge가 domain 5를 공유하므로 직접 publish/subscribe한다.
 
 ---
 
@@ -137,7 +139,7 @@ twist:
 | `/{robot}/cmd_vel` | 각 domain의 `/cmd_vel`만 사용 |
 | `/{robot_id}/status` (ROS) | 상태는 Movement **HTTP API**로 관리 |
 | `NavigateThroughPoses` | waypoint는 `NavigateToPose`를 **여러 번** 호출 |
-| `/lift/*` bridge | 리프트는 robot domain 내부만 |
+| center domain의 `/lift/*` | 리프트 제어는 center domain 1로 전달하지 않음 |
 
 ---
 

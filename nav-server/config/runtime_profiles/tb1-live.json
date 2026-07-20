@@ -9,7 +9,7 @@
     ]
   },
   "lift_backends": {
-    "tb3_burger_01": "disabled"
+    "tb3_burger_01": "physical"
   },
   "components": {
     "base": {
@@ -62,11 +62,14 @@
       "readiness_probe": ""
     },
     "lift": {
-      "enabled": false,
-      "required": false,
+      "enabled": true,
+      "required": true,
       "ownership": "external",
       "start_script": "",
-      "readiness_probe": ""
+      "readiness_probe": "lift-topics",
+      "robot_ids": [
+        "tb3_burger_01"
+      ]
     }
   }
 }
