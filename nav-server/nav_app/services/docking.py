@@ -201,6 +201,19 @@ def _abort_docking_motion() -> None:
             pass
 
 
+def _latest_aruco_detection(
+    marker_id: int, payload: Dict[str, Any], *, max_age_sec: float
+):
+    transport = str(payload.get("aruco_observation_transport", "")).strip()
+    if transport:
+        return runtime.navigator.get_latest_aruco_detection(
+            marker_id, max_age_sec=max_age_sec, transport=transport
+        )
+    return runtime.navigator.get_latest_aruco_detection(
+        marker_id, max_age_sec=max_age_sec
+    )
+
+
 def _require_docking_motion_or_abort(
     payload: Dict[str, Any],
     stage: str,
@@ -1107,7 +1120,9 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
     while time.monotonic() < deadline:
         if runtime.navigator.safety.estop:
             raise RuntimeError("precision docking aborted by estop")
-        detection = runtime.navigator.get_latest_aruco_detection(marker_id, max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC)
+        detection = _latest_aruco_detection(
+            marker_id, payload, max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
+        )
         if not detection:
             last_normal_ok = not require_normal or marker_normal_aligned(last_detection, payload)
             if (
@@ -1617,6 +1632,11 @@ def execute_camera_distance_insert(payload: Dict[str, Any]):
     if marker_value is None:
         raise ValueError("camera distance insert requires aruco_marker_id")
     marker_id = int(marker_value)
+    transport = str(
+        payload.setdefault("aruco_observation_transport", "ros_topic")
+    ).strip()
+    if transport != "ros_topic":
+        raise ValueError("camera distance insert requires ros_topic ArUco observations")
 
     payload.update(
         {
@@ -1629,8 +1649,8 @@ def execute_camera_distance_insert(payload: Dict[str, Any]):
             "marker_lost_grace_sec": 0.0,
         }
     )
-    start_detection = runtime.navigator.get_latest_aruco_detection(
-        marker_id, max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
+    start_detection = _latest_aruco_detection(
+        marker_id, payload, max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
     )
     start_state = metric_distance_state(start_detection, payload)
     if start_state == "invalid":

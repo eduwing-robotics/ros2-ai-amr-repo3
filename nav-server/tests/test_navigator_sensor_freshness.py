@@ -93,6 +93,7 @@ def _vision_navigator(cls):
     navigator = cls.__new__(cls)
     navigator.aruco_detection_topic = "/mission/tb3_2/aruco/detections"
     navigator.latest_aruco_detections = {}
+    navigator.latest_aruco_detections_by_transport = {}
     navigator.latest_aruco_payload = None
     navigator.latest_aruco_receipt_monotonic = 0.0
     navigator.latest_aruco_source_stamp_sec = None
@@ -184,6 +185,46 @@ def test_vision_http_receipt_cannot_make_an_old_ai_event_fresh(
     )
 
     assert navigator.get_latest_aruco_detection(4, max_age_sec=1.0) is None
+
+
+def test_primary_http_alignment_and_dock_ros_distance_are_transport_isolated(
+    navigator_class, monkeypatch
+):
+    navigator = _vision_navigator(navigator_class)
+    observed_at = time.time()
+    sec = int(observed_at)
+    navigator._record_aruco_payload(
+        {
+            "source_header_stamp": {
+                "sec": sec,
+                "nanosec": int((observed_at - sec) * 1e9),
+            },
+            "detections": [
+                {
+                    "marker_id": 4,
+                    "center_error_norm": 0.01,
+                    "marker_width_px": 80.0,
+                    "forward_distance_m": 0.31,
+                }
+            ],
+        },
+        transport="ros_topic",
+    )
+    monkeypatch.setitem(
+        navigator_class._refresh_vision_aruco.__globals__,
+        "fetch_detector_payload",
+        lambda **_kwargs: _vision_payload(observed_at=observed_at),
+    )
+
+    alignment = navigator.get_latest_aruco_detection(4, max_age_sec=1.0)
+    distance = navigator.get_latest_aruco_detection(
+        4, max_age_sec=1.0, transport="ros_topic"
+    )
+
+    assert alignment["transport"] == "vision_http"
+    assert "forward_distance_m" not in alignment
+    assert distance["transport"] == "ros_topic"
+    assert distance["forward_distance_m"] == pytest.approx(0.31)
 
 
 @pytest.mark.parametrize(

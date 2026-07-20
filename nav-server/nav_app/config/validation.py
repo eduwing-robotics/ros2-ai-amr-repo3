@@ -229,6 +229,27 @@ def validate_aruco_observation_config(
     return errors
 
 
+def validate_aruco_detector_config(robot_id: str, config: Any) -> List[str]:
+    errors: List[str] = []
+    if config in (None, ""):
+        return errors
+    if not isinstance(config, Mapping):
+        return [f"{robot_id}: aruco_detector must be an object"]
+    transport = str(config.get("transport", "")).strip()
+    if transport != "ros_topic":
+        errors.append(
+            f"{robot_id}: aruco_detector.transport must be ros_topic, got {transport or '<empty>'}"
+        )
+    try:
+        marker_size_m = float(config.get("marker_size_m"))
+    except (TypeError, ValueError):
+        errors.append(f"{robot_id}: aruco_detector.marker_size_m must be numeric")
+    else:
+        if not math.isfinite(marker_size_m) or marker_size_m <= 0.0:
+            errors.append(f"{robot_id}: aruco_detector.marker_size_m must be positive")
+    return errors
+
+
 
 def validate_localization_config(robot_id: str, localization: Any) -> List[str]:
     errors: List[str] = []
@@ -535,6 +556,7 @@ def validate_robot_profile(robot: Mapping[str, Any]) -> List[str]:
             robot_id, robot.get("bridge_robot_id"), robot.get("aruco_observation")
         )
     )
+    errors.extend(validate_aruco_detector_config(robot_id, robot.get("aruco_detector")))
     errors.extend(validate_localization_config(robot_id, robot.get("localization")))
     return errors
 

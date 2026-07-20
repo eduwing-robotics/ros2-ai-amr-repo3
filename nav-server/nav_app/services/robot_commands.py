@@ -293,10 +293,10 @@ def camera_distance_insert_profile_for_robot(
     """Build the dock-only camera-distance contract for a calibrated robot."""
     robot = _robot_profile(robot_id)
     metric = robot.get("metric_docking")
-    observation = robot.get("aruco_observation")
+    detector = robot.get("aruco_detector")
     if not isinstance(metric, dict) or metric.get("enabled") is not True:
         return {}
-    if not isinstance(observation, dict) or observation.get("transport") != "ros_topic":
+    if not isinstance(detector, dict) or detector.get("transport") != "ros_topic":
         return {}
     if not metric_pose_calibration_available(robot_id):
         return {}
@@ -327,6 +327,7 @@ def camera_distance_insert_profile_for_robot(
     )
     return {
         "camera_distance_insert": True,
+        "aruco_observation_transport": "ros_topic",
         "metric_distance_only": True,
         "target_distance_m": target,
         "metric_distance_tolerance_m": tolerance,

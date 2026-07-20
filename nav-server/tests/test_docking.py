@@ -52,6 +52,7 @@ from nav_app.services.robot_commands import (
     move_to_point_steps,
 )
 from nav_app.settings import (
+    ARUCO_DETECTION_MAX_AGE_SEC,
     NAV_APPROACH_SOFT_XY_TOLERANCE_M,
     NAV_APPROACH_XY_TOLERANCE_M,
 )
@@ -165,6 +166,7 @@ class DockingMotionTests(unittest.TestCase):
         payload = {
             "aruco_marker_id": 7,
             "camera_distance_insert": True,
+            "aruco_observation_transport": "ros_topic",
             "target_distance_m": 0.18,
             "metric_distance_tolerance_m": 0.02,
         }
@@ -183,6 +185,11 @@ class DockingMotionTests(unittest.TestCase):
             runtime.navigator = old_navigator
 
         precision.assert_called_once_with(7, payload)
+        navigator.get_latest_aruco_detection.assert_called_once_with(
+            7,
+            max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC,
+            transport="ros_topic",
+        )
         self.assertAlmostEqual(payload["_requested_insert_distance_m"], 0.13)
         self.assertAlmostEqual(payload["_actual_insert_distance_m"], 0.13)
         self.assertFalse(payload["fork_insert_enabled"])
@@ -903,6 +910,7 @@ class ApproachChainingTests(unittest.TestCase):
         profile = camera_distance_insert_profile_for_robot("tb3_2", 7)
 
         self.assertTrue(profile["camera_distance_insert"])
+        self.assertEqual(profile["aruco_observation_transport"], "ros_topic")
         self.assertEqual(profile["target_distance_m"], 0.18)
         self.assertEqual(profile["metric_distance_tolerance_m"], 0.02)
         self.assertFalse(profile["fork_insert_enabled"])

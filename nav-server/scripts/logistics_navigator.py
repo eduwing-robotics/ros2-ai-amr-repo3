@@ -96,6 +96,7 @@ class LogisticsNavigator(Node):
         self.aruco_detection_topic = None
         self.aruco_detection_sub = None
         self.latest_aruco_detections = {}
+        self.latest_aruco_detections_by_transport = {}
         self.latest_aruco_payload = None
         # An empty detection packet is still a healthy camera/detector heartbeat.
         # Docking search may rotate only while that stream remains fresh.
@@ -927,10 +928,16 @@ class LogisticsNavigator(Node):
         detections = payload.get("detections", [])
         if not isinstance(detections, list):
             return
+        resolved_transport = str(
+            transport or payload.get("transport") or "ros_topic"
+        ).strip()
         with self.aruco_lock:
             self.latest_aruco_payload = payload
             self.latest_aruco_receipt_monotonic = receipt_monotonic
             self.latest_aruco_source_stamp_sec = source_stamp_sec if source_stamp_sec and source_stamp_sec > 0.0 else None
+            transport_detections = self.latest_aruco_detections_by_transport.setdefault(
+                resolved_transport, {}
+            )
             for detection in detections:
                 if not isinstance(detection, dict):
                     continue
@@ -946,8 +953,9 @@ class LogisticsNavigator(Node):
                 saved["source_header_stamp_sec"] = source_stamp_sec if source_stamp_sec and source_stamp_sec > 0.0 else None
                 saved["source_header_stamp"] = source_stamp if isinstance(source_stamp, dict) else None
                 saved["topic"] = self.aruco_detection_topic
-                saved["transport"] = transport or payload.get("transport") or "ros_topic"
+                saved["transport"] = resolved_transport
                 self.latest_aruco_detections[marker_id] = saved
+                transport_detections[marker_id] = saved
 
     def _aruco_detection_callback(self, msg):
         try:
@@ -1003,7 +1011,18 @@ class LogisticsNavigator(Node):
         finally:
             poll_lock.release()
 
-    def get_latest_aruco_detection(self, marker_id=None, max_age_sec=1.0):
+    def get_latest_aruco_detection(
+        self, marker_id=None, max_age_sec=1.0, transport=None
+    ):
+        if transport is None:
+            configured = dict(getattr(self, "aruco_observation_config", {}) or {})
+            selected_transport = str(
+                configured.get("transport") or "ros_topic"
+            ).strip()
+        else:
+            selected_transport = str(transport).strip()
+        if selected_transport not in {"vision_http", "ros_topic"}:
+            return [] if marker_id is None else None
         if marker_id is not None:
             try:
                 marker_id = int(marker_id)
@@ -1011,7 +1030,8 @@ class LogisticsNavigator(Node):
                 return None
             # Marker-specific reads are docking intent. Generic health reads
             # remain cache-only so the Vision API is not polled continuously.
-            self._refresh_vision_aruco()
+            if selected_transport == "vision_http":
+                self._refresh_vision_aruco()
         now_monotonic = time.monotonic()
         now_wall = time.time()
         future_limit = float(os.getenv("SENSOR_FUTURE_TOLERANCE_SEC", "0.25"))
@@ -1029,20 +1049,28 @@ class LogisticsNavigator(Node):
             copy["source_age_sec"] = source_age
             return copy
         with self.aruco_lock:
+            detections_by_transport = getattr(
+                self, "latest_aruco_detections_by_transport", {}
+            )
+            detections = detections_by_transport.get(selected_transport, {})
             if marker_id is None:
-                detections = [dict(value) for value in self.latest_aruco_detections.values()]
-                return [valid for item in detections if (valid := fresh(item)) is not None]
-            detection = self.latest_aruco_detections.get(marker_id)
+                values = [dict(value) for value in detections.values()]
+                return [valid for item in values if (valid := fresh(item)) is not None]
+            detection = detections.get(marker_id)
             if not detection:
                 return None
             return fresh(detection)
 
-    def wait_for_aruco_marker(self, marker_id, timeout_sec=8.0, max_age_sec=1.0):
+    def wait_for_aruco_marker(
+        self, marker_id, timeout_sec=8.0, max_age_sec=1.0, transport=None
+    ):
         deadline = time.time() + max(0.0, float(timeout_sec))
         while time.time() < deadline:
             if self.safety.estop:
                 raise RuntimeError("ArUco wait aborted by estop")
-            detection = self.get_latest_aruco_detection(marker_id, max_age_sec=max_age_sec)
+            detection = self.get_latest_aruco_detection(
+                marker_id, max_age_sec=max_age_sec, transport=transport
+            )
             if detection:
                 return detection
             time.sleep(0.05)

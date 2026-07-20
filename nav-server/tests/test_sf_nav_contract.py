@@ -114,6 +114,23 @@ def test_every_profile_declares_base_component():
         }
 
 
+def test_live_profiles_manage_the_local_aruco_detector_with_the_nav_stack():
+    for name in ("tb1-live", "tb2-live", "all-live"):
+        resolved = json.loads(run_sf("--profile", name, "print-config").stdout)
+        assert resolved["components"]["detector"] == {
+            "enabled": True,
+            "ownership": "managed-script",
+            "readiness_probe": "aruco-topic",
+            "required": True,
+            "start_script": "scripts/run_pi_camera_aruco.sh",
+        }
+
+    launcher = (ROOT / "scripts" / "run_nav_servers.sh").read_text()
+    assert "start_aruco_detector" in launcher
+    assert 'START_CAMERA_LAUNCH="0"' in launcher
+    assert 'START_CAMERA_RELAY="0"' in launcher
+
+
 def test_smoke_uses_current_health_and_endpoint_contract(tmp_path):
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))

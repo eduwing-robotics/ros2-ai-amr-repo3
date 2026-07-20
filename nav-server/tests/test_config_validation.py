@@ -90,7 +90,7 @@ def test_validate_robot_profile_accepts_lift_config():
     assert not errors
 
 
-def test_aruco_observation_sources_match_each_robot_docking_contract():
+def test_aruco_observation_sources_keep_http_alignment_and_local_detector_contract():
     import json
     from pathlib import Path
 
@@ -99,15 +99,18 @@ def test_aruco_observation_sources_match_each_robot_docking_contract():
     )["robots"]
     by_bridge = {robot["bridge_robot_id"]: robot for robot in robots}
 
-    assert by_bridge["tb3_1"]["aruco_observation"] == {
-        "transport": "vision_http",
-        "api_base_url": "http://smartfactory-vision.local:8100",
-        "source": "tb3_1_picam",
-        "poll_interval_sec": 0.1,
-        "request_timeout_sec": 0.3,
-        "limit": 20,
-    }
-    assert by_bridge["tb3_2"]["aruco_observation"] == {"transport": "ros_topic"}
+    for bridge_robot_id in ("tb3_1", "tb3_2"):
+        assert by_bridge[bridge_robot_id]["aruco_observation"] == {
+            "transport": "vision_http",
+            "api_base_url": "http://smartfactory-vision.local:8100",
+            "source": f"{bridge_robot_id}_picam",
+            "poll_interval_sec": 0.1,
+            "request_timeout_sec": 0.3,
+            "limit": 20,
+        }
+        assert by_bridge[bridge_robot_id]["aruco_detector"]["transport"] == "ros_topic"
+    assert by_bridge["tb3_1"]["aruco_detector"]["marker_size_m"] == 0.05
+    assert by_bridge["tb3_2"]["aruco_detector"]["marker_size_m"] == 0.04
     assert not validate_robot_profile(by_bridge["tb3_1"])
     assert not validate_robot_profile(by_bridge["tb3_2"])
 

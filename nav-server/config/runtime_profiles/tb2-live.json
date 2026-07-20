@@ -49,9 +49,9 @@
     },
     "detector": {
       "enabled": true,
-      "required": false,
-      "ownership": "external",
-      "start_script": "",
+      "required": true,
+      "ownership": "managed-script",
+      "start_script": "scripts/run_pi_camera_aruco.sh",
       "readiness_probe": "aruco-topic"
     },
     "rviz": {

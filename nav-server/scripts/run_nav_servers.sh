@@ -12,6 +12,7 @@ ROBOTS_CONFIG_PATH="${ROBOTS_CONFIG_PATH:-$ROOT/config/robots.json}"
 VALIDATOR="${VALIDATOR:-$SCRIPT_DIR/validate_robot_domains.py}"
 PLAN_HELPER="${PLAN_HELPER:-$SCRIPT_DIR/nav_bringup_plan.py}"
 NAV2_RUNNER="${NAV2_RUNNER:-$SCRIPT_DIR/run_nav2_with_initial_pose.sh}"
+DETECTOR_RUNNER="${DETECTOR_RUNNER:-$SCRIPT_DIR/run_pi_camera_aruco.sh}"
 RESOLVED_PROFILE_PATH="${SF_NAV_RESOLVED_PROFILE_PATH:-}"
 CHILD_STATE_PATH="${SF_NAV_CHILD_STATE_PATH:-}"
 HOST="${HOST:-0.0.0.0}"
@@ -157,6 +158,27 @@ preflight() {
     require_executable "$NAV2_RUNNER" "managed Nav2 runner"
     require_file "${TURTLEBOT3_SETUP:-$HOME/turtlebot3_ws/install/setup.bash}" "TurtleBot3 setup"
   fi
+  if managed_detector_enabled; then
+    require_executable "$DETECTOR_RUNNER" "managed ArUco detector runner"
+    if ! /usr/bin/python3 -c 'import cv2, rclpy; assert hasattr(cv2, "aruco")' >/dev/null 2>&1; then
+      echo "[nav_servers] system Python requires rclpy and OpenCV ArUco for the managed detector" >&2
+      exit 1
+    fi
+    "$PYTHON_BIN" - "$RESOLVED_PROFILE_PATH" <<'PY'
+import json
+import math
+import sys
+
+for robot in json.load(open(sys.argv[1], encoding="utf-8"))["robots"]:
+    detector = robot.get("aruco_detector") or {}
+    try:
+        marker_size_m = float(detector.get("marker_size_m"))
+    except (TypeError, ValueError):
+        marker_size_m = float("nan")
+    if detector.get("transport") != "ros_topic" or not math.isfinite(marker_size_m) or marker_size_m <= 0.0:
+        raise SystemExit(f"{robot['robot_id']}: invalid managed aruco_detector contract")
+PY
+  fi
 }
 
 managed_nav2_enabled() {
@@ -164,6 +186,15 @@ managed_nav2_enabled() {
   "$PYTHON_BIN" - "$RESOLVED_PROFILE_PATH" <<'PY'
 import json, sys
 component = (json.load(open(sys.argv[1], encoding="utf-8")).get("components") or {}).get("nav2") or {}
+raise SystemExit(0 if component.get("enabled") is True and component.get("ownership") == "managed-script" else 1)
+PY
+}
+
+managed_detector_enabled() {
+  [[ -n "$RESOLVED_PROFILE_PATH" ]] || return 1
+  "$PYTHON_BIN" - "$RESOLVED_PROFILE_PATH" <<'PY'
+import json, sys
+component = (json.load(open(sys.argv[1], encoding="utf-8")).get("components") or {}).get("detector") or {}
 raise SystemExit(0 if component.get("enabled") is True and component.get("ownership") == "managed-script" else 1)
 PY
 }
@@ -310,6 +341,47 @@ start_nav2() {
   record_child nav2 "$robot_id" "$port" "$child_pid"
 }
 
+start_aruco_detector() {
+  local robot_id="$1"
+  local hardware_domain_id="$2"
+  local port="$3"
+  local marker_size_m child_pid
+
+  marker_size_m="$("$PYTHON_BIN" - "$RESOLVED_PROFILE_PATH" "$robot_id" <<'PY'
+import json
+import sys
+
+config_path, robot_id = sys.argv[1:]
+for robot in json.load(open(config_path, encoding="utf-8"))["robots"]:
+    if robot["robot_id"] == robot_id:
+        print(float(robot["aruco_detector"]["marker_size_m"]))
+        raise SystemExit(0)
+raise SystemExit(f"unknown robot: {robot_id}")
+PY
+)"
+  echo "[nav_servers] starting managed ArUco detector ${robot_id}: hardware_domain=${hardware_domain_id}, marker_size=${marker_size_m}m"
+  (
+    cd "$ROOT"
+    export ROS_DOMAIN_ID="$hardware_domain_id"
+    # The detector consumes the robot's raw camera in the hardware domain.
+    # TB3_1 detections are then forwarded to its Nav-local domain by domain_bridge.
+    # shellcheck source=configure_cyclonedds_lan.sh
+    source "$SCRIPT_DIR/configure_cyclonedds_lan.sh"
+    exec env \
+      ROBOT_ID="$robot_id" \
+      ROS_DOMAIN_ID_OVERRIDE="$hardware_domain_id" \
+      ROBOTS_CONFIG_PATH="$ROBOTS_CONFIG_PATH" \
+      ARUCO_MARKER_SIZE_M="$marker_size_m" \
+      START_CAMERA_LAUNCH="0" \
+      START_CAMERA_RELAY="0" \
+      PYTHON_BIN="$PYTHON_BIN" \
+      "$DETECTOR_RUNNER"
+  ) &
+  child_pid=$!
+  pids+=("$child_pid")
+  record_child detector "$robot_id" "$port" "$child_pid"
+}
+
 sf_nav_supervise() {
   [[ -n "$RESOLVED_PROFILE_PATH" && -n "$CHILD_STATE_PATH" ]] || {
     echo "[nav_servers] sf_nav supervisor context is incomplete" >&2
@@ -327,6 +399,12 @@ sf_nav_supervise() {
     start_nav_server "$robot_id" "$hardware_domain_id" "$local_domain_id" "$port" "$map_yaml"
   done <"$plan_tsv"
   wait_for_movement_api_start
+  if managed_detector_enabled; then
+    while IFS=$'\t' read -r robot_id _bridge_robot_id hardware_domain_id _local_domain_id port _map_yaml; do
+      [[ -z "$robot_id" ]] && continue
+      start_aruco_detector "$robot_id" "$hardware_domain_id" "$port"
+    done <"$plan_tsv"
+  fi
   if managed_nav2_enabled; then
     while IFS=$'\t' read -r robot_id bridge_robot_id hardware_domain_id local_domain_id port _map_yaml; do
       [[ -z "$robot_id" ]] && continue
