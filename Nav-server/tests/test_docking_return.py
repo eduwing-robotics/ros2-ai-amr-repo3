@@ -160,3 +160,62 @@ def test_leave_dock_uses_calibrated_fallback_when_marker_missing(monkeypatch):
         max_duration_sec=8.5,
         tolerance_m=0.005,
     )
+
+
+def test_leave_dock_uses_active_robot_standby_marker(monkeypatch):
+    navigator = MagicMock()
+    navigator.get_latest_aruco_detection.return_value = {"estimated_distance_m": 0.20}
+    navigator.rear_min_range.return_value = None
+    navigator.publish_velocity_for_distance.return_value = {"ok": True, "reason": "distance_reached"}
+    monkeypatch.setattr(runtime, "navigator", navigator)
+    monkeypatch.setattr(
+        "nav_app.services.docking.active_robot_profile",
+        lambda: {"bridge_robot_id": "tb3_1", "standby_aruco_marker_id": 3},
+    )
+    runtime.set_standby_parked(True)
+    step = MovementStep(action="leave_dock", payload={"aruco_marker_id": 4})
+
+    assert execute_leave_dock_step(step) is True
+    assert step.payload["aruco_marker_id"] == 3
+    navigator.get_latest_aruco_detection.assert_any_call(3, max_age_sec=5.0)
+
+
+def test_leave_dock_accepts_odom_timeout_when_fresh_marker_proves_clearance(monkeypatch):
+    navigator = MagicMock()
+    navigator.get_latest_aruco_detection.side_effect = [
+        {"estimated_distance_m": 0.20},
+        {"estimated_distance_m": 0.70},
+    ]
+    navigator.rear_min_range.return_value = None
+    navigator.publish_velocity_for_distance.return_value = {"ok": False, "reason": "timeout"}
+    monkeypatch.setattr(runtime, "navigator", navigator)
+    monkeypatch.setattr(
+        "nav_app.services.docking.active_robot_profile",
+        lambda: {"bridge_robot_id": "tb3_1", "standby_aruco_marker_id": 3},
+    )
+    runtime.set_standby_parked(True)
+
+    assert execute_leave_dock_step(MovementStep(
+        action="leave_dock", payload={"aruco_marker_id": 4}
+    )) is True
+    assert runtime.get_standby_parked() is False
+
+
+def test_leave_dock_rejects_timeout_when_marker_is_still_too_close(monkeypatch):
+    navigator = MagicMock()
+    navigator.get_latest_aruco_detection.side_effect = [
+        {"estimated_distance_m": 0.20},
+        {"estimated_distance_m": 0.30},
+    ]
+    navigator.rear_min_range.return_value = None
+    navigator.publish_velocity_for_distance.return_value = {"ok": False, "reason": "timeout"}
+    monkeypatch.setattr(runtime, "navigator", navigator)
+    monkeypatch.setattr(
+        "nav_app.services.docking.active_robot_profile",
+        lambda: {"bridge_robot_id": "tb3_1", "standby_aruco_marker_id": 3},
+    )
+    runtime.set_standby_parked(True)
+
+    assert execute_leave_dock_step(MovementStep(
+        action="leave_dock", payload={"aruco_marker_id": 4}
+    )) is False

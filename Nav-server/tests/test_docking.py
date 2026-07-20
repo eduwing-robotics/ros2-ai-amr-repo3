@@ -4,6 +4,7 @@ import unittest
 from nav_app.services.docking import (
     _marker_seek_monotonic,
     _marker_pose_aligned,
+    _marker_yaw_angular_sign,
     _center_angular_sign,
     _marker_yaw_error_rad,
     _pose_aware_docking_angular_z,
@@ -64,10 +65,29 @@ class DockingMotionTests(unittest.TestCase):
     def test_pose_aware_steering_uses_center_and_face_yaw(self):
         detection = {"center_error_norm": 0.10, "marker_yaw_error_rad": 0.10}
         angular = _pose_aware_docking_angular_z(
-            detection, {"center_angular_sign": -1.0}, wall_mode=False, max_angular=0.5
+            detection, {"center_angular_sign": -1.0, "marker_yaw_angular_sign": -1.0}, wall_mode=False, max_angular=0.5
         )
         self.assertLess(angular, -0.09)
         self.assertAlmostEqual(_marker_yaw_error_rad(detection), 0.10, places=6)
+
+    def test_marker_yaw_angular_sign_can_flip_per_robot(self):
+        self.assertEqual(_marker_yaw_angular_sign({"marker_yaw_angular_sign": 1.0}), 1.0)
+        self.assertEqual(_marker_yaw_angular_sign({"marker_yaw_angular_sign": -1.0}), -1.0)
+        detection = {"center_error_norm": 0.0, "marker_yaw_error_rad": 0.10}
+        tb3_1_angular = _pose_aware_docking_angular_z(
+            detection,
+            {"center_angular_sign": 1.0, "marker_yaw_angular_sign": 1.0},
+            wall_mode=False,
+            max_angular=0.5,
+        )
+        tb3_2_angular = _pose_aware_docking_angular_z(
+            detection,
+            {"center_angular_sign": -1.0, "marker_yaw_angular_sign": -1.0},
+            wall_mode=False,
+            max_angular=0.5,
+        )
+        self.assertGreater(tb3_1_angular, 0.0)
+        self.assertLess(tb3_2_angular, 0.0)
 
     def test_marker_seek_sweep_is_bidirectional(self):
         payload = {"marker_seek_mode": "sweep"}
@@ -264,7 +284,7 @@ class ApproachChainingTests(unittest.TestCase):
         self.assertEqual(steps[1].payload["marker_search_timeout_sec"], 60)
         self.assertTrue(steps[1].payload.get("marker_search_on_miss"))
         self.assertFalse(steps[1].payload.get("skip_approach_yaw_rotate"))
-        self.assertEqual(steps[1].payload.get("marker_seek_mode"), "monotonic")
+        self.assertEqual(steps[1].payload.get("marker_seek_mode"), "sweep")
         self.assertEqual(steps[1].payload["final"], "hold")
         self.assertEqual(steps[1].payload["target_distance_m"], 0.40)
         self.assertEqual(steps[3].payload["target_distance_m"], 0.20)

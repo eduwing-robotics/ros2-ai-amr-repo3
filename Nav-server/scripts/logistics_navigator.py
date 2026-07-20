@@ -909,9 +909,30 @@ class LogisticsNavigator(Node):
             self.last_nav_failure = msg
             return False
 
-        dx = float(current_pose["x"]) - float(target_pose.pose.position.x)
-        dy = float(current_pose["y"]) - float(target_pose.pose.position.y)
-        distance_m = math.hypot(dx, dy)
+        def pose_distance(pose_value):
+            dx_value = float(pose_value["x"]) - float(target_pose.pose.position.x)
+            dy_value = float(pose_value["y"]) - float(target_pose.pose.position.y)
+            return math.hypot(dx_value, dy_value)
+
+        distance_m = pose_distance(current_pose)
+        # AMCL can settle briefly after Nav2 reports success. Avoid rejecting a
+        # tight position-only approach from one transient pose sample.
+        if goal.get("nav_position_only") and distance_m > tolerance_m:
+            settle_deadline = time.monotonic() + float(
+                goal.get("pose_verify_settle_sec", 2.0)
+            )
+            while time.monotonic() < settle_deadline:
+                self._spin_once_if_needed()
+                time.sleep(0.1)
+                settled_pose = self.get_current_pose()
+                if settled_pose is None:
+                    continue
+                settled_distance = pose_distance(settled_pose)
+                if settled_distance < distance_m:
+                    current_pose = settled_pose
+                    distance_m = settled_distance
+                if distance_m <= tolerance_m:
+                    break
         target_yaw = self._yaw_from_pose_stamped(target_pose)
         current_yaw = float(current_pose.get("yaw", current_pose.get("theta", 0.0)))
         yaw_error = abs(self._normalize_yaw_delta(current_yaw - target_yaw))

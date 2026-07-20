@@ -81,7 +81,7 @@ visit_wall_slot() {
   post "$cid_nav" "move_to_point" "{\"x\":${wx},\"y\":${wy},\"theta\":${wyaw},\"nav_position_only\":true,\"soft_xy_tolerance_m\":${soft_xy}}"
   poll "$cid_nav" "ARRIVED" 480
   local cid_al="${tag}-${TS}-align"
-  post "$cid_al" "aruco_align" "{\"aruco_marker_id\":${marker},\"align_mode\":\"center_only\",\"final\":\"return_approach\",\"docking_timeout_sec\":90,\"marker_search_on_miss\":true,\"marker_search_timeout_sec\":60,\"marker_seek_mode\":\"monotonic\",\"marker_search_angular_speed\":0.12,\"dock_max_angular_speed\":0.12,\"wall_adjacent_approach\":true}"
+  post "$cid_al" "aruco_align" "{\"aruco_marker_id\":${marker},\"align_mode\":\"center_only\",\"final\":\"return_approach\",\"docking_timeout_sec\":90,\"marker_search_on_miss\":true,\"marker_search_timeout_sec\":60,\"marker_seek_mode\":\"sweep\",\"marker_search_angular_speed\":0.12,\"dock_max_angular_speed\":0.12,\"wall_adjacent_approach\":true}"
   poll "$cid_al" "DONE" 180
   echo "======== ${tag} forward ${dist}m ========"
   manual_insert forward "$dist"

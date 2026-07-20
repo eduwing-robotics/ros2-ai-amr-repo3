@@ -191,6 +191,15 @@ def _center_angular_sign(payload: Optional[Dict[str, Any]] = None) -> float:
     return 1.0 if float(configured) >= 0.0 else -1.0
 
 
+def _marker_yaw_angular_sign(payload: Optional[Dict[str, Any]] = None) -> float:
+    """Resolve marker-face yaw steering sign for the active robot camera orientation."""
+    payload = payload or {}
+    configured = payload.get("marker_yaw_angular_sign")
+    if configured is None:
+        configured = active_robot_profile().get("aruco_marker_yaw_angular_sign", -1.0)
+    return 1.0 if float(configured) >= 0.0 else -1.0
+
+
 def _pose_aware_docking_angular_z(
     detection: Dict[str, Any], payload: Dict[str, Any], *, wall_mode: bool, max_angular: float
 ) -> float:
@@ -203,7 +212,7 @@ def _pose_aware_docking_angular_z(
     command = _center_angular_sign(payload) * center_gain * center_error
     if yaw_error is not None and payload.get("marker_pose_yaw_enabled", True):
         yaw_gain = float(payload.get("marker_yaw_gain", 0.55))
-        yaw_sign = float(payload.get("marker_yaw_angular_sign", -1.0))
+        yaw_sign = _marker_yaw_angular_sign(payload)
         command += yaw_sign * yaw_gain * yaw_error
     return _clamp(command, -max_angular, max_angular)
 
@@ -1792,6 +1801,41 @@ def resolve_leave_dock_distance_m(payload: Dict[str, Any]) -> float:
     return fallback_m
 
 
+def normalize_leave_dock_marker(payload: Dict[str, Any]) -> Optional[int]:
+    """Use the active robot standby marker even if Main sends another robot marker."""
+    configured = active_robot_profile().get("standby_aruco_marker_id")
+    requested = payload.get("aruco_marker_id")
+    if requested is None:
+        return None
+    if configured is None:
+        return int(requested)
+    marker_id = int(configured)
+    if requested is not None and int(requested) != marker_id:
+        print(
+            f"[leave_dock] marker mismatch requested={int(requested)} "
+            f"active_robot_standby={marker_id}; using configured marker"
+        )
+    payload["aruco_marker_id"] = marker_id
+    return marker_id
+
+
+def leave_dock_marker_clearance_satisfied(payload: Dict[str, Any], marker_id: Optional[int]) -> bool:
+    """Accept an odom false-negative only when fresh vision proves the robot is clear."""
+    if marker_id is None or not runtime.navigator:
+        return False
+    detection = runtime.navigator.get_latest_aruco_detection(
+        marker_id, max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
+    )
+    if not detection or detection.get("estimated_distance_m") is None:
+        return False
+    try:
+        distance_m = float(detection["estimated_distance_m"])
+        clearance_m = max(0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40)))
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(distance_m) and distance_m >= clearance_m - 0.005
+
+
 def leave_dock_motion_params(payload: Dict[str, Any]):
     speed = abs(float(payload.get("speed_mps", payload.get("reverse_speed", LEAVE_DOCK_REVERSE_SPEED))))
     if speed <= 0.0:
@@ -1831,6 +1875,7 @@ def execute_leave_dock_step(step: MovementStep):
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
     payload = step.payload
+    marker_id = normalize_leave_dock_marker(payload)
     force = bool(payload.get("force", False))
     parked = runtime.get_standby_parked()
 
@@ -1838,7 +1883,6 @@ def execute_leave_dock_step(step: MovementStep):
     # robot has since been physically parked again. A fresh, close standby marker
     # is stronger evidence than the in-memory flag and must restore reverse-out.
     marker_requires_reverse = False
-    marker_id = payload.get("aruco_marker_id")
     if parked is False and marker_id is not None:
         detection = runtime.navigator.get_latest_aruco_detection(
             int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
@@ -1917,9 +1961,16 @@ def execute_leave_dock_step(step: MovementStep):
     )
     runtime.navigator.publish_stop_velocity()
     print(f"[leave_dock] reverse result={distance_drive}; handoff=Nav2")
-    if distance_drive.get("ok"):
+    succeeded = bool(distance_drive.get("ok"))
+    if not succeeded and leave_dock_marker_clearance_satisfied(payload, marker_id):
+        print(
+            f"[leave_dock] odom result={distance_drive.get('reason', 'unknown')} but fresh "
+            f"marker={marker_id} proves clearance; treating reverse as complete"
+        )
+        succeeded = True
+    if succeeded:
         runtime.set_standby_parked(False)
-    return bool(distance_drive.get("ok"))
+    return succeeded
 
 
 def raise_if_estop(stage: str):

@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage
 from camera_calibration import save_calibration
 
@@ -28,9 +29,16 @@ class Collector(Node):
         super().__init__("camera_calibration_collector")
         self.args = args
         self.dictionary, self.board = make_board(args)
+        self.detector = (
+            cv2.aruco.ArucoDetector(self.dictionary)
+            if hasattr(cv2.aruco, "ArucoDetector")
+            else None
+        )
         self.corners, self.ids = [], []
         self.size, self.last, self.finished = None, 0.0, False
-        self.create_subscription(CompressedImage, args.topic, self.on_image, 10)
+        self.create_subscription(
+            CompressedImage, args.topic, self.on_image, qos_profile_sensor_data
+        )
         self.get_logger().info(
             f"collecting {args.samples} ChArUco views ({args.squares_x}x{args.squares_y}, "
             f"square={args.square_size_m}m marker={args.marker_size_m}m, {args.dictionary}) from {args.topic}"
@@ -43,7 +51,26 @@ class Collector(Node):
         if frame is None:
             return
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        marker_corners, marker_ids, _ = cv2.aruco.detectMarkers(gray, self.dictionary)
+        if self.detector is not None:
+            marker_corners, marker_ids, _ = self.detector.detectMarkers(gray)
+        else:
+            marker_corners, marker_ids, _ = cv2.aruco.detectMarkers(
+                gray, self.dictionary
+            )
+        preview = frame.copy()
+        if marker_ids is not None:
+            cv2.aruco.drawDetectedMarkers(preview, marker_corners, marker_ids)
+        cv2.putText(
+            preview,
+            f"accepted views: {len(self.corners)}/{self.args.samples}",
+            (10, 25),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (0, 255, 0),
+            2,
+        )
+        cv2.imshow("Robot 1 ChArUco calibration", preview)
+        cv2.waitKey(1)
         if marker_ids is None or len(marker_ids) < 2:
             return
         count, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(
@@ -115,5 +142,6 @@ def main():
         pass
     finally:
         node.destroy_node()
+        cv2.destroyAllWindows()
         if rclpy.ok(): rclpy.shutdown()
 if __name__ == "__main__": main()

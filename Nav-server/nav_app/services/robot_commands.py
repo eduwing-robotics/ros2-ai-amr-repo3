@@ -381,7 +381,7 @@ def move_to_point_steps(req: RobotCommandRequest, goal: Dict[str, Any], traffic_
             "final": "return_approach",
             "terminal_state": "ARRIVED",
             "marker_search_on_miss": True,
-            # Nav2 xy → map yaw → (마커 보이면 full align / 없으면 monotonic seek)
+            # Nav2 xy → map yaw → (마커 보이면 full align / 없으면 sweep seek)
             "marker_search_timeout_sec": 60 if is_wall_adjacent_approach(str(waypoint_id) if waypoint_id else None) else 45,
             "docking_timeout_sec": 60,
             "marker_centering_angular_speed": 0.12,
@@ -390,7 +390,7 @@ def move_to_point_steps(req: RobotCommandRequest, goal: Dict[str, Any], traffic_
     if is_wall_adjacent_approach(str(waypoint_id) if waypoint_id else None):
         align_payload["dock_max_angular_speed"] = 0.12
         align_payload["wall_adjacent_approach"] = True
-        align_payload["marker_seek_mode"] = "monotonic"
+        align_payload["marker_seek_mode"] = "sweep"
         align_payload["marker_search_angular_speed"] = 0.12
     waypoint_cfg = load_waypoint_goals().get(str(waypoint_id)) if waypoint_id else None
     if isinstance(waypoint_cfg, dict):

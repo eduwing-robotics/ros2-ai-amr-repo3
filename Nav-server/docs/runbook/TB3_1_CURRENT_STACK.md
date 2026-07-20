@@ -1,7 +1,7 @@
 # tb3_1 현재 스택 통합 운영 Runbook
 
 상태: Active / Current  
-최종 갱신: 2026-07-19 KST
+최종 갱신: 2026-07-20 KST
 
 이 문서는 1호기 전원을 켠 뒤 전체 스택을 시작하고, 정상 여부를 확인하고, 종료하거나 복구하는 현재 정본이다. 리프트 높이 교정과 실제 주행 시나리오는 이 문서의 자동 실행 범위가 아니다.
 
@@ -15,6 +15,8 @@
 | ROS domain | `2` |
 | Movement API | `http://127.0.0.1:8001` |
 | OpenCR | `/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00` |
+| OpenCR verified USB topology | `1-1.4` |
+| LDS verified USB topology | `1-1.3` |
 | Lift Arduino | `/dev/serial/by-id/usb-Arduino__www.arduino.cc__0043_1344B435234351A077B6-if00` |
 | Camera input | `/camera/image_raw/compressed` |
 | ArUco output | `/mission/tb3_1/aruco/detections` |
@@ -156,6 +158,33 @@ scripts/start_all_tb3_1.sh restart
 - Fast DDS SBC 프로필이 `192.168.30.101` 인터페이스를 사용하는지 확인한다.
 - 개별 프로세스를 중복 실행하지 말고 전체 `restart`로 복구한다.
 
+### OpenCR가 잠깐 `/dev/ttyACM1`로 잡혔다가 사라짐
+
+2026-07-20 로봇1 실측 복구 기록:
+
+- 정상 배치: OpenCR `1-1.4`, LDS(CP2102) `1-1.3`, Arduino Uno `1-1.1`
+- OpenCR와 LDS의 SBC 쪽 USB 자리가 바뀌면 OpenCR가 순간 인식 후 끊길 수 있다.
+- 전원을 끈 뒤 OpenCR와 LDS의 SBC 쪽 USB 자리만 교환한다. Uno와 LAN은 건드리지 않는다.
+- `PUSH SW2`를 누른 채 `RESET`하면 OpenCR는 부트로더 대기 상태가 된다. 이 상태에서는 by-id가 보여도 bringup이 `Failed connection with Devices`로 실패한다.
+- 부트로더 확인 후에는 `PUSH SW2`를 누르지 않고 `RESET`만 한 번 눌러 정상 TurtleBot3 펌웨어로 복귀한다.
+
+확인 명령:
+
+```bash
+ssh codelab@192.168.30.101 'lsusb -t; ls -l /dev/serial/by-id'
+```
+
+정상 기준은 OpenCR by-id가 존재하고 `lsusb -t`에서 OpenCR의 CDC ACM 장치가 `Port 004`에 유지되는 것이다. 이후 bringup 로그에서 아래 순서를 확인한다.
+
+```text
+Succeeded to open the port(...OpenCR...)
+Start Calibration of Gyro
+Calibration End
+Run!
+```
+
+`scripts/start_all_tb3_1.sh`는 OpenCR by-id가 없거나 USB topology가 `1-1.4`가 아니면 base bringup을 중단한다. 하드웨어 구성이 의도적으로 변경된 경우에만 `ROBOT_USB_TOPOLOGY=<새 경로>`를 명시한다.
+
 ### 카메라 또는 ArUco publisher가 없음
 
 ```bash
@@ -171,13 +200,15 @@ scripts/start_all_tb3_1.sh restart
 
 ## 7. 현재 검증 및 보류 사항
 
-2026-07-19 확인 완료:
+2026-07-20 확인 완료:
 
 - API 8001 online
 - `/odom`, `/scan`, camera, ArUco, lift bridge publisher
 - Nav2 핵심 lifecycle active
 - localization 완료
 - ArUco marker 3 검출
+- OpenCR `1-1.4`, LDS `1-1.3`, Uno `1-1.1` USB 배치
+- OpenCR normal firmware bringup: gyro calibration, motors/wheels/sensors, `Run!`
 - 전원 재인가 후 `restart`로 pane 7/7, API online, 핵심 토픽 5개 publisher, Nav2 lifecycle 복구
 - 리프트 6mm 상승 및 홈 피드백
 

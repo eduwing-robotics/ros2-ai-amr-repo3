@@ -234,15 +234,15 @@ class LiftClient:
         tolerance_mm: Optional[float] = None,
         force: bool = False,
     ) -> Dict[str, Any]:
-        """Return immediately at a confirmed target; otherwise command and wait.
-
-        ``force`` remains accepted for scenario contract compatibility, but it
-        must not turn an already-arrived no-op into a timeout when the bridge
-        emits no new position/direction events (notably the 0 mm home target).
-        """
+        """Skip an already-complete move; preserve forced re-drive away from home."""
         target = float(target_mm)
         tolerance = float(tolerance_mm if tolerance_mm is not None else self.config.get("position_tolerance_mm", 2.0))
-        if self._at_target_mm(target, tolerance) and self._is_stopped():
+        at_target_and_stopped = self._at_target_mm(target, tolerance) and self._is_stopped()
+        # A 0 mm command can be a controller no-op with no fresh feedback.
+        # Do not turn a confirmed home state into a timeout, even with force=True.
+        # Non-home forced moves retain their L2 re-drive semantics.
+        home_target = abs(target) <= 1e-6
+        if at_target_and_stopped and (not force or home_target):
             return self.status()
         return self.move_to(target, timeout_sec=timeout_sec, tolerance_mm=tolerance_mm)
 

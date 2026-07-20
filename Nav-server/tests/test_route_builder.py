@@ -55,6 +55,7 @@ def test_build_inbound2_storage_b_scenario_has_exact_robot2_flow():
     assert scenario["steps"][1]["payload"]["goals"][0]["require_exact_approach"] is False
     assert scenario["steps"][2]["payload"]["target_distance_m"] == 0.40
     assert scenario["steps"][2]["payload"]["marker_seek_mode"] == "sweep"
+    assert "force_approach_yaw_rotate" not in scenario["steps"][2]["payload"]
     assert scenario["steps"][3]["duration"] == 3.0
     assert scenario["steps"][4]["payload"]["target_distance_m"] == 0.20
     assert scenario["steps"][4]["payload"]["metric_distance_only"] is True
@@ -69,6 +70,7 @@ def test_build_inbound2_storage_b_scenario_has_exact_robot2_flow():
     assert scenario["steps"][6]["payload"]["goals"][0]["soft_xy_tolerance_m"] == 0.10
     assert scenario["steps"][7]["payload"]["target_distance_m"] == 0.40
     assert scenario["steps"][7]["payload"]["marker_seek_mode"] == "sweep"
+    assert "force_approach_yaw_rotate" not in scenario["steps"][7]["payload"]
     assert scenario["steps"][8]["duration"] == 3.0
     assert scenario["steps"][9]["payload"]["target_distance_m"] == 0.18
     assert scenario["steps"][9]["payload"]["metric_distance_only"] is True

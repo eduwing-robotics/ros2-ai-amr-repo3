@@ -7,6 +7,7 @@ set -eo pipefail
 DOMAIN="${ROS_DOMAIN_ID:-5}"
 LDS_MODEL="${LDS_MODEL:-LDS-03}"
 USB_PORT="${USB_PORT:-/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00}"
+EXPECTED_USB_TOPOLOGY="${EXPECTED_USB_TOPOLOGY:-}"
 WS_SETUP="${WS_SETUP:-/home/musk/turtlebot3_ws/install/setup.bash}"
 TB3_EKF_MODE="${TB3_EKF_MODE:-0}"
 TB3_BRINGUP_LOG="${TB3_BRINGUP_LOG:-/dev/null}"
@@ -28,9 +29,25 @@ export TURTLEBOT3_MODEL=burger
 export LDS_MODEL="$LDS_MODEL"
 export ROS_DOMAIN_ID="$DOMAIN"
 
+if [[ ! -e "$USB_PORT" ]]; then
+  echo "[robot_sbc] ERROR: OpenCR USB not found: $USB_PORT" >&2
+  echo "[robot_sbc] detected serial devices:" >&2
+  ls -l /dev/serial/by-id >&2 2>/dev/null || true
+  exit 2
+fi
+
+USB_DEVICE_PATH="$(udevadm info -q path -n "$USB_PORT" 2>/dev/null || true)"
+if [[ -n "$EXPECTED_USB_TOPOLOGY" && "$USB_DEVICE_PATH" != *"/$EXPECTED_USB_TOPOLOGY/"* ]]; then
+  echo "[robot_sbc] ERROR: OpenCR is not on the verified USB path $EXPECTED_USB_TOPOLOGY" >&2
+  echo "[robot_sbc] actual udev path: ${USB_DEVICE_PATH:-unknown}" >&2
+  echo "[robot_sbc] keep Arduino unchanged and swap only OpenCR/LDS SBC-side USB ports" >&2
+  exit 3
+fi
+
 echo "[robot_sbc] bringup start DOMAIN=$DOMAIN LDS=$LDS_MODEL EKF_MODE=$TB3_EKF_MODE"
 echo "[robot_sbc] DDS peers=$ROS_STATIC_PEERS range=$ROS_AUTOMATIC_DISCOVERY_RANGE"
 echo "[robot_sbc] usb=$USB_PORT"
+echo "[robot_sbc] usb topology=${EXPECTED_USB_TOPOLOGY:-unchecked} path=${USB_DEVICE_PATH:-unknown}"
 echo "[robot_sbc] runtime log=$TB3_BRINGUP_LOG"
 
 LAUNCH_ARGS=("usb_port:=$USB_PORT")
