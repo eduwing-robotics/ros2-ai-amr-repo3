@@ -129,6 +129,8 @@ def test_live_profiles_manage_the_local_aruco_detector_with_the_nav_stack():
     assert "start_aruco_detector" in launcher
     assert 'START_CAMERA_LAUNCH="0"' in launcher
     assert 'START_CAMERA_RELAY="0"' in launcher
+    assert 'ARUCO_ENABLED_ON_START="0"' in launcher
+    assert "ARUCO_DETECTOR_ACTIVATION_FILE" in launcher
 
 
 def test_smoke_uses_current_health_and_endpoint_contract(tmp_path):

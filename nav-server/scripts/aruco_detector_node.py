@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 import rclpy
+from aruco_detector_activation import activation_requested
 from aruco_pose_geometry import estimate_marker_pose
 from camera_calibration import load_calibration, scale_camera_matrix
 from rclpy.executors import ExternalShutdownException
@@ -85,6 +86,13 @@ class ArucoDetectorNode(Node):
         self.declare_parameter("dist_coeffs", os.getenv("ARUCO_DIST_COEFFS", ""))
         self.declare_parameter("publish_empty", os.getenv("ARUCO_PUBLISH_EMPTY", "1") not in ("0", "false", "False"))
         self.declare_parameter("min_marker_width_px", float(os.getenv("ARUCO_MIN_MARKER_WIDTH_PX", "8")))
+        self.declare_parameter(
+            "enabled_on_start",
+            os.getenv("ARUCO_ENABLED_ON_START", "1") not in ("0", "false", "False"),
+        )
+        self.declare_parameter(
+            "activation_file", os.getenv("ARUCO_DETECTOR_ACTIVATION_FILE", "")
+        )
 
         self.image_topic = str(self.get_parameter("image_topic").value)
         self.detection_topic = str(self.get_parameter("detection_topic").value)
@@ -102,6 +110,8 @@ class ArucoDetectorNode(Node):
         self.focal_length_px = float(self.get_parameter("focal_length_px").value)
         self.publish_empty = bool(self.get_parameter("publish_empty").value)
         self.min_marker_width_px = float(self.get_parameter("min_marker_width_px").value)
+        self.enabled_on_start = bool(self.get_parameter("enabled_on_start").value)
+        self.activation_file = str(self.get_parameter("activation_file").value).strip()
 
         self.camera_matrix = self._camera_matrix_from_param(self.get_parameter("camera_matrix").value)
         self.dist_coeffs = self._dist_coeffs_from_param(self.get_parameter("dist_coeffs").value)
@@ -129,17 +139,46 @@ class ArucoDetectorNode(Node):
             durability=DurabilityPolicy.VOLATILE,
         )
         self.publisher = self.create_publisher(String, self.detection_topic, self.sensor_qos)
-        self.subscription = self.create_subscription(
-            CompressedImage, self.image_topic, self._image_callback, self.sensor_qos
-        )
+        self.subscription = None
+        self.enabled = False
         self.frames_seen = 0
         self.frame_sequence = 0
         self.detections_seen = 0
         self.last_log_time = 0.0
+        self.activation_timer = None
+        self._sync_activation()
+        if self.activation_file:
+            self.activation_timer = self.create_timer(0.1, self._sync_activation)
         self.get_logger().info(
-            f"ArUco detector subscribed to {self.image_topic}, publishing {self.detection_topic}, "
-            f"dictionary={self.dictionary_name}, marker_size_m={self.marker_size_m}"
+            f"ArUco detector publishing {self.detection_topic}, "
+            f"dictionary={self.dictionary_name}, marker_size_m={self.marker_size_m}, "
+            f"request_scoped={bool(self.activation_file)}"
         )
+
+    def _sync_activation(self):
+        requested = activation_requested(
+            self.activation_file, default=self.enabled_on_start
+        )
+        self._set_detector_enabled(requested)
+
+    def _set_detector_enabled(self, enabled: bool):
+        enabled = bool(enabled)
+        if enabled == self.enabled:
+            return
+        self.enabled = enabled
+        if enabled:
+            self.subscription = self.create_subscription(
+                CompressedImage,
+                self.image_topic,
+                self._image_callback,
+                self.sensor_qos,
+            )
+            self.get_logger().info(f"ArUco camera subscription enabled: {self.image_topic}")
+            return
+        if self.subscription is not None:
+            self.destroy_subscription(self.subscription)
+            self.subscription = None
+        self.get_logger().info("ArUco camera subscription disabled")
 
     def _camera_matrix_from_param(self, value: Any) -> Optional[np.ndarray]:
         values = _as_float_list(value)
@@ -200,6 +239,8 @@ class ArucoDetectorNode(Node):
         return {}
 
     def _image_callback(self, msg: CompressedImage):
+        if not self.enabled:
+            return
         self.frames_seen += 1
         self.frame_sequence += 1
         receipt_monotonic = time.monotonic()

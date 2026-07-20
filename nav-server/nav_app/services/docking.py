@@ -1638,48 +1638,66 @@ def execute_camera_distance_insert(payload: Dict[str, Any]):
     if transport != "ros_topic":
         raise ValueError("camera distance insert requires ros_topic ArUco observations")
 
-    payload.update(
-        {
-            "metric_distance_only": True,
-            "straight_when_normal_aligned": True,
-            "require_normal_alignment": False,
-            "fork_insert_enabled": False,
-            "insert_vision_stop": False,
-            "allow_marker_lost_at_insert_start": False,
-            "marker_lost_grace_sec": 0.0,
-        }
+    detector_control = getattr(
+        runtime.navigator, "set_aruco_detector_enabled", None
     )
-    start_detection = _latest_aruco_detection(
-        marker_id, payload, max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
-    )
-    start_state = metric_distance_state(start_detection, payload)
-    if start_state == "invalid":
-        _abort_docking_motion()
-        raise RuntimeError(
-            f"ArUco marker {marker_id} has no valid calibrated forward distance"
+    detector_managed = False
+    try:
+        if callable(detector_control):
+            detector_managed = detector_control(True) is True
+        payload.update(
+            {
+                "metric_distance_only": True,
+                "straight_when_normal_aligned": True,
+                "require_normal_alignment": False,
+                "fork_insert_enabled": False,
+                "insert_vision_stop": False,
+                "allow_marker_lost_at_insert_start": False,
+                "marker_lost_grace_sec": 0.0,
+            }
         )
-    if start_state == "overshot":
-        _abort_docking_motion()
+        if detector_managed:
+            start_detection = runtime.navigator.wait_for_aruco_marker(
+                marker_id,
+                timeout_sec=ARUCO_DETECTION_TIMEOUT_SEC,
+                max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC,
+                transport="ros_topic",
+            )
+        else:
+            start_detection = _latest_aruco_detection(
+                marker_id, payload, max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
+            )
+        start_state = metric_distance_state(start_detection, payload)
+        if start_state == "invalid":
+            _abort_docking_motion()
+            raise RuntimeError(
+                f"ArUco marker {marker_id} has no valid calibrated forward distance"
+            )
+        if start_state == "overshot":
+            _abort_docking_motion()
+            start_distance = _metric_forward_distance(start_detection)
+            target = float(payload.get("target_distance_m", ARUCO_DOCK_TARGET_DISTANCE_M))
+            raise RuntimeError(
+                f"camera distance target already overshot: "
+                f"distance={start_distance:.3f}m target={target:.3f}m"
+            )
+
         start_distance = _metric_forward_distance(start_detection)
         target = float(payload.get("target_distance_m", ARUCO_DOCK_TARGET_DISTANCE_M))
-        raise RuntimeError(
-            f"camera distance target already overshot: "
-            f"distance={start_distance:.3f}m target={target:.3f}m"
+        print(
+            f"[dock_transfer] camera distance insert marker={marker_id} "
+            f"start={start_distance:.3f}m target={target:.3f}m"
         )
-
-    start_distance = _metric_forward_distance(start_detection)
-    target = float(payload.get("target_distance_m", ARUCO_DOCK_TARGET_DISTANCE_M))
-    print(
-        f"[dock_transfer] camera distance insert marker={marker_id} "
-        f"start={start_distance:.3f}m target={target:.3f}m"
-    )
-    final_detection = execute_precision_docking(marker_id, payload)
-    if metric_distance_state(final_detection, payload) != "within":
-        raise RuntimeError("camera distance insert did not finish inside the target band")
-    final_distance = _metric_forward_distance(final_detection)
-    payload["_actual_insert_distance_m"] = max(0.0, start_distance - final_distance)
-    payload["_requested_insert_distance_m"] = max(0.0, start_distance - target)
-    return True
+        final_detection = execute_precision_docking(marker_id, payload)
+        if metric_distance_state(final_detection, payload) != "within":
+            raise RuntimeError("camera distance insert did not finish inside the target band")
+        final_distance = _metric_forward_distance(final_detection)
+        payload["_actual_insert_distance_m"] = max(0.0, start_distance - final_distance)
+        payload["_requested_insert_distance_m"] = max(0.0, start_distance - target)
+        return True
+    finally:
+        if detector_managed:
+            detector_control(False)
 
 
 def execute_metric_precision_insert(payload: Dict[str, Any]):

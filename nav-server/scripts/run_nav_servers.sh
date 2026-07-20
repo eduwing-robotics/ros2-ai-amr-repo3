@@ -32,6 +32,7 @@ ARUCO_DOCK_CENTER_TOLERANCE_NORM="${ARUCO_DOCK_CENTER_TOLERANCE_NORM:-0.03}"
 
 mode="run"
 pids=()
+activation_files=()
 plan_file=""
 plan_tsv=""
 
@@ -72,6 +73,9 @@ cleanup() {
   fi
   if [[ -n "$plan_tsv" && -f "$plan_tsv" ]]; then
     rm -f "$plan_tsv"
+  fi
+  if ((${#activation_files[@]} > 0)); then
+    rm -f "${activation_files[@]}"
   fi
   return 0
 }
@@ -199,6 +203,15 @@ raise SystemExit(0 if component.get("enabled") is True and component.get("owners
 PY
 }
 
+detector_activation_file() {
+  local robot_id="$1"
+  if [[ -n "$CHILD_STATE_PATH" ]]; then
+    printf '%s/aruco-%s.enabled\n' "$(dirname "$CHILD_STATE_PATH")" "$robot_id"
+    return
+  fi
+  printf '%s/smartfactory/aruco-%s.enabled\n' "${XDG_RUNTIME_DIR:-/tmp}" "$robot_id"
+}
+
 record_child() {
   local component="$1"
   local robot_id="$2"
@@ -247,7 +260,12 @@ start_nav_server() {
   local local_domain_id="$3"
   local port="$4"
   local map_yaml="$5"
-  local child_pid
+  local child_pid activation_file
+
+  activation_file="$(detector_activation_file "$robot_id")"
+  mkdir -p "$(dirname "$activation_file")"
+  rm -f "$activation_file"
+  activation_files+=("$activation_file")
 
   echo "[nav_servers] starting ${robot_id}: hardware_domain=${hardware_domain_id}, local_domain=${local_domain_id}, port=${port}, map=${map_yaml}"
   (
@@ -267,6 +285,7 @@ start_nav_server() {
     NAV_LOCAL_ROS_DOMAIN_ID="$local_domain_id" \
     ACTIVE_MAP_YAML="$map_yaml" \
     ROBOTS_CONFIG_PATH="$ROBOTS_CONFIG_PATH" \
+    ARUCO_DETECTOR_ACTIVATION_FILE="$activation_file" \
     ROS_LOCALHOST_ONLY="$ROS_LOCALHOST_ONLY" \
     DRY_RUN_MISSION="$DRY_RUN_MISSION" \
     DRY_RUN_STEP_DELAY_SEC="$DRY_RUN_STEP_DELAY_SEC" \
@@ -345,7 +364,9 @@ start_aruco_detector() {
   local robot_id="$1"
   local hardware_domain_id="$2"
   local port="$3"
-  local marker_size_m child_pid
+  local marker_size_m child_pid activation_file
+
+  activation_file="$(detector_activation_file "$robot_id")"
 
   marker_size_m="$("$PYTHON_BIN" - "$RESOLVED_PROFILE_PATH" "$robot_id" <<'PY'
 import json
@@ -372,6 +393,8 @@ PY
       ROS_DOMAIN_ID_OVERRIDE="$hardware_domain_id" \
       ROBOTS_CONFIG_PATH="$ROBOTS_CONFIG_PATH" \
       ARUCO_MARKER_SIZE_M="$marker_size_m" \
+      ARUCO_DETECTOR_ACTIVATION_FILE="$activation_file" \
+      ARUCO_ENABLED_ON_START="0" \
       START_CAMERA_LAUNCH="0" \
       START_CAMERA_RELAY="0" \
       PYTHON_BIN="$PYTHON_BIN" \

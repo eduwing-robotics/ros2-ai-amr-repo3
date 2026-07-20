@@ -34,6 +34,7 @@ from nav_app.services.scan_map_alignment import (
     select_temporal_global_hypothesis,
 )
 from nav_app.services.vision_aruco import fetch_detector_payload
+from aruco_detector_activation import activation_requested, set_activation
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import GetParameters, SetParameters
 from rclpy.duration import Duration
@@ -109,6 +110,9 @@ class LogisticsNavigator(Node):
         self.aruco_observation_last_success_monotonic = 0.0
         self.aruco_observation_last_error = None
         self.aruco_observation_last_error_log_monotonic = 0.0
+        self.aruco_detector_activation_file = os.getenv(
+            "ARUCO_DETECTOR_ACTIVATION_FILE", ""
+        ).strip()
         self.camera_topic = None
         self.camera_sub = None
         self.camera_lock = threading.Lock()
@@ -783,6 +787,28 @@ class LogisticsNavigator(Node):
                 f"source={resolved.get('source')} base={resolved.get('api_base_url')}"
             )
         return dict(resolved)
+
+    def set_aruco_detector_enabled(self, enabled):
+        """Enable the local camera subscriber only for the metric dock leg."""
+        path = self.aruco_detector_activation_file
+        if not path:
+            return False
+        was_enabled = activation_requested(path, default=False)
+        if not set_activation(path, bool(enabled)):
+            return False
+        if enabled and not was_enabled:
+            with self.aruco_lock:
+                ros_detections = self.latest_aruco_detections_by_transport.pop(
+                    "ros_topic", {}
+                )
+                for marker_id in ros_detections:
+                    current = self.latest_aruco_detections.get(marker_id)
+                    if current and current.get("transport") == "ros_topic":
+                        self.latest_aruco_detections.pop(marker_id, None)
+        if was_enabled != bool(enabled):
+            state = "enabled" if enabled else "disabled"
+            self.get_logger().info(f"Request-scoped ArUco detector {state}")
+        return True
 
     def aruco_observation_status(self):
         config = dict(getattr(self, "aruco_observation_config", {}) or {})

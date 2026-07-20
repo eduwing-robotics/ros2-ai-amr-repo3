@@ -74,6 +74,11 @@ def shutdown_runtime() -> None:
     import rclpy
 
     if runtime.navigator:
+        set_detector_enabled = getattr(
+            runtime.navigator, "set_aruco_detector_enabled", None
+        )
+        if callable(set_detector_enabled):
+            set_detector_enabled(False)
         stop_event = getattr(runtime.navigator, "nav2_readiness_stop_event", None)
         if stop_event:
             stop_event.set()

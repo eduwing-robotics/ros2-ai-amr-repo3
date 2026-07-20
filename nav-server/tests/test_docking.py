@@ -53,6 +53,7 @@ from nav_app.services.robot_commands import (
 )
 from nav_app.settings import (
     ARUCO_DETECTION_MAX_AGE_SEC,
+    ARUCO_DETECTION_TIMEOUT_SEC,
     NAV_APPROACH_SOFT_XY_TOLERANCE_M,
     NAV_APPROACH_XY_TOLERANCE_M,
 )
@@ -156,7 +157,8 @@ class DockingMotionTests(unittest.TestCase):
     def test_camera_distance_insert_uses_one_current_to_target_leg(self):
         old_navigator = runtime.navigator
         navigator = MagicMock()
-        navigator.get_latest_aruco_detection.return_value = {
+        navigator.set_aruco_detector_enabled.return_value = True
+        navigator.wait_for_aruco_marker.return_value = {
             "marker_id": 7,
             "center_error_norm": 0.0,
             "forward_distance_m": 0.31,
@@ -185,15 +187,56 @@ class DockingMotionTests(unittest.TestCase):
             runtime.navigator = old_navigator
 
         precision.assert_called_once_with(7, payload)
-        navigator.get_latest_aruco_detection.assert_called_once_with(
+        self.assertEqual(
+            navigator.set_aruco_detector_enabled.call_args_list,
+            [unittest.mock.call(True), unittest.mock.call(False)],
+        )
+        navigator.wait_for_aruco_marker.assert_called_once_with(
             7,
+            timeout_sec=ARUCO_DETECTION_TIMEOUT_SEC,
             max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC,
             transport="ros_topic",
         )
+        navigator.get_latest_aruco_detection.assert_not_called()
         self.assertAlmostEqual(payload["_requested_insert_distance_m"], 0.13)
         self.assertAlmostEqual(payload["_actual_insert_distance_m"], 0.13)
         self.assertFalse(payload["fork_insert_enabled"])
         self.assertFalse(payload["insert_vision_stop"])
+
+    def test_camera_distance_detector_is_disabled_when_insert_fails(self):
+        old_navigator = runtime.navigator
+        navigator = MagicMock()
+        navigator.set_aruco_detector_enabled.return_value = True
+        navigator.wait_for_aruco_marker.return_value = {
+            "marker_id": 7,
+            "center_error_norm": 0.0,
+            "forward_distance_m": 0.31,
+            "transport": "ros_topic",
+        }
+        runtime.navigator = navigator
+        try:
+            with (
+                patch(
+                    "nav_app.services.docking.execute_precision_docking",
+                    side_effect=RuntimeError("insert failed"),
+                ),
+                self.assertRaisesRegex(RuntimeError, "insert failed"),
+            ):
+                execute_camera_distance_insert(
+                    {
+                        "aruco_marker_id": 7,
+                        "camera_distance_insert": True,
+                        "aruco_observation_transport": "ros_topic",
+                        "target_distance_m": 0.18,
+                    }
+                )
+        finally:
+            runtime.navigator = old_navigator
+
+        self.assertEqual(
+            navigator.set_aruco_detector_enabled.call_args_list,
+            [unittest.mock.call(True), unittest.mock.call(False)],
+        )
 
     def test_camera_distance_insert_rejects_missing_metric_before_motion(self):
         old_navigator = runtime.navigator
