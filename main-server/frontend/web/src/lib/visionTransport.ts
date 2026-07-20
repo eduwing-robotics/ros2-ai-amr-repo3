@@ -236,22 +236,31 @@ export function waitForFirstVideoFrame(
   videoEl: HTMLVideoElement,
   timeoutMs = WEBRTC_FIRST_FRAME_TIMEOUT_MS,
 ): Promise<void> {
-  if (videoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && videoEl.videoWidth > 0) {
+  const hasDecodedFrame = () => (
+    videoEl.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+    && videoEl.videoWidth > 0
+    && videoEl.videoHeight > 0
+  );
+  if (hasDecodedFrame()) {
     return Promise.resolve();
   }
 
   return new Promise((resolve, reject) => {
     const timer = window.setTimeout(() => finish(new Error("webrtc_first_frame_timeout")), timeoutMs);
-    const onFrame = () => finish();
+    const onFrame = () => {
+      if (hasDecodedFrame()) finish();
+    };
     const finish = (error?: Error) => {
       window.clearTimeout(timer);
       videoEl.removeEventListener("loadeddata", onFrame);
       videoEl.removeEventListener("playing", onFrame);
+      videoEl.removeEventListener("resize", onFrame);
       if (error) reject(error);
       else resolve();
     };
-    videoEl.addEventListener("loadeddata", onFrame, { once: true });
-    videoEl.addEventListener("playing", onFrame, { once: true });
+    videoEl.addEventListener("loadeddata", onFrame);
+    videoEl.addEventListener("playing", onFrame);
+    videoEl.addEventListener("resize", onFrame);
   });
 }
 

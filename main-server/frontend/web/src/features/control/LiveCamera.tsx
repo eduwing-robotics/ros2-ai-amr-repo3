@@ -59,8 +59,6 @@ export function CameraTile({
   const [showStatusOverlay, setShowStatusOverlay] = useState(true);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [webrtcRetryToken, setWebrtcRetryToken] = useState(0);
-  const [isVisible, setIsVisible] = useState(true);
-  const tileRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -71,12 +69,7 @@ export function CameraTile({
   const webrtcRetryAttemptRef = useRef(0);
   const streamKeyRef = useRef("");
   const mjpegActiveRef = useRef(false);
-  const visibleRef = useRef(true);
   const viewOptions = viewsForSource(source);
-
-  useEffect(() => {
-    visibleRef.current = isVisible;
-  }, [isVisible]);
 
   useEffect(() => {
     setShowStatusOverlay(true);
@@ -84,17 +77,6 @@ export function CameraTile({
     const timer = setTimeout(() => setShowStatusOverlay(false), CONNECTED_STATUS_VISIBLE_MS);
     return () => clearTimeout(timer);
   }, [transportDisplay]);
-
-  useEffect(() => {
-    const el = tileRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => setIsVisible(entry.isIntersecting),
-      { threshold: 0.1 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
 
   const clearMjpegTimers = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -109,7 +91,7 @@ export function CameraTile({
 
   const openMjpegStream = useCallback(() => {
     const img = imgRef.current;
-    if (!img || !source || !visibleRef.current) return;
+    if (!img || !source) return;
     img.style.display = "";
     img.src = liveStreamUrlWithBust(source, kind, maxFps, view, Date.now());
   }, [kind, maxFps, source, view]);
@@ -126,14 +108,14 @@ export function CameraTile({
     if (reconnectTimerRef.current) return;
 
     const scheduleNext = () => {
-      if (!mjpegActiveRef.current || !visibleRef.current) return;
+      if (!mjpegActiveRef.current) return;
       const idx = Math.min(mjpegBackoffRef.current, MJPEG_RECONNECT_DELAYS_MS.length - 1);
       const delay = MJPEG_RECONNECT_DELAYS_MS[idx];
       mjpegBackoffRef.current += 1;
       const nextAttempt = mjpegBackoffRef.current;
       reconnectTimerRef.current = setTimeout(() => {
         reconnectTimerRef.current = null;
-        if (!mjpegActiveRef.current || !visibleRef.current) return;
+        if (!mjpegActiveRef.current) return;
         beginMjpegStream(nextAttempt);
         scheduleNext();
       }, delay);
@@ -144,6 +126,7 @@ export function CameraTile({
 
   useEffect(() => {
     let cancelled = false;
+    let webRtcLost = false;
     const streamKey = `${source}\0${view}`;
     if (streamKeyRef.current !== streamKey) {
       streamKeyRef.current = streamKey;
@@ -157,13 +140,13 @@ export function CameraTile({
     };
 
     const scheduleWebRtcRetry = () => {
-      if (!VISION_WEBRTC_ENABLED || cancelled || !visibleRef.current || webrtcRetryTimerRef.current) return;
+      if (!VISION_WEBRTC_ENABLED || cancelled || webrtcRetryTimerRef.current) return;
       const idx = Math.min(webrtcRetryAttemptRef.current, WEBRTC_RETRY_DELAYS_MS.length - 1);
       const delay = WEBRTC_RETRY_DELAYS_MS[idx];
       webrtcRetryAttemptRef.current += 1;
       webrtcRetryTimerRef.current = setTimeout(() => {
         webrtcRetryTimerRef.current = null;
-        if (!cancelled && visibleRef.current) setWebrtcRetryToken((token) => token + 1);
+        if (!cancelled) setWebrtcRetryToken((token) => token + 1);
       }, delay);
     };
 
@@ -182,7 +165,8 @@ export function CameraTile({
     };
 
     const handleWebRtcLost = () => {
-      if (cancelled) return;
+      if (cancelled || webRtcLost) return;
+      webRtcLost = true;
       cleanupRef.current?.();
       cleanupRef.current = null;
       if (VISION_WEBRTC_ONLY) {
@@ -197,12 +181,6 @@ export function CameraTile({
       clearWebRtcRetry();
       cleanupRef.current?.();
       cleanupRef.current = null;
-
-      if (!isVisible) {
-        setMode("idle");
-        setStatus("화면 밖 — 연결 일시정지");
-        return;
-      }
 
       if (!VISION_WEBRTC_ENABLED) {
         beginMjpeg("MJPEG 연결 중…", false);
@@ -222,11 +200,37 @@ export function CameraTile({
         }
 
         setStatus("WebRTC 연결 중…");
-        const cleanup = await connectWebRtcStream(source, view, video, handleWebRtcLost);
+        const closePeer = await connectWebRtcStream(source, view, video, handleWebRtcLost);
+        const mediaStream = video.srcObject instanceof MediaStream ? video.srcObject : null;
+        const mediaTrack = mediaStream?.getVideoTracks()[0] ?? null;
+        const handleMediaEnded = () => handleWebRtcLost();
+        mediaTrack?.addEventListener("ended", handleMediaEnded);
+        mediaStream?.addEventListener("removetrack", handleMediaEnded);
+        video.addEventListener("emptied", handleMediaEnded);
+        const cleanup = () => {
+          mediaTrack?.removeEventListener("ended", handleMediaEnded);
+          mediaStream?.removeEventListener("removetrack", handleMediaEnded);
+          video.removeEventListener("emptied", handleMediaEnded);
+          closePeer();
+        };
         cleanupRef.current = cleanup;
         await waitForFirstVideoFrame(video);
         if (cancelled) {
           cleanup();
+          return;
+        }
+        const activeStream = video.srcObject instanceof MediaStream ? video.srcObject : null;
+        const activeTrack = activeStream?.getVideoTracks()[0] ?? null;
+        if (
+          webRtcLost
+          || !activeTrack
+          || activeTrack.readyState !== "live"
+          || video.videoWidth <= 0
+          || video.videoHeight <= 0
+        ) {
+          cleanup();
+          cleanupRef.current = null;
+          if (!webRtcLost) beginMjpeg("WebRTC 영상 없음 → MJPEG");
           return;
         }
         webrtcRetryAttemptRef.current = 0;
@@ -253,19 +257,12 @@ export function CameraTile({
       cleanupRef.current?.();
       cleanupRef.current = null;
     };
-  }, [isVisible, source, view, webrtcRetryToken]);
+  }, [source, view, webrtcRetryToken]);
 
   useEffect(() => {
     if (mode !== "mjpeg") {
       mjpegActiveRef.current = false;
       clearMjpegTimers();
-      return;
-    }
-
-    if (!isVisible) {
-      mjpegActiveRef.current = false;
-      clearMjpegTimers();
-      setStatus("화면 밖 — 폴링 일시정지");
       return;
     }
 
@@ -298,7 +295,6 @@ export function CameraTile({
   }, [
     beginMjpegStream,
     clearMjpegTimers,
-    isVisible,
     kind,
     mode,
     scheduleMjpegReconnect,
@@ -306,7 +302,7 @@ export function CameraTile({
   ]);
 
   const handleMjpegLoad = () => {
-    if (mode !== "mjpeg" || !isVisible) return;
+    if (mode !== "mjpeg") return;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -318,7 +314,7 @@ export function CameraTile({
   };
 
   const handleMjpegError = () => {
-    if (mode !== "mjpeg" || !isVisible) return;
+    if (mode !== "mjpeg") return;
     setTransportDisplay("error");
     setStatus("stream 오류 — 재연결 시도");
     scheduleMjpegReconnect();
@@ -331,7 +327,7 @@ export function CameraTile({
     : transportBadgeLabel(transportDisplay);
 
   return (
-    <div ref={tileRef} className={tileClass}>
+    <div className={tileClass}>
       {chrome && !compact ? (
         <div className="cam-tile-head">
           <span>{label}</span>

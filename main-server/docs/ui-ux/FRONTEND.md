@@ -179,9 +179,9 @@ FE는 goto·status에 `/robot-commands` envelope를 직접 사용한다.
 
 ## LiveCamera transport 상태
 
-- `VITE_VISION_WEBRTC_ENABLED=true` 빌드는 `GET /vision/streams` discovery 후 WebRTC transport가 `status: ready`·sidecar healthy일 때만 offer/`<video>`를 시도한다 (`visionTransport.isWebRtcReadyTransport`). flag off 빌드는 MJPEG만 사용한다.
+- `VITE_VISION_WEBRTC_ENABLED=true` 빌드는 Main 중계 offer로 WebRTC를 시도하고, 실제 디코딩 프레임과 live video track을 확인한 뒤 `<video>`로 전환한다. flag off 빌드는 MJPEG만 사용한다.
 - offer가 `fallback_required`·`selected_transport: mjpeg`·SDP 없음이면 offer 시도 없이 MJPEG로 폴백한다 (`isOfferFallbackResponse`).
 - **MJPEG 자동 재연결**: `onError` 시 지수 백오프 재연결, `&_t=` 캐시버스터, overlay staleness 워치독.
-- **MJPEG 지연 완화**: `<img>` 멀티파트 스트림 대신 **`/vision/{kind}/latest/image` 폴링**(최소 200ms, `maxFps` 기반 간격)으로 디코드 큐 누적(H2) 우회. grid 타일은 **IntersectionObserver**로 화면 밖이면 폴링 일시정지(H3). 배지 `MJPEG·poll`.
-- 2026-06-26 운영 확인 기준 Vision WebRTC sidecar는 `not_configured`이므로 tile 상태는 `WebRTC 미준비 · MJPEG` → `MJPEG 수신 중`이 정상이다. UDP media end-to-end는 Vision sidecar ready 후 검증한다.
+- **MJPEG 폴백**: `<img>`는 Main 프록시의 연속 MJPEG 스트림을 사용한다. grid↔single 전환 때 화면 교차 판정으로 정상 스트림을 숨기지 않으며, 오류 시 제한된 백오프로 재연결한다. 배지는 `MJPEG`로 표시한다.
+- Vision WebRTC가 준비되지 않았거나 미디어가 사라지면 MJPEG로 유지·복귀하는 것이 정상이다.
 - 로컬: `node scripts/run_fake_api.mjs`가 discovery/offer/MJPEG mock을 제공한다. `.env.example`에 flag 예시가 있다.

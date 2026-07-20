@@ -455,6 +455,17 @@ def test_repository_profiles_assign_one_safe_default_per_field_host() -> None:
         == "false"
     )
     assert profiles["main-field"]["components"]["main"]["env"]["LMS_LIFT_LOAD_EVIDENCE_MODE"] == "gate"
+
+    assert profiles["main-integration"]["site"] == {
+        "hostname": "smartfactory-integration.local",
+        "allowed_local_ips": ["192.168.30.5"],
+    }
+    assert profiles["main-integration"]["components"]["nav"]["enabled"] is False
+    assert profiles["main-integration"]["components"]["main"]["site_profile"] == "integration"
+    assert profiles["main-integration"]["components"]["main"]["env"]["LMS_MOVEMENT_BASE_URLS"] == (
+        "tb3_1=http://smartfactory-integration.local:8001/movement-api/v1,"
+        "tb3_2=http://smartfactory-integration.local:8002/movement-api/v1"
+    )
     assert profiles["nav-field-tb1"]["components"]["main"]["enabled"] is False
     assert profiles["tb1-synthetic-e2e"]["execution_class"] == "synthetic_hil"
     assert profiles["tb1-synthetic-e2e"]["components"]["nav"]["profile"] == "tb1-synthetic-hil"

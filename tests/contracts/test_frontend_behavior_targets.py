@@ -231,11 +231,11 @@ def test_camera_transport_retry_and_staleness_watchdog_contracts() -> None:
     assert "scheduleMjpegReconnect" in camera
     assert "if (reconnectTimerRef.current) return" in camera
     assert "const scheduleNext = () =>" in camera
-    assert "beginMjpegPoll(nextAttempt)" in camera
+    assert "beginMjpegStream(nextAttempt)" in camera
     assert "scheduleNext()" in camera
-    assert "startMjpegPollTimer" in camera
+    assert "liveStreamUrlWithBust(source, kind, maxFps, view, Date.now())" in camera
     assert "mjpegBackoffRef.current = 0" in camera
-    assert "sinceLoadSec >= MJPEG_STALE_THRESHOLD_SEC" in camera
+    assert "age !== null && age >= MJPEG_STALE_THRESHOLD_SEC" in camera
     assert "WebRTC 실패 → MJPEG" in camera
 
 
@@ -309,8 +309,8 @@ def test_ordered_approach_routes_have_editor_api_types_and_numbered_overlay() ->
     assert 'markerEnd="url(#approachRouteArrow)"' in overlay
 
 
-def test_webrtc_requires_a_decoded_frame_and_retries_visibility_safely() -> None:
-    """F030: media is promoted only after decode, with bounded loss recovery and clean fallback."""
+def test_webrtc_requires_a_decoded_frame_and_keeps_layout_switches_live() -> None:
+    """F030: decode must be real and changing grid/single must not suspend a visible stream."""
 
     transport = source("lib/visionTransport.ts")
     camera = source("features/control/LiveCamera.tsx")
@@ -331,9 +331,16 @@ def test_webrtc_requires_a_decoded_frame_and_retries_visibility_safely() -> None
     assert "webrtcRetryAttemptRef.current = 0" in camera
     assert "await waitForFirstVideoFrame(video)" in camera
     assert "const handleWebRtcLost" in camera and "WebRTC 연결 끊김 → MJPEG" in camera
-    assert "!visibleRef.current" in camera and "if (!isVisible)" in camera
+    assert "IntersectionObserver" not in camera
+    assert "화면 밖 —" not in camera
     assert "clearWebRtcRetry()" in camera
     assert 'if (kind !== "overlay") return;' in camera
+    assert "videoEl.videoWidth > 0" in transport
+    assert "videoEl.videoHeight > 0" in transport
+    assert 'videoEl.addEventListener("resize", onFrame)' in transport
+    assert 'mediaTrack?.addEventListener("ended", handleMediaEnded)' in camera
+    assert 'video.addEventListener("emptied", handleMediaEnded)' in camera
+    assert 'activeTrack.readyState !== "live"' in camera
     assert 'className={`cam-live cam-live-video${mode === "webrtc" ? " is-active" : ""}`}' in camera
     assert 'hidden={mode !== "mjpeg"}' in camera
     assert "video.srcObject = null" not in camera

@@ -11,6 +11,7 @@
     "tb2-local-e2e": "tb2-local-e2e.json",
     "all-local-e2e": "all-local-e2e.json",
     "tb1-synthetic-e2e": "tb1-synthetic-e2e.json",
+    "main-integration": "main-integration.json",
     "main-field": "main-field.json",
     "nav-field-tb1": "nav-field-tb1.json",
     "nav-field-tb2": "nav-field-tb2.json",
