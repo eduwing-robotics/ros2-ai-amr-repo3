@@ -1827,12 +1827,6 @@ def execute_fork_insert(payload: Dict[str, Any]):
             raise_if_command_canceled("insert_extra")
             if runtime.navigator.safety.estop:
                 return "estop"
-            detection = runtime.navigator.get_latest_aruco_detection(
-                int(marker_id), max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
-            )
-            width = _marker_width_px(detection)
-            if detection and width >= max_width:
-                return "marker_width_safety"
             return None
 
         print(
