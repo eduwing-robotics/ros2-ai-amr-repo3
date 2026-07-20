@@ -14,10 +14,14 @@ from app.services.nonphysical_execution import require_explicit_nonphysical_admi
 from app.services.vision_proxy import post_lift_load_evaluate
 
 ALLOWED_ZONES = {
-    "inbound_static_item_zone",
-    "outbound_static_item_zone",
-    "storage_upper_static_item_zone",
-    "storage_lower_static_item_zone",
+    "INBOUND_01",
+    "INBOUND_02",
+    "OUTBOUND_01",
+    "OUTBOUND_02",
+    "STORAGE_S1",
+    "STORAGE_S2",
+    "STORAGE_S3",
+    "STORAGE_S4",
 }
 
 
@@ -31,6 +35,7 @@ def _request(task: dict[str, Any], scenario: dict[str, Any], step: dict[str, Any
         "expected_item_id": scenario["expected_item_id"],
         "expected_marker_id": scenario["expected_marker_id"],
         "expected_item_count": 1,
+        "location_id": step["vision_zone_id"],
         "vision_zone_id": step["vision_zone_id"],
         "burst_frames": settings.lift_load_burst_frames,
         "min_pass_frames": settings.lift_load_min_pass_frames,

@@ -80,10 +80,18 @@ def test_zone_roi_config_builds_visual_overlay_events(tmp_path) -> None:
         [20.0, 40.0],
     ]
     assert events[0]["metadata"]["overlay_color_bgr"] == [255, 0, 255]
-    assert events[0]["metadata"]["overlay_label"] == "ZONE inbound"
+    assert events[0]["metadata"]["overlay_label"] == "inbound"
     assert events[0]["metadata"]["overlay_label_xy"] == [28.0, 34.0]
+    assert events[0]["metadata"]["overlay_fill_polygon_xy"] == [
+        [20.0, 10.0],
+        [80.0, 10.0],
+        [80.0, 40.0],
+        [20.0, 40.0],
+    ]
+    assert events[0]["metadata"]["overlay_fill_alpha"] == pytest.approx(0.12)
     assert events[1]["metadata"]["overlay_color_bgr"] == [0, 165, 255]
     assert events[1]["metadata"]["overlay_label"] == "REF charging"
+    assert "overlay_fill_polygon_xy" not in events[1]["metadata"]
 
 
 
@@ -113,73 +121,32 @@ def test_zone_roi_config_rejects_invalid_overlay_label_anchor(tmp_path) -> None:
     with pytest.raises(ValueError, match="overlay_label_anchor_normalized"):
         load_zone_roi_config(path)
 
-def test_zone_roi_draft_config_uses_compact_storage_labels() -> None:
+def test_zone_roi_draft_uses_canonical_location_labels_and_aliases() -> None:
     config = load_zone_roi_config(
         REPO_ROOT / "config" / "vision" / "zone_rois" / "global_cam_01_lab_draft.json"
     )
 
-    labels = [zone.label for zone in config.zones if zone.zone_id.startswith("storage_")]
-
-    assert labels == ["storage 1", "storage 2"]
-
-
-def test_zone_roi_draft_config_exposes_operator_location_aliases() -> None:
-    config = load_zone_roi_config(
-        REPO_ROOT / "config" / "vision" / "zone_rois" / "global_cam_01_lab_draft.json"
-    )
-
-    assert config.location_aliases == {
-        "inbound": "inbound_static_item_zone",
-        "outbound": "outbound_static_item_zone",
-        "storage_1": "storage_upper_static_item_zone",
-        "storage_2": "storage_lower_static_item_zone",
+    expected_labels = {
+        "INBOUND_01": "inbound 1",
+        "INBOUND_02": "inbound 2",
+        "OUTBOUND_01": "outbound 1",
+        "OUTBOUND_02": "outbound 2",
+        "STORAGE_S1": "S1",
+        "STORAGE_S2": "S2",
+        "STORAGE_S3": "S3",
+        "STORAGE_S4": "S4",
     }
+    labels = {zone.zone_id: zone.label for zone in config.zones if zone.natural_item_location}
+
+    assert labels == expected_labels
+    assert config.location_aliases == {zone_id: zone_id for zone_id in expected_labels}
 
 
-def test_zone_roi_draft_uses_current_frame_feedback_inside_map_roi() -> None:
+def test_zone_roi_draft_separates_visible_location_bounds_from_evidence_masks() -> None:
     path = REPO_ROOT / "config" / "vision" / "zone_rois" / "global_cam_01_lab_draft.json"
     data = json.loads(path.read_text(encoding="utf-8"))
-    zones = {zone["zone_id"]: zone for zone in data["zones"]}
-
-    expected_polygons = {
-        "outbound_static_item_zone": [
-            [0.19, 0.016765],
-            [0.43, 0.016765],
-            [0.43, 0.371789],
-            [0.225, 0.371789],
-        ],
-        "charging_reference_zone": [
-            [0.225, 0.371789],
-            [0.43, 0.371789],
-            [0.43, 0.646637],
-            [0.245, 0.646637],
-        ],
-        "inbound_static_item_zone": [
-            [0.255, 0.646637],
-            [0.43, 0.646637],
-            [0.43, 0.899031],
-            [0.26, 0.899031],
-        ],
-        "storage_upper_static_item_zone": [
-            [0.485, 0.290677],
-            [0.64, 0.290677],
-            [0.64, 0.505677],
-            [0.485, 0.505677],
-        ],
-        "storage_lower_static_item_zone": [
-            [0.485, 0.635369],
-            [0.64, 0.635369],
-            [0.64, 0.885369],
-            [0.485, 0.885369],
-        ],
-    }
-    expected_label_y = {
-        "outbound_static_item_zone": 0.066765,
-        "charging_reference_zone": 0.426789,
-        "inbound_static_item_zone": 0.716637,
-        "storage_upper_static_item_zone": 0.345677,
-        "storage_lower_static_item_zone": 0.705369,
-    }
+    config = load_zone_roi_config(path)
+    zones = {zone.zone_id: zone for zone in config.zones}
     map_roi = ZoneRoi(
         zone_id="map_roi",
         label="map roi",
@@ -190,32 +157,82 @@ def test_zone_roi_draft_uses_current_frame_feedback_inside_map_roi() -> None:
         ),
     )
 
-    for zone_id, expected_polygon in expected_polygons.items():
-        polygon = zones[zone_id]["polygon_normalized"]
-        assert len(polygon) == len(expected_polygon)
-        for point, expected_point in zip(polygon, expected_polygon, strict=True):
-            assert point == pytest.approx(expected_point)
-        assert zones[zone_id]["overlay_label_anchor_normalized"][1] == pytest.approx(
-            expected_label_y[zone_id]
-        )
-        for x, y in polygon:
+    expected_markers = {
+        "INBOUND_01": (0,),
+        "INBOUND_02": (1,),
+        "OUTBOUND_01": (5,),
+        "OUTBOUND_02": (6,),
+        "STORAGE_S1": (7,),
+        "STORAGE_S2": (8,),
+        "STORAGE_S3": (10,),
+        "STORAGE_S4": (9,),
+    }
+    assert {zone_id: zones[zone_id].reference_markers for zone_id in expected_markers} == expected_markers
+
+    for zone in zones.values():
+        for x, y in zone.polygon_normalized:
             assert zone_contains_pixel(
                 map_roi, x=x * 1920, y=y * 1080, image_width=1920, image_height=1080
             )
 
-    for zone_id in (
-        "outbound_static_item_zone",
-        "charging_reference_zone",
-        "inbound_static_item_zone",
-    ):
-        polygon = expected_polygons[zone_id]
-        assert polygon[0][1] == pytest.approx(polygon[1][1])
-        assert polygon[2][1] == pytest.approx(polygon[3][1])
+    assert zones["OUTBOUND_02"].polygon_normalized[2][1] == pytest.approx(
+        zones["OUTBOUND_01"].polygon_normalized[1][1]
+    )
+    assert zones["INBOUND_02"].polygon_normalized[2][1] == pytest.approx(
+        zones["INBOUND_01"].polygon_normalized[1][1]
+    )
+    assert zones["STORAGE_S4"].polygon_normalized[1][0] == pytest.approx(
+        zones["STORAGE_S3"].polygon_normalized[0][0]
+    )
+    assert zones["STORAGE_S2"].polygon_normalized[1][0] == pytest.approx(
+        zones["STORAGE_S1"].polygon_normalized[0][0]
+    )
 
-    upper = expected_polygons["storage_upper_static_item_zone"]
-    lower = expected_polygons["storage_lower_static_item_zone"]
-    assert upper[2][1] - upper[1][1] == pytest.approx(0.215)
-    assert lower[2][1] - lower[1][1] == pytest.approx(0.25)
+    # Inbound/outbound evidence is the straight aisle-side carried-item strip,
+    # not the full perspective-shaped location outline.
+    assert zone_contains_pixel(
+        zones["OUTBOUND_02"], x=0.39 * 1920, y=0.10 * 1080, image_width=1920, image_height=1080
+    )
+    assert not zone_contains_pixel(
+        zones["OUTBOUND_02"], x=0.28 * 1920, y=0.10 * 1080, image_width=1920, image_height=1080
+    )
+    assert zone_contains_pixel(
+        zones["INBOUND_01"], x=0.40 * 1920, y=0.84 * 1080, image_width=1920, image_height=1080
+    )
+    assert not zone_contains_pixel(
+        zones["INBOUND_01"], x=0.32 * 1920, y=0.84 * 1080, image_width=1920, image_height=1080
+    )
+
+    # Storage outlines remain full-height for the operator. Evidence uses only
+    # the carried-item half away from the rack, independent of lift floor.
+    assert zone_contains_pixel(
+        zones["STORAGE_S4"], x=0.52 * 1920, y=0.34 * 1080, image_width=1920, image_height=1080
+    )
+    assert not zone_contains_pixel(
+        zones["STORAGE_S4"], x=0.52 * 1920, y=0.46 * 1080, image_width=1920, image_height=1080
+    )
+    assert zone_contains_pixel(
+        zones["STORAGE_S2"], x=0.52 * 1920, y=0.82 * 1080, image_width=1920, image_height=1080
+    )
+    assert not zone_contains_pixel(
+        zones["STORAGE_S2"], x=0.52 * 1920, y=0.70 * 1080, image_width=1920, image_height=1080
+    )
+
+    overlay = zone_roi_overlay_events(
+        config,
+        source="global_cam_01",
+        image_width=1920,
+        image_height=1080,
+    )
+    s4_overlay = next(event for event in overlay if event["metadata"]["zone_roi"]["zone_id"] == "STORAGE_S4")
+    assert s4_overlay["metadata"]["overlay_label"] == "S4"
+    assert s4_overlay["metadata"]["overlay_fill_polygon_xy"] == [
+        [0.485 * 1920, 0.290677 * 1080],
+        [0.5625 * 1920, 0.290677 * 1080],
+        [0.5625 * 1920, 0.398177 * 1080],
+        [0.485 * 1920, 0.398177 * 1080],
+    ]
+    assert "evidence_polygon_normalized" not in s4_overlay["metadata"]["zone_roi"]
 
 
 def test_zone_roi_rejects_location_aliases_pointing_to_unknown_zones(tmp_path) -> None:
@@ -360,5 +377,5 @@ def test_zone_roi_relative_config_path_resolves_from_repo_root_when_ai_server_cw
 
     assert response.status_code == 200
     class_names = [event["class_name"] for event in response.json()["overlay_events"]]
-    assert class_names.count("zone_roi") == 5
+    assert class_names.count("zone_roi") == 9
     assert len(context.store.latest(source="global_cam_01", limit=10)) == 1

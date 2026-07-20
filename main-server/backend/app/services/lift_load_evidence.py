@@ -20,6 +20,16 @@ RESPONSE_SCHEMA_VERSION = "vision-lift-load-evaluate.v1"
 EVENT_SCHEMA_VERSION = "vision-monitor-event.v1"
 
 GateMode = Literal["record", "gate"]
+EVIDENCE_LOCATION_IDS = frozenset({
+    "INBOUND_01",
+    "INBOUND_02",
+    "OUTBOUND_01",
+    "OUTBOUND_02",
+    "STORAGE_S1",
+    "STORAGE_S2",
+    "STORAGE_S3",
+    "STORAGE_S4",
+})
 
 
 class LiftLoadEvidenceSkip(ValueError):
@@ -60,10 +70,6 @@ def _item_catalog_entry(conn, item_id: str) -> dict[str, Any] | None:
     return {**item, "aruco_marker_id": normalized}
 
 
-def _storage_zone_for_floor(floor: Any) -> str:
-    return "storage_upper_static_item_zone" if int(floor or 1) == 2 else "storage_lower_static_item_zone"
-
-
 def _operation_and_zone(task: dict[str, Any], leg: dict[str, Any]) -> tuple[str, str]:
     task_type = str(task.get("task_type") or "").upper()
     params = leg.get("params") or {}
@@ -71,15 +77,19 @@ def _operation_and_zone(task: dict[str, Any], leg: dict[str, Any]) -> tuple[str,
     operation_override = str(params.get("evidence_operation") or "").strip().upper()
 
     if task_type == "INBOUND" and action == "load":
-        operation, zone = "PICK_UP", "inbound_static_item_zone"
+        operation, location_id = "PICK_UP", task.get("from_location_id")
     elif task_type == "INBOUND" and action == "unload":
-        operation, zone = "DROP_OFF", _storage_zone_for_floor(task.get("to_floor"))
+        operation, location_id = "DROP_OFF", task.get("to_location_id")
     elif task_type == "OUTBOUND" and action == "load":
-        operation, zone = "PICK_UP", _storage_zone_for_floor(task.get("from_floor"))
+        operation, location_id = "PICK_UP", task.get("from_location_id")
     elif task_type == "OUTBOUND" and action == "unload":
-        operation, zone = "DROP_OFF", "outbound_static_item_zone"
+        operation, location_id = "DROP_OFF", task.get("to_location_id")
     else:
         raise LiftLoadEvidenceSkip(f"unsupported lift-load context task_type={task_type} action={action or 'none'}")
+
+    zone = str(location_id or "").strip()
+    if zone not in EVIDENCE_LOCATION_IDS:
+        raise LiftLoadEvidenceSkip(f"unsupported lift-load evidence location: {zone or 'missing'}")
 
     if operation_override:
         if operation_override != "PRE_DROP_OFF" or action != "unload":
@@ -116,6 +126,7 @@ def build_request(conn, task: dict[str, Any], leg: dict[str, Any], runtime_comma
         "expected_item_id": item_id,
         "expected_marker_id": str(marker_id),
         "expected_item_count": 1,
+        "location_id": vision_zone_id,
         "vision_zone_id": vision_zone_id,
         "burst_frames": settings.lift_load_burst_frames,
         "min_pass_frames": settings.lift_load_min_pass_frames,

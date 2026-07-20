@@ -2596,12 +2596,7 @@ def _resolve_lift_evidence_zone(
     vision_zone_id: str | None,
     location_id: str | None,
 ) -> tuple[ZoneRoi | None, str | None, str | None]:
-    """Resolve caller zone identity without treating Main IDs as AI zone IDs.
-
-    `vision_zone_id` is an explicit AI Server ZoneROI id. `location_id` is only
-    usable through `ZoneRoiConfig.location_aliases`, because Main DB/location ids
-    are not finalized in this repo.
-    """
+    """Resolve the explicit zone id or its configured Main location alias."""
 
     if vision_zone_id:
         return find_zone_by_id(config, vision_zone_id), vision_zone_id, "vision_zone_id"

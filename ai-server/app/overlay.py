@@ -127,11 +127,13 @@ def _event_color(event: dict[str, Any], *, stale: bool) -> tuple[int, int, int]:
     return (0, 180, 0)
 
 
-def _overlay_polygon(event: dict[str, Any]) -> tuple[tuple[int, int], ...] | None:
+def _overlay_polygon(
+    event: dict[str, Any], *, key: str = "overlay_polygon_xy"
+) -> tuple[tuple[int, int], ...] | None:
     metadata = event.get("metadata")
     if not isinstance(metadata, dict):
         return None
-    raw = metadata.get("overlay_polygon_xy")
+    raw = metadata.get(key)
     if not isinstance(raw, list) or len(raw) < 3:
         return None
     points: list[tuple[int, int]] = []
@@ -165,9 +167,19 @@ def _draw_overlay_polygon(image: np.ndarray, event: dict[str, Any], *, stale: bo
     if polygon is None:
         return
     color = _event_color(event, stale=stale)
+    metadata = event.get("metadata")
+    fill_polygon = _overlay_polygon(event, key="overlay_fill_polygon_xy")
+    if fill_polygon is not None and isinstance(metadata, dict):
+        raw_alpha = metadata.get("overlay_fill_alpha", 0.12)
+        alpha = float(raw_alpha) if isinstance(raw_alpha, int | float) else 0.12
+        alpha = max(0.0, min(1.0, alpha))
+        if alpha > 0.0:
+            fill_layer = image.copy()
+            fill_points = np.asarray(fill_polygon, dtype=np.int32).reshape((-1, 1, 2))
+            cv2.fillPoly(fill_layer, [fill_points], color=color, lineType=cv2.LINE_AA)
+            cv2.addWeighted(fill_layer, alpha, image, 1.0 - alpha, 0.0, dst=image)
     points = np.asarray(polygon, dtype=np.int32).reshape((-1, 1, 2))
     cv2.polylines(image, [points], isClosed=True, color=color, thickness=3, lineType=cv2.LINE_AA)
-    metadata = event.get("metadata")
     label = metadata.get("overlay_label") if isinstance(metadata, dict) else None
     if isinstance(label, str) and label:
         x, y = _overlay_label_xy(event, polygon[0])
@@ -188,6 +200,7 @@ def _is_visual_overlay_event(
     event: dict[str, Any],
     *,
     min_confidence: float,
+    source: str,
 ) -> bool:
     # Keep model fallback/unknown candidates available in event payloads for
     # diagnostics, but do not clutter the live operator overlay with ambiguous
@@ -195,6 +208,14 @@ def _is_visual_overlay_event(
     # own compact policies, not from this visual filter.
     if event.get("class_name") == "unknown":
         return False
+    if source == "global_cam_01":
+        class_name = str(event.get("class_name") or "")
+        if class_name == "aruco_marker":
+            marker_id = str(event.get("marker_id") or "").rsplit("_", 1)[-1]
+            if not marker_id.isdigit() or int(marker_id) < 20:
+                return False
+        elif _bbox(event) is not None and class_name != "person":
+            return False
     confidence = event.get("confidence")
     if isinstance(confidence, int | float):
         return float(confidence) >= min_confidence
@@ -305,7 +326,11 @@ def render_overlay_bgr(
     visual_events = [
         event
         for event in events
-        if _is_visual_overlay_event(event, min_confidence=confidence_floor)
+        if _is_visual_overlay_event(
+            event,
+            min_confidence=confidence_floor,
+            source=frame.source,
+        )
     ]
 
     for event in visual_events:
@@ -342,12 +367,12 @@ def render_overlay_bgr(
         )
 
     clock_label = _frame_clock_label(frame.timestamp)
-    valid_event_count = len(visual_events)
-    if image.shape[1] < 240:
-        short_source = frame.source.replace("_picam", "").replace("global_cam_", "gcam")
-        banner = f"{short_source} last={clock_label} valid={valid_event_count}"
+    short_source = frame.source.replace("_picam", "").replace("global_cam_", "gcam")
+    display_source = short_source if image.shape[1] < 240 else frame.source
+    if frame.source == "global_cam_01":
+        banner = f"{display_source} last={clock_label}"
     else:
-        banner = f"{frame.source} last={clock_label} valid={valid_event_count}"
+        banner = f"{display_source} last={clock_label} valid={len(visual_events)}"
     _draw_label(image, banner, 4, image.shape[0] - 6, (40, 40, 40))
 
     return image

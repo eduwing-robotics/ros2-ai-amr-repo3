@@ -87,6 +87,8 @@ def test_letterbox_frame_and_events_scales_debug_overlay_polygon() -> None:
             "class_name": "map_roi",
             "metadata": {
                 "overlay_polygon_xy": [[0, 0], [1920, 0], [1920, 1080], [0, 1080]],
+                "overlay_fill_polygon_xy": [[480, 270], [960, 270], [960, 540], [480, 540]],
+                "overlay_fill_alpha": 0.12,
                 "overlay_color_bgr": [255, 255, 0],
             },
         }
@@ -100,6 +102,8 @@ def test_letterbox_frame_and_events_scales_debug_overlay_polygon() -> None:
             "class_name": "map_roi",
             "metadata": {
                 "overlay_polygon_xy": [[0, 0], [1280, 0], [1280, 720], [0, 720]],
+                "overlay_fill_polygon_xy": [[320, 180], [640, 180], [640, 360], [320, 360]],
+                "overlay_fill_alpha": 0.12,
                 "overlay_color_bgr": [255, 255, 0],
                 "letterbox_translated": True,
                 "letterbox_source_size_px": {"width": 1920, "height": 1080},

@@ -48,8 +48,8 @@ def test_evidence_only_reuses_one_task_for_fail_hold_retry_and_pass() -> None:
         "admit_nonphysical": True,
         "expected_item_id": "BOX-22",
         "expected_marker_id": 22,
-        "source_vision_zone_id": "storage_lower_static_item_zone",
-        "destination_vision_zone_id": "outbound_static_item_zone",
+        "source_vision_zone_id": "STORAGE_S1",
+        "destination_vision_zone_id": "OUTBOUND_01",
     }
 
     with (
@@ -91,8 +91,8 @@ def test_evidence_only_is_fail_closed_without_explicit_server_and_request_admiss
                 {
                     "admit_nonphysical": True,
                     "expected_marker_id": 22,
-                    "source_vision_zone_id": "storage_lower_static_item_zone",
-                    "destination_vision_zone_id": "outbound_static_item_zone",
+                    "source_vision_zone_id": "STORAGE_S1",
+                    "destination_vision_zone_id": "OUTBOUND_01",
                 },
             )
         except Exception as exc:

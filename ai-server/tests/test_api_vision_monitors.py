@@ -479,7 +479,7 @@ def test_lift_load_evaluate_passes_expected_aruco_in_requested_zone():
     client = TestClient(create_app(runtime_context=context))
     context.frame_store.put_decoded(
         source="global_cam_01",
-        image_bgr=_global_frame_with_marker(20, center_norm=(0.31, 0.85)),
+        image_bgr=_global_frame_with_marker(20, center_norm=(0.40, 0.85)),
     )
 
     response = client.post(
@@ -493,7 +493,7 @@ def test_lift_load_evaluate_passes_expected_aruco_in_requested_zone():
             "expected_item_id": "item-red",
             "expected_marker_id": 20,
             "expected_item_count": 1,
-            "vision_zone_id": "inbound_static_item_zone",
+            "vision_zone_id": "INBOUND_01",
             "burst_frames": 1,
             "min_pass_frames": 1,
             "sample_interval_ms": 0,
@@ -507,7 +507,7 @@ def test_lift_load_evaluate_passes_expected_aruco_in_requested_zone():
     assert body["result"] == "PASS"
     assert body["reason_code"] == "EXPECTED_ITEM_COUNT_MATCH_AND_STABLE"
     assert body["operation"] == "PICKUP"
-    assert body["vision_zone_id"] == "inbound_static_item_zone"
+    assert body["vision_zone_id"] == "INBOUND_01"
     assert event["event_type"] == "ITEM_PICKED"
     assert event["trusted"] is False
     assert event["confidence"] == 1.0
@@ -515,7 +515,7 @@ def test_lift_load_evaluate_passes_expected_aruco_in_requested_zone():
     assert event["data_json"]["expected_item_count"] == 1
     assert event["data_json"]["observed_count"] == 1
     assert event["data_json"]["detected_marker_id"] == "ARUCO_4X4_50_20"
-    assert event["data_json"]["vision_zone_id"] == "inbound_static_item_zone"
+    assert event["data_json"]["vision_zone_id"] == "INBOUND_01"
     assert "bbox_xyxy" not in set(_flatten(event))
     assert "polygon" not in set(_flatten(event))
     assert "HOLD" not in set(_flatten(event))
@@ -526,7 +526,7 @@ def test_lift_load_evaluate_pre_dropoff_returns_placement_ready_not_placed():
     client = TestClient(create_app(runtime_context=context))
     context.frame_store.put_decoded(
         source="global_cam_01",
-        image_bgr=_global_frame_with_marker(20, center_norm=(0.31, 0.85)),
+        image_bgr=_global_frame_with_marker(20, center_norm=(0.40, 0.85)),
     )
 
     response = client.post(
@@ -540,7 +540,7 @@ def test_lift_load_evaluate_pre_dropoff_returns_placement_ready_not_placed():
             "expected_item_id": "item-red",
             "expected_marker_id": 20,
             "expected_item_count": 1,
-            "vision_zone_id": "inbound_static_item_zone",
+            "vision_zone_id": "INBOUND_01",
             "burst_frames": 1,
             "min_pass_frames": 1,
             "sample_interval_ms": 0,
@@ -565,7 +565,7 @@ def test_lift_load_evaluate_default_burst_passes_with_one_frame_hit():
     client = TestClient(create_app(runtime_context=context))
     context.frame_store.put_decoded(
         source="global_cam_01",
-        image_bgr=_global_frame_with_marker(20, center_norm=(0.31, 0.85)),
+        image_bgr=_global_frame_with_marker(20, center_norm=(0.40, 0.85)),
     )
 
     response = client.post(
@@ -575,7 +575,7 @@ def test_lift_load_evaluate_default_burst_passes_with_one_frame_hit():
             "robot_id": "tb3_1",
             "operation": "PICK_UP",
             "expected_marker_id": 20,
-            "vision_zone_id": "inbound_static_item_zone",
+            "vision_zone_id": "INBOUND_01",
             "sample_interval_ms": 0,
         },
     )
@@ -596,9 +596,10 @@ def test_lift_load_evaluate_ignores_unregistered_extra_marker():
         source="global_cam_01",
         image_bgr=_global_frame_with_markers(
             [
-                (20, (0.29, 0.85)),
-                (21, (0.34, 0.85)),
-            ]
+                (20, (0.38, 0.85)),
+                (21, (0.42, 0.85)),
+            ],
+            marker_size=64,
         ),
     )
 
@@ -610,7 +611,7 @@ def test_lift_load_evaluate_ignores_unregistered_extra_marker():
             "operation": "PICK_UP",
             "expected_marker_id": 20,
             "expected_item_count": 1,
-            "vision_zone_id": "inbound_static_item_zone",
+            "vision_zone_id": "INBOUND_01",
             "burst_frames": 1,
             "min_pass_frames": 1,
             "sample_interval_ms": 0,
@@ -624,12 +625,12 @@ def test_lift_load_evaluate_ignores_unregistered_extra_marker():
     assert body["event"]["data_json"]["observed_count"] == 1
 
 
-def test_lift_load_evaluate_resolves_location_id_only_through_zone_alias_config():
+def test_lift_load_evaluate_resolves_canonical_location_id_through_zone_alias_config():
     context = create_runtime_context()
     client = TestClient(create_app(runtime_context=context))
     context.frame_store.put_decoded(
         source="global_cam_01",
-        image_bgr=_global_frame_with_marker(20, center_norm=(0.31, 0.85)),
+        image_bgr=_global_frame_with_marker(20, center_norm=(0.40, 0.85)),
     )
 
     response = client.post(
@@ -639,7 +640,7 @@ def test_lift_load_evaluate_resolves_location_id_only_through_zone_alias_config(
             "robot_id": "tb3_1",
             "operation": "PICK_UP",
             "expected_marker_id": 20,
-            "location_id": "inbound",
+            "location_id": "INBOUND_01",
             "burst_frames": 1,
             "min_pass_frames": 1,
             "sample_interval_ms": 0,
@@ -649,8 +650,8 @@ def test_lift_load_evaluate_resolves_location_id_only_through_zone_alias_config(
     assert response.status_code == 200
     body = response.json()
     assert body["result"] == "PASS"
-    assert body["vision_zone_id"] == "inbound_static_item_zone"
-    assert body["event"]["data_json"]["location_id"] == "inbound"
+    assert body["vision_zone_id"] == "INBOUND_01"
+    assert body["event"]["data_json"]["location_id"] == "INBOUND_01"
     assert body["event"]["data_json"]["zone_resolution_source"] == "location_aliases"
 
 
@@ -712,7 +713,7 @@ def test_lift_load_evaluate_fails_when_different_item_marker_is_in_zone():
     client = TestClient(create_app(runtime_context=context))
     context.frame_store.put_decoded(
         source="global_cam_01",
-        image_bgr=_global_frame_with_marker(22, center_norm=(0.31, 0.85)),
+        image_bgr=_global_frame_with_marker(22, center_norm=(0.40, 0.85)),
     )
 
     response = client.post(
@@ -725,7 +726,7 @@ def test_lift_load_evaluate_fails_when_different_item_marker_is_in_zone():
             "operation": "DROP_OFF",
             "expected_marker_id": 20,
             "expected_item_count": 1,
-            "vision_zone_id": "inbound_static_item_zone",
+            "vision_zone_id": "INBOUND_01",
             "burst_frames": 1,
             "min_pass_frames": 1,
             "sample_interval_ms": 0,
@@ -751,9 +752,10 @@ def test_lift_load_evaluate_reports_all_item_markers_when_expected_and_unexpecte
         source="global_cam_01",
         image_bgr=_global_frame_with_markers(
             [
-                (20, (0.29, 0.85)),
-                (22, (0.34, 0.85)),
-            ]
+                (20, (0.38, 0.85)),
+                (22, (0.42, 0.85)),
+            ],
+            marker_size=64,
         ),
     )
 
@@ -765,7 +767,7 @@ def test_lift_load_evaluate_reports_all_item_markers_when_expected_and_unexpecte
             "operation": "PICK_UP",
             "expected_marker_id": 20,
             "expected_item_count": 1,
-            "vision_zone_id": "inbound_static_item_zone",
+            "vision_zone_id": "INBOUND_01",
             "burst_frames": 1,
             "min_pass_frames": 1,
             "sample_interval_ms": 0,
@@ -822,7 +824,7 @@ def test_lift_load_evaluate_rejects_reserved_map_marker_as_item_id():
             "robot_id": "tb3_1",
             "operation": "PICK_UP",
             "expected_marker_id": 6,
-            "vision_zone_id": "inbound_static_item_zone",
+            "vision_zone_id": "INBOUND_01",
         },
     )
 
@@ -840,7 +842,7 @@ def test_lift_load_evaluate_rejects_unknown_request_fields():
             "robot_id": "tb3_1",
             "operation": "PICK_UP",
             "expected_marker_idd": 20,
-            "vision_zone_id": "inbound_static_item_zone",
+            "vision_zone_id": "INBOUND_01",
         },
     )
 
@@ -857,7 +859,7 @@ def test_lift_load_evaluate_rejects_min_pass_frames_greater_than_burst_frames():
             "robot_id": "tb3_1",
             "operation": "PICK_UP",
             "expected_marker_id": 20,
-            "vision_zone_id": "inbound_static_item_zone",
+            "vision_zone_id": "INBOUND_01",
             "burst_frames": 1,
             "min_pass_frames": 2,
         },
@@ -876,7 +878,7 @@ def test_lift_load_evaluate_returns_no_decision_when_global_frame_is_missing():
             "robot_id": "tb3_1",
             "operation": "PICK_UP",
             "expected_marker_id": 20,
-            "vision_zone_id": "inbound_static_item_zone",
+            "vision_zone_id": "INBOUND_01",
             "burst_frames": 1,
             "sample_interval_ms": 0,
         },

@@ -172,7 +172,14 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
             },
         ]
         task = _task_with_orchestration(step_index=1, steps=steps)
-        task.update({"task_type": "INBOUND", "to_floor": 1, "quantity": 1})
+        task.update(
+            {
+                "task_type": "INBOUND",
+                "to_location_id": "STORAGE_S1",
+                "to_floor": 1,
+                "quantity": 1,
+            }
+        )
         response = {
             "schema_version": "vision-lift-load-evaluate.v1",
             "monitor_id": "lift_evidence",
@@ -181,7 +188,7 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
             "task_id": 9001,
             "command_id": 44,
             "operation": "PRE_DROP_OFF",
-            "vision_zone_id": "storage_lower_static_item_zone",
+            "vision_zone_id": "STORAGE_S1",
             "result": "PASS",
             "reason_code": "PRE_DROP_OFF_CLEAR",
             "event": {
@@ -199,7 +206,7 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
                     "expected_item_id": "BOX-A",
                     "expected_marker_ids": ["ARUCO_4X4_50_20"],
                     "expected_item_count": 1,
-                    "vision_zone_id": "storage_lower_static_item_zone",
+                    "vision_zone_id": "STORAGE_S1",
                     "operation": "PRE_DROP_OFF",
                     "command_satisfying": True,
                 },

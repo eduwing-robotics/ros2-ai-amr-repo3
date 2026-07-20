@@ -18,6 +18,7 @@ class ZoneRoi:
     role: str
     natural_item_location: bool
     polygon_normalized: tuple[Point, ...]
+    evidence_polygon_normalized: tuple[Point, ...] | None = None
     reference_markers: tuple[int, ...] = ()
     overlay_label_anchor_normalized: Point | None = None
     notes: str = ""
@@ -103,6 +104,14 @@ def _parse_normalized_polygon(value: Any, *, path: str) -> tuple[Point, ...]:
     )
 
 
+def _parse_optional_normalized_polygon(
+    value: Any, *, path: str
+) -> tuple[Point, ...] | None:
+    if value is None:
+        return None
+    return _parse_normalized_polygon(value, path=path)
+
+
 def _parse_optional_normalized_point(value: Any, *, path: str) -> Point | None:
     if value is None:
         return None
@@ -165,6 +174,10 @@ def load_zone_roi_config(path: str | Path, *, enabled: bool = True) -> ZoneRoiCo
                 natural_item_location=_bool(zone.get("natural_item_location")),
                 polygon_normalized=_parse_normalized_polygon(
                     zone.get("polygon_normalized"), path=f"zones[{index}].polygon_normalized"
+                ),
+                evidence_polygon_normalized=_parse_optional_normalized_polygon(
+                    zone.get("evidence_polygon_normalized"),
+                    path=f"zones[{index}].evidence_polygon_normalized",
                 ),
                 reference_markers=_parse_reference_markers(
                     zone.get("reference_markers"), path=f"zones[{index}].reference_markers"
@@ -247,13 +260,19 @@ def zone_contains_pixel(
     image_width: int,
     image_height: int,
 ) -> bool:
-    """Return whether an image pixel coordinate lies inside a ZoneROI."""
+    """Return whether a detection lies inside the zone's evidence mask.
+
+    The outer polygon remains an operator-facing location boundary.  When an
+    inner evidence polygon is configured, lift/load decisions use only that
+    carried-item region and never consume pixels from the overlay renderer.
+    """
 
     if image_width <= 0 or image_height <= 0:
         return False
     nx = float(x) / float(image_width)
     ny = float(y) / float(image_height)
-    return _point_in_polygon(nx, ny, zone.polygon_normalized)
+    evidence_polygon = zone.evidence_polygon_normalized or zone.polygon_normalized
+    return _point_in_polygon(nx, ny, evidence_polygon)
 
 
 def find_zone_by_id(config: ZoneRoiConfig, zone_id: str) -> ZoneRoi | None:
@@ -304,7 +323,7 @@ def zone_to_overlay_event(
     timestamp: str | None = None,
 ) -> dict[str, Any]:
     color_bgr = [255, 0, 255] if zone.natural_item_location else [0, 165, 255]
-    label_prefix = "ZONE" if zone.natural_item_location else "REF"
+    overlay_label = zone.label if zone.natural_item_location else f"REF {zone.label}"
     polygon_xy = _polygon_to_pixels(
         zone.polygon_normalized,
         image_width=image_width,
@@ -315,7 +334,7 @@ def zone_to_overlay_event(
         "overlay_kind": "zone_roi",
         "overlay_polygon_xy": polygon_xy,
         "overlay_color_bgr": color_bgr,
-        "overlay_label": f"{label_prefix} {zone.label}",
+        "overlay_label": overlay_label,
         "overlay_label_xy": _label_anchor_xy(
             polygon_xy,
             image_width=image_width,
@@ -330,6 +349,14 @@ def zone_to_overlay_event(
             "coordinate_space": "normalized_full_frame_xy",
         },
     }
+    if zone.natural_item_location:
+        evidence_polygon = zone.evidence_polygon_normalized or zone.polygon_normalized
+        metadata["overlay_fill_polygon_xy"] = _polygon_to_pixels(
+            evidence_polygon,
+            image_width=image_width,
+            image_height=image_height,
+        )
+        metadata["overlay_fill_alpha"] = 0.12
     if frame_seq is not None:
         metadata["frame_seq"] = int(frame_seq)
         metadata["zone_roi"]["frame_seq"] = int(frame_seq)

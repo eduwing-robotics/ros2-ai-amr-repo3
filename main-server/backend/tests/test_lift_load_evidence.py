@@ -72,7 +72,7 @@ def _fresh_pass_response(*, observed_at: str | None = None) -> dict:
         "task_id": 303,
         "command_id": 12,
         "operation": "PICKUP",
-        "vision_zone_id": "inbound_static_item_zone",
+        "vision_zone_id": "INBOUND_01",
         "result": "PASS",
         "reason_code": "EXPECTED_ITEM_COUNT_MATCH_AND_STABLE",
         "event": {
@@ -90,7 +90,7 @@ def _fresh_pass_response(*, observed_at: str | None = None) -> dict:
                 "expected_item_id": "BOX-A",
                 "expected_marker_ids": ["ARUCO_4X4_50_20"],
                 "expected_item_count": 1,
-                "vision_zone_id": "inbound_static_item_zone",
+                "vision_zone_id": "INBOUND_01",
                 "operation": "PICKUP",
                 "command_satisfying": True,
             },
@@ -100,14 +100,20 @@ def _fresh_pass_response(*, observed_at: str | None = None) -> dict:
 
 class LiftLoadEvidenceServiceTest(unittest.TestCase):
     def test_build_request_uses_single_marker_and_physical_count_one(self) -> None:
-        task = _task(task_type="OUTBOUND", from_floor=2)
+        task = _task(
+            task_type="OUTBOUND",
+            from_location_id="STORAGE_S1",
+            to_location_id="OUTBOUND_01",
+            from_floor=2,
+        )
         leg = _leg("load")
         conn = _catalog_conn()
         with patch.object(lift_load_evidence, "settings", _settings()):
             payload = lift_load_evidence.build_request(conn, task, leg, 11)
 
         self.assertEqual(payload["operation"], "PICK_UP")
-        self.assertEqual(payload["vision_zone_id"], "storage_upper_static_item_zone")
+        self.assertEqual(payload["vision_zone_id"], "STORAGE_S1")
+        self.assertEqual(payload["location_id"], "STORAGE_S1")
         self.assertEqual(payload["expected_marker_id"], "20")
         self.assertEqual(payload["expected_item_count"], 1)
         self.assertNotIn("quantity", payload)
@@ -124,7 +130,7 @@ class LiftLoadEvidenceServiceTest(unittest.TestCase):
             "task_id": 303,
             "command_id": 12,
             "operation": "DROPOFF",
-            "vision_zone_id": "storage_upper_static_item_zone",
+            "vision_zone_id": "STORAGE_S1",
             "result": "PASS",
             "reason_code": "EXPECTED_ITEM_COUNT_MATCH_AND_STABLE",
             "event": {
@@ -137,7 +143,7 @@ class LiftLoadEvidenceServiceTest(unittest.TestCase):
                     "expected_marker_ids": ["ARUCO_4X4_50_20"],
                     "detected_marker_id": "ARUCO_4X4_50_20",
                     "detected_marker_ids": ["ARUCO_4X4_50_20"],
-                    "vision_zone_id": "storage_upper_static_item_zone",
+                    "vision_zone_id": "STORAGE_S1",
                     "expected_item_count": 1,
                     "observed_count": 1,
                     "accepted_frames": 1,
@@ -235,7 +241,7 @@ class LiftLoadEvidenceGateBindingTest(unittest.TestCase):
             "robot": ("robot_id", "tb3_2", "AI_EVIDENCE_ROBOT_ID_MISMATCH"),
             "command": ("command_id", 999, "AI_EVIDENCE_COMMAND_ID_MISMATCH"),
             "operation": ("operation", "DROPOFF", "AI_EVIDENCE_OPERATION_MISMATCH"),
-            "zone": ("vision_zone_id", "outbound_static_item_zone", "AI_EVIDENCE_ZONE_MISMATCH"),
+            "zone": ("vision_zone_id", "OUTBOUND_01", "AI_EVIDENCE_ZONE_MISMATCH"),
         }
         for name, (field, value, reason) in cases.items():
             with self.subTest(name=name):

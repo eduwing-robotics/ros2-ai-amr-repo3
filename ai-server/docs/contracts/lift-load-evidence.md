@@ -23,7 +23,8 @@ Content-Type: application/json
   "expected_item_id": "main-owned-item-id",
   "expected_marker_id": 20,
   "expected_item_count": 1,
-  "vision_zone_id": "inbound_static_item_zone",
+  "location_id": "INBOUND_01",
+  "vision_zone_id": "INBOUND_01",
   "burst_frames": 10,
   "min_pass_frames": 1,
   "sample_interval_ms": 80
@@ -55,24 +56,37 @@ expected marker is also evaluated even before it is added to that default set.
 
 Natural item zones:
 
-- `inbound_static_item_zone`
-- `outbound_static_item_zone`
-- `storage_upper_static_item_zone`
-- `storage_lower_static_item_zone`
+- `INBOUND_01` (marker `0`)
+- `INBOUND_02` (marker `1`)
+- `OUTBOUND_01` (marker `5`)
+- `OUTBOUND_02` (marker `6`)
+- `STORAGE_S1` (marker `7`)
+- `STORAGE_S2` (marker `8`)
+- `STORAGE_S3` (marker `10`)
+- `STORAGE_S4` (marker `9`)
 
 Reference/non-item zone:
 
 - `charging_reference_zone` returns `NO_DECISION/POLICY_NOT_APPLICABLE` for item
   evidence.
 
-Temporary lab aliases:
+Canonical Main location aliases:
 
 | `location_id` | maps to `vision_zone_id` |
 | --- | --- |
-| `inbound` | `inbound_static_item_zone` |
-| `outbound` | `outbound_static_item_zone` |
-| `storage_1` | `storage_upper_static_item_zone` |
-| `storage_2` | `storage_lower_static_item_zone` |
+| `INBOUND_01` | `INBOUND_01` |
+| `INBOUND_02` | `INBOUND_02` |
+| `OUTBOUND_01` | `OUTBOUND_01` |
+| `OUTBOUND_02` | `OUTBOUND_02` |
+| `STORAGE_S1` | `STORAGE_S1` |
+| `STORAGE_S2` | `STORAGE_S2` |
+| `STORAGE_S3` | `STORAGE_S3` |
+| `STORAGE_S4` | `STORAGE_S4` |
+
+Storage locations use one carried-item evidence mask for both lift floors. The
+mask is read directly from the latest raw frame. The operator overlay shows it
+only as an unlabeled light fill; the outer location boundary keeps the single
+short location label.
 
 Unmapped `location_id` returns `NO_DECISION/POLICY_NOT_APPLICABLE`; the server
 must not guess.
@@ -88,7 +102,7 @@ must not guess.
   "task_id": 303,
   "command_id": 3,
   "operation": "PICKUP",
-  "vision_zone_id": "inbound_static_item_zone",
+  "vision_zone_id": "INBOUND_01",
   "result": "PASS",
   "reason_code": "EXPECTED_ITEM_COUNT_MATCH_AND_STABLE",
   "event": {
@@ -101,7 +115,7 @@ must not guess.
       "expected_marker_ids": ["ARUCO_4X4_50_20"],
       "detected_marker_id": "ARUCO_4X4_50_20",
       "marker_dictionary": "DICT_4X4_50",
-      "vision_zone_id": "inbound_static_item_zone",
+      "vision_zone_id": "INBOUND_01",
       "expected_item_count": 1,
       "observed_count": 1,
       "accepted_frames": 1,

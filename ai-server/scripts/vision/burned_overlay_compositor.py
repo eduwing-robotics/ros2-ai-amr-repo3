@@ -169,8 +169,10 @@ def letterbox_frame_and_events_bgr(
             "letterbox_scale": {"x": x_scale, "y": y_scale},
             "letterbox_offset_px": {"x": x_offset, "y": y_offset},
         }
-        raw_polygon = metadata.get("overlay_polygon_xy")
-        if isinstance(raw_polygon, list) and len(raw_polygon) >= 3:
+        for polygon_key in ("overlay_polygon_xy", "overlay_fill_polygon_xy"):
+            raw_polygon = metadata.get(polygon_key)
+            if not isinstance(raw_polygon, list) or len(raw_polygon) < 3:
+                continue
             polygon: list[list[int]] = []
             for item in raw_polygon:
                 if not isinstance(item, list | tuple) or len(item) != 2:
@@ -182,7 +184,7 @@ def letterbox_frame_and_events_bgr(
                     polygon = []
                     break
             if polygon:
-                copied_metadata["overlay_polygon_xy"] = polygon
+                copied_metadata[polygon_key] = polygon
         raw_label_xy = metadata.get("overlay_label_xy")
         if isinstance(raw_label_xy, list | tuple) and len(raw_label_xy) == 2:
             try:

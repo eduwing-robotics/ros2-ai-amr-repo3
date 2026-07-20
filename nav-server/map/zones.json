@@ -340,7 +340,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 135,
-        "insert_extra_m": 0.11,
+        "insert_extra_m": 0.09,
         "close_from_marker_width_only": true
       }
     },
@@ -388,7 +388,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 135,
-        "insert_extra_m": 0.11,
+        "insert_extra_m": 0.09,
         "close_from_marker_width_only": true
       }
     },
@@ -437,7 +437,7 @@
         "insert_vision_stop": true,
         "insert_reference_start_width_px": 65,
         "insert_stop_width_px": 135,
-        "insert_extra_m": 0.11,
+        "insert_extra_m": 0.09,
         "close_from_marker_width_only": true
       }
     },
