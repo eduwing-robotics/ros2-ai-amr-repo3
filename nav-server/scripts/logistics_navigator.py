@@ -30,6 +30,7 @@ from nav_app.services.scan_map_alignment import (
     alignment_config,
     confirm_alignment,
     global_align_scan_to_map,
+    recheck_global_candidates,
     select_temporal_global_hypothesis,
 )
 from nav_app.services.vision_aruco import fetch_detector_payload
@@ -1523,14 +1524,22 @@ class LogisticsNavigator(Node):
         map_yaml = Path(str(search.get("active_map_yaml") or ""))
         if not map_yaml.is_absolute():
             map_yaml = ROOT / map_yaml
-        required = max(2, int(search.get("map_wide_confirmation_scans", 3)))
-        window = max(required, int(search.get("map_wide_confirmation_window_scans", 5)))
+        required = max(2, int(search.get("map_wide_confirmation_scans", 2)))
+        window = max(required, int(search.get("map_wide_confirmation_window_scans", 3)))
         translation_tolerance = float(search.get("map_wide_confirmation_translation_tolerance_m", 0.08))
         yaw_tolerance = float(search.get("map_wide_confirmation_yaw_tolerance_rad", math.radians(3.0)))
         timeout = min(180.0, max(10.0, float(search.get("nomotion_update_timeout_sec", 120.0))))
         deadline = time.monotonic() + timeout
+        started_at = time.monotonic()
         history = []
         last_token = None
+        candidate_pool = []
+        full_search_count = 0
+        candidate_recheck_count = 0
+        fallback_count = 0
+        previous_support = 0
+        stalled_rechecks = 0
+        recheck_enabled = config.get("global_candidate_recheck", True) is True
         while time.monotonic() < deadline and not self.global_localization_stop_event.is_set():
             with self.scan_lock:
                 scan = self.latest_scan
@@ -1540,16 +1549,53 @@ class LogisticsNavigator(Node):
                 continue
             last_token = scan_token
             mount = self._scan_mount(scan, config)
-            result = global_align_scan_to_map(
-                map_yaml=map_yaml,
-                scan_mount=mount,
-                ranges=scan.ranges,
-                angle_min=scan.angle_min,
-                angle_increment=scan.angle_increment,
-                range_min=scan.range_min,
-                range_max=scan.range_max,
-                config=config,
-            )
+            matcher_started_at = time.monotonic()
+            matcher_mode = "full_search"
+            if recheck_enabled and candidate_pool:
+                candidate_recheck_count += 1
+                matcher_mode = "candidate_recheck"
+                result = recheck_global_candidates(
+                    map_yaml=map_yaml,
+                    scan_mount=mount,
+                    ranges=scan.ranges,
+                    angle_min=scan.angle_min,
+                    angle_increment=scan.angle_increment,
+                    range_min=scan.range_min,
+                    range_max=scan.range_max,
+                    candidates=candidate_pool,
+                    config=config,
+                )
+                if int(result.get("usable_candidate_count", 0)) == 0:
+                    fallback_count += 1
+                    matcher_mode = "fallback_full_search"
+                    result = global_align_scan_to_map(
+                        map_yaml=map_yaml,
+                        scan_mount=mount,
+                        ranges=scan.ranges,
+                        angle_min=scan.angle_min,
+                        angle_increment=scan.angle_increment,
+                        range_min=scan.range_min,
+                        range_max=scan.range_max,
+                        config=config,
+                    )
+                    full_search_count += 1
+            else:
+                result = global_align_scan_to_map(
+                    map_yaml=map_yaml,
+                    scan_mount=mount,
+                    ranges=scan.ranges,
+                    angle_min=scan.angle_min,
+                    angle_increment=scan.angle_increment,
+                    range_min=scan.range_min,
+                    range_max=scan.range_max,
+                    config=config,
+                )
+                full_search_count += 1
+            matcher_elapsed = time.monotonic() - matcher_started_at
+            if matcher_mode != "candidate_recheck":
+                candidate_pool = list(result.get("candidates") or [])
+            elif result.get("candidates"):
+                candidate_pool = list(result["candidates"])
             history.append({
                 "scan_token": float(scan_token),
                 "candidates": list(result.get("candidates") or []),
@@ -1576,8 +1622,22 @@ class LogisticsNavigator(Node):
                 score_margin_m=temporal.get("score_margin_m"),
                 candidate_count=len(result.get("candidates") or []),
                 matcher_reason=result.get("reason"),
+                matcher_mode=matcher_mode,
+                matcher_elapsed_sec=round(matcher_elapsed, 3),
+                map_wide_elapsed_sec=round(time.monotonic() - started_at, 3),
+                full_search_count=full_search_count,
+                candidate_recheck_count=candidate_recheck_count,
+                fallback_count=fallback_count,
             )
             if not temporal.get("accepted"):
+                support = int(temporal.get("support_scans", 0))
+                if matcher_mode == "candidate_recheck":
+                    stalled_rechecks = stalled_rechecks + 1 if support <= previous_support else 0
+                    if support >= required or stalled_rechecks >= 1:
+                        candidate_pool = []
+                else:
+                    stalled_rechecks = 0
+                previous_support = support
                 continue
             absolute_pose = dict(temporal["absolute_pose"])
             self.set_initial_pose(

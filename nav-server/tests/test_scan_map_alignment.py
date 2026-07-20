@@ -11,10 +11,12 @@ from nav_app.services.scan_map_alignment import (
     alignment_config,
     confirm_alignment,
     global_align_scan_to_map,
+    recheck_global_candidates,
     select_temporal_global_hypothesis,
     _laser_points,
     _load_distance_field,
     _score_pose,
+    _score_pose_batch,
     _select_fine_candidate,
     _segment_mismatch_penalty,
 )
@@ -166,6 +168,128 @@ def test_map_wide_alignment_recovers_pose_without_any_start_seed(tmp_path):
     assert result["absolute_pose"]["y"] == pytest.approx(true_pose["y"], abs=0.04)
     assert result["absolute_pose"]["yaw"] == pytest.approx(true_pose["yaw"], abs=math.radians(1.5))
     assert result["score_margin_m"] >= 0.001
+
+
+@pytest.mark.parametrize("loss_backend", [
+    "truncated_mean",
+    "trimmed_huber",
+    "hybrid_trimmed_huber",
+])
+@pytest.mark.parametrize("point_selector", ["all_points", "wall_segments"])
+def test_vectorized_pose_scores_match_scalar_scores(tmp_path, loss_backend, point_selector):
+    map_yaml = _write_room_map(tmp_path)
+    field = _load_distance_field(map_yaml.resolve())
+    pose = {"x": 1.35, "y": 0.42, "yaw": math.radians(-90.0)}
+    angles = np.linspace(-math.pi, math.pi, 360, endpoint=False)
+    config = {
+        **alignment_config({}),
+        "loss_backend": loss_backend,
+        "point_selector": point_selector,
+        "segment_mismatch_weight": 0.0,
+        "wall_direction_weight_m_per_rad": 0.0,
+    }
+    points = _laser_points(
+        _room_ranges(pose["x"], pose["y"], pose["yaw"], angles, include_obstacle=True),
+        angle_min=float(angles[0]),
+        angle_increment=float(angles[1] - angles[0]),
+        range_min=0.05,
+        range_max=4.0,
+        max_points=180,
+        config=config,
+    )
+    x_values = np.asarray([1.31, 1.35, 1.39])
+    y_values = np.asarray([0.40, 0.42, 0.46])
+    yaw = math.radians(-89.0)
+
+    batched = _score_pose_batch(field, points, x_values, y_values, yaw, config)
+    scalar = np.asarray([
+        _score_pose(field, points, x, y, yaw, config)
+        for x, y in zip(x_values, y_values)
+    ])
+
+    np.testing.assert_allclose(batched, scalar, rtol=1e-12, atol=1e-12)
+
+
+def test_vectorized_global_search_preserves_candidate_results(tmp_path):
+    map_yaml = _write_room_map(tmp_path)
+    true_pose = {"x": 1.35, "y": 0.42, "yaw": math.radians(-90.0)}
+    angles = np.linspace(-math.pi, math.pi, 360, endpoint=False)
+    kwargs = {
+        "map_yaml": map_yaml,
+        "scan_mount": {"x": 0.0, "y": 0.0, "yaw": 0.0},
+        "ranges": _room_ranges(
+            true_pose["x"], true_pose["y"], true_pose["yaw"], angles,
+            include_obstacle=True,
+        ),
+        "angle_min": float(angles[0]),
+        "angle_increment": float(angles[1] - angles[0]),
+        "range_min": 0.05,
+        "range_max": 4.0,
+    }
+    config = {
+        "global_point_selector": "wall_segments",
+        "global_translation_step_m": 0.20,
+        "global_yaw_step_rad": math.radians(10.0),
+        "global_refine_candidates": 2,
+        "global_refine_translation_m": 0.08,
+        "global_refine_yaw_rad": math.radians(5.0),
+        "coarse_translation_step_m": 0.04,
+        "coarse_yaw_step_rad": math.radians(2.0),
+        "fine_translation_window_m": 0.01,
+        "fine_yaw_window_rad": math.radians(0.4),
+        "global_fine_translation_step_m": 0.01,
+        "global_fine_yaw_step_rad": math.radians(0.2),
+    }
+
+    scalar = global_align_scan_to_map(
+        **kwargs,
+        config={**config, "vectorized_coarse_scoring": False},
+    )
+    vectorized = global_align_scan_to_map(
+        **kwargs,
+        config={**config, "vectorized_coarse_scoring": True},
+    )
+
+    assert vectorized["accepted"] is scalar["accepted"]
+    assert vectorized["reason"] == scalar["reason"]
+    assert len(vectorized["candidates"]) == len(scalar["candidates"])
+    for actual, expected in zip(vectorized["candidates"], scalar["candidates"]):
+        assert actual["absolute_pose"] == pytest.approx(expected["absolute_pose"], abs=1e-12)
+        assert actual["score"] == pytest.approx(expected["score"], abs=1e-12)
+
+
+def test_global_candidate_recheck_scores_fresh_scan_without_full_map_search(tmp_path):
+    map_yaml = _write_room_map(tmp_path)
+    true_pose = {"x": 1.35, "y": 0.42, "yaw": math.radians(-90.0)}
+    wrong_pose = {"x": 0.35, "y": 1.55, "yaw": math.radians(35.0)}
+    angles = np.linspace(-math.pi, math.pi, 360, endpoint=False)
+
+    result = recheck_global_candidates(
+        map_yaml=map_yaml,
+        scan_mount={"x": 0.0, "y": 0.0, "yaw": 0.0},
+        ranges=_room_ranges(
+            true_pose["x"], true_pose["y"], true_pose["yaw"], angles,
+            include_obstacle=True,
+        ),
+        angle_min=float(angles[0]),
+        angle_increment=float(angles[1] - angles[0]),
+        range_min=0.05,
+        range_max=4.0,
+        candidates=[
+            {"absolute_pose": wrong_pose, "score": {}},
+            {"absolute_pose": true_pose, "score": {}},
+        ],
+        config={
+            "point_selector": "wall_segments",
+            "map_feature_field": "wall_centerline",
+            "loss_backend": "hybrid_trimmed_huber",
+            "global_max_points": 180,
+        },
+    )
+
+    assert result["usable_candidate_count"] >= 1
+    assert result["absolute_pose"] == pytest.approx(true_pose, abs=1e-12)
+    assert result["candidates"][0]["score"]["mean_distance_m"] < result["candidates"][1]["score"]["mean_distance_m"]
 
 
 def _global_candidate(x, y, yaw, loss):

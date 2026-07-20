@@ -402,7 +402,7 @@ def validate_localization_config(robot_id: str, localization: Any) -> List[str]:
             "point_selector": "all_points",
             "map_feature_field": "occupied_surface",
             "loss_backend": "truncated_mean",
-            "global_point_selector": "all_points",
+            "global_point_selector": "wall_segments",
             "global_map_feature_field": "occupied_surface",
             "global_loss_backend": "trimmed_huber",
         }
@@ -410,6 +410,11 @@ def validate_localization_config(robot_id: str, localization: Any) -> List[str]:
             value = str(alignment.get(field, defaults[field]))
             if value not in allowed_values_for_field:
                 errors.append(f"{robot_id}: localization.scan_map_alignment.{field} is unsupported: {value}")
+        for field in ("vectorized_coarse_scoring", "global_candidate_recheck"):
+            if field in alignment and not isinstance(alignment[field], bool):
+                errors.append(
+                    f"{robot_id}: localization.scan_map_alignment.{field} must be boolean"
+                )
         for field, minimum, maximum in (
             ("loss_trim_fraction", 0.0, 0.49),
             ("loss_area_weight", 0.0, 1.0),

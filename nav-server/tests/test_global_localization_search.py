@@ -108,12 +108,9 @@ def test_map_wide_worker_seeds_only_repeated_top_k_hypothesis(monkeypatch):
     navigator.reset_scan_map_alignment = MagicMock()
     navigator._observe_only_localization_search = MagicMock()
     correct = {"x": 0.42, "y": -0.92, "yaw": math.radians(39.0)}
-    distractors = [
-        {"x": 1.2, "y": 0.1, "yaw": -1.0},
-        {"x": -0.8, "y": 0.7, "yaw": 2.1},
-        {"x": 0.3, "y": 1.1, "yaw": -2.5},
-    ]
-    call_count = 0
+    distractor = {"x": 1.2, "y": 0.1, "yaw": -1.0}
+    full_search_count = 0
+    recheck_count = 0
 
     def candidate(pose, loss):
         return {
@@ -126,25 +123,38 @@ def test_map_wide_worker_seeds_only_repeated_top_k_hypothesis(monkeypatch):
         }
 
     def global_match(**_kwargs):
-        nonlocal call_count
-        index = call_count
-        call_count += 1
+        nonlocal full_search_count
+        full_search_count += 1
         navigator.latest_scan_monotonic += 1.0
-        repeated = {
-            **correct,
-            "x": correct["x"] + (index - 1) * 0.01,
-            "yaw": correct["yaw"] + math.radians(index - 1) * 0.4,
-        }
-        ranked = [candidate(distractors[index], 0.007), candidate(repeated, 0.010)]
-        if index == 1:
-            ranked.reverse()
+        invalid = candidate(distractor, 0.007)
+        invalid["score"]["segment_mismatch_m"] = 0.030
         return {
             "accepted": False,
             "reason": "global_match_ambiguous",
-            "candidates": ranked,
+            "candidates": [invalid, candidate(correct, 0.010)],
+        }
+
+    def recheck(**_kwargs):
+        nonlocal recheck_count
+        index = recheck_count
+        recheck_count += 1
+        navigator.latest_scan_monotonic += 1.0
+        repeated = {
+            **correct,
+            "x": correct["x"] + (index + 1) * 0.005,
+            "yaw": correct["yaw"] + math.radians(index + 1) * 0.2,
+        }
+        invalid = candidate(distractor, 0.008)
+        invalid["score"]["segment_mismatch_m"] = 0.030
+        return {
+            "accepted": False,
+            "reason": "global_recheck_ambiguous",
+            "usable_candidate_count": 1,
+            "candidates": [candidate(repeated, 0.010), invalid],
         }
 
     monkeypatch.setattr(navigator_module, "global_align_scan_to_map", global_match)
+    monkeypatch.setattr(navigator_module, "recheck_global_candidates", recheck)
 
     navigator._map_wide_scan_localization_search({
         "active_map_yaml": "map/robot2_map.yaml",
@@ -154,7 +164,8 @@ def test_map_wide_worker_seeds_only_repeated_top_k_hypothesis(monkeypatch):
         "scan_map_alignment": {},
     })
 
-    assert call_count == 3
+    assert full_search_count == 1
+    assert recheck_count == 2
     navigator.set_initial_pose.assert_called_once()
     seeded = navigator.set_initial_pose.call_args.args[0]
     assert seeded["x"] == pytest.approx(correct["x"], abs=0.01)
@@ -163,6 +174,76 @@ def test_map_wide_worker_seeds_only_repeated_top_k_hypothesis(monkeypatch):
     navigator._observe_only_localization_search.assert_called_once()
     fine_search = navigator._observe_only_localization_search.call_args.args[0]
     assert fine_search["_overall_deadline_monotonic"] > time.monotonic()
+
+
+def test_map_wide_worker_falls_back_to_full_search_when_recheck_has_no_usable_candidate(monkeypatch):
+    navigator = navigator_stub()
+    navigator.scan_lock = Lock()
+    navigator.latest_scan = SimpleNamespace(
+        ranges=[1.0] * 40,
+        angle_min=-1.0,
+        angle_increment=0.05,
+        range_min=0.05,
+        range_max=3.5,
+    )
+    navigator.latest_scan_monotonic = 1.0
+    navigator._scan_mount = MagicMock(return_value={"x": 0.0, "y": 0.0, "yaw": 0.0})
+    navigator.set_initial_pose = MagicMock(return_value={})
+    navigator.reset_scan_map_alignment = MagicMock()
+    navigator._observe_only_localization_search = MagicMock()
+    pose = {"x": 0.42, "y": -0.92, "yaw": math.radians(39.0)}
+    full_search_count = 0
+    recheck_count = 0
+
+    def candidate():
+        return {
+            "absolute_pose": dict(pose),
+            "score": {
+                "objective_m": 0.010,
+                "mean_distance_m": 0.010,
+                "match_ratio": 0.92,
+                "segment_mismatch_m": 0.005,
+            },
+        }
+
+    def global_match(**_kwargs):
+        nonlocal full_search_count
+        full_search_count += 1
+        navigator.latest_scan_monotonic += 1.0
+        return {
+            "accepted": True,
+            "reason": "global_match",
+            "candidates": [candidate()],
+        }
+
+    def recheck(**_kwargs):
+        nonlocal recheck_count
+        recheck_count += 1
+        return {
+            "accepted": False,
+            "reason": "global_recheck_unreliable",
+            "usable_candidate_count": 0,
+            "candidates": [],
+        }
+
+    monkeypatch.setattr(navigator_module, "global_align_scan_to_map", global_match)
+    monkeypatch.setattr(navigator_module, "recheck_global_candidates", recheck)
+
+    navigator._map_wide_scan_localization_search({
+        "active_map_yaml": "map/robot2_map.yaml",
+        "nomotion_update_timeout_sec": 10.0,
+        "map_wide_confirmation_scans": 2,
+        "map_wide_confirmation_window_scans": 3,
+        "scan_map_alignment": {},
+    })
+
+    assert full_search_count == 2
+    assert recheck_count == 1
+    navigator.set_initial_pose.assert_called_once_with(
+        pytest.approx(pose),
+        frame_id="map",
+        covariance=pytest.approx({"x": 0.02, "y": 0.02, "yaw": 0.01}),
+    )
 
 
 def test_fine_search_honors_map_wide_overall_deadline():

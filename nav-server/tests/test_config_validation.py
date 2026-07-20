@@ -313,6 +313,27 @@ def test_scan_alignment_rejects_global_gate_tighter_than_fine_gate():
     assert any("global_max_mean_distance_m must be greater than or equal" in error for error in errors)
 
 
+def test_scan_alignment_rejects_non_boolean_performance_switches():
+    localization = _localization()
+    localization["scan_map_alignment"] = {
+        "vectorized_coarse_scoring": "yes",
+        "global_candidate_recheck": 1,
+    }
+    profile = {
+        "robot_id": "tb3_burger_01", "bridge_robot_id": "tb3_1",
+        "ros_domain_id": 2, "center_domain_id": 1,
+        "namespace": "/tb3_burger_01", "teleop_command_topic": "/mission/tb3_1/teleop_cmd",
+        "camera_topic": "/mission/tb3_1/camera/compressed", "api_port": 8001,
+        "active_map_yaml": "map/robot1_map.yaml", "localization": localization,
+        "field_dispatch": {"inbound": False, "outbound": False, "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"},
+    }
+
+    errors = validate_robot_profile(profile)
+
+    assert any("vectorized_coarse_scoring must be boolean" in error for error in errors)
+    assert any("global_candidate_recheck must be boolean" in error for error in errors)
+
+
 def test_global_search_requires_observe_only_default_explicit_motion_gate_and_bounded_tf_age():
     localization = _localization()
     localization["global_search"].update(
@@ -450,11 +471,16 @@ def test_both_robots_use_stationary_global_search_without_continuous_gate():
         assert robot1["localization"]["scan_map_alignment"]["enabled"] is False
         assert search["default_strategy"] == "observe_only"
         assert search["map_wide_scan_matching"] is True
+        assert search["map_wide_confirmation_scans"] == 2
+        assert search["map_wide_confirmation_window_scans"] == 3
         assert search["motion_requires_explicit_request"] is True
         assert matcher["enabled"] is False
         assert matcher["point_selector"] == "wall_segments"
+        assert matcher["global_point_selector"] == "wall_segments"
         assert matcher["loss_backend"] == "hybrid_trimmed_huber"
         assert matcher["global_loss_backend"] == "trimmed_huber"
+        assert matcher["vectorized_coarse_scoring"] is True
+        assert matcher["global_candidate_recheck"] is True
         assert matcher["scan_mount_fallback"] == {"x": -0.032, "y": 0.0, "yaw": 0.0}
         assert {
             key: value for key, value in matcher.items() if key != "enabled"

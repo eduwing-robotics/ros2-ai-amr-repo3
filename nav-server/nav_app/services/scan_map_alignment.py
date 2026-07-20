@@ -54,9 +54,11 @@ DEFAULTS = {
     "max_refinement_passes": 3,
     "global_translation_step_m": 0.10,
     "global_yaw_step_rad": math.radians(5.0),
-    "global_point_selector": "all_points",
+    "global_point_selector": "wall_segments",
     "global_loss_backend": "trimmed_huber",
     "global_map_feature_field": "occupied_surface",
+    "vectorized_coarse_scoring": True,
+    "global_candidate_recheck": True,
     "global_candidate_separation_m": 0.25,
     "global_candidate_separation_yaw_rad": math.radians(15.0),
     "global_refine_candidates": 4,
@@ -406,14 +408,51 @@ def align_scan_to_map(
             "correction": {"x": 0.0, "y": 0.0, "yaw": 0.0},
             "corrected_pose": dict(base_pose),
         }
+    coarse_cfg = {**cfg, "wall_direction_weight_m_per_rad": 0.0}
     coarse_current = score(0.0, 0.0, 0.0, use_direction=False)
     best = (coarse_current[0], 0.0, 0.0, 0.0, coarse_current)
-    for dyaw in _steps(-float(cfg["search_yaw_rad"]), float(cfg["search_yaw_rad"]), float(cfg["coarse_yaw_step_rad"])):
-        for dx in _steps(-float(cfg["search_translation_m"]), float(cfg["search_translation_m"]), float(cfg["coarse_translation_step_m"])):
-            for dy in _steps(-float(cfg["search_translation_m"]), float(cfg["search_translation_m"]), float(cfg["coarse_translation_step_m"])):
-                candidate = score(dx, dy, dyaw, use_direction=False)
-                if candidate[0] < best[0]:
-                    best = (candidate[0], dx, dy, dyaw, candidate)
+    translation_steps = _steps(
+        -float(cfg["search_translation_m"]),
+        float(cfg["search_translation_m"]),
+        float(cfg["coarse_translation_step_m"]),
+    )
+    if _boolean_setting(cfg, "vectorized_coarse_scoring"):
+        dx_grid, dy_grid = np.meshgrid(translation_steps, translation_steps, indexing="ij")
+        dx_values, dy_values = dx_grid.ravel(), dy_grid.ravel()
+        for dyaw in _steps(
+            -float(cfg["search_yaw_rad"]),
+            float(cfg["search_yaw_rad"]),
+            float(cfg["coarse_yaw_step_rad"]),
+        ):
+            candidates = _score_pose_batch(
+                field,
+                laser_points,
+                laser_x + dx_values,
+                laser_y + dy_values,
+                laser_yaw + float(dyaw),
+                coarse_cfg,
+            )
+            index = int(np.argmin(candidates[:, 0]))
+            candidate = tuple(map(float, candidates[index]))
+            if candidate[0] < best[0]:
+                best = (
+                    candidate[0],
+                    float(dx_values[index]),
+                    float(dy_values[index]),
+                    float(dyaw),
+                    candidate,
+                )
+    else:
+        for dyaw in _steps(
+            -float(cfg["search_yaw_rad"]),
+            float(cfg["search_yaw_rad"]),
+            float(cfg["coarse_yaw_step_rad"]),
+        ):
+            for dx in translation_steps:
+                for dy in translation_steps:
+                    candidate = score(float(dx), float(dy), float(dyaw), use_direction=False)
+                    if candidate[0] < best[0]:
+                        best = (candidate[0], float(dx), float(dy), float(dyaw), candidate)
 
     _, coarse_x, coarse_y, coarse_yaw, _ = best
     fine_start = score(coarse_x, coarse_y, coarse_yaw)
@@ -501,6 +540,7 @@ def global_align_scan_to_map(
         # Structural wall validation belongs to refined hypotheses, not the
         # room-scale coarse fingerprint search.
         "segment_mismatch_weight": 0.0,
+        "wall_direction_weight_m_per_rad": 0.0,
     }
     laser_points = _laser_points(
         ranges,
@@ -526,14 +566,36 @@ def global_align_scan_to_map(
     candidate_x = field["origin_x"] + free_x * field["resolution"]
     candidate_y = field["origin_y"] + (field["height"] - 1 - free_y) * field["resolution"]
 
+    vectorized = _boolean_setting(cfg, "vectorized_coarse_scoring")
     coarse = []
     for yaw in _steps(-math.pi, math.pi - yaw_step, yaw_step):
-        for x, y in zip(candidate_x, candidate_y):
-            score = _score_pose(
-                field, laser_points, float(x), float(y), float(yaw), coarse_cfg,
-                loss_backend=loss_backend,
+        if vectorized:
+            scores = _score_pose_batch(
+                field,
+                laser_points,
+                candidate_x,
+                candidate_y,
+                float(yaw),
+                coarse_cfg,
             )
-            coarse.append((score[0], -score[2], float(x), float(y), float(yaw), score))
+            coarse.extend(
+                (
+                    float(score[0]),
+                    -float(score[2]),
+                    float(x),
+                    float(y),
+                    float(yaw),
+                    tuple(map(float, score)),
+                )
+                for x, y, score in zip(candidate_x, candidate_y, scores)
+            )
+        else:
+            for x, y in zip(candidate_x, candidate_y):
+                score = _score_pose(
+                    field, laser_points, float(x), float(y), float(yaw), coarse_cfg,
+                    loss_backend=loss_backend,
+                )
+                coarse.append((score[0], -score[2], float(x), float(y), float(yaw), score))
     coarse.sort(key=lambda item: (item[0], item[1]))
     separated = []
     for item in coarse:
@@ -585,10 +647,7 @@ def global_align_scan_to_map(
     second_mean = refined[1]["score"]["mean_distance_m"] if len(refined) > 1 else float(cfg["distance_clip_m"])
     margin = max(0.0, second_mean - best["score"]["mean_distance_m"])
     accepted = bool(
-        best["score"]["mean_distance_m"] <= float(cfg["global_max_mean_distance_m"])
-        and best["score"]["match_ratio"] >= float(cfg["min_match_ratio"])
-        and best["score"]["segment_mismatch_m"] <= float(cfg["max_segment_mismatch_m"])
-        and best["score"]["wall_direction_error_rad"] <= float(cfg["max_wall_direction_error_rad"])
+        _global_score_is_usable(best["score"], cfg)
         and margin >= float(cfg["global_min_score_margin_m"])
     )
     return {
@@ -599,6 +658,108 @@ def global_align_scan_to_map(
         "score_margin_m": margin,
         "candidates": refined,
     }
+
+
+def recheck_global_candidates(
+    *,
+    map_yaml: str | Path,
+    scan_mount: Mapping[str, float],
+    ranges: Sequence[float],
+    angle_min: float,
+    angle_increment: float,
+    range_min: float,
+    range_max: float,
+    candidates: Sequence[Mapping[str, Any]],
+    config: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Re-score prior map-wide hypotheses against a fresh stationary scan."""
+    cfg = {**DEFAULTS, **dict(config or {})}
+    field = _load_distance_field(Path(map_yaml).resolve())
+    laser_points = _laser_points(
+        ranges,
+        angle_min=float(angle_min),
+        angle_increment=float(angle_increment),
+        range_min=float(range_min),
+        range_max=min(float(range_max), float(cfg["max_range_m"])),
+        max_points=int(cfg["global_max_points"]),
+        config=cfg,
+    )
+    if laser_points.shape[0] < 20:
+        return {
+            "accepted": False,
+            "reason": "insufficient_scan_points",
+            "usable_candidate_count": 0,
+            "candidates": [],
+        }
+
+    loss_backend = _resolve_loss_backend(cfg)
+    wall_segments = _wall_direction_segments(laser_points, cfg)
+    rescored = []
+    for candidate in list(candidates)[:int(cfg["global_refine_candidates"])]:
+        base_pose = _finite_pose(candidate.get("absolute_pose") or {})
+        if base_pose is None:
+            continue
+        laser_x, laser_y, laser_yaw = _compose_pose(base_pose, scan_mount)
+        score = _score_pose(
+            field,
+            laser_points,
+            laser_x,
+            laser_y,
+            laser_yaw,
+            cfg,
+            loss_backend=loss_backend,
+            wall_segments=wall_segments,
+        )
+        rescored.append({
+            "absolute_pose": base_pose,
+            "score": _score_payload(score),
+        })
+
+    rescored.sort(key=lambda item: (
+        item["score"]["mean_distance_m"],
+        item["score"]["objective_m"],
+        -item["score"]["match_ratio"],
+    ))
+    if not rescored:
+        return {
+            "accepted": False,
+            "reason": "global_recheck_empty",
+            "usable_candidate_count": 0,
+            "candidates": [],
+        }
+
+    usable = [item for item in rescored if _global_score_is_usable(item["score"], cfg)]
+    ranked = usable or rescored
+    best = ranked[0]
+    second_mean = (
+        ranked[1]["score"]["mean_distance_m"]
+        if len(ranked) > 1 else float(cfg["distance_clip_m"])
+    )
+    margin = max(0.0, second_mean - best["score"]["mean_distance_m"])
+    accepted = bool(
+        usable
+        and margin >= float(cfg["global_min_score_margin_m"])
+    )
+    return {
+        "accepted": accepted,
+        "reason": "global_recheck" if accepted else "global_recheck_ambiguous",
+        "absolute_pose": best["absolute_pose"],
+        "best": best["score"],
+        "score_margin_m": margin,
+        "point_count": int(laser_points.shape[0]),
+        "usable_candidate_count": len(usable),
+        "candidates": rescored,
+    }
+
+
+def _global_score_is_usable(score: Mapping[str, Any], cfg: Mapping[str, Any]) -> bool:
+    return bool(
+        float(score.get("mean_distance_m", math.inf)) <= float(cfg["global_max_mean_distance_m"])
+        and float(score.get("match_ratio", 0.0)) >= float(cfg["min_match_ratio"])
+        and float(score.get("segment_mismatch_m", math.inf)) <= float(cfg["max_segment_mismatch_m"])
+        and float(score.get("wall_direction_error_rad", math.inf))
+        <= float(cfg["max_wall_direction_error_rad"])
+    )
 
 
 def select_temporal_global_hypothesis(
@@ -898,6 +1059,65 @@ def _score_pose(
     )
 
 
+def _score_pose_batch(
+    field: Mapping[str, Any],
+    points: np.ndarray,
+    x_values: Sequence[float] | np.ndarray,
+    y_values: Sequence[float] | np.ndarray,
+    yaw: float,
+    cfg: Mapping[str, Any],
+) -> np.ndarray:
+    """Score same-yaw coarse poses together; structural gates remain in fine scoring."""
+    x_array = np.asarray(x_values, dtype=float).reshape(-1)
+    y_array = np.asarray(y_values, dtype=float).reshape(-1)
+    if x_array.shape != y_array.shape:
+        raise ValueError("batched pose x/y arrays must have matching shapes")
+    if x_array.size == 0:
+        return np.empty((0, 6), dtype=float)
+
+    cosine, sine = math.cos(yaw), math.sin(yaw)
+    rotated_x = cosine * points[:, 0] - sine * points[:, 1]
+    rotated_y = sine * points[:, 0] + cosine * points[:, 1]
+    map_x = x_array[:, None] + rotated_x[None, :]
+    map_y = y_array[:, None] + rotated_y[None, :]
+    grid_x = (map_x - field["origin_x"]) / field["resolution"]
+    grid_y = field["height"] - 1 - (map_y - field["origin_y"]) / field["resolution"]
+    inside = (
+        (grid_x >= 0.0)
+        & (grid_x <= field["width"] - 1)
+        & (grid_y >= 0.0)
+        & (grid_y <= field["height"] - 1)
+    )
+    distances = np.full(
+        (x_array.size, points.shape[0]),
+        float(cfg["distance_clip_m"]) * 1.5,
+        dtype=float,
+    )
+    feature_name = str(cfg.get("map_feature_field", "occupied_surface"))
+    try:
+        distance_field = {
+            "occupied_surface": field["distance_m"],
+            "wall_centerline": field["centerline_distance_m"],
+        }[feature_name]
+    except KeyError as exc:
+        raise ValueError(f"unknown map feature field: {feature_name}") from exc
+    distances[inside] = _bilinear_sample(distance_field, grid_x[inside], grid_y[inside])
+
+    geometric_loss = _loss_rows(distances, cfg)
+    geometric_loss += float(cfg.get("outside_map_penalty_m", 0.10)) * np.mean(~inside, axis=1)
+    median = np.median(distances, axis=1)
+    match_ratio = np.mean(distances <= float(cfg["match_distance_m"]), axis=1)
+    zeros = np.zeros(x_array.size, dtype=float)
+    return np.column_stack((
+        geometric_loss,
+        median,
+        match_ratio,
+        zeros,
+        zeros,
+        geometric_loss,
+    ))
+
+
 def _segment_mismatch_penalty(points: np.ndarray, distances: np.ndarray, cfg: Mapping[str, Any]) -> float:
     """Penalize coherent wall-segment disagreement more than isolated point noise."""
     if str(cfg.get("point_selector", "all_points")) != "wall_segments" or points.shape[0] < 3:
@@ -1055,6 +1275,46 @@ def _hybrid_trimmed_huber_loss(distances: np.ndarray, cfg: Mapping[str, Any]) ->
     return float((1.0 - area_weight) * robust + area_weight * wall_area)
 
 
+def _loss_rows(distances: np.ndarray, cfg: Mapping[str, Any]) -> np.ndarray:
+    """Vectorized counterparts of the scalar loss backends for coarse pose rows."""
+    backend_name = str(cfg.get("loss_backend", "truncated_mean"))
+    if backend_name not in LOSS_BACKENDS:
+        raise ValueError(f"unknown scan-map loss backend: {backend_name}")
+    clipped = np.minimum(distances, float(cfg["distance_clip_m"]))
+    truncated = np.mean(clipped, axis=1)
+    if backend_name == "truncated_mean":
+        return truncated
+
+    delta = float(cfg["loss_huber_delta_m"])
+    trim_fraction = float(cfg["loss_trim_fraction"])
+    if delta <= 0.0 or not 0.0 <= trim_fraction < 0.5:
+        raise ValueError("trimmed_huber loss parameters are invalid")
+    equivalent_residual = np.where(
+        clipped <= delta,
+        clipped,
+        np.sqrt(np.maximum(0.0, 2.0 * delta * (clipped - 0.5 * delta))),
+    )
+    keep = max(
+        1,
+        equivalent_residual.shape[1]
+        - int(math.floor(equivalent_residual.shape[1] * trim_fraction)),
+    )
+    if keep < equivalent_residual.shape[1]:
+        equivalent_residual = np.partition(
+            equivalent_residual,
+            keep - 1,
+            axis=1,
+        )[:, :keep]
+    robust = np.mean(equivalent_residual, axis=1)
+    if backend_name == "trimmed_huber":
+        return robust
+
+    area_weight = float(cfg["loss_area_weight"])
+    if not 0.0 <= area_weight <= 1.0:
+        raise ValueError("hybrid loss area weight must be between 0 and 1")
+    return (1.0 - area_weight) * robust + area_weight * truncated
+
+
 LOSS_BACKENDS = {
     "truncated_mean": _truncated_mean_loss,
     "trimmed_huber": _trimmed_huber_loss,
@@ -1068,6 +1328,13 @@ def _resolve_loss_backend(cfg: Mapping[str, Any]):
         return LOSS_BACKENDS[name]
     except KeyError as exc:
         raise ValueError(f"unknown scan-map loss backend: {name}") from exc
+
+
+def _boolean_setting(cfg: Mapping[str, Any], field: str) -> bool:
+    value = cfg.get(field, DEFAULTS[field])
+    if not isinstance(value, bool):
+        raise ValueError(f"{field} must be boolean")
+    return value
 
 
 @lru_cache(maxsize=4)
