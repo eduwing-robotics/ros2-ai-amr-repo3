@@ -203,8 +203,8 @@ def test_zone_roi_draft_separates_visible_location_bounds_from_evidence_masks() 
         zones["INBOUND_01"], x=0.32 * 1920, y=0.84 * 1080, image_width=1920, image_height=1080
     )
 
-    # Storage outlines remain full-height for the operator. Evidence uses only
-    # the carried-item half away from the rack, independent of lift floor.
+    # Storage outlines remain full-height for the operator. Evidence uses the
+    # carried-item-side 75% away from the rack, independent of lift floor.
     assert zone_contains_pixel(
         zones["STORAGE_S4"], x=0.52 * 1920, y=0.34 * 1080, image_width=1920, image_height=1080
     )
@@ -215,7 +215,7 @@ def test_zone_roi_draft_separates_visible_location_bounds_from_evidence_masks() 
         zones["STORAGE_S2"], x=0.52 * 1920, y=0.82 * 1080, image_width=1920, image_height=1080
     )
     assert not zone_contains_pixel(
-        zones["STORAGE_S2"], x=0.52 * 1920, y=0.70 * 1080, image_width=1920, image_height=1080
+        zones["STORAGE_S2"], x=0.52 * 1920, y=0.67 * 1080, image_width=1920, image_height=1080
     )
 
     overlay = zone_roi_overlay_events(
@@ -229,8 +229,8 @@ def test_zone_roi_draft_separates_visible_location_bounds_from_evidence_masks() 
     assert s4_overlay["metadata"]["overlay_fill_polygon_xy"] == [
         [0.485 * 1920, 0.290677 * 1080],
         [0.5625 * 1920, 0.290677 * 1080],
-        [0.5625 * 1920, 0.398177 * 1080],
-        [0.485 * 1920, 0.398177 * 1080],
+        [0.5625 * 1920, 0.451927 * 1080],
+        [0.485 * 1920, 0.451927 * 1080],
     ]
     assert "evidence_polygon_normalized" not in s4_overlay["metadata"]["zone_roi"]
 
