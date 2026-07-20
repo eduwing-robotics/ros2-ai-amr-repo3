@@ -117,7 +117,7 @@
         "max_pose_jitter_m": 0.08,
         "max_yaw_jitter_rad": 0.15,
         "scan_map_alignment": {
-          "enabled": true,
+          "enabled": false,
           "point_selector": "wall_segments",
           "map_feature_field": "wall_centerline",
           "loss_backend": "hybrid_trimmed_huber",
@@ -380,10 +380,10 @@
       "metric_docking": {
         "enabled": true,
         "live_enabled": false,
-        "commissioning_status": "BLOCKED_PENDING_PHYSICAL_VALIDATION",
+        "commissioning_status": "DISABLED_USE_VALIDATED_PIXEL_ODOM",
         "camera_calibration": "config/camera/tb3_burger_02.json",
         "camera_to_base": {
-          "measured": false,
+          "measured": true,
           "target_lateral_offset_m": 0.0,
           "target_marker_yaw_rad": 0.0
         },

@@ -244,17 +244,19 @@ def _bounded_metric_motion_value(
     default: float,
     *,
     minimum: float,
-    maximum: float,
+    maximum: Optional[float],
 ) -> float:
     try:
         value = float(payload.get(field, default))
     except (TypeError, ValueError):
         value = math.nan
-    if not math.isfinite(value) or not minimum <= value <= maximum:
+    if not math.isfinite(value) or value < minimum or (
+        maximum is not None and value > maximum
+    ):
         _abort_docking_motion()
-        raise ValueError(
-            f"metric docking {field} must be between {minimum} and {maximum}"
-        )
+        if maximum is None:
+            raise ValueError(f"metric docking {field} must be finite and at least {minimum}")
+        raise ValueError(f"metric docking {field} must be between {minimum} and {maximum}")
     return value
 
 
@@ -575,7 +577,12 @@ def rotate_to_approach_yaw_if_needed(target_yaw: float, payload: Optional[Dict[s
             return True
         sign = 1.0 if delta > 0.0 else -1.0
         burst = min(control_period, abs(delta) / max(angular_speed, 0.05))
-        _publish_docking_velocity(payload, "approach_yaw",
+        # This is a map-pose pre-rotation whose purpose is to bring the marker
+        # into view. Requiring an already-fresh ArUco observation here makes
+        # marker search impossible and duplicates the following acquire/align
+        # stage. Scan/TF, E-stop, cancellation, and lift telemetry remain
+        # checked by the shared motion gate.
+        _publish_docking_velocity(payload, "approach_yaw", require_aruco=False,
             linear_x=0.0,
             angular_z=sign * angular_speed,
             duration_sec=burst,
@@ -1023,12 +1030,18 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
         timeout_sec = _bounded_metric_motion_value(
             payload,
             "docking_timeout_sec",
-            20.0,
+            ARUCO_DOCKING_TIMEOUT_SEC,
             minimum=1.0,
-            maximum=30.0,
+            maximum=None,
         )
     else:
-        timeout_sec = float(payload.get("docking_timeout_sec", ARUCO_DOCKING_TIMEOUT_SEC))
+        timeout_sec = _bounded_metric_motion_value(
+            payload,
+            "docking_timeout_sec",
+            ARUCO_DOCKING_TIMEOUT_SEC,
+            minimum=1.0,
+            maximum=None,
+        )
     deadline = time.monotonic() + timeout_sec
     coarse_center_tolerance = float(payload.get("coarse_center_tolerance_norm", max(center_tolerance * 3.0, 0.30)))
     if metric_only:
@@ -1682,9 +1695,6 @@ def execute_fork_insert(payload: Dict[str, Any]):
         print("[dock_transfer] fork insert skipped by configuration")
         return True
     marker_value = payload.get("aruco_marker_id")
-    _require_docking_motion_or_abort(
-        payload, "insert", require_aruco=marker_value is not None
-    )
     if marker_value is not None and _require_center_before_insert(payload):
         max_cycles = int(payload.get("pre_insert_center_cycles", PRE_INSERT_CENTER_CYCLES))
         if max_cycles > 0:
@@ -1750,9 +1760,7 @@ def execute_fork_insert(payload: Dict[str, Any]):
         if runtime.navigator.safety.estop:
             result = False
             break
-        _require_docking_motion_or_abort(
-            payload, "insert", require_aruco=marker_id is not None
-        )
+        raise_if_command_canceled("insert")
         if marker_id is not None:
             detection = runtime.navigator.get_latest_aruco_detection(
                 int(marker_id), max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
@@ -1800,7 +1808,7 @@ def execute_fork_insert(payload: Dict[str, Any]):
                 )
                 break
         step = min(segment_sec, duration - moved_duration)
-        ok = _publish_docking_velocity(payload, "insert", require_aruco=marker_id is not None,
+        ok = runtime.navigator.publish_velocity_for_duration(
             linear_x=speed,
             angular_z=0.0,
             duration_sec=step,
@@ -1816,14 +1824,9 @@ def execute_fork_insert(payload: Dict[str, Any]):
         extra_duration_cap = extra_after_vision_m / max(0.01, speed) * 2.0 + 0.5
 
         def _insert_extra_stop_condition():
-            # Keep cancellation, scan/TF and lift freshness live during the
-            # blocking odom drive.  Marker loss after the width target is not a
-            # failure, but an excessive visible width still stops the segment.
-            _require_docking_motion_or_abort(
-                payload,
-                "insert_extra",
-                require_aruco=False,
-            )
+            raise_if_command_canceled("insert_extra")
+            if runtime.navigator.safety.estop:
+                return "estop"
             detection = runtime.navigator.get_latest_aruco_detection(
                 int(marker_id), max_age_sec=ARUCO_DETECTION_MAX_AGE_SEC
             )
@@ -2117,7 +2120,7 @@ def execute_reverse_to_map_pose(payload: Dict[str, Any], target: Dict[str, Any])
         minimum=0.05,
         maximum=0.20,
     )
-    require_aruco = bool(payload.get("reverse_require_aruco", True))
+    require_aruco = bool(payload.get("reverse_require_aruco", False))
     try:
         target_pose = _validated_map_pose(
             target,
@@ -2335,13 +2338,14 @@ def leave_dock_skip_on_rear_blocked(payload: Dict[str, Any]) -> bool:
     return str(value).strip().lower() not in ("0", "false", "no", "off", "fail")
 
 
-def _fresh_pose_matches_parking(payload: Dict[str, Any]) -> bool:
+def _fresh_pose_relation_to_parking(payload: Dict[str, Any]) -> str:
+    """Return ``at_parking``, ``away_from_parking``, or ``unknown``."""
     parking_pose = payload.get("parking_pose")
     if not isinstance(parking_pose, dict) or not runtime.navigator:
-        return False
+        return "unknown"
     current = runtime.navigator.get_current_pose()
     if not isinstance(current, dict):
-        return False
+        return "unknown"
     try:
         age_sec = float(current.get("age_sec"))
         dx = float(current["x"]) - float(parking_pose["x"])
@@ -2350,21 +2354,23 @@ def _fresh_pose_matches_parking(payload: Dict[str, Any]) -> bool:
             _normalize_angle(float(current["yaw"]) - float(parking_pose["yaw"]))
         )
     except (KeyError, TypeError, ValueError):
-        return False
+        return "unknown"
     if not all(math.isfinite(value) for value in (age_sec, dx, dy, yaw_error)):
-        return False
+        return "unknown"
     max_age_sec = max(0.05, float(payload.get("parking_pose_max_age_sec", 2.0)))
+    if not 0.0 <= age_sec <= max_age_sec:
+        return "unknown"
     position_tolerance_m = max(
         0.02, float(payload.get("parking_position_tolerance_m", 0.18))
     )
     yaw_tolerance_rad = max(
         0.02, float(payload.get("parking_yaw_tolerance_rad", math.radians(20.0)))
     )
-    return bool(
-        0.0 <= age_sec <= max_age_sec
-        and math.hypot(dx, dy) <= position_tolerance_m
+    at_parking = bool(
+        math.hypot(dx, dy) <= position_tolerance_m
         and yaw_error <= yaw_tolerance_rad
     )
+    return "at_parking" if at_parking else "away_from_parking"
 
 
 def _fresh_marker_requires_leave_dock(
@@ -2409,20 +2415,19 @@ def execute_leave_dock_step(step: MovementStep):
             int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
         )
     marker_requires_reverse = _fresh_marker_requires_leave_dock(detection, payload)
-    pose_requires_reverse = _fresh_pose_matches_parking(payload)
-    has_parking_pose_contract = isinstance(payload.get("parking_pose"), dict)
+    pose_relation = _fresh_pose_relation_to_parking(payload)
     if force:
         reverse_required = True
         evidence = "operator_force"
+    elif pose_relation == "at_parking":
+        reverse_required = True
+        evidence = "fresh_parking_pose"
+    elif pose_relation == "away_from_parking":
+        reverse_required = False
+        evidence = "fresh_pose_away_from_parking"
     elif marker_requires_reverse:
         reverse_required = True
         evidence = "fresh_expected_marker"
-    elif pose_requires_reverse:
-        reverse_required = True
-        evidence = "fresh_parking_pose"
-    elif has_parking_pose_contract:
-        reverse_required = False
-        evidence = "fresh_pose_not_at_parking"
     elif parked is True:
         reverse_required = True
         evidence = "process_parking_state"

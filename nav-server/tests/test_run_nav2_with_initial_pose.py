@@ -109,6 +109,12 @@ request="$*"
 if [[ "${FAKE_API_MODE:-localized}" == "unavailable" ]]; then
   exit 22
 fi
+if [[ " $request " != *" -X POST "* \
+  && -n "${FAKE_READINESS_DELAY_SEC:-}" \
+  && ! -f "${FAKE_READINESS_DELAY_FILE}" ]]; then
+  : > "${FAKE_READINESS_DELAY_FILE}"
+  sleep "${FAKE_READINESS_DELAY_SEC}"
+fi
 if [[ " $request " == *" -X POST "* ]]; then
   endpoint="${!#}"
   timestamp=""
@@ -219,6 +225,7 @@ esac
         "FAKE_API_COUNT_FILE": str(tmp_path / "api-count"),
         "FAKE_REFINEMENT_COUNT_FILE": str(tmp_path / "refinement-count"),
         "FAKE_GLOBAL_TRIGGER_FILE": str(tmp_path / "global-trigger"),
+        "FAKE_READINESS_DELAY_FILE": str(tmp_path / "readiness-delay"),
         "ROS_SETUP": str(setup),
         "TURTLEBOT3_SETUP": str(setup),
         "MAP_YAML": str(map_yaml),
@@ -403,14 +410,42 @@ def test_default_localization_wait_budgets_follow_selected_robot_profile(tmp_pat
     [
         ("stale-scan", "scan_missing_or_stale"),
         ("offline", "robot_offline"),
+        ("unavailable", "api_unavailable"),
+    ],
+)
+def test_transient_robot_readiness_keeps_nav2_and_rviz_available_for_recovery(
+    tmp_path: Path, mode: str, failure: str
+) -> None:
+    result, events = _run_startup(
+        tmp_path,
+        env_overrides={"FAKE_API_MODE": mode, "ROBOT_READINESS_TIMEOUT_SEC": "1"},
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "LOCALIZATION_FAILED: fresh /scan unavailable via localization API" in result.stderr
+    assert failure in result.stderr
+    assert "robot input pending; launching Nav2/RViz" in result.stderr
+    assert "automatic localization deferred" in result.stderr
+    assert any("launch nav2_bringup" in event for event in events)
+    assert any(event.startswith("rviz2 ") for event in events)
+    assert any(event.startswith("curl ") for event in events)
+    assert not any("run tf2_ros tf2_echo" in event for event in events)
+    assert "navigation-ready" not in result.stdout
+    assert not any("-X POST" in event for event in events)
+    assert not any("topic pub" in event for event in events)
+    assert not any("/cmd_vel" in event for event in events)
+
+
+@pytest.mark.parametrize(
+    ("mode", "failure"),
+    [
         ("readiness-robot-name", "robot_name_mismatch"),
         ("readiness-robot-id", "robot_id_mismatch"),
         ("readiness-domain", "ros_domain_id_mismatch"),
         ("readiness-map", "map_id_mismatch"),
-        ("unavailable", "api_unavailable"),
     ],
 )
-def test_scan_readiness_rejects_stale_mismatched_offline_or_unavailable_api(
+def test_identity_mismatch_still_fails_before_nav2_launch(
     tmp_path: Path, mode: str, failure: str
 ) -> None:
     result, events = _run_startup(
@@ -419,26 +454,39 @@ def test_scan_readiness_rejects_stale_mismatched_offline_or_unavailable_api(
     )
 
     assert result.returncode != 0
-    assert "LOCALIZATION_FAILED: fresh /scan unavailable via localization API" in result.stderr
     assert failure in result.stderr
+    assert "refusing Nav2 launch because robot/profile identity does not match" in result.stderr
     assert not any("launch nav2_bringup" in event for event in events)
-    assert any(event.startswith("curl ") for event in events)
-    assert not any("run tf2_ros tf2_echo" in event for event in events)
-    assert "navigation-ready" not in result.stdout
-    assert not any("topic pub" in event for event in events)
-    assert not any("/cmd_vel" in event for event in events)
+    assert not any(event.startswith("rviz2 ") for event in events)
 
 
-def test_missing_odom_tf_still_fails_after_api_readiness_and_before_launch(tmp_path: Path) -> None:
+def test_missing_odom_tf_keeps_nav2_online_and_defers_localization(tmp_path: Path) -> None:
     result, events = _run_startup(tmp_path, env_overrides={"FAKE_TF": "0"})
 
-    assert result.returncode != 0
+    assert result.returncode == 0, result.stdout + result.stderr
     assert "LOCALIZATION_FAILED: odom -> base_footprint TF unavailable" in result.stderr
     assert _event_index(events, "curl ") < _event_index(events, "run tf2_ros tf2_echo")
-    assert not any("launch nav2_bringup" in event for event in events)
+    assert any("launch nav2_bringup" in event for event in events)
+    assert any(event.startswith("rviz2 ") for event in events)
+    assert "automatic localization deferred" in result.stderr
     assert not any("-X POST" in event for event in events)
     assert not any("topic pub" in event for event in events)
     assert not any("/cmd_vel" in event for event in events)
+
+
+def test_slow_scan_discovery_does_not_consume_odom_tf_readiness_budget(tmp_path: Path) -> None:
+    result, events = _run_startup(
+        tmp_path,
+        env_overrides={
+            "ROBOT_READINESS_TIMEOUT_SEC": "1",
+            "FAKE_READINESS_DELAY_SEC": "1",
+        },
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "waiting for odom -> base_footprint TF" in result.stdout
+    assert "robot scan and odom TF ready" in result.stdout
+    assert any("launch nav2_bringup" in event for event in events)
 
 
 @pytest.mark.parametrize(
@@ -471,6 +519,25 @@ def test_nav2_lifecycle_failure_remains_fatal(tmp_path: Path) -> None:
     assert "navigation lifecycle not active yet" in result.stderr
     assert "navigation-ready" not in result.stdout
     assert "localization-pending" not in result.stderr
+    assert not any("/cmd_vel" in event for event in events)
+
+
+def test_lifecycle_wait_stays_recoverable_while_robot_input_is_absent(tmp_path: Path) -> None:
+    result, events = _run_startup(
+        tmp_path,
+        env_overrides={
+            "FAKE_API_MODE": "offline",
+            "ROBOT_READINESS_TIMEOUT_SEC": "1",
+            "FAKE_LIFECYCLE_ACTIVE": "0",
+            "NAV2_STARTUP_RETRY_SEC": "1",
+        },
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "robot input pending; launching Nav2/RViz" in result.stderr
+    assert "navigation lifecycle pending until robot TF becomes available" in result.stderr
+    assert any("launch nav2_bringup" in event for event in events)
+    assert not any("-X POST" in event for event in events)
     assert not any("/cmd_vel" in event for event in events)
 
 
@@ -608,13 +675,13 @@ def test_helper_never_drives_lifecycle_transitions_or_cmd_vel() -> None:
     assert source.index("wait_for_localized_state") < source.rindex("monitor_navigation_startup")
 
 
-def test_helper_owns_and_cleans_complete_nav2_and_rviz_process_groups() -> None:
+def test_helper_keeps_nav2_and_rviz_in_the_sf_nav_owned_process_group() -> None:
     source = SCRIPT.read_text(encoding="utf-8")
 
-    assert "setsid ros2 launch nav2_bringup" in source
-    assert 'setsid rviz2 -d "$RVIZ_CONFIG_FILE"' in source
-    assert 'kill -TERM -- "-$launch_pid"' in source
-    assert 'kill -TERM -- "-$rviz_pid"' in source
+    assert "setsid ros2 launch nav2_bringup" not in source
+    assert 'setsid rviz2 -d "$RVIZ_CONFIG_FILE"' not in source
+    assert 'kill -TERM "$launch_pid"' in source
+    assert 'kill -TERM "$rviz_pid"' in source
 
 
 def test_repository_rviz_is_single_optional_process_and_uses_qos_safe_config(tmp_path: Path) -> None:

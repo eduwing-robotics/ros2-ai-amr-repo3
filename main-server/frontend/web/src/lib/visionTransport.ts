@@ -271,19 +271,6 @@ export interface OverlayLatestMeta {
 export const MJPEG_STALE_THRESHOLD_SEC = 5;
 export const MJPEG_STALENESS_POLL_MS = 2000;
 export const MJPEG_RECONNECT_DELAYS_MS = [1000, 2000, 4000, 10000] as const;
-/** latest-image 폴링 최소 간격(PHASE_53 — H2 `<img>` 스트림 큐 우회). */
-export const MJPEG_POLL_MIN_MS = 200;
-
-export function mjpegPollIntervalMs(maxFps: number): number {
-  const fps = Math.max(1, maxFps);
-  return Math.max(MJPEG_POLL_MIN_MS, Math.floor(1000 / fps));
-}
-
-/** MJPEG 스트림 대신 최신 프레임만 요청(캐시버스터). */
-export function latestImageUrl(source: string, kind: "overlay" | "frame", bust: number): string {
-  const qs = new URLSearchParams({ source, _t: String(bust) });
-  return `/api/v1/vision/${kind}/latest/image?${qs}`;
-}
 
 export function overlayMetaAgeSec(meta: OverlayLatestMeta): number | null {
   if (typeof meta.staleness_sec === "number") return meta.staleness_sec;

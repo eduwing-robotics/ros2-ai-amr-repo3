@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "map_id": "robot2_map",
-  "revision": "2026-07-19-nav-validated-direct-approach",
+  "revision": "2026-07-19-inbound-turn-checkpoint",
   "frame_id": "map",
   "assets": {
     "yaml": "maps/robot2_map.yaml",
@@ -9,8 +9,22 @@
     "image": "maps/robot2_map.pgm",
     "image_sha256": "c2300b2ccf0917d9749f62986dacb2c512fb6687f7fa57ba566374d4022ea841"
   },
-  "routes": [],
+  "routes": [
+    {
+      "target_location_id": "inbound_slot_1_approach",
+      "step_order": 1,
+      "waypoint_id": "inbound_slot_1_turn_checkpoint"
+    }
+  ],
   "locations": [
+    {
+      "id": "inbound_slot_1_turn_checkpoint",
+      "type": "transit",
+      "status": "ACTIVE",
+      "x": -0.02,
+      "y": -0.1,
+      "yaw": 2.121
+    },
     {
       "id": "inbound_slot_1_approach",
       "type": "scan",

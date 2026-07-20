@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -100,21 +99,13 @@ def test_unexpected_subscriber_inspection_errors_are_not_masked():
         capabilities._publisher_has_subscriber(publisher)
 
 
-def test_resolved_profile_revalidation_honors_launcher_manifest_and_robot_overrides(tmp_path, monkeypatch):
-    profiles = tmp_path / "profiles"
-    shutil.copytree(ROOT / "config/runtime_profiles", profiles)
-    robots = tmp_path / "robots.json"
-    robots.write_text((ROOT / "config/robots.json").read_text())
-    resolved = resolve_runtime_profile(
-        manifest_path=profiles / "manifest.json",
-        robots_path=robots,
-        cli_profile="tb1-synthetic-hil",
-    )
-    path = tmp_path / "resolved.json"
-    path.write_text(json.dumps(resolved))
-    monkeypatch.setenv("SF_NAV_RESOLVED_PROFILE_PATH", str(path))
-    monkeypatch.setenv("SF_NAV_MANIFEST_PATH", str(profiles / "manifest.json"))
-    monkeypatch.setenv("SF_NAV_ROBOTS_PATH", str(robots))
+def test_resolved_profile_snapshot_survives_repository_edits_after_launch(tmp_path, monkeypatch):
+    resolved = _resolved()
+    _install_resolved_profile(tmp_path, monkeypatch, resolved)
+    # Runtime requests must not re-read mutable inputs after the launcher has
+    # already validated and snapshotted them for this process.
+    monkeypatch.setenv("SF_NAV_MANIFEST_PATH", str(tmp_path / "edited-or-removed-manifest.json"))
+    monkeypatch.setenv("SF_NAV_ROBOTS_PATH", str(tmp_path / "edited-or-removed-robots.json"))
     monkeypatch.setenv("ROBOT_ID", "tb3_burger_01")
 
     assert load_resolved_runtime_profile() == resolved
@@ -181,21 +172,25 @@ def test_profile_without_process_gate_rejects_dock_transfer(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize(
-    "mutation",
+    "mutation,error",
     [
-        lambda resolved: resolved["robots"][0].__setitem__("api_port", 8999),
-        lambda resolved: resolved["components"]["movement_api"].__setitem__("required", False),
-        lambda resolved: resolved.__setitem__("profile_id", "tb1-live"),
+        (lambda resolved: resolved.__setitem__("schema_version", 2), "schema"),
+        (lambda resolved: resolved.__setitem__("profile_id", ""), "profile_id"),
+        (lambda resolved: resolved.__setitem__("selection_source", "unknown"), "selection_source"),
+        (lambda resolved: resolved.__setitem__("robots", []), "selected robots"),
+        (lambda resolved: resolved["robots"][0].__setitem__("robot_id", ""), "selected robots"),
     ],
 )
-def test_resolved_profile_is_revalidated_against_canonical_facts(tmp_path, monkeypatch, mutation):
+def test_resolved_profile_snapshot_rejects_invalid_runtime_structure(
+    tmp_path, monkeypatch, mutation, error,
+):
     resolved = _resolved()
     mutation(resolved)
     _install_resolved_profile(tmp_path, monkeypatch, resolved)
     monkeypatch.setenv("SF_NAV_ALLOW_SYNTHETIC_HIL", "1")
     monkeypatch.setenv("ROBOT_ID", "tb3_burger_01")
 
-    with pytest.raises(RuntimeError, match="canonical|registered"):
+    with pytest.raises(RuntimeError, match=error):
         synthetic_hil_admitted()
 
 

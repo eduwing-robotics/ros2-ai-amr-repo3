@@ -437,7 +437,7 @@ def test_robot1_uses_confirmed_map_without_changing_robot_ownership():
     assert not validate_robot_profile(robot2)
 
 
-def test_tb2_stationary_global_search_reuses_robust_map_matcher_without_continuous_gate():
+def test_both_robots_use_stationary_global_search_without_continuous_gate():
     import json
     from pathlib import Path
 
@@ -449,6 +449,8 @@ def test_tb2_stationary_global_search_reuses_robust_map_matcher_without_continuo
         search = robot2["localization"]["global_search"]
         matcher = robot2["localization"]["scan_map_alignment"]
 
+        assert robot1["localization"]["global_search"]["map_wide_scan_matching"] is True
+        assert robot1["localization"]["scan_map_alignment"]["enabled"] is False
         assert search["default_strategy"] == "observe_only"
         assert search["map_wide_scan_matching"] is True
         assert search["motion_requires_explicit_request"] is True

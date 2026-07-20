@@ -72,7 +72,7 @@ def test_global_localization_is_observe_only_by_default():
     navigator._publish_stop_velocity.assert_not_called()
 
 
-def test_map_wide_scan_search_seeds_before_amcl_global_sampling():
+def test_map_wide_scan_search_resets_amcl_before_seeding():
     navigator = navigator_stub()
     navigator._map_wide_scan_localization_search = MagicMock()
 
@@ -86,8 +86,9 @@ def test_map_wide_scan_search_seeds_before_amcl_global_sampling():
 
     assert result["accepted"] is True
     assert result["reason"] == "map_wide_scan_search_started"
+    assert result["amcl_global_reset_requested"] is True
     navigator._map_wide_scan_localization_search.assert_called_once()
-    navigator.global_localization_client.call_async.assert_not_called()
+    navigator.global_localization_client.call_async.assert_called_once()
     navigator.publish_velocity_for_duration.assert_not_called()
 
 

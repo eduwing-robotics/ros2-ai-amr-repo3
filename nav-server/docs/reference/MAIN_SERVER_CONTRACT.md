@@ -199,7 +199,7 @@ Content-Type: application/json
     "dock_angular_gain": 0.45,
     "dock_max_angular_speed": 0.16,
     "aruco_timeout_sec": 5,
-    "docking_timeout_sec": 35
+    "docking_timeout_sec": 120
   },
   "callback_url": "http://smartfactory-main.local:8088/api/v1/movement/command-events"
 }
@@ -227,7 +227,7 @@ Content-Type: application/json
 | `params.dock_angular_gain` | `0.45` | 중심 오차 기반 회전 gain |
 | `params.dock_max_angular_speed` | `0.16` | 최대 회전 속도 rad/s |
 | `params.aruco_timeout_sec` | `5` | 첫 marker 검출 대기 시간 |
-| `params.docking_timeout_sec` | `35` | 정밀주차 전체 timeout |
+| `params.docking_timeout_sec` | `120` | 정밀주차 전체 timeout. 1초 이상의 유한값을 허용하며 고정 상한은 두지 않는다. |
 
 응답 예시:
 

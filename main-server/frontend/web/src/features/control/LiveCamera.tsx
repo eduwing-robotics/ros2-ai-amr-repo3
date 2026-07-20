@@ -4,19 +4,15 @@ import {
   VISION_WEBRTC_ONLY,
   connectWebRtcStream,
   defaultView,
-  extractTransports,
   fetchOverlayLatestMeta,
-  fetchVisionStreams,
-  latestImageUrl,
   MJPEG_RECONNECT_DELAYS_MS,
   MJPEG_STALE_THRESHOLD_SEC,
   MJPEG_STALENESS_POLL_MS,
-  mjpegPollIntervalMs,
   overlayMetaAgeSec,
-  preferWebRtc,
   waitForFirstVideoFrame,
   viewsForSource,
 } from "../../lib/visionTransport";
+import { liveStreamUrlWithBust } from "../../hooks/useCommLogs";
 import type { CameraSource } from "../../types";
 import { ResizableVideoWall } from "../../components/ResizableVideoWall";
 
@@ -27,10 +23,10 @@ type TransportDisplay = "pending" | "webrtc" | "mjpeg" | "error";
 const WEBRTC_RETRY_DELAYS_MS = [5000, 15000, 30000, 60000] as const;
 const CONNECTED_STATUS_VISIBLE_MS = 1800;
 
-function transportBadgeLabel(display: TransportDisplay, mjpegPoll: boolean): string {
+function transportBadgeLabel(display: TransportDisplay): string {
   switch (display) {
     case "webrtc": return "WebRTC";
-    case "mjpeg": return mjpegPoll ? "MJPEG·poll" : "MJPEG";
+    case "mjpeg": return "MJPEG";
     case "error": return "오류";
     default: return "연결중";
   }
@@ -71,12 +67,9 @@ export function CameraTile({
   const mjpegBackoffRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stalenessTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const webrtcRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webrtcRetryAttemptRef = useRef(0);
   const streamKeyRef = useRef("");
-  const lastMjpegLoadAtRef = useRef(0);
-  const mjpegRequestInFlightRef = useRef(false);
   const mjpegActiveRef = useRef(false);
   const visibleRef = useRef(true);
   const viewOptions = viewsForSource(source);
@@ -104,7 +97,6 @@ export function CameraTile({
   }, []);
 
   const clearMjpegTimers = useCallback(() => {
-    mjpegRequestInFlightRef.current = false;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -113,39 +105,25 @@ export function CameraTile({
       clearInterval(stalenessTimerRef.current);
       stalenessTimerRef.current = null;
     }
-    if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
   }, []);
 
-  const pollMjpegFrame = useCallback(() => {
+  const openMjpegStream = useCallback(() => {
     const img = imgRef.current;
-    if (!img || !source || !visibleRef.current || mjpegRequestInFlightRef.current) return;
-    mjpegRequestInFlightRef.current = true;
+    if (!img || !source || !visibleRef.current) return;
     img.style.display = "";
-    img.src = latestImageUrl(source, kind, Date.now());
-  }, [kind, source]);
+    img.src = liveStreamUrlWithBust(source, kind, maxFps, view, Date.now());
+  }, [kind, maxFps, source, view]);
 
-  const startMjpegPollTimer = useCallback(() => {
-    if (pollTimerRef.current) return;
-    pollTimerRef.current = setInterval(pollMjpegFrame, mjpegPollIntervalMs(maxFps));
-  }, [maxFps, pollMjpegFrame]);
-
-  const beginMjpegPoll = useCallback((attempt: number) => {
+  const beginMjpegStream = useCallback((attempt: number) => {
     setReconnectAttempt(attempt);
     setTransportDisplay(attempt > 0 ? "error" : "pending");
     setStatus(attempt > 0 ? `재연결 중… ${attempt}회` : "MJPEG 연결 중…");
-    pollMjpegFrame();
-  }, [pollMjpegFrame]);
+    openMjpegStream();
+  }, [openMjpegStream]);
 
   const scheduleMjpegReconnect = useCallback(() => {
     if (!mjpegActiveRef.current) return;
     if (reconnectTimerRef.current) return;
-    if (pollTimerRef.current) {
-      clearInterval(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
 
     const scheduleNext = () => {
       if (!mjpegActiveRef.current || !visibleRef.current) return;
@@ -156,13 +134,13 @@ export function CameraTile({
       reconnectTimerRef.current = setTimeout(() => {
         reconnectTimerRef.current = null;
         if (!mjpegActiveRef.current || !visibleRef.current) return;
-        beginMjpegPoll(nextAttempt);
+        beginMjpegStream(nextAttempt);
         scheduleNext();
       }, delay);
     };
 
     scheduleNext();
-  }, [beginMjpegPoll]);
+  }, [beginMjpegStream]);
 
   useEffect(() => {
     let cancelled = false;
@@ -233,17 +211,6 @@ export function CameraTile({
 
       setStatus("WebRTC 전송 확인 중…");
       try {
-        const payload = await fetchVisionStreams(source, view);
-        if (cancelled) return;
-        const transports = extractTransports(payload);
-        if (!preferWebRtc(transports) && !VISION_WEBRTC_ONLY) {
-          beginMjpeg("WebRTC 미준비 → MJPEG");
-          return;
-        }
-        if (!preferWebRtc(transports) && VISION_WEBRTC_ONLY) {
-          setStatus("WebRTC 미준비 · offer 시도");
-        }
-
         const video = videoRef.current;
         if (!video) {
           if (VISION_WEBRTC_ONLY) {
@@ -304,27 +271,21 @@ export function CameraTile({
 
     mjpegActiveRef.current = true;
     mjpegBackoffRef.current = 0;
-    mjpegRequestInFlightRef.current = false;
-    lastMjpegLoadAtRef.current = 0;
-    beginMjpegPoll(0);
-    startMjpegPollTimer();
+    beginMjpegStream(0);
 
     stalenessTimerRef.current = setInterval(() => {
       if (!mjpegActiveRef.current) return;
-      const sinceLoadSec = lastMjpegLoadAtRef.current > 0
-        ? (Date.now() - lastMjpegLoadAtRef.current) / 1000
-        : null;
-      if (sinceLoadSec !== null && sinceLoadSec >= MJPEG_STALE_THRESHOLD_SEC) {
-        scheduleMjpegReconnect();
-        return;
-      }
       if (kind !== "overlay") return;
       void fetchOverlayLatestMeta(source)
         .then((meta) => {
           if (!mjpegActiveRef.current) return;
           const age = overlayMetaAgeSec(meta);
           if (age !== null && age >= MJPEG_STALE_THRESHOLD_SEC) {
-            scheduleMjpegReconnect();
+            setTransportDisplay("error");
+            setStatus("마지막 프레임 · 입력 중단");
+          } else if (imgRef.current?.naturalWidth) {
+            setTransportDisplay("mjpeg");
+            setStatus("MJPEG 수신 중");
           }
         })
         .catch(() => { /* overlay meta optional */ });
@@ -335,20 +296,16 @@ export function CameraTile({
       clearMjpegTimers();
     };
   }, [
-    beginMjpegPoll,
+    beginMjpegStream,
     clearMjpegTimers,
     isVisible,
     kind,
-    maxFps,
     mode,
-    pollMjpegFrame,
     scheduleMjpegReconnect,
     source,
-    startMjpegPollTimer,
   ]);
 
   const handleMjpegLoad = () => {
-    mjpegRequestInFlightRef.current = false;
     if (mode !== "mjpeg" || !isVisible) return;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
@@ -356,14 +313,11 @@ export function CameraTile({
     }
     mjpegBackoffRef.current = 0;
     setReconnectAttempt(0);
-    lastMjpegLoadAtRef.current = Date.now();
     setTransportDisplay("mjpeg");
     setStatus("MJPEG 수신 중");
-    startMjpegPollTimer();
   };
 
   const handleMjpegError = () => {
-    mjpegRequestInFlightRef.current = false;
     if (mode !== "mjpeg" || !isVisible) return;
     setTransportDisplay("error");
     setStatus("stream 오류 — 재연결 시도");
@@ -372,10 +326,9 @@ export function CameraTile({
 
   const tileClass = `cam-tile cam-tile--${transportDisplay}`;
   const badgeClass = `cam-transport-badge cam-transport-badge--${transportDisplay}`;
-  const mjpegPoll = mode === "mjpeg";
-  const badgeLabel = reconnectAttempt > 0 && mjpegPoll
-    ? `${transportBadgeLabel(transportDisplay, mjpegPoll)} · ${reconnectAttempt}`
-    : transportBadgeLabel(transportDisplay, mjpegPoll);
+  const badgeLabel = reconnectAttempt > 0 && mode === "mjpeg"
+    ? `${transportBadgeLabel(transportDisplay)} · ${reconnectAttempt}`
+    : transportBadgeLabel(transportDisplay);
 
   return (
     <div ref={tileRef} className={tileClass}>
@@ -424,9 +377,9 @@ export function CameraTile({
 }
 
 function transportToolbarLabel(): string {
-  if (!VISION_WEBRTC_ENABLED) return "MJPEG·poll";
+  if (!VISION_WEBRTC_ENABLED) return "MJPEG";
   if (VISION_WEBRTC_ONLY) return "WebRTC only";
-  return "WebRTC→MJPEG·poll";
+  return "WebRTC→MJPEG";
 }
 
 function transportToolbarClass(): string {

@@ -257,6 +257,8 @@ class CommandEvidenceRuntimeTests(unittest.TestCase):
                 "y": 0.326,
                 "yaw": 1.571,
             },
+            "reverse_clearance_marker_distance_m": 0.70,
+            "reverse_clearance_fallback_m": 0.50,
         })
         self.assertEqual(inbound[2]["params"]["pre_insert_lift_mm"], 0)
         self.assertEqual(

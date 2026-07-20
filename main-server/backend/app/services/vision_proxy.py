@@ -267,7 +267,10 @@ def open_mjpeg_stream(kind: str, source: str, max_fps: int, view: str = "full") 
         def chunks() -> Iterator[bytes]:
             try:
                 while True:
-                    chunk = res.read1(65536)
+                    try:
+                        chunk = res.read1(65536)
+                    except (TimeoutError, OSError):
+                        break
                     if not chunk:
                         break
                     yield chunk

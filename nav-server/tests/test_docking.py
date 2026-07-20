@@ -222,7 +222,7 @@ class DockingMotionTests(unittest.TestCase):
                     {
                         "metric_distance_only": True,
                         "target_distance_m": 0.20,
-                        "docking_timeout_sec": 20.0,
+                        "docking_timeout_sec": 120.0,
                         "control_period_sec": 100.0,
                     },
                 )
@@ -704,13 +704,32 @@ class DockingMotionTests(unittest.TestCase):
 
 
 class ApproachChainingTests(unittest.TestCase):
+    def test_all_lift_approaches_have_metric_profiles(self):
+        expected_markers = {
+            "inbound_slot_1_approach": 0,
+            "inbound_slot_2_approach": 1,
+            "outbound_slot_1_approach": 5,
+            "outbound_slot_2_approach": 6,
+            "warehouse_a_approach": 7,
+            "warehouse_b_approach": 8,
+            "warehouse_c_approach": 10,
+            "warehouse_d_approach": 9,
+        }
+
+        for waypoint_id, marker_id in expected_markers.items():
+            with self.subTest(waypoint_id=waypoint_id):
+                profile = metric_two_stage_for_waypoint(waypoint_id)
+                self.assertTrue(profile.get("enabled"))
+                self.assertEqual(profile["stage1_target_distance_m"], 0.40)
+                self.assertEqual(marker_id_for_approach_waypoint(waypoint_id), marker_id)
+
     def test_metric_profile_is_available_for_warehouse_slots(self):
         profile = metric_two_stage_for_waypoint("warehouse_a_approach")
         self.assertTrue(profile.get("enabled"))
         self.assertEqual(profile.get("stage1_target_distance_m"), 0.40)
         self.assertEqual(profile.get("stage2_target_distance_m"), 0.18)
 
-    def test_metric_control_is_enabled_only_for_camera_with_own_calibration(self):
+    def test_tb2_calibration_is_present_but_live_metric_control_is_disabled(self):
         self.assertTrue(metric_pose_calibration_available("tb3_2"))
         self.assertFalse(metric_pose_calibration_available("tb3_1"))
         self.assertEqual(metric_docking_live_config("tb3_2"), {})
@@ -753,7 +772,7 @@ class ApproachChainingTests(unittest.TestCase):
     def test_non_approach_has_no_overrides(self):
         self.assertEqual(docking_approach_goal_overrides("some_point"), {})
 
-    def test_move_to_point_chains_align_for_approach(self):
+    def test_move_to_point_uses_validated_pixel_align_for_approach(self):
         req = RobotCommandRequest(
             command_id="test-move",
             robot_id="tb3_2",
@@ -761,29 +780,17 @@ class ApproachChainingTests(unittest.TestCase):
             params={"waypoint_id": "warehouse_c_approach"},
         )
         goal = {"waypoint": "warehouse_c_approach", "x": 1.239, "y": -0.631, "yaw": 3.142}
-        profile = {
-            **metric_two_stage_for_waypoint("warehouse_c_approach"),
-            "target_lateral_offset_m": 0.0,
-            "target_marker_yaw_rad": 0.0,
-            "max_reprojection_error_px": 2.0,
-        }
-        with patch(
-            "nav_app.services.robot_commands.metric_docking_profile_for_robot",
-            return_value=profile,
-        ):
-            steps = move_to_point_steps(req, goal, [])
+        steps = move_to_point_steps(req, goal, [])
         self.assertEqual(len(steps), 2)
         self.assertEqual(steps[0].action, "nav2_pose")
         self.assertEqual(steps[1].action, "aruco_align")
         self.assertEqual(steps[1].payload["aruco_marker_id"], 10)
-        self.assertEqual(steps[1].payload["align_mode"], "full")
+        self.assertEqual(steps[1].payload["align_mode"], "center_only")
         self.assertFalse(steps[1].payload.get("skip_approach_yaw_rotate"))
         self.assertEqual(steps[1].payload["marker_search_timeout_sec"], 45)
-        self.assertEqual(steps[1].payload["docking_timeout_sec"], 60)
-        self.assertEqual(steps[1].payload["target_distance_m"], 0.40)
-        self.assertTrue(steps[1].payload.get("metric_distance_only"))
-        self.assertTrue(steps[1].payload.get("require_normal_alignment"))
-        self.assertFalse(steps[1].payload.get("fork_insert_enabled"))
+        self.assertEqual(steps[1].payload["docking_timeout_sec"], 120)
+        self.assertFalse(steps[1].payload.get("metric_distance_only", False))
+        self.assertNotIn("metric_docking_profile", steps[1].payload)
 
     def test_inbound_approach_has_longer_aruco_seek(self):
         req = RobotCommandRequest(
@@ -800,7 +807,7 @@ class ApproachChainingTests(unittest.TestCase):
         self.assertEqual(steps[1].payload.get("marker_seek_mode"), "monotonic")
         self.assertEqual(steps[1].payload["final"], "return_approach")
 
-    def test_move_to_point_chains_full_center_align_for_inbound(self):
+    def test_tb2_inbound_uses_validated_pixel_odom_path(self):
         req = RobotCommandRequest(
             command_id="test-inbound",
             robot_id="tb3_2",
@@ -811,6 +818,10 @@ class ApproachChainingTests(unittest.TestCase):
         steps = move_to_point_steps(req, goal, [])
         self.assertEqual(steps[1].payload["align_mode"], "full_center")
         self.assertEqual(steps[1].payload["aruco_marker_id"], 0)
+        self.assertFalse(steps[1].payload.get("metric_distance_only", False))
+        self.assertNotIn("metric_docking_profile", steps[1].payload)
+        self.assertTrue(steps[1].payload["close_from_marker_width_only"])
+        self.assertTrue(steps[1].payload["insert_vision_stop"])
 
     def test_vehicle_approach_chains_center_align(self):
         req = RobotCommandRequest(
@@ -919,7 +930,7 @@ class ApproachChainingTests(unittest.TestCase):
         self.assertEqual(payload.get("return_target_pose"), gate["arrived_return_pose"])
         self.assertEqual(payload.get("reverse_target_tolerance_m"), 0.015)
         self.assertEqual(payload.get("reverse_target_lateral_tolerance_m"), 0.06)
-        self.assertTrue(payload.get("reverse_require_aruco"))
+        self.assertFalse(payload.get("reverse_require_aruco"))
         self.assertEqual(payload.get("reverse_speed"), 0.05)
         self.assertLessEqual(payload.get("reverse_target_max_duration_sec"), 30.0)
         self.assertEqual(payload.get("reverse_control_period_sec"), 0.10)

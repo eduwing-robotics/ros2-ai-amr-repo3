@@ -137,6 +137,24 @@ class VisionProxyTest(unittest.TestCase):
         called_url = mock_urlopen.call_args[0][0].full_url
         self.assertIn("view=lift_roi", called_url)
 
+    @patch("app.services.vision_proxy.urlopen")
+    @patch("app.services.vision_proxy.settings")
+    def test_open_mjpeg_stream_ends_cleanly_when_upstream_frame_stalls(
+        self, mock_settings, mock_urlopen
+    ) -> None:
+        mock_settings.vision_stream_base_url = "http://vision:8090"
+        mock_settings.vision_stream_timeout_sec = 1.0
+        mock_res = MagicMock()
+        mock_res.read1.side_effect = [b"chunk", TimeoutError("stale source")]
+        mock_res.headers = {"Content-Type": "multipart/x-mixed-replace"}
+        mock_res.close = MagicMock()
+        mock_urlopen.return_value = mock_res
+
+        chunks, _ = vision_proxy.open_mjpeg_stream("overlay", "tb3_2_picam", 15)
+
+        self.assertEqual(b"".join(chunks), b"chunk")
+        mock_res.close.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

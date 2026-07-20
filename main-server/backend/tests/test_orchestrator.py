@@ -29,6 +29,7 @@ class OrchestratorUnfoldLegsTest(unittest.TestCase):
             steps = orchestrator.plan_command_steps(conn, scenario, task_id=1, robot_id="r1")
         self.assertEqual(len(steps), 1)
         self.assertEqual(steps[0]["kind"], "move_to_point")
+        self.assertEqual(steps[0]["params"]["waypoint_id"], "wp1")
 
     def test_dock_transfer_step_becomes_dock_leg(self) -> None:
         conn = MagicMock()

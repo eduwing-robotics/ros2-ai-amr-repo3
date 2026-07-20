@@ -8,12 +8,6 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping, Optional
 
-from nav_app.config.runtime_profiles import (
-    DEFAULT_MANIFEST_PATH,
-    DEFAULT_ROBOTS_PATH,
-    RuntimeProfileError,
-    resolve_runtime_profile,
-)
 from nav_app.services.lift_client import LiftClient
 from nav_app.services.lift_phases import (
     resolve_carry_height_mm,
@@ -25,8 +19,6 @@ from nav_app.services.lift_phases import (
 PHYSICAL_LIFT_NOT_VERIFIED = "PHYSICAL_LIFT_NOT_VERIFIED"
 SYNTHETIC_HIL_ALLOW_ENV = "SF_NAV_ALLOW_SYNTHETIC_HIL"
 RESOLVED_PROFILE_ENV = "SF_NAV_RESOLVED_PROFILE_PATH"
-MANIFEST_ENV = "SF_NAV_MANIFEST_PATH"
-ROBOTS_ENV = "SF_NAV_ROBOTS_PATH"
 
 
 def _env_enabled(value: Any) -> bool:
@@ -63,7 +55,13 @@ def resolved_lift_backend(
 
 
 def load_resolved_runtime_profile(path: str | Path | None = None) -> Optional[dict[str, Any]]:
-    """Load and canonically revalidate the launcher contract for this process."""
+    """Load the immutable launcher snapshot selected for this process.
+
+    ``sf_nav.sh`` resolves and validates the mutable manifest/robot files before
+    launch, then writes this private snapshot under the run directory.  Runtime
+    health and lift requests must keep using that startup contract even when an
+    operator edits the repository for the next run.
+    """
     selected = path or os.getenv(RESOLVED_PROFILE_ENV)
     if not selected:
         return None
@@ -76,29 +74,20 @@ def load_resolved_runtime_profile(path: str | Path | None = None) -> Optional[di
         raise RuntimeError("invalid resolved runtime profile schema")
     profile_id = value.get("profile_id")
     if not isinstance(profile_id, str) or not profile_id:
-        raise RuntimeError("resolved runtime profile must name a registered profile_id")
+        raise RuntimeError("resolved runtime profile must name a profile_id")
     selection_source = value.get("selection_source")
-    if selection_source == "cli":
-        cli_profile, selection_environment = profile_id, {}
-    elif selection_source == "environment":
-        cli_profile, selection_environment = None, {"SF_NAV_PROFILE": profile_id}
-    elif selection_source == "manifest_default":
-        cli_profile, selection_environment = None, {}
-    else:
+    if selection_source not in {"cli", "environment", "manifest_default"}:
         raise RuntimeError("resolved runtime profile has invalid selection_source")
-    try:
-        canonical = resolve_runtime_profile(
-            manifest_path=Path(os.getenv(MANIFEST_ENV, str(DEFAULT_MANIFEST_PATH))),
-            robots_path=Path(os.getenv(ROBOTS_ENV, str(DEFAULT_ROBOTS_PATH))),
-            cli_profile=cli_profile,
-            environment=selection_environment,
-        )
-    except RuntimeProfileError as exc:
-        raise RuntimeError(f"resolved runtime profile is not registered canonically: {exc}") from exc
-    if value != canonical:
-        raise RuntimeError("resolved runtime profile does not match canonical manifest and robots facts")
+    robots = value.get("robots")
+    if not isinstance(robots, list) or not robots:
+        raise RuntimeError("resolved runtime profile must contain selected robots")
+    selected_robot_ids: set[str] = set()
+    for robot in robots:
+        robot_id = robot.get("robot_id") if isinstance(robot, Mapping) else None
+        if not isinstance(robot_id, str) or not robot_id or robot_id in selected_robot_ids:
+            raise RuntimeError("resolved runtime profile contains invalid selected robots")
+        selected_robot_ids.add(robot_id)
     active_robot_id = os.getenv("ROBOT_ID", "tb3_burger_01")
-    selected_robot_ids = {robot.get("robot_id") for robot in canonical["robots"]}
     if active_robot_id not in selected_robot_ids:
         raise RuntimeError(f"resolved runtime profile does not select active robot: {active_robot_id}")
     return value

@@ -763,6 +763,37 @@ def _task_progress(
         }
         for index, row in enumerate(recipe_steps or [])
     ]
+    runtime_terminal_failures = {"FAILED", "ABORTED", "REJECTED", "CANCELLED", "CANCELED", "STOPPED"}
+    runtime_done = {"DONE", "COMPLETED"}
+    for logical_step in logical_steps:
+        sequence_no = logical_step.get("sequence_no")
+        if sequence_no is None:
+            continue
+        matching_steps = [
+            step
+            for step in steps
+            if step.get("command_sequence_no") is not None
+            and int(step["command_sequence_no"]) == int(sequence_no)
+        ]
+        if not matching_steps:
+            continue
+        statuses = [str(step.get("status") or "PENDING").upper() for step in matching_steps]
+        failed_index = next(
+            (index for index, status in enumerate(statuses) if status in runtime_terminal_failures),
+            None,
+        )
+        if failed_index is not None:
+            failed_step = matching_steps[failed_index]
+            logical_step["status"] = statuses[failed_index]
+            logical_step["failure_reason"] = (
+                failed_step.get("failure_reason")
+                or failed_step.get("error")
+                or failed_step.get("reason")
+            )
+        elif all(status in runtime_done for status in statuses):
+            logical_step["status"] = "DONE"
+        elif any(status != "PENDING" for status in statuses):
+            logical_step["status"] = "RUNNING"
     current_recipe_index = next(
         (index for index, step in enumerate(logical_steps) if str(step.get("status") or "").upper() != "DONE"),
         max(0, len(logical_steps) - 1),

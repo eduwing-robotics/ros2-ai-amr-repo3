@@ -28,12 +28,26 @@ def test_duplicate_location_ids_are_rejected(tmp_path: Path) -> None:
 def test_default_manifest_ships_approved_movement_locations() -> None:
     manifest = load_manifest(DEFAULT_MANIFEST)
     locations = {row["id"]: row for row in manifest["locations"]}
-    assert len(locations) == 10
-    assert manifest["routes"] == []
+    assert len(locations) == 11
+    assert manifest["routes"] == [
+        {
+            "target_location_id": "inbound_slot_1_approach",
+            "step_order": 1,
+            "waypoint_id": "inbound_slot_1_turn_checkpoint",
+        }
+    ]
     assert "inbound_slot_1_pre_approach" not in locations
+    assert locations["inbound_slot_1_turn_checkpoint"] == {
+        "id": "inbound_slot_1_turn_checkpoint",
+        "type": "transit",
+        "status": "ACTIVE",
+        "x": -0.02,
+        "y": -0.1,
+        "yaw": 2.121,
+    }
     assert locations["inbound_slot_1_approach"]["marker_id"] == 0
     assert locations["warehouse_c_approach"]["marker_id"] == 10
-    assert {row["type"] for row in locations.values()} == {"scan"}
+    assert {row["type"] for row in locations.values()} == {"scan", "transit"}
     assert not ({"INBOUND_01", "STORAGE_A", "HOME", "scan_INBOUND_01"} & locations.keys())
 
 

@@ -262,6 +262,60 @@ class MainUnloadEvidenceGateNoHardwareTest(unittest.TestCase):
         self.assertIn(saved_orch["phase"], {"AWAITING_OPERATOR", "NEEDS_ATTENTION"})
         conn.commit.assert_called_once()
 
+    def test_operator_retry_pass_reapproaches_before_unload_to_refresh_nav_gate(self):
+        conn = MagicMock()
+        conn.is_postgres = False
+        steps = [
+            {
+                "seq": 4,
+                "kind": "move_to_point",
+                "status": "DONE",
+                "command_id": "cmd-old-approach",
+                "params": {"map_id": "robot2_map", "x": 1.0, "y": 2.0},
+            },
+            {
+                "seq": 5,
+                "kind": "dock_transfer",
+                "status": "pending",
+                "command_id": None,
+                "params": {"action": "unload", "aruco_marker_id": 7, "level": 1},
+            },
+        ]
+        task = _task_with_orchestration(step_index=1, steps=steps)
+        orchestration = task["preset_snapshot"]["_orchestration"]
+        orchestration["phase"] = "AWAITING_OPERATOR"
+        orchestration["recovery"] = {"reason": "evidence_gate", "step_index": 1}
+        approved = {"approved": True, "result": "PASS", "command_satisfying": True}
+
+        with (
+            patch.object(orchestrator, "task_repo") as task_repo,
+            patch.object(orchestrator, "evidence_repo") as evidence_repo,
+            patch.object(orchestrator, "evidence_runtime") as runtime,
+            patch.object(orchestrator, "_evaluate_gate", return_value=approved),
+            patch.object(orchestrator, "_record_gate_decision"),
+            patch.object(orchestrator, "dispatch_current_step", return_value="cmd-reapproach") as dispatch,
+        ):
+            task_repo.return_value.get.return_value = task
+            evidence_repo.return_value.get_orchestration.return_value = orchestration
+            runtime.attach_orchestration.side_effect = lambda row, _conn: row
+            runtime.resolve_command_def_id.return_value = 5
+
+            result = orchestrator.retry_held_evidence(
+                conn,
+                9001,
+                safety_checks={"site_clear": True, "pose_ok": True, "cargo_ok": True},
+            )
+
+        saved = runtime.save_orchestration.call_args.args[2]
+        self.assertEqual(saved["phase"], "RUNNING")
+        self.assertEqual(saved["step_index"], 0)
+        self.assertEqual(saved["steps"][0]["status"], "pending")
+        self.assertEqual(saved["steps"][0]["retry_generation"], 1)
+        self.assertNotIn("command_id", saved["steps"][0])
+        self.assertTrue(saved["steps"][1]["approval"]["approved"])
+        dispatch.assert_called_once_with(conn, 9001)
+        self.assertEqual(result["command_id"], "cmd-reapproach")
+
 
 class MainLoadTrustedGateDecisionNoHardwareTest(unittest.TestCase):
     def test_nohardware_load_ai_advisory_records_main_trusted_gate_decision_before_dispatch(self):

@@ -176,6 +176,42 @@ def test_stale_parked_state_does_not_reverse_from_a_different_fresh_location(
     navigator.publish_velocity_for_distance.assert_not_called()
 
 
+def test_fresh_approach_pose_prevents_duplicate_reverse_even_when_marker_remains_visible(
+    monkeypatch,
+):
+    navigator = MagicMock()
+    navigator.get_latest_aruco_detection.return_value = {
+        "marker_width_px": 150.0,
+        "age_sec": 0.1,
+    }
+    navigator.get_current_pose.return_value = {
+        "frame_id": "map",
+        "x": 0.816,
+        "y": 0.006,
+        "yaw": 1.571,
+        "age_sec": 0.1,
+    }
+    monkeypatch.setattr(runtime, "navigator", navigator)
+    runtime.set_standby_parked(True)
+
+    assert execute_leave_dock_step(
+        MovementStep(
+            action="leave_dock",
+            payload={
+                "aruco_marker_id": 4,
+                "parking_pose": {
+                    "map_id": "robot2_map",
+                    "x": 0.816,
+                    "y": 0.326,
+                    "yaw": 1.571,
+                },
+            },
+        )
+    ) is True
+
+    navigator.publish_velocity_for_distance.assert_not_called()
+
+
 def test_explicit_leave_dock_duration_keeps_time_based_distance_contract(monkeypatch):
     navigator = MagicMock()
     navigator.docking_sensor_freshness.return_value = {"ok": True}

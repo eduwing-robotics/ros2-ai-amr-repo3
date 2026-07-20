@@ -69,6 +69,8 @@ class InOutScenarioOfflineTest(unittest.TestCase):
                 "y": 0.306,
                 "yaw": 1.571,
             },
+            "reverse_clearance_marker_distance_m": 0.70,
+            "reverse_clearance_fallback_m": 0.50,
         })
         self.assertEqual(steps[1]["action_type"], "move")
         self.assertAlmostEqual(steps[1]["x"], 1.8)
@@ -141,6 +143,8 @@ class InOutScenarioOfflineTest(unittest.TestCase):
                 "y": 0.326,
                 "yaw": 1.571,
             },
+            "reverse_clearance_marker_distance_m": 0.70,
+            "reverse_clearance_fallback_m": 0.50,
         })
         self.assertEqual(inbound[2]["params"]["pre_insert_lift_mm"], 0)
         self.assertEqual(inbound[-2]["waypoint_id"], "vehicle_2_approach")
@@ -156,6 +160,8 @@ class InOutScenarioOfflineTest(unittest.TestCase):
                 "y": 0.326,
                 "yaw": 1.571,
             },
+            "reverse_clearance_marker_distance_m": 0.70,
+            "reverse_clearance_fallback_m": 0.50,
         })
         self.assertEqual(outbound[2]["params"]["pre_insert_lift_mm"], 0)
         self.assertEqual(outbound[-2]["waypoint_id"], "vehicle_2_approach")

@@ -15,6 +15,14 @@ logger = logging.getLogger(__name__)
 
 CRITICAL_SEVERITIES = {"CRITICAL", "HIGH"}
 
+# At the charge/home marker the parked robot is already about 0.30 m from the
+# marker. Departure must add enough travel before Nav2 starts turning so the
+# robot clears the adjacent charge bay. When marker ranging is unavailable,
+# use the required conservative travel distance rather than Nav's generic
+# 0.20 m fallback.
+HOME_DEPARTURE_MARKER_CLEARANCE_M = 0.70
+HOME_DEPARTURE_FALLBACK_M = 0.50
+
 
 def attach_orchestration(task: dict[str, Any] | None, conn) -> dict[str, Any] | None:
     if not task:
@@ -259,18 +267,24 @@ def _build_inout_scenario(conn, task: dict[str, Any]) -> dict[str, Any]:
     start_binding = field_bindings.binding_for(start_dock_id)
     _, start_scan = field_bindings.scan_binding_for(start_dock_id)
     start_pose = start_binding["pose"]
+    leave_dock_params: dict[str, Any] = {
+        "aruco_marker_id": int(start_scan["marker_id"]),
+        "parking_pose": {
+            "map_id": str(start_binding["map_id"]),
+            "x": float(start_pose["x"]),
+            "y": float(start_pose["y"]),
+            "yaw": float(start_pose["yaw"]),
+        },
+    }
+    if start_binding["kind"] == "home":
+        leave_dock_params.update({
+            "reverse_clearance_marker_distance_m": HOME_DEPARTURE_MARKER_CLEARANCE_M,
+            "reverse_clearance_fallback_m": HOME_DEPARTURE_FALLBACK_M,
+        })
     steps.append({
         "action_type": "leave_dock",
         "name": "leave_dock",
-        "params": {
-            "aruco_marker_id": int(start_scan["marker_id"]),
-            "parking_pose": {
-                "map_id": str(start_binding["map_id"]),
-                "x": float(start_pose["x"]),
-                "y": float(start_pose["y"]),
-                "yaw": float(start_pose["yaw"]),
-            },
-        },
+        "params": leave_dock_params,
         "human_hazard_monitor": False,
     })
 

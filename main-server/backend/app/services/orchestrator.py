@@ -390,6 +390,7 @@ def plan_command_steps(conn, scenario: dict[str, Any], task_id: int, robot_id: s
         if waypoint:
             params = {
                 "map_id": map_id,
+                "waypoint_id": waypoint["waypoint_id"],
                 "x": waypoint["x"],
                 "y": waypoint["y"],
                 "yaw": waypoint.get("yaw", 0.0),
@@ -1007,9 +1008,26 @@ def retry_held_evidence(conn, task_id: int, *, safety_checks: dict[str, object])
         step_index += 1
         orch_state.set_step_index(orch, step_index)
     else:
-        # Unload is gated before dispatch. Let the normal dispatcher consume the
-        # freshly approved evidence and issue the original deterministic command.
+        # PRE_DROP_OFF may remain in operator review longer than Nav's ARRIVED
+        # gate. Re-run only the immediately preceding final approach so Nav
+        # creates a fresh gate before the approved unload command is dispatched.
         step["approval"] = decision
+        approach_index = next(
+            (
+                index
+                for index in range(step_index - 1, -1, -1)
+                if str(steps[index].get("kind") or "") == "move_to_point"
+            ),
+            None,
+        )
+        if approach_index is not None:
+            approach = steps[approach_index]
+            approach.pop("command_id", None)
+            approach.pop("transition_id", None)
+            approach["retry_generation"] = int(approach.get("retry_generation") or 0) + 1
+            approach["status"] = "pending"
+            step_index = approach_index
+            orch_state.set_step_index(orch, step_index)
     orch_state.set_steps(orch, steps)
     orch_state.set_phase(orch, orch_state.PHASE_RUNNING)
     evidence_runtime.save_orchestration(conn, task_id, orch)

@@ -404,14 +404,14 @@ wait_for_automatic_localization() {
 }
 
 wait_for_robot_readiness() {
-  local deadline remaining output url payload ready reason request_timeout last_reason
-  deadline=$((SECONDS + ROBOT_READINESS_TIMEOUT_SEC))
+  local scan_deadline tf_deadline remaining output url payload ready reason request_timeout last_reason
+  scan_deadline=$((SECONDS + ROBOT_READINESS_TIMEOUT_SEC))
   url="$(localization_url)"
   last_reason="api_unavailable"
 
   echo "[nav2_helper] waiting for fresh robot scan through localization API: ${url}"
-  while (( SECONDS < deadline )); do
-    remaining=$((deadline - SECONDS))
+  while (( SECONDS < scan_deadline )); do
+    remaining=$((scan_deadline - SECONDS))
     request_timeout=2
     (( remaining < request_timeout )) && request_timeout="$remaining"
     payload="$(curl -fsS --max-time "$request_timeout" "$url" 2>/dev/null || true)"
@@ -424,7 +424,10 @@ import sys
 expected_name, expected_id, expected_domain, expected_map, max_age = sys.argv[1:]
 try:
     data = json.load(sys.stdin)
-    scan_age = float(data.get("scan_age_sec"))
+    try:
+        scan_age = float(data.get("scan_age_sec"))
+    except (TypeError, ValueError):
+        scan_age = math.inf
     checks = (
         (data.get("robot_name") == expected_name, "robot_name_mismatch"),
         (data.get("robot_id") == expected_id, "robot_id_mismatch"),
@@ -447,14 +450,22 @@ except (TypeError, ValueError, json.JSONDecodeError):
   done
   if [[ "${ready:-false}" != "true" ]]; then
     echo "[nav2_helper] LOCALIZATION_FAILED: fresh /scan unavailable via localization API (${last_reason})" >&2
-    return 1
+    case "$last_reason" in
+      robot_name_mismatch|robot_id_mismatch|ros_domain_id_mismatch|map_id_mismatch)
+        return 2
+        ;;
+      *)
+        return 1
+        ;;
+    esac
   fi
 
-  remaining=$((deadline - SECONDS))
-  if (( remaining <= 0 )); then
-    echo "[nav2_helper] LOCALIZATION_FAILED: odom -> base_footprint TF unavailable" >&2
-    return 1
-  fi
+  # DDS discovery may expose /scan before the odom TF publisher. Give the TF
+  # probe its own readiness budget instead of spending whatever time remains
+  # from scan discovery; otherwise a healthy robot can fail at the boundary.
+  tf_deadline=$((SECONDS + ROBOT_READINESS_TIMEOUT_SEC))
+  remaining=$((tf_deadline - SECONDS))
+  echo "[nav2_helper] waiting for odom -> base_footprint TF"
   # tf2_echo is a long-running diagnostic. Stop on the first valid transform
   # instead of consuming the whole readiness timeout on every healthy start.
   output="$(timeout "$remaining" bash -c '
@@ -675,15 +686,15 @@ rviz_pid=""
 
 cleanup() {
   if [[ -n "$rviz_pid" ]]; then
-    kill -TERM -- "-$rviz_pid" 2>/dev/null || true
+    kill -TERM "$rviz_pid" 2>/dev/null || true
     wait "$rviz_pid" 2>/dev/null || true
   fi
   if [[ -n "$launch_pid" ]]; then
-    kill -TERM -- "-$launch_pid" 2>/dev/null || true
+    kill -TERM "$launch_pid" 2>/dev/null || true
     wait "$launch_pid" 2>/dev/null || true
   fi
   if [[ -n "$ekf_pid" ]]; then
-    kill -TERM -- "-$ekf_pid" 2>/dev/null || true
+    kill -TERM "$ekf_pid" 2>/dev/null || true
     wait "$ekf_pid" 2>/dev/null || true
   fi
 }
@@ -694,14 +705,25 @@ cd "$ROOT"
 
 if [[ "$WITH_EKF" == "1" ]]; then
   echo "[nav2_helper] launching EKF: params=${EKF_PARAMS_FILE}"
-  setsid ros2 launch "$ROOT/launch/ekf_odom.launch.py" "params_file:=$EKF_PARAMS_FILE" &
+  ros2 launch "$ROOT/launch/ekf_odom.launch.py" "params_file:=$EKF_PARAMS_FILE" &
   ekf_pid="$!"
   sleep 2
 fi
 
 echo "[nav2_helper] launching Nav2: robot=${ROBOT_NAME} hardware_domain=${ROS_DOMAIN_ID_VALUE} local_domain=${ROS_DOMAIN_ID} ekf=${WITH_EKF} map=${MAP_YAML} params=${NAV2_PARAMS_FILE}"
-wait_for_robot_readiness
-setsid ros2 launch nav2_bringup bringup_launch.py \
+robot_ready=0
+readiness_rc=0
+if wait_for_robot_readiness; then
+  robot_ready=1
+else
+  readiness_rc=$?
+  if [[ "$readiness_rc" == "2" ]]; then
+    echo "[nav2_helper] refusing Nav2 launch because robot/profile identity does not match" >&2
+    exit 1
+  fi
+  echo "[nav2_helper] robot input pending; launching Nav2/RViz and keeping movement admission closed" >&2
+fi
+ros2 launch nav2_bringup bringup_launch.py \
   map:="$MAP_YAML" \
   params_file:="$NAV2_PARAMS_FILE" \
   use_sim_time:=False \
@@ -710,14 +732,16 @@ launch_pid="$!"
 
 if [[ "$NAV2_USE_RVIZ" == "1" ]]; then
   echo "[nav2_helper] launching RViz: config=${RVIZ_CONFIG_FILE}"
-  setsid rviz2 -d "$RVIZ_CONFIG_FILE" &
+  rviz2 -d "$RVIZ_CONFIG_FILE" &
   rviz_pid="$!"
 fi
 
 sleep "$INITIAL_POSE_DELAY_SEC"
 
 localization_ready=0
-if [[ -n "$INITIAL_X" && -n "$INITIAL_Y" && -n "$INITIAL_YAW" ]]; then
+if [[ "$robot_ready" != "1" ]]; then
+  echo "[nav2_helper] automatic localization deferred until fresh scan/TF is available" >&2
+elif [[ -n "$INITIAL_X" && -n "$INITIAL_Y" && -n "$INITIAL_YAW" ]]; then
   localization_endpoint="$(localization_url)"
   if request_manual_initial_pose "$localization_endpoint" "$INITIAL_X" "$INITIAL_Y" "$INITIAL_YAW" \
     && wait_for_localized_state "$localization_endpoint"; then
@@ -729,12 +753,19 @@ else
   fi
 fi
 
-# Localization controls movement admission, not process lifetime. Keep Nav2 and
-# Main online after a convergence failure so the operator can retry localization
-# without restarting the complete stack. A real Nav2 lifecycle failure remains
-# fatal and is still reported to the supervisor.
-monitor_navigation_startup
-if [[ "$localization_ready" == "1" ]]; then
+# Localization and temporarily absent robot input control movement admission,
+# not process lifetime. Keep Nav2/Main/RViz online so turning on the robot or
+# retrying localization does not require a complete stack restart. A lifecycle
+# failure after fresh robot input was observed remains fatal.
+lifecycle_ready=0
+if monitor_navigation_startup; then
+  lifecycle_ready=1
+elif [[ "$robot_ready" == "1" ]]; then
+  exit 1
+else
+  echo "[nav2_helper] navigation lifecycle pending until robot TF becomes available" >&2
+fi
+if [[ "$localization_ready" == "1" && "$lifecycle_ready" == "1" ]]; then
   echo "[nav2_helper] navigation-ready: localization and lifecycle gates passed"
 else
   echo "[nav2_helper] localization-pending: Nav2 remains online; movement stays blocked until localization converges" >&2

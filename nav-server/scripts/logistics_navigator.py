@@ -749,20 +749,6 @@ class LogisticsNavigator(Node):
             return float(os.getenv("RELAXED_FORWARD_CLEARANCE_MARGIN_M", "0.10"))
         return float(os.getenv("FORWARD_CLEARANCE_MARGIN_M", "0.18"))
 
-    def _should_abort_nav_for_forward_obstacle(self, goal=None, distance_remaining=None):
-        """Nav2 주행 중 전방 라이다로 중단할지 판단. 목표 근처/벽 슬롯 approach는 완화."""
-        goal = goal or {}
-        margin = self._forward_clearance_margin_m(goal=goal)
-        front = self.front_min_range()
-        if front is None or front >= margin:
-            return False
-        near_goal_m = float(os.getenv("NAV_FORWARD_GUARD_NEAR_GOAL_M", "0.25"))
-        if distance_remaining is not None and float(distance_remaining) <= near_goal_m:
-            return False
-        if goal.get("nav_position_only") or goal.get("relax_forward_clearance"):
-            return False
-        return True
-
     def configure_aruco_detection_topic(self, topic):
         """Subscribe to JSON ArUco detections published by scripts/aruco_detector_node.py."""
         if not topic:
@@ -1477,7 +1463,11 @@ class LogisticsNavigator(Node):
             map_wide_scan_matching = bool(
                 strategy == "observe_only" and search.get("map_wide_scan_matching", False)
             )
-            if not map_wide_scan_matching and not self.global_localization_client.wait_for_service(timeout_sec=0.2):
+            # A map-wide matcher chooses a replacement seed, but it does not
+            # itself clear AMCL's old particle belief. Every full restart must
+            # therefore reset AMCL before either map-wide matching or the
+            # ordinary no-motion convergence loop starts.
+            if not self.global_localization_client.wait_for_service(timeout_sec=0.2):
                 self.last_nav_failure = "global_localization_service_unavailable"
                 return self._set_global_localization_status(False, strategy, False, self.last_nav_failure)
             if strategy == "observe_only":
@@ -1487,9 +1477,15 @@ class LogisticsNavigator(Node):
             self._reset_global_localization_observations()
             self.reset_scan_map_alignment()
             self.global_localization_stop_event.clear()
+            self.global_localization_client.call_async(Empty.Request())
             if map_wide_scan_matching:
                 status = self._set_global_localization_status(
-                    True, strategy, False, "map_wide_scan_search_started", stage="map_wide"
+                    True,
+                    strategy,
+                    False,
+                    "map_wide_scan_search_started",
+                    stage="map_wide",
+                    amcl_global_reset_requested=True,
                 )
                 self.global_localization_thread = threading.Thread(
                     target=self._map_wide_scan_localization_search,
@@ -1499,7 +1495,6 @@ class LogisticsNavigator(Node):
                 )
                 self.global_localization_thread.start()
                 return status
-            self.global_localization_client.call_async(Empty.Request())
             if strategy == "observe_only":
                 status = self._set_global_localization_status(True, strategy, False, "amcl_global_search_started")
                 self.global_localization_thread = threading.Thread(
@@ -2054,117 +2049,7 @@ class LogisticsNavigator(Node):
         pose.pose.orientation.w = math.cos(yaw / 2.0)
         return pose
 
-    def _yaw_from_pose_stamped(self, pose):
-        qz = float(pose.pose.orientation.z)
-        qw = float(pose.pose.orientation.w)
-        return math.atan2(2.0 * qw * qz, 1.0 - 2.0 * qz * qz)
-
-    def _normalize_yaw_delta(self, delta):
-        while delta > math.pi:
-            delta -= 2.0 * math.pi
-        while delta < -math.pi:
-            delta += 2.0 * math.pi
-        return delta
-
-    def _verify_final_pose(self, target_pose, label, goal=None):
-        """Nav2 success 이후 실제 map pose가 목표 반경 안에 들어왔는지 확인합니다."""
-        verify_enabled = os.getenv("VERIFY_NAV2_FINAL_POSE", "1").strip().lower() not in ("0", "false", "no", "off")
-        if not verify_enabled or target_pose is None:
-            return True
-
-        goal = goal or {}
-        tolerance_m = float(goal.get("xy_tolerance_m", os.getenv("NAV_GOAL_XY_TOLERANCE_M", "0.02")))
-        soft_tolerance_m = goal.get("soft_xy_tolerance_m")
-        if soft_tolerance_m is not None:
-            soft_tolerance_m = float(soft_tolerance_m)
-        else:
-            soft_tolerance_m = None
-
-        yaw_tolerance = goal.get("yaw_tolerance_rad")
-        if yaw_tolerance is not None:
-            yaw_tolerance_rad = float(yaw_tolerance)
-        else:
-            yaw_tolerance_rad = None
-        soft_yaw_tolerance = goal.get("soft_yaw_tolerance_rad")
-        if soft_yaw_tolerance is not None:
-            soft_yaw_tolerance_rad = float(soft_yaw_tolerance)
-        else:
-            soft_yaw_tolerance_rad = None
-
-        current_pose = self.get_current_pose()
-        if current_pose is None:
-            msg = f"{label}: 현재 pose가 없어 실제 도착 여부를 확인할 수 없습니다."
-            print(f"[검증 실패] {msg}")
-            self.last_nav_failure = msg
-            return False
-
-        dx = float(current_pose["x"]) - float(target_pose.pose.position.x)
-        dy = float(current_pose["y"]) - float(target_pose.pose.position.y)
-        distance_m = math.hypot(dx, dy)
-        target_yaw = self._yaw_from_pose_stamped(target_pose)
-        current_yaw = float(current_pose.get("yaw", current_pose.get("theta", 0.0)))
-        yaw_error = abs(self._normalize_yaw_delta(current_yaw - target_yaw))
-
-        if distance_m <= tolerance_m:
-            if goal.get("nav_position_only"):
-                print(
-                    f"[검증 성공] {label}: position-only xy 거리 {distance_m:.3f} m "
-                    f"(yaw {math.degrees(yaw_error):.1f}° → ArUco 정렬)"
-                )
-                return True
-            if yaw_tolerance_rad is not None and yaw_error > yaw_tolerance_rad:
-                print(
-                    f"[검증 실패] {label}: yaw 오차 {math.degrees(yaw_error):.1f}° "
-                    f"(허용 {math.degrees(yaw_tolerance_rad):.1f}°)"
-                )
-                print(
-                    f" - 목표 yaw={math.degrees(target_yaw):.1f}° | "
-                    f"현재 yaw={math.degrees(current_yaw):.1f}°"
-                )
-                return False
-            yaw_note = f", yaw 오차 {math.degrees(yaw_error):.1f}°" if yaw_tolerance_rad is not None else ""
-            print(f"[검증 성공] {label}: 목표와 현재 pose 거리 {distance_m:.3f} m{yaw_note}")
-            return True
-
-        if soft_tolerance_m is not None and distance_m <= soft_tolerance_m:
-            if goal.get("nav_position_only"):
-                print(
-                    f"[근접 도착] {label}: xy {distance_m:.3f} m (position-only, yaw는 ArUco 정렬) "
-                    f"→ ArUco search/align로 보정"
-                )
-                return True
-            yaw_ok = True
-            if soft_yaw_tolerance_rad is not None and yaw_error > soft_yaw_tolerance_rad:
-                yaw_ok = False
-            if yaw_ok:
-                print(
-                    f"[근접 도착] {label}: strict xy {distance_m:.3f} m > {tolerance_m:.3f} m "
-                    f"but within soft {soft_tolerance_m:.3f} m → ArUco search/align로 보정"
-                )
-                if yaw_tolerance_rad is not None:
-                    print(
-                        f" - yaw 오차 {math.degrees(yaw_error):.1f}° "
-                        f"(strict {math.degrees(yaw_tolerance_rad):.1f}°)"
-                    )
-                return True
-
-        print(
-            f"[검증 실패] {label}: Nav2는 성공을 반환했지만 실제 pose가 목표에서 "
-            f"{distance_m:.3f} m 떨어져 있습니다. 허용값={tolerance_m:.3f} m"
-        )
-        print(
-            f" - 목표: x={target_pose.pose.position.x:.3f}, y={target_pose.pose.position.y:.3f} | "
-            f"현재: x={float(current_pose['x']):.3f}, y={float(current_pose['y']):.3f}"
-        )
-        if soft_tolerance_m is not None:
-            print(f" - soft 허용값={soft_tolerance_m:.3f} m도 초과")
-        self.last_nav_failure = (
-            f"{label}: pose verify failed xy={distance_m:.3f}m "
-            f"(strict={tolerance_m:.3f}m soft={soft_tolerance_m})"
-        )
-        return False
-
-    def _monitor_nav_task(self, label, target_pose=None, goal=None):
+    def _monitor_nav_task(self, label):
         """진행 중인 Nav2 task를 감시하고 공통 결과값을 반환합니다."""
         self.status = "MOVING"
         last_print_time = time.monotonic()
@@ -2190,16 +2075,8 @@ class LogisticsNavigator(Node):
                     self.nav.cancelTask()
                     return "OBSTACLE"
 
-                if self._should_abort_nav_for_forward_obstacle(goal=goal, distance_remaining=distance_remaining):
-                    front = self.front_min_range()
-                    print(f"[알림] 전방 라이다 장애물 {front:.2f} m — Nav2 중단")
-                    self.nav.cancelTask()
-                    return "OBSTACLE"
-
             result = self.nav.getResult()
             if result == TaskResult.SUCCEEDED:
-                if not self._verify_final_pose(target_pose, label, goal=goal):
-                    return False
                 self.last_nav_failure = None
                 print(f"[성공] {label} 도착 완료.")
                 return True
@@ -2242,7 +2119,7 @@ class LogisticsNavigator(Node):
         self.ensure_nav2_ready()
         try:
             self.nav.goToPose(pose)
-            return self._monitor_nav_task(str(waypoint_name), target_pose=pose, goal=goal)
+            return self._monitor_nav_task(str(waypoint_name))
         finally:
             self._restore_controller_params(restore_params)
 
@@ -2282,7 +2159,7 @@ class LogisticsNavigator(Node):
 
         self.ensure_nav2_ready()
         self.nav.goToPose(pose)
-        result = self._monitor_nav_task(name, target_pose=pose)
+        result = self._monitor_nav_task(name)
         if result is True:
             if info.get("kind") == "keepout_or_controlled_entry":
                 self.wait_for_loading()
