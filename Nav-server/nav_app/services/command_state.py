@@ -22,7 +22,7 @@ from nav_app.services.status_helpers import (
 def release_traffic_locks_for_command(command: Dict[str, Any]):
     if not runtime.traffic_manager:
         return
-    segments = command.get("traffic_segments") or []
+    segments = command.get("traffic_segments_held" if command.get("traffic_coordination_mode") == "segment" else "traffic_segments") or []
     if not segments:
         return
     runtime.traffic_manager.release_many(

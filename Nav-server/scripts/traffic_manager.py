@@ -134,6 +134,20 @@ class TrafficManager:
             self._cleanup_expired(state)
             return dict(state["locks"])
 
+    def reserve_departure_slot(self, robot_id, command_id, min_interval_sec):
+        """Atomically stagger departures across independent API processes."""
+        now = time.time()
+        interval = max(0.0, float(min_interval_sec))
+        with self._locked_state() as state:
+            departure = state.get("last_departure") or {}
+            remaining = interval - (now - float(departure.get("at", 0.0)))
+            if remaining > 0:
+                return remaining
+            state["last_departure"] = {
+                "robot_id": robot_id, "command_id": command_id, "at": now,
+            }
+            return 0.0
+
     def reset(self):
         with self._locked_state() as state:
             state["locks"] = {}

@@ -30,6 +30,12 @@ from nav_app.services.robot_context import (
     report_movement_robot_status as _report_movement_robot_status,
 )
 from nav_app.services.status_helpers import stage_for_step_action as _stage_for_step_action
+from nav_app.services.traffic_coordination import (
+    release_held_segments as _release_held_segments,
+    segment_mode_enabled as _segment_mode_enabled,
+    wait_for_departure_slot as _wait_for_departure_slot,
+    wait_for_step_segments as _wait_for_step_segments,
+)
 
 def _approach_goal_for_nav_step(step: MovementStep) -> Optional[Dict[str, Any]]:
     """Return the final position-only goal that hands off to ArUco alignment."""
@@ -300,6 +306,15 @@ def execute_movement_command(req: MovementCommandRequest):
             command["stage"] = _stage_for_step_action(step.action)
             command["updated_at"] = _utc_now()
             _persist_command(command)
+            if _segment_mode_enabled() and step.action in ("leave_dock", "nav2_pose", "nav2_waypoints"):
+                _wait_for_departure_slot(command, _persist_command)
+            if _segment_mode_enabled() and step.action == "leave_dock" and index + 1 < len(req.steps):
+                next_step = req.steps[index + 1]
+                if next_step.action in ("nav2_pose", "nav2_waypoints"):
+                    # Reserve the first corridor before either robot backs out.
+                    _wait_for_step_segments(command, next_step, _persist_command)
+            if _segment_mode_enabled() and step.action in ("nav2_pose", "nav2_waypoints"):
+                _wait_for_step_segments(command, step, _persist_command)
             step_dry_run = bool(step.payload.get("dry_run"))
             if step.action == "aruco_align" and step.payload.get("metric_distance_only") and command.get("metric_approach_start_pose") is None:
                 pose = runtime.navigator.get_current_pose() if runtime.navigator else None
@@ -345,6 +360,11 @@ def execute_movement_command(req: MovementCommandRequest):
                 if runtime.navigator and getattr(runtime.navigator, "last_nav_failure", None):
                     detail = runtime.navigator.last_nav_failure
                 raise RuntimeError(f"step {index} {step.action} failed: {detail}")
+            if _segment_mode_enabled() and step.action == "dock_transfer":
+                # dock_transfer returns to the captured approach pose before release.
+                _release_held_segments(command)
+                command["traffic_state"] = "RELEASED"
+                _persist_command(command)
             if business_index is not None and step.payload.get("business_step_complete", True):
                 command["last_completed_step_index"] = int(business_index)
                 if command.get("current_step_code") in ("LOAD", "INBOUND_LOAD_COMPLETE"):
@@ -464,7 +484,8 @@ def execute_movement_command(req: MovementCommandRequest):
         _report_command_callback(command, "COMMAND_FAILED", reason)
         _report_movement_robot_status(req.robot_name, None, "error")
     finally:
-        if command.get("state") != "ARRIVED":
+        _release_held_segments(command)
+        if not _segment_mode_enabled() and command.get("state") != "ARRIVED":
             _release_traffic_locks_for_command(command)
         command["updated_at"] = _utc_now()
         _persist_command(command)

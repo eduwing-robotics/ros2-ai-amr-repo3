@@ -46,6 +46,7 @@ from nav_app.services.route_helpers import (
     raw_steps_from_route_request,
     traffic_segments_from_steps,
 )
+from nav_app.services.traffic_coordination import segment_mode_enabled
 
 router = APIRouter()
 
@@ -236,7 +237,7 @@ def _accept_movement_command(
 
         traffic_segments = traffic_segments_from_steps(req.steps)
         traffic_locks = []
-        if traffic_segments:
+        if traffic_segments and not segment_mode_enabled():
             if not runtime.traffic_manager:
                 raise HTTPException(status_code=503, detail="Traffic manager 초기화 중입니다.")
             try:
@@ -281,6 +282,12 @@ def _accept_movement_command(
             "request_fingerprint": request_fingerprint,
             "callback_sequence": -1,
         }
+        if segment_mode_enabled():
+            command.update({
+                "traffic_coordination_mode": "segment",
+                "traffic_state": "QUEUED",
+                "traffic_segments_held": [],
+            })
         if source_metadata:
             command.update(source_metadata)
         runtime.movement_commands[req.command_id] = command

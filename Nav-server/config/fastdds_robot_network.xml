@@ -13,6 +13,12 @@
       </interfaceWhiteList>
     </transport_descriptor>
   </transport_descriptors>
+  <data_reader profile_name="robot_dynamic_reader" is_default_profile="true">
+    <historyMemoryPolicy>DYNAMIC</historyMemoryPolicy>
+  </data_reader>
+  <data_writer profile_name="robot_dynamic_writer" is_default_profile="true">
+    <historyMemoryPolicy>DYNAMIC</historyMemoryPolicy>
+  </data_writer>
   <participant profile_name="robot_network" is_default_profile="true">
     <rtps>
       <userTransports>
