@@ -302,6 +302,22 @@ def test_all_registered_route_and_floor_combinations_compile():
         return {"location_id": location_id, "floor": floor,
                 "approach": {"waypoint_id": wp, "x": x, "y": y, "yaw": yaw}}
 
+    def assert_storage_endpoint_is_consistent(steps, storage):
+        expected_key = storage.lower()
+        return_keys = {
+            step.payload.get(key)
+            for step in steps
+            for key in ("capture_return_pose_key", "use_return_pose_key")
+            if str(step.payload.get(key, "")).startswith("storage_")
+        }
+        assert return_keys == {expected_key}
+        storage_stages = [
+            step.payload.get("stage") for step in steps
+            if str(step.payload.get("stage", "")).startswith("storage_")
+        ]
+        assert storage_stages
+        assert all(stage.startswith(expected_key) for stage in storage_stages)
+
     compiled = 0
     for floor in (1, 2):
         for inbound in ("INBOUND_01", "INBOUND_02"):
@@ -310,6 +326,7 @@ def test_all_registered_route_and_floor_combinations_compile():
                 payload["pickup"], payload["dropoff"] = endpoint(inbound, 1), endpoint(storage, floor)
                 steps, _ = build_scenario_command(ScenarioCommandRequest(**payload))
                 assert len(steps) == 18
+                assert_storage_endpoint_is_consistent(steps, storage)
                 marker_id, stage2_distance = storage_contracts[storage]
                 assert steps[9].payload["aruco_marker_id"] == marker_id
                 assert steps[9].payload["target_distance_m"] == 0.40
@@ -322,6 +339,7 @@ def test_all_registered_route_and_floor_combinations_compile():
                 payload["pickup"], payload["dropoff"] = endpoint(storage, floor), endpoint(outbound, 1)
                 steps, _ = build_scenario_command(ScenarioCommandRequest(**payload))
                 assert len(steps) == 18
+                assert_storage_endpoint_is_consistent(steps, storage)
                 marker_id, stage2_distance = storage_contracts[storage]
                 assert steps[3].payload["aruco_marker_id"] == marker_id
                 assert steps[3].payload["target_distance_m"] == 0.40

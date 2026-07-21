@@ -1,10 +1,13 @@
 """Docking distance cap, align mode, and approach chaining tests."""
+import math
 import unittest
+from unittest.mock import patch
 
 from nav_app.services.docking import (
     _precision_dock_linear_command,
     _marker_seek_monotonic,
     _marker_pose_aligned,
+    _marker_pose_yaw_tolerance_rad,
     _marker_yaw_angular_sign,
     _center_angular_sign,
     _marker_yaw_error_rad,
@@ -135,6 +138,29 @@ class DockingMotionTests(unittest.TestCase):
             {"marker_yaw_error_rad": 0.20},
             {"marker_yaw_tolerance_deg": 4.0},
         ))
+
+    def test_robot_profile_can_relax_marker_yaw_without_changing_payload_contract(self):
+        with patch("nav_app.services.docking.active_robot_profile", return_value={
+            "aruco_marker_yaw_tolerance_deg": 6.0,
+        }):
+            self.assertAlmostEqual(
+                _marker_pose_yaw_tolerance_rad({}), math.radians(6.0)
+            )
+            self.assertTrue(_marker_pose_aligned(
+                {"marker_yaw_error_rad": math.radians(5.4)}, {}
+            ))
+            self.assertFalse(_marker_pose_aligned(
+                {"marker_yaw_error_rad": math.radians(6.1)}, {}
+            ))
+
+    def test_payload_marker_yaw_tolerance_overrides_robot_profile(self):
+        with patch("nav_app.services.docking.active_robot_profile", return_value={
+            "aruco_marker_yaw_tolerance_deg": 6.0,
+        }):
+            self.assertAlmostEqual(
+                _marker_pose_yaw_tolerance_rad({"marker_yaw_tolerance_deg": 4.0}),
+                math.radians(4.0),
+            )
 
     def test_pose_aware_steering_uses_center_and_face_yaw(self):
         detection = {"center_error_norm": 0.10, "marker_yaw_error_rad": 0.10}

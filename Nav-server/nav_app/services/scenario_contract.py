@@ -131,10 +131,11 @@ def _replace_endpoint(steps: List[Dict[str, Any]], old_wp: str, new_wp: str, pro
                     stage_prefix = "align" if metric_step_index == 0 else "insert"
                     payload["stage"] = f"{new_stage_token}_{stage_prefix}_{distance_cm}cm"
                     metric_step_index += 1
-                for key in ("capture_return_pose_key", "use_return_pose_key"):
-                    if payload.get(key) == old_stage_token:
-                        payload[key] = new_stage_token
+        for key in ("capture_return_pose_key", "use_return_pose_key"):
+            if payload.get(key) == old_stage_token:
+                payload[key] = new_stage_token
         if isinstance(payload.get("stage"), str):
+            payload["stage"] = payload["stage"].replace(old_stage_token, new_stage_token)
             payload["stage"] = payload["stage"].replace(old_token, new_token)
         if isinstance(payload.get("waypoints"), list):
             payload["waypoints"] = [new_wp if waypoint == old_wp else waypoint for waypoint in payload["waypoints"]]

@@ -20,6 +20,7 @@
       "aruco_detection_topic": "/mission/tb3_1/aruco/detections",
       "aruco_center_angular_sign": 1.0,
       "aruco_marker_yaw_angular_sign": 1.0,
+      "aruco_marker_yaw_tolerance_deg": 6.0,
       "aruco_pose_reposition_enabled": true,
       "standby_aruco_marker_id": 3,
       "lift": {

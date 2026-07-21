@@ -171,7 +171,10 @@ def _marker_yaw_error_rad(detection: Optional[Dict[str, Any]]) -> Optional[float
 def _marker_pose_yaw_tolerance_rad(payload: Dict[str, Any]) -> float:
     if payload.get("marker_yaw_tolerance_rad") is not None:
         return abs(float(payload["marker_yaw_tolerance_rad"]))
-    return math.radians(abs(float(payload.get("marker_yaw_tolerance_deg", 4.0))))
+    configured_deg = payload.get("marker_yaw_tolerance_deg")
+    if configured_deg is None:
+        configured_deg = active_robot_profile().get("aruco_marker_yaw_tolerance_deg", 4.0)
+    return math.radians(abs(float(configured_deg)))
 
 
 def _marker_pose_aligned(detection: Optional[Dict[str, Any]], payload: Dict[str, Any]) -> bool:
