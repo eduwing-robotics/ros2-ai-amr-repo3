@@ -598,7 +598,7 @@
       "kind": "inventory_section",
       "role": "slot_c",
       "mask_value": 180,
-      "aruco_marker_id": 10,
+      "aruco_marker_id": 9,
       "approach_waypoint": "warehouse_c_approach",
       "dock_waypoint": "warehouse_c_dock",
       "rect": {
@@ -608,7 +608,7 @@
         "max_y": 1.311864
       },
       "aruco_marker": {
-        "id": 10,
+        "id": 9,
         "frame": "map",
         "mounted_on": "central_slot_back_wall",
         "x": 0.9,
@@ -623,7 +623,7 @@
       "kind": "inventory_section",
       "role": "slot_d",
       "mask_value": 180,
-      "aruco_marker_id": 9,
+      "aruco_marker_id": 10,
       "approach_waypoint": "warehouse_d_approach",
       "dock_waypoint": "warehouse_d_dock",
       "rect": {
@@ -633,7 +633,7 @@
         "max_y": 1.067797
       },
       "aruco_marker": {
-        "id": 9,
+        "id": 10,
         "frame": "map",
         "mounted_on": "central_slot_back_wall",
         "x": 0.9,

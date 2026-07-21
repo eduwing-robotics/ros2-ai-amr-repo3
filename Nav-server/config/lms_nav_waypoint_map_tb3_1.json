@@ -30,8 +30,8 @@
   "by_aruco_marker_id": {
     "7": "warehouse_a_approach",
     "8": "warehouse_b_approach",
-    "10": "warehouse_c_approach",
-    "9": "warehouse_d_approach",
+    "9": "warehouse_c_approach",
+    "10": "warehouse_d_approach",
     "0": "inbound_slot_1_approach",
     "1": "inbound_slot_2_approach",
     "5": "outbound_slot_1_approach",
@@ -56,13 +56,13 @@
       "x": 1.239,
       "y": -0.631,
       "yaw": 3.142,
-      "aruco_marker_id": 10
+      "aruco_marker_id": 9
     },
     "warehouse_d_approach": {
       "x": 1.225,
       "y": -0.377,
       "yaw": 3.142,
-      "aruco_marker_id": 9
+      "aruco_marker_id": 10
     },
     "inbound_slot_1_pre_approach": {
       "x": -0.085,

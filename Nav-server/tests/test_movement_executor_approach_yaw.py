@@ -37,7 +37,7 @@ def test_nav2_pose_pre_rotation_behavior_is_preserved():
         action="nav2_pose",
         payload={"goal": {"waypoint": "warehouse_c_approach", "nav_position_only": True}},
     )
-    align = MovementStep(action="aruco_align", payload={"aruco_marker_id": 10})
+    align = MovementStep(action="aruco_align", payload={"aruco_marker_id": 9})
 
     with (
         patch.object(movement_executor, "approach_yaw_for_waypoint", return_value=3.142),

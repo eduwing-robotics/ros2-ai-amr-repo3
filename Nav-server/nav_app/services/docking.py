@@ -4,7 +4,7 @@ import os
 import shlex
 import subprocess
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from nav_app.errors import CommandAborted, StageError
 from nav_app.models import MovementStep
@@ -217,6 +217,51 @@ def _pose_aware_docking_angular_z(
     return _clamp(command, -max_angular, max_angular)
 
 
+def _pose_reposition_command(
+    detection: Dict[str, Any],
+    payload: Dict[str, Any],
+    *,
+    distance_m: Optional[float],
+    target_distance_m: float,
+    linear_speed: float,
+    min_linear_speed: float,
+    max_angular: float,
+) -> Tuple[float, float, bool]:
+    """Return a bounded robot-specific arc/yaw command from fresh marker pose."""
+    profile_enabled = bool(active_robot_profile().get("aruco_pose_reposition_enabled", False))
+    if not bool(payload.get("pose_reposition_enabled", profile_enabled)) or distance_m is None:
+        return 0.0, 0.0, False
+
+    center_error = float(detection.get("center_error_norm", 0.0))
+    yaw_error = _marker_yaw_error_rad(detection)
+    remaining_m = distance_m - target_distance_m
+    min_remaining_m = max(0.0, float(payload.get("pose_reposition_min_remaining_m", 0.025)))
+    center_done = abs(float(payload.get("pose_reposition_center_done_norm", 0.06)))
+    center_limit = abs(float(payload.get("pose_reposition_center_limit_norm", 0.30)))
+    yaw_limit = math.radians(abs(float(payload.get("pose_reposition_yaw_limit_deg", 25.0))))
+
+    if remaining_m <= min_remaining_m or abs(center_error) > center_limit:
+        return 0.0, 0.0, False
+
+    if yaw_error is not None and abs(yaw_error) > yaw_limit:
+        yaw_gain = abs(float(payload.get("pose_reposition_yaw_gain", 0.55)))
+        angular = _clamp(_marker_yaw_angular_sign(payload) * yaw_gain * yaw_error, -max_angular, max_angular)
+        return 0.0, _apply_angular_deadband(angular, payload), True
+
+    if abs(center_error) > center_done:
+        speed = min(linear_speed, max(min_linear_speed, float(payload.get("pose_reposition_linear_speed_mps", 0.012))))
+        center_gain = abs(float(payload.get("pose_reposition_center_gain", 0.45)))
+        angular = _clamp(_center_angular_sign(payload) * center_gain * center_error, -max_angular, max_angular)
+        return speed, _apply_angular_deadband(angular, payload), True
+
+    if yaw_error is not None and abs(yaw_error) > _marker_pose_yaw_tolerance_rad(payload):
+        yaw_gain = abs(float(payload.get("pose_reposition_yaw_gain", 0.55)))
+        angular = _clamp(_marker_yaw_angular_sign(payload) * yaw_gain * yaw_error, -max_angular, max_angular)
+        return 0.0, _apply_angular_deadband(angular, payload), True
+
+    return min(linear_speed, max(min_linear_speed, linear_speed)), 0.0, True
+
+
 def _acquire_center_tolerance(payload: Dict[str, Any]) -> float:
     base = float(payload.get("center_tolerance_norm", ARUCO_DOCK_CENTER_TOLERANCE_NORM))
     if resolve_align_mode(payload) == "skip":
@@ -316,6 +361,8 @@ def _apply_angular_deadband(angular_z: float, payload: Optional[Dict[str, Any]] 
 
 def skip_approach_yaw_if_marker_visible(marker_id: int, payload: Dict[str, Any]) -> bool:
     """마커가 이미 보이면 map yaw 회전을 건너뛴다 (ArUco center 정렬이 이어짐)."""
+    if payload.get("force_approach_yaw_rotate"):
+        return False
     if not runtime.navigator:
         return False
     max_age_sec = float(payload.get("marker_search_max_age_sec", ARUCO_DETECTION_MAX_AGE_SEC))
@@ -823,6 +870,55 @@ def execute_center_align_only(marker_id: int, payload: Dict[str, Any]):
     raise RuntimeError(f"center align timed out for ArUco marker {marker_id}")
 
 
+def _precision_dock_linear_command(
+    *,
+    payload: Dict[str, Any],
+    straight_insert: bool,
+    close_enough: bool,
+    near_pose_align_zone: bool,
+    abs_error: float,
+    yaw_error: Optional[float],
+    forward_tol: float,
+    forward_yaw_tolerance: float,
+    center_tolerance: float,
+    coarse_center_tolerance: float,
+    linear_speed: float,
+    min_linear_speed: float,
+) -> Tuple[float, bool]:
+    """Choose forward speed and report whether far-pose arc recovery is active."""
+    yaw_blocks_forward = yaw_error is not None and abs(yaw_error) > forward_yaw_tolerance
+    misaligned = abs_error > forward_tol or yaw_blocks_forward
+
+    recovery_enabled = bool(payload.get("far_pose_arc_recovery", True))
+    recovery_center_limit = abs(float(payload.get("far_pose_recovery_center_norm", 0.30)))
+    recovery_yaw_limit = math.radians(abs(float(payload.get("far_pose_recovery_yaw_deg", 45.0))))
+    recovery_yaw_ok = yaw_error is None or abs(yaw_error) <= recovery_yaw_limit
+    recovery_active = (
+        recovery_enabled
+        and not straight_insert
+        and not close_enough
+        and not near_pose_align_zone
+        and misaligned
+        and abs_error <= recovery_center_limit
+        and recovery_yaw_ok
+    )
+
+    if recovery_active:
+        recovery_speed = abs(float(payload.get("far_pose_recovery_linear_speed_mps", 0.012)))
+        return min(linear_speed, max(min_linear_speed, recovery_speed)), True
+    if not straight_insert and misaligned:
+        return 0.0, False
+    if close_enough and not straight_insert:
+        return 0.0, False
+    if not close_enough:
+        return linear_speed, False
+    if abs_error > center_tolerance:
+        error_span = max(0.001, coarse_center_tolerance - center_tolerance)
+        scale = 1.0 - min(1.0, max(0.0, (abs_error - center_tolerance) / error_span))
+        return max(min_linear_speed, linear_speed * scale), False
+    return linear_speed, False
+
+
 def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
@@ -954,21 +1050,34 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
         if near_pose_align_zone:
             forward_yaw_deg = float(payload.get("marker_near_forward_yaw_tolerance_deg", 6.0))
         forward_yaw_tolerance = math.radians(abs(forward_yaw_deg))
-        yaw_blocks_forward = yaw_error is not None and abs(yaw_error) > forward_yaw_tolerance
-        if not straight_insert and (abs(error_norm) > forward_tol or yaw_blocks_forward):
-            command_linear = 0.0
-        elif close_enough and not straight_insert:
-            # Once the metric stop distance is reached, never advance farther.
-            # Finish center and marker-face alignment by rotation only.
-            command_linear = 0.0
-        elif not close_enough:
-            command_linear = linear_speed
-        elif abs_error > center_tolerance:
-            error_span = max(0.001, coarse_center_tolerance - center_tolerance)
-            scale = 1.0 - min(1.0, max(0.0, (abs_error - center_tolerance) / error_span))
-            command_linear = max(min_linear_speed, linear_speed * scale)
-        else:
-            command_linear = linear_speed
+        command_linear, recovery_active = _precision_dock_linear_command(
+            payload=payload,
+            straight_insert=straight_insert,
+            close_enough=close_enough,
+            near_pose_align_zone=near_pose_align_zone,
+            abs_error=abs_error,
+            yaw_error=yaw_error,
+            forward_tol=forward_tol,
+            forward_yaw_tolerance=forward_yaw_tolerance,
+            center_tolerance=center_tolerance,
+            coarse_center_tolerance=coarse_center_tolerance,
+            linear_speed=linear_speed,
+            min_linear_speed=min_linear_speed,
+        )
+
+        reposition_linear, reposition_angular, reposition_active = _pose_reposition_command(
+            detection,
+            payload,
+            distance_m=distance_m,
+            target_distance_m=target_distance_m,
+            linear_speed=linear_speed,
+            min_linear_speed=min_linear_speed,
+            max_angular=max_angular,
+        )
+        if reposition_active:
+            command_linear = reposition_linear
+            angular_z = reposition_angular
+            recovery_active = True
 
         if command_linear > 0.0 and distance_m is not None:
             remaining_m = max(0.0, distance_m - target_distance_m)
@@ -994,7 +1103,8 @@ def execute_precision_docking(marker_id: int, payload: Dict[str, Any]):
             print(
                 f"[dock] full align progress marker={marker_id} "
                 f"err={error_norm:.3f} yaw={math.degrees(yaw_error) if yaw_error is not None else float('nan'):.1f}deg "
-                f"width={width:.0f}/{target_width:.0f} linear={command_linear:.3f} angular={angular_z:.3f}"
+                f"width={width:.0f}/{target_width:.0f} linear={command_linear:.3f} angular={angular_z:.3f} "
+                f"recovery_arc={recovery_active}"
             )
             last_progress_log = now
 

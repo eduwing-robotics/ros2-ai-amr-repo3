@@ -2,12 +2,14 @@
 import unittest
 
 from nav_app.services.docking import (
+    _precision_dock_linear_command,
     _marker_seek_monotonic,
     _marker_pose_aligned,
     _marker_yaw_angular_sign,
     _center_angular_sign,
     _marker_yaw_error_rad,
     _pose_aware_docking_angular_z,
+    _pose_reposition_command,
     _marker_seek_sweep_enabled,
     marker_close_enough,
     _require_center_before_insert,
@@ -22,6 +24,7 @@ from nav_app.services.docking import (
     resolve_dock_reverse_distance_m,
     resolve_post_insert_dwell_sec,
     resolve_pre_insert_settle_sec,
+    skip_approach_yaw_if_marker_visible,
 )
 from nav_app.runtime import runtime
 from nav_app.services.robot_commands import (
@@ -39,6 +42,77 @@ from nav_app.settings import NAV_APPROACH_SOFT_XY_TOLERANCE_M, NAV_APPROACH_XY_T
 
 
 class DockingMotionTests(unittest.TestCase):
+    def test_force_approach_yaw_rotate_overrides_visible_marker_skip(self):
+        self.assertFalse(skip_approach_yaw_if_marker_visible(
+            1, {"force_approach_yaw_rotate": True}
+        ))
+
+    def _linear_command(self, **overrides):
+        params = {
+            "payload": {},
+            "straight_insert": False,
+            "close_enough": False,
+            "near_pose_align_zone": False,
+            "abs_error": 0.50,
+            "yaw_error": 0.35,
+            "forward_tol": 0.14,
+            "forward_yaw_tolerance": 0.21,
+            "center_tolerance": 0.03,
+            "coarse_center_tolerance": 0.14,
+            "linear_speed": 0.018,
+            "min_linear_speed": 0.012,
+        }
+        params.update(overrides)
+        return _precision_dock_linear_command(**params)
+
+    def test_far_pose_recovery_turns_before_advancing(self):
+        self.assertEqual(self._linear_command(abs_error=0.51), (0.0, False))
+
+    def test_far_pose_recovery_crawls_after_marker_enters_recovery_window(self):
+        speed, active = self._linear_command(abs_error=0.25, yaw_error=0.35)
+        self.assertTrue(active)
+        self.assertAlmostEqual(speed, 0.012)
+
+    def test_far_pose_recovery_never_advances_near_target(self):
+        self.assertEqual(
+            self._linear_command(abs_error=0.25, yaw_error=0.35, near_pose_align_zone=True),
+            (0.0, False),
+        )
+
+    def test_pose_reposition_arcs_from_fresh_center_error(self):
+        detection = {"center_error_norm": 0.18, "marker_yaw_error_rad": -0.11}
+        linear, angular, active = _pose_reposition_command(
+            detection,
+            {"pose_reposition_enabled": True, "center_angular_sign": 1.0},
+            distance_m=0.457, target_distance_m=0.4,
+            linear_speed=0.018, min_linear_speed=0.012, max_angular=0.16,
+        )
+        self.assertTrue(active)
+        self.assertAlmostEqual(linear, 0.012)
+        self.assertGreater(angular, 0.0)
+
+    def test_pose_reposition_separates_face_yaw_after_centering(self):
+        detection = {"center_error_norm": 0.02, "marker_yaw_error_rad": -0.11}
+        linear, angular, active = _pose_reposition_command(
+            detection,
+            {"pose_reposition_enabled": True, "marker_yaw_angular_sign": 1.0},
+            distance_m=0.457, target_distance_m=0.4,
+            linear_speed=0.018, min_linear_speed=0.012, max_angular=0.16,
+        )
+        self.assertTrue(active)
+        self.assertEqual(linear, 0.0)
+        self.assertLess(angular, 0.0)
+
+    def test_pose_reposition_stays_disabled_without_robot_flag(self):
+        self.assertEqual(
+            _pose_reposition_command(
+                {"center_error_norm": 0.18}, {"pose_reposition_enabled": False},
+                distance_m=0.457, target_distance_m=0.4,
+                linear_speed=0.018, min_linear_speed=0.012, max_angular=0.16,
+            ),
+            (0.0, 0.0, False),
+        )
+
     def test_center_angular_sign_can_flip_for_rotated_camera(self):
         self.assertEqual(_center_angular_sign({"center_angular_sign": 1.0}), 1.0)
         self.assertEqual(_center_angular_sign({"center_angular_sign": -1.0}), -1.0)
@@ -215,7 +289,7 @@ class DockingMotionTests(unittest.TestCase):
 class ApproachChainingTests(unittest.TestCase):
     def test_warehouse_c_has_marker_and_tolerances(self):
         marker_id = marker_id_for_approach_waypoint("warehouse_c_approach")
-        self.assertEqual(marker_id, 10)
+        self.assertEqual(marker_id, 9)
         overrides = docking_approach_goal_overrides("warehouse_c_approach")
         self.assertIn("xy_tolerance_m", overrides)
         self.assertTrue(overrides.get("nav_position_only"))
@@ -261,7 +335,7 @@ class ApproachChainingTests(unittest.TestCase):
         goal = {"waypoint": "warehouse_c_approach", "x": 1.239, "y": -0.631, "yaw": 3.142}
         steps = move_to_point_steps(req, goal, [])
         self.assertEqual([step.action for step in steps], ["nav2_pose", "aruco_align", "wait", "aruco_align"])
-        self.assertEqual(steps[1].payload["aruco_marker_id"], 10)
+        self.assertEqual(steps[1].payload["aruco_marker_id"], 9)
         self.assertEqual(steps[1].payload["align_mode"], "full")
         self.assertEqual(steps[1].payload["target_distance_m"], 0.40)
         self.assertEqual(steps[2].duration, 3.0)

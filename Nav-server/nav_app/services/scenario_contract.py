@@ -60,7 +60,12 @@ def _load_json(path: Path) -> Dict[str, Any]:
 
 
 def _waypoint_profiles() -> Dict[str, Dict[str, Any]]:
-    return _load_json(ROOT / "config" / "lms_nav_waypoint_map_tb3_2.json")["nav_waypoints"]
+    nav_profiles = _load_json(ROOT / "config" / "lms_nav_waypoint_map_tb3_2.json")["nav_waypoints"]
+    zone_profiles = _load_json(ROOT / "map" / "zones.json")["waypoints"]
+    return {
+        waypoint_id: {**zone_profiles.get(waypoint_id, {}), **nav_profile}
+        for waypoint_id, nav_profile in nav_profiles.items()
+    }
 
 
 def _resolve_endpoint(label: str, endpoint, expected_prefix: str) -> Tuple[str, Dict[str, Any]]:
@@ -102,15 +107,75 @@ def _replace_endpoint(steps: List[Dict[str, Any]], old_wp: str, new_wp: str, pro
     old_marker = _waypoint_profiles()[old_wp].get("aruco_marker_id")
     new_marker = profile.get("aruco_marker_id")
     old_token, new_token = old_wp.removesuffix("_approach"), new_wp.removesuffix("_approach")
+    old_stage_token = old_token.replace("warehouse_", "storage_").replace("_slot_", "")
+    new_stage_token = new_token.replace("warehouse_", "storage_").replace("_slot_", "")
+    metric_profile = profile.get("metric_two_stage") or {}
+    metric_targets = (
+        metric_profile.get("stage1_target_distance_m"),
+        metric_profile.get("stage2_target_distance_m"),
+    )
+    metric_step_index = 0
     for step in steps:
         payload = step.setdefault("payload", {})
         if payload.get("aruco_marker_id") == old_marker:
             payload["aruco_marker_id"] = new_marker
+            if step.get("action") == "aruco_align" and payload.get("metric_distance_only"):
+                preserve_width_only = payload.get("close_from_marker_width_only")
+                payload.update(profile.get("aruco_align") or {})
+                if preserve_width_only is not None:
+                    payload["close_from_marker_width_only"] = preserve_width_only
+                if metric_step_index < len(metric_targets) and metric_targets[metric_step_index] is not None:
+                    target_distance = metric_targets[metric_step_index]
+                    payload["target_distance_m"] = target_distance
+                    distance_cm = round(target_distance * 100)
+                    stage_prefix = "align" if metric_step_index == 0 else "insert"
+                    payload["stage"] = f"{new_stage_token}_{stage_prefix}_{distance_cm}cm"
+                    metric_step_index += 1
+                for key in ("capture_return_pose_key", "use_return_pose_key"):
+                    if payload.get(key) == old_stage_token:
+                        payload[key] = new_stage_token
         if isinstance(payload.get("stage"), str):
             payload["stage"] = payload["stage"].replace(old_token, new_token)
+        if isinstance(payload.get("waypoints"), list):
+            payload["waypoints"] = [new_wp if waypoint == old_wp else waypoint for waypoint in payload["waypoints"]]
         for goal in payload.get("goals") or []:
             if goal.get("waypoint") == old_wp:
                 goal.update(waypoint=new_wp, x=profile["x"], y=profile["y"], yaw=profile["yaw"])
+
+
+def _prepend_inbound1_pre_approach(steps: List[Dict[str, Any]], pickup_wp: str) -> None:
+    if pickup_wp != "inbound_slot_1_approach":
+        return
+
+    pre_wp = "inbound_slot_1_pre_approach"
+    pre_profile = _waypoint_profiles().get(pre_wp)
+    if pre_profile is None:
+        raise ScenarioContractError("waypoint_profile_missing", f"No canonical profile for {pre_wp}.")
+
+    for step in steps:
+        payload = step.setdefault("payload", {})
+        goals = payload.get("goals")
+        if not isinstance(goals, list):
+            continue
+        for index, goal in enumerate(goals):
+            if not isinstance(goal, dict) or goal.get("waypoint") != pickup_wp:
+                continue
+            pre_goal = {
+                "x": pre_profile["x"],
+                "y": pre_profile["y"],
+                "yaw": pre_profile["yaw"],
+                "waypoint": pre_wp,
+                "nav_position_only": True,
+                "yaw_tolerance_rad": None,
+                "soft_xy_tolerance_m": 0.08,
+            }
+            goals.insert(index, pre_goal)
+            waypoints = payload.get("waypoints")
+            if isinstance(waypoints, list):
+                waypoints.insert(index, pre_wp)
+            return
+
+    raise ScenarioContractError("waypoint_profile_missing", "Inbound 1 pickup navigation step is missing.")
 
 
 def _apply_floor(steps: List[Dict[str, Any]], scenario_type: str, storage_floor: int) -> None:
@@ -136,6 +201,7 @@ def build_scenario_command(req: ScenarioCommandRequest) -> Tuple[List[MovementSt
     old_pickup, old_dropoff = _BASE_ENDPOINTS[req.scenario_type]
     _replace_endpoint(steps, old_pickup, pickup_wp, pickup_profile)
     _replace_endpoint(steps, old_dropoff, dropoff_wp, dropoff_profile)
+    _prepend_inbound1_pre_approach(steps, pickup_wp)
     storage_floor = req.dropoff.floor if req.scenario_type == "inbound" else req.pickup.floor
     _apply_floor(steps, req.scenario_type, storage_floor)
     route_type = f"{pickup_wp.removesuffix('_approach')}_{dropoff_wp.removesuffix('_approach')}_return_wait2"
