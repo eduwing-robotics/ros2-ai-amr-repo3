@@ -94,6 +94,22 @@ def test_scenario_returns_each_robot_to_its_own_standby(
     assert metadata["route_type"].endswith(f"return_{wait_token}")
 
 
+@pytest.mark.parametrize("scenario_type", ["inbound", "outbound"])
+@pytest.mark.parametrize("robot_name,expected_height_mm", [("tb3_1", 8), ("tb3_2", 6)])
+def test_robot1_uses_8mm_level1_load_and_carry_height(
+    scenario_type, robot_name, expected_height_mm
+):
+    payload = request_payload(scenario_type)
+    payload["robot_name"] = robot_name
+
+    steps, _ = build_scenario_command(ScenarioCommandRequest(**payload))
+
+    assert steps[7].payload["lift_height_mm"] == expected_height_mm
+    assert steps[11].payload["target_height_mm"] == expected_height_mm
+    assert f"raw_{expected_height_mm}mm" in steps[7].payload["stage"]
+    assert f"raw_{expected_height_mm}mm" in steps[11].payload["stage"]
+
+
 def test_scenario_rejects_location_waypoint_mismatch():
     payload = request_payload()
     payload["pickup"]["approach"]["waypoint_id"] = "inbound_slot_1_approach"

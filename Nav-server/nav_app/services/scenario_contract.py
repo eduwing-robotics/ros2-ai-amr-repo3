@@ -222,6 +222,19 @@ def _apply_floor(steps: List[Dict[str, Any]], scenario_type: str, storage_floor:
         steps[7]["payload"]["level"] = storage_floor
 
 
+def _apply_robot_lift_profile(steps: List[Dict[str, Any]], robot_name: str, storage_floor: int) -> None:
+    if robot_name not in ("tb3_1", "tb3_burger_01") or storage_floor != 1:
+        return
+    for step in steps:
+        payload = step.setdefault("payload", {})
+        if step.get("action") == "dock_transfer" and payload.get("action") == "load":
+            payload["lift_height_mm"] = 8
+        elif step.get("action") == "lift_move" and payload.get("target_height_mm") == 6:
+            payload["target_height_mm"] = 8
+        if isinstance(payload.get("stage"), str):
+            payload["stage"] = payload["stage"].replace("raw_6mm", "raw_8mm")
+
+
 def build_scenario_command(req: ScenarioCommandRequest) -> Tuple[List[MovementStep], Dict[str, Any]]:
     if req.contract_version != CONTRACT_VERSION:
         raise ScenarioContractError("invalid_request", "contract_version must be exactly 1.0.")
@@ -238,6 +251,7 @@ def build_scenario_command(req: ScenarioCommandRequest) -> Tuple[List[MovementSt
     _prepend_inbound1_pre_approach(steps, pickup_wp)
     storage_floor = req.dropoff.floor if req.scenario_type == "inbound" else req.pickup.floor
     _apply_floor(steps, req.scenario_type, storage_floor)
+    _apply_robot_lift_profile(steps, req.robot_name, storage_floor)
     route_type = f"{pickup_wp.removesuffix('_approach')}_{dropoff_wp.removesuffix('_approach')}_return_{return_wait_token}"
     for step in steps:
         step.setdefault("payload", {})["route_type"] = route_type
