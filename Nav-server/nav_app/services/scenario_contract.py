@@ -43,6 +43,12 @@ _ROLE_PREFIXES = {
     "inbound": ("INBOUND_", "STORAGE_"),
     "outbound": ("STORAGE_", "OUTBOUND_"),
 }
+_RETURN_WAYPOINTS = {
+    "tb3_1": "vehicle_1_approach",
+    "tb3_burger_01": "vehicle_1_approach",
+    "tb3_2": "vehicle_2_approach",
+    "tb3_burger_02": "vehicle_2_approach",
+}
 
 
 class ScenarioContractError(ValueError):
@@ -144,6 +150,32 @@ def _replace_endpoint(steps: List[Dict[str, Any]], old_wp: str, new_wp: str, pro
                 goal.update(waypoint=new_wp, x=profile["x"], y=profile["y"], yaw=profile["yaw"])
 
 
+def _apply_robot_return_endpoint(steps: List[Dict[str, Any]], robot_name: str) -> str:
+    return_wp = _RETURN_WAYPOINTS.get(robot_name)
+    if return_wp is None:
+        raise ScenarioContractError("invalid_request", f"Unsupported robot_name: {robot_name}.")
+    profile = _waypoint_profiles().get(return_wp)
+    if profile is None:
+        raise ScenarioContractError("waypoint_profile_missing", f"No canonical profile for {return_wp}.")
+
+    old_wp = "vehicle_2_approach"
+    old_marker = _waypoint_profiles()[old_wp].get("aruco_marker_id")
+    new_marker = profile.get("aruco_marker_id")
+    wait_token = "wait1" if return_wp == "vehicle_1_approach" else "wait2"
+    for step in steps:
+        payload = step.setdefault("payload", {})
+        if payload.get("aruco_marker_id") == old_marker:
+            payload["aruco_marker_id"] = new_marker
+        if isinstance(payload.get("stage"), str):
+            payload["stage"] = payload["stage"].replace("wait2", wait_token)
+        if isinstance(payload.get("waypoints"), list):
+            payload["waypoints"] = [return_wp if waypoint == old_wp else waypoint for waypoint in payload["waypoints"]]
+        for goal in payload.get("goals") or []:
+            if goal.get("waypoint") == old_wp:
+                goal.update(waypoint=return_wp, x=profile["x"], y=profile["y"], yaw=profile["yaw"])
+    return wait_token
+
+
 def _prepend_inbound1_pre_approach(steps: List[Dict[str, Any]], pickup_wp: str) -> None:
     if pickup_wp != "inbound_slot_1_approach":
         return
@@ -202,10 +234,11 @@ def build_scenario_command(req: ScenarioCommandRequest) -> Tuple[List[MovementSt
     old_pickup, old_dropoff = _BASE_ENDPOINTS[req.scenario_type]
     _replace_endpoint(steps, old_pickup, pickup_wp, pickup_profile)
     _replace_endpoint(steps, old_dropoff, dropoff_wp, dropoff_profile)
+    return_wait_token = _apply_robot_return_endpoint(steps, req.robot_name)
     _prepend_inbound1_pre_approach(steps, pickup_wp)
     storage_floor = req.dropoff.floor if req.scenario_type == "inbound" else req.pickup.floor
     _apply_floor(steps, req.scenario_type, storage_floor)
-    route_type = f"{pickup_wp.removesuffix('_approach')}_{dropoff_wp.removesuffix('_approach')}_return_wait2"
+    route_type = f"{pickup_wp.removesuffix('_approach')}_{dropoff_wp.removesuffix('_approach')}_return_{return_wait_token}"
     for step in steps:
         step.setdefault("payload", {})["route_type"] = route_type
     _apply_business_steps(steps)

@@ -67,6 +67,33 @@ def test_scenario_expands_to_validated_18_step_profile(scenario_type):
     assert metadata["contract_version"] == "1.0"
 
 
+@pytest.mark.parametrize("scenario_type", ["inbound", "outbound"])
+@pytest.mark.parametrize(
+    "robot_name,return_waypoint,return_pose,return_marker,wait_token",
+    [
+        ("tb3_1", "vehicle_1_approach", (0.527, 0.006, 1.571), 3, "wait1"),
+        ("tb3_2", "vehicle_2_approach", (0.816, 0.006, 1.571), 4, "wait2"),
+    ],
+)
+def test_scenario_returns_each_robot_to_its_own_standby(
+    scenario_type, robot_name, return_waypoint, return_pose, return_marker, wait_token
+):
+    payload = request_payload(scenario_type)
+    payload["robot_name"] = robot_name
+
+    steps, metadata = build_scenario_command(ScenarioCommandRequest(**payload))
+
+    return_goal = steps[14].payload["goals"][0]
+    assert steps[14].payload["waypoints"] == [return_waypoint]
+    assert return_goal["waypoint"] == return_waypoint
+    assert (return_goal["x"], return_goal["y"], return_goal["yaw"]) == return_pose
+    assert steps[15].payload["aruco_marker_id"] == return_marker
+    assert steps[17].payload["aruco_marker_id"] == return_marker
+    assert wait_token in steps[15].payload["stage"]
+    assert wait_token in steps[17].payload["stage"]
+    assert metadata["route_type"].endswith(f"return_{wait_token}")
+
+
 def test_scenario_rejects_location_waypoint_mismatch():
     payload = request_payload()
     payload["pickup"]["approach"]["waypoint_id"] = "inbound_slot_1_approach"
