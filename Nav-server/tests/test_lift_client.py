@@ -55,6 +55,19 @@ class LiftClientScaleTests(unittest.TestCase):
                 self.assertEqual(result["position_mm"], position)
                 client.move_to.assert_not_called()
 
+    def test_non_forced_noop_stops_stale_direction_without_waiting_for_feedback(self):
+        client = self._client(1.282)
+        client.position_mm = 8.0
+        client.direction = "UP"
+        client._publish_stop = MagicMock()
+        client.move_to = MagicMock(side_effect=AssertionError("in-tolerance no-op must not move"))
+
+        result = client.move_to_if_needed(6.0, tolerance_mm=2.0)
+
+        self.assertEqual(result["position_mm"], 8.0)
+        client._publish_stop.assert_called_once_with()
+        client.move_to.assert_not_called()
+
     def test_forced_home_move_outside_tolerance_still_executes(self):
         client = self._client()
         client.position_mm = 2.1
