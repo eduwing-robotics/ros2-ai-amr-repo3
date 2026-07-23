@@ -32,13 +32,15 @@ def test_robots_json_profiles_declare_capabilities_and_ports():
     assert tb3_1["capabilities"] == ["navigate", "charge", "lift"]
     assert tb3_1["api_port"] == 8001
     assert tb3_1["lift"]["enabled"] is True
-    assert tb3_1["lift"]["command_scale"] == tb3_2["lift"]["command_scale"]
-    assert tb3_1["field_dispatch"]["inbound"] is True
-    assert tb3_1["field_dispatch"]["outbound"] is True
+    assert tb3_1["lift"] == tb3_2["lift"]
+    assert tb3_1["field_dispatch"] == tb3_2["field_dispatch"] == {
+        "inbound": True,
+        "outbound": True,
+        "status": "COMMISSIONED_ROBOT2_MAP_PHYSICAL_LEVEL1",
+    }
+    assert tb3_1["aruco_detector"] == tb3_2["aruco_detector"]
 
     assert tb3_2["capabilities"] == ["navigate", "charge", "lift"]
-    assert tb3_2["field_dispatch"]["inbound"] is True
-    assert tb3_2["field_dispatch"]["outbound"] is True
     assert tb3_2["api_port"] == 8002
     assert tb3_2["lift"]["enabled"] is True
 

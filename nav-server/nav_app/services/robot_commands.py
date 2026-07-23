@@ -17,6 +17,7 @@ from nav_app.settings import (
     ARUCO_DOCKING_TIMEOUT_SEC,
     GATE_TIMEOUT_SEC,
     METRIC_DOCK_CONTROL_PERIOD_SEC,
+    METRIC_DOCK_ARUCO_MAX_AGE_SEC,
     METRIC_DOCK_FRESHNESS_SEGMENT_SEC,
     METRIC_DOCK_REVERSE_CONTROL_PERIOD_SEC,
     METRIC_DOCK_REVERSE_MAX_DURATION_SEC,
@@ -463,9 +464,9 @@ def apply_metric_docking_gate(payload: Dict[str, Any], gate: Dict[str, Any]) -> 
     aruco_max_age = _metric_profile_float(
         profile,
         "aruco_max_age_sec",
-        METRIC_DOCK_SENSOR_MAX_AGE_SEC,
+        METRIC_DOCK_ARUCO_MAX_AGE_SEC,
         minimum=0.05,
-        maximum=1.0,
+        maximum=METRIC_DOCK_ARUCO_MAX_AGE_SEC,
     )
     reverse_speed = _metric_profile_float(
         profile,

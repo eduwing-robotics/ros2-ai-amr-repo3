@@ -22,11 +22,11 @@
 
 ## Profile, 환경 변수와 machine credential
 
-Local `.env`는 각 서비스의 `.env.example`을 기준으로 URL, port, timeout 같은 비밀이 아닌 설정만 둔다. Machine credential의 정본은 저장소에서 제외된 `.secrets/service-hmac.env` 한 파일이다. Main bootstrap이 만들고 표준 launcher가 자동 로드하므로 운영자는 시작/API 명령마다 token이나 secret을 붙이지 않으며 값은 문서·로그·command history에 넣지 않는다.
+Local `.env`는 각 서비스의 `.env.example`을 기준으로 URL, port, timeout 같은 비밀이 아닌 설정만 둔다. Machine credential의 정본은 site-local `.secrets/service-hmac.env` 한 파일이다. Main bootstrap이 만들고 표준 launcher가 자동 로드하므로 운영자는 시작/API 명령마다 token이나 secret을 붙이지 않으며 값은 문서·로그·command history에 넣지 않는다. `.env`와 `.secrets`는 Git 상태에서 숨기지 않으므로 stage 전에 운영자가 직접 범위를 확인한다.
 
 | 위치 | 필수 연결 값 |
 | --- | --- |
-| `.secrets/service-hmac.env` | Main↔Nav, Main↔AI, frame gateway의 자동 생성 pair와 credential material에서 계산한 비밀이 아닌 set ID; Git 제외, directory `0700`, file `0600` |
+| `.secrets/service-hmac.env` | Main↔Nav, Main↔AI, frame gateway의 자동 생성 pair와 credential material에서 계산한 비밀이 아닌 set ID; Git 상태에 표시, directory `0700`, file `0600` |
 | `main-server/.env` | `LMS_DATABASE_URL`, Movement/AI URL, timeout |
 | `nav-server/.env` | `NAV_MAIN_HMAC_CLOCK_SKEW_SEC`, callback timeout |
 | `ai-server/.env` | `AI_SERVER_HOST`, `AI_SERVER_PORT`, vision public host/CORS, source/ROS 환경 |
@@ -34,6 +34,10 @@ Local `.env`는 각 서비스의 `.env.example`을 기준으로 URL, port, timeo
 최초 authoritative checkout에서 `cd main-server && ./scripts/bootstrap.sh --skip-db`를 실행하면 bundle이 없을 때만 생성한다. 서비스가 별도 host checkout에서 실행되면 trusted deployment가 이 파일을 같은 경로와 `0600` 권한으로 한 번 배치한다. 저장소는 SSH 계정/경로를 추측하거나 비밀을 Git으로 배포하지 않는다.
 
 Preflight는 local bundle을 자동 로드해 pair, 권한, stale `.env`/process env 충돌을 검사하고 비밀값 대신 credential-set ID만 표시한다. 각 host에서 같은 ID인지 확인한 뒤 서비스를 시작한다. Secret pairing과 fail-closed 동작은 [E2E 계약](../integration/e2e-contract.md#humanui와-machine-인증)이 소유한다.
+
+가상환경, frontend `node_modules`, AI model download, stack `.runtime`과 presentation
+미디어는 tracked setup·requirements·lockfile로 재생성하거나 별도 보관하므로 Git에서
+제외한다. 서비스별 setup 명령은 [단일 통합 실물 E2E 운용 절차](physical-e2e-checklist.md#최초-1회-환경-준비)를 따른다.
 
 ## 시작 전 중지 조건
 

@@ -323,7 +323,7 @@ GET /movement-api/v1/commands/{command_id}
 GET /movement-api/v1/aruco/latest?marker_id=0
 ```
 
-성공 응답의 `detections` 배열에 `marker_id`, `center_error_norm`, `marker_width_px`, `center_px`, `image_width`, `image_height`가 들어온다. 현재 서버는 `max_age_sec=5.0` 기준의 최신 검출만 반환한다.
+성공 응답의 `detections` 배열에 `marker_id`, `center_error_norm`, `marker_width_px`, `center_px`, `image_width`, `image_height`가 들어온다. 현재 서버는 `max_age_sec=0.5` 기준의 최신 검출만 반환한다.
 
 ### 3.4 leave_dock
 

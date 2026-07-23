@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 import cv2
 import numpy as np
 import rclpy
-from aruco_detector_activation import activation_requested
+from aruco_detector_activation import activation_requested, processing_due
 from aruco_pose_geometry import estimate_marker_pose
 from camera_calibration import load_calibration, scale_camera_matrix
 from rclpy.executors import ExternalShutdownException
@@ -79,13 +79,14 @@ class ArucoDetectorNode(Node):
         self.declare_parameter("image_topic", os.getenv("ARUCO_IMAGE_TOPIC", default_image_topic))
         self.declare_parameter("detection_topic", os.getenv("ARUCO_DETECTION_TOPIC", default_detection_topic))
         self.declare_parameter("dictionary", os.getenv("ARUCO_DICTIONARY", "DICT_4X4_50"))
-        self.declare_parameter("marker_size_m", float(os.getenv("ARUCO_MARKER_SIZE_M", "0.05")))
+        self.declare_parameter("marker_size_m", float(os.getenv("ARUCO_MARKER_SIZE_M", "0.055")))
         self.declare_parameter("focal_length_px", float(os.getenv("ARUCO_FOCAL_LENGTH_PX", "0")))
         self.declare_parameter("calibration_file", os.getenv("ARUCO_CALIBRATION_FILE", ""))
         self.declare_parameter("camera_matrix", os.getenv("ARUCO_CAMERA_MATRIX", ""))
         self.declare_parameter("dist_coeffs", os.getenv("ARUCO_DIST_COEFFS", ""))
         self.declare_parameter("publish_empty", os.getenv("ARUCO_PUBLISH_EMPTY", "1") not in ("0", "false", "False"))
         self.declare_parameter("min_marker_width_px", float(os.getenv("ARUCO_MIN_MARKER_WIDTH_PX", "8")))
+        self.declare_parameter("process_rate_hz", float(os.getenv("ARUCO_PROCESS_RATE_HZ", "5.0")))
         self.declare_parameter(
             "enabled_on_start",
             os.getenv("ARUCO_ENABLED_ON_START", "1") not in ("0", "false", "False"),
@@ -110,6 +111,9 @@ class ArucoDetectorNode(Node):
         self.focal_length_px = float(self.get_parameter("focal_length_px").value)
         self.publish_empty = bool(self.get_parameter("publish_empty").value)
         self.min_marker_width_px = float(self.get_parameter("min_marker_width_px").value)
+        self.process_rate_hz = float(self.get_parameter("process_rate_hz").value)
+        if not math.isfinite(self.process_rate_hz) or self.process_rate_hz < 0.0:
+            raise ValueError("process_rate_hz must be finite and greater than or equal to zero")
         self.enabled_on_start = bool(self.get_parameter("enabled_on_start").value)
         self.activation_file = str(self.get_parameter("activation_file").value).strip()
 
@@ -144,6 +148,7 @@ class ArucoDetectorNode(Node):
         self.frames_seen = 0
         self.frame_sequence = 0
         self.detections_seen = 0
+        self.last_processed_frame_monotonic = 0.0
         self.last_log_time = 0.0
         self.activation_timer = None
         self._sync_activation()
@@ -152,7 +157,7 @@ class ArucoDetectorNode(Node):
         self.get_logger().info(
             f"ArUco detector publishing {self.detection_topic}, "
             f"dictionary={self.dictionary_name}, marker_size_m={self.marker_size_m}, "
-            f"request_scoped={bool(self.activation_file)}"
+            f"process_rate_hz={self.process_rate_hz:g}, request_scoped={bool(self.activation_file)}"
         )
 
     def _sync_activation(self):
@@ -167,6 +172,7 @@ class ArucoDetectorNode(Node):
             return
         self.enabled = enabled
         if enabled:
+            self.last_processed_frame_monotonic = 0.0
             self.subscription = self.create_subscription(
                 CompressedImage,
                 self.image_topic,
@@ -241,9 +247,16 @@ class ArucoDetectorNode(Node):
     def _image_callback(self, msg: CompressedImage):
         if not self.enabled:
             return
+        receipt_monotonic = time.monotonic()
+        if not processing_due(
+            self.last_processed_frame_monotonic,
+            receipt_monotonic,
+            self.process_rate_hz,
+        ):
+            return
+        self.last_processed_frame_monotonic = receipt_monotonic
         self.frames_seen += 1
         self.frame_sequence += 1
-        receipt_monotonic = time.monotonic()
         receipt_wall = time.time()
         np_arr = np.frombuffer(msg.data, dtype=np.uint8)
         frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)

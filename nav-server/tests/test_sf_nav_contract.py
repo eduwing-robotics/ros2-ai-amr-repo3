@@ -130,6 +130,7 @@ def test_live_profiles_manage_the_local_aruco_detector_with_the_nav_stack():
     assert 'START_CAMERA_LAUNCH="0"' in launcher
     assert 'START_CAMERA_RELAY="0"' in launcher
     assert 'ARUCO_ENABLED_ON_START="0"' in launcher
+    assert 'ARUCO_PROCESS_RATE_HZ="$ARUCO_PROCESS_RATE_HZ"' in launcher
     assert "ARUCO_DETECTOR_ACTIVATION_FILE" in launcher
 
 

@@ -12,11 +12,15 @@ profile이 참조하는 robot domain, API port, capability와 lift hardware fact
 
 ## 준비와 preflight
 
-저장소 루트에서 환경을 준비한다.
+Nav checkout에서 서비스 환경을 준비한다.
 
 ```bash
-./scripts/bootstrap-nohardware-envs.sh
+cd nav-server
+./scripts/setup_nav_server_env.sh
 ```
+
+저장소 루트의 `./scripts/bootstrap-nohardware-envs.sh`는 세 서비스를 한 PC에서
+검증하는 no-hardware 전용이며 이 Nav 운용 setup을 대신하지 않는다.
 
 다음은 Nav server process를 시작하지 않는다.
 

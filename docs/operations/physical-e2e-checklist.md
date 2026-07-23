@@ -2,6 +2,10 @@
 
 이 문서는 Main·Nav·AI를 실제 장비로 확인할 때 처음부터 끝까지 순서대로 따르는 **단일 통합 운용 절차와 합격 판정**의 정본이다. 서비스 책임과 인증·evidence 불변식은 [E2E 계약](../integration/e2e-contract.md), 실패했을 때만 사용하는 상세 진단 기준은 [기능 체크리스트](feature-checklists.md)가 소유한다. 다른 문서는 이 문서의 cross-service 기동 순서를 복제하지 않는다.
 
+정상 운용은 이 문서의 `0 → 1 → 2 → 3`을 순서대로 수행한 뒤 오늘 확인할 기능 절만
+실행하고 `최종 판정`과 종료 순서로 끝낸다. 역할별 Nav 문서와 서비스별 runbook은
+명령이 실패했거나 commissioning 세부값이 필요할 때만 연다.
+
 ## 빠른 현장 원칙
 
 - 정상 장비는 TB1을 `robot2_map` 내부의 안전한 바닥 위치에 놓고 바로 시작한다. 시작 좌표는 고정하지 않으며, 매 세션마다 바퀴를 공중에 띄우거나 별도 motor spin 시험을 하지 않는다.
@@ -10,13 +14,14 @@
 - 상세 covariance·global search·wiggle·개별 topic 진단은 빠른 경로가 실패했을 때만 수행한다.
 - ArUco, camera 단절, 입·출고처럼 오늘 목표가 아닌 단계는 건너뛴다. 건너뜀은 실패가 아니라 `NOT_IN_SCOPE`로 기록한다.
 
-## 검증 단계를 섞지 않는다
+## 공통 baseline과 실행별 readiness를 구분한다
 
 | 단계 | Nav profile | 실제로 합격시킬 범위 | 이 단계에서 합격으로 보지 않는 범위 |
 | --- | --- | --- | --- |
-| TB1 실물 | `tb1-live` | localization, 실제 주행, 실물 lift, Main·AI evidence, 입고·출고 | TB1 미실행 항목을 TB2 결과만으로 합격 처리하지 않음 |
+| TB1 실물 | `tb1-live` | TB2에서 완료한 `robot2_map` 1층 공통 baseline으로 localization, 실제 주행, 실물 lift, Main·AI evidence, 입고·출고 | 현재 TB1 health·localization·lift readiness 확인을 생략하지 않음 |
 | TB1 보완 | `tb1-synthetic-hil` | 같은 base/Nav2 흐름에서 lift-only 가상 동작 | 물리 lift 합격 근거로 대체 불가 |
-| TB2 실물 | `tb2-live` | 실제 lift, global camera load evidence, 입고·출고 전체 | synthetic/HIL 근거로 대체 불가 |
+| TB2 실물 | `tb2-live` | 공통 baseline의 source path, 실제 lift, global camera load evidence, 입고·출고 전체 | synthetic/HIL 근거로 대체 불가 |
+| 두 대 동시 | `all-live` | TB1·TB2 Movement API, Nav2, detector, physical lift readiness를 함께 운용 | map·coordinate·marker·lift commissioning은 공통이지만 두 health의 readiness는 각각 필요 |
 
 `tb1-synthetic-hil` 실행 전체의 evidence class는 `nonphysical`이다. 실제 base가 움직여도 그 실행으로 물리 lift 또는 완전한 물리 입고·출고를 합격 처리하지 않는다. profile 경계는 [Nav runtime profile contract](../../nav-server/docs/reference/NAV_RUNTIME_PROFILE_CONTRACT.md)를 따른다.
 
@@ -24,18 +29,20 @@
 
 - 실제 환경 맵은 `nav-server/map/robot2_map.yaml`과 `nav-server/map/robot2_map.pgm`이다.
 - 유일한 현장 맵은 `robot2_map`이다. Main 배경·pose·Nav command는 같은 map ID와 동일 YAML/PGM digest를 사용하며 `robot1_map` remap이나 fallback을 두지 않는다.
-- TB1과 TB2 live는 `field_dispatch.inbound/outbound=true`와 physical lift backend를 사용한다. no-hardware field dispatch는 두 로봇 모두 차단된다.
+- TB1과 TB2 live는 `field_dispatch.status=COMMISSIONED_ROBOT2_MAP_PHYSICAL_LEVEL1`, 위치·도킹 ArUco `marker_size_m=0.055`, 값이 같은 localization·physical lift 설정을 사용한다. no-hardware field dispatch는 두 로봇 모두 차단된다.
 - TB1 hardware fact와 `tb1-live`는 실물 lift로 설정됐다. lift command subscriber와 position·direction·lower-limit telemetry가 준비되지 않으면 profile readiness가 완료되지 않는다.
+- `all-live`는 두 로봇의 lift readiness를 모두 요구한다. TB1 bridge만 별도로 필요하며 TB2에 불필요한 bridge readiness를 요구하지 않는다.
 - TB1 synthetic 경로는 선택 가능한 보완 시험이다. 실제 base/Nav2/카메라/도킹 경로에서 lift 단계만 virtual backend로 바꾸며 물리 합격 근거가 아니다.
 - Main은 명시적으로 활성화한 `LMS_NONPHYSICAL_TASK_ADMISSION_ENABLED=true`와 요청별 `admit_nonphysical=true`가 모두 있을 때만 TB1 nonphysical 실행을 허용한다. `evidence_only`와 `synthetic_hil`은 같은 provenance 계약을 쓰며 재고 변경과 물리 lift 합격 판정을 금지한다. 기본값은 차단이다.
-- TB2의 1층 실물 lift·후진 복귀 baseline은 동일 장비·`robot2_map` 현장 결과를 선별 반영했다. 다만 카메라 외부 보정이 필요한 정밀 metric docking은 별도 항목이며, 실측값을 가장하지 않도록 `metric_docking.live_enabled=false`를 유지한다.
+- TB2의 1층 실물 lift·후진 복귀 결과를 TB1·TB2 공통 commissioning baseline으로 반영했다. 다만 카메라 외부 보정이 필요한 정밀 metric docking은 별도 항목이며, 실측값을 가장하지 않도록 `metric_docking.live_enabled=false`를 유지한다.
 - `/operate/control`의 teleop·맵 이동은 직접 robot command다. 현재 person monitor는 task orchestration의 physical-motion step에서 arm되므로, **수동 주행만으로는 Main trusted person-stop E2E 합격 근거가 되지 않는다.**
 - TB1·TB2 기본 주행·영상과 1층 실물 입출고는 현장 시험을 시작할 수 있다. 정밀 metric docking은 robot별 camera-to-base 실측 전까지 별도 비활성이다.
+- 통합 E2E는 Main field binding의 marker approach/dock 경로만 사용하며 `python nav-server/scripts/validate_zones.py --scope field-e2e`가 통과해야 한다. 인자 없는 full layout 검사가 통과하기 전에는 legacy right-hand-lane item route를 실물 합격 범위에 포함하지 않는다.
 
 | 실행 구간 | 현재 준비 상태 | 다음 조건 |
 | --- | --- | --- |
 | 0~3 TB1 base·localization·Main 주행 | 현장 장비를 켠 뒤 실행 가능 | live health와 안전 구역 확인 |
-| 4 ArUco 접근·주차 | TB2 baseline `READY_FOR_FIELD_E2E` | 정밀 metric docking은 camera-to-base 실측 전 차단 |
+| 4 ArUco 접근·주차 | TB1·TB2 공통 baseline `READY_FOR_FIELD_E2E` | 정밀 metric docking은 camera-to-base 실측 전 차단 |
 | 5 TB1 PiCam·overlay | 외부 AI와 PiCam을 켠 뒤 실행 가능 | source freshness 확인 |
 | 6 person full-chain | `READY_FOR_FIELD_E2E` | 실제 사람이 아닌 통제된 시험 표적·운영자 E-stop 복구 확인 |
 | 7 TB1 synthetic 입·출고 | 명시 선택 시 실행 가능 | nonphysical 결과로만 기록 |
@@ -44,8 +51,8 @@
 ### 코드에서 먼저 고정한 것과 현장에서 정할 것을 구분한다
 
 - 코드 검증 완료: marker `0/1, 3/4, 5/6, 7/8/10/9` 역할, Main·Nav의 scan/dock 연결, helper가 marker 법선 방향에 놓이는지, 맵 경계 안인지, DB migration과 UI 작업 강조의 정합.
-- 실물 확인 필요: 각 scan pose가 실제 marker에서 약 0.40m인지, yaw·좌우 오프셋, 직선 진입 공간, TB1 footprint 여유와 반복 도착 오차.
-- 위 실물 항목을 확인하기 전에는 좌표가 화면에 정상 표시돼도 field dispatch 차단을 해제하지 않는다.
+- 공통 commissioning 확정: TB2에서 완료한 scan pose·yaw·직선 진입·lift·후진 경로를 동일한 map·coordinate·marker·lift를 쓰는 TB1과 TB2에 함께 적용한다.
+- 실행 시 확인: 선택 로봇의 현재 health·fresh scan/TF·localization·lift readiness와 주행 구역의 일시 장애물은 매 실행 직전 확인한다.
 
 ## 필요한 장비
 
@@ -76,6 +83,27 @@ TB1 1차 localization·주행·관제 확인에는 물리 lift와 global camera�
 - [ ] 시험한 기능의 `physical` 또는 `synthetic/HIL` provenance
 
 맵 파일이 바뀌었거나 commissioning을 할 때만 `sha256sum nav-server/map/robot2_map.yaml nav-server/map/robot2_map.pgm`을 추가한다. work order, task, callback, AI event ID도 해당 단계를 실행할 때만 기록한다.
+
+## 최초 1회 환경 준비
+
+새 checkout 또는 dependency 변경 뒤에는 각 host에서 담당 서비스만 준비한다.
+가상환경과 `node_modules`는 push 대상이 아니며 아래 tracked setup 입력으로 재생성한다.
+
+```bash
+# AI host
+cd ai-server && ./scripts/ai/setup_ai_server_env.sh
+
+# Main host
+cd main-server && ./scripts/bootstrap.sh --skip-db
+
+# Nav host
+cd nav-server && ./scripts/setup_nav_server_env.sh
+```
+
+한 PC의 no-hardware 전체 검증만 저장소 루트
+`./scripts/bootstrap-nohardware-envs.sh`를 사용한다. `.env`, `.secrets`, 선별 보존
+로그·데이터는 ignore로 숨기지 않으므로 stage 전에 목적과 내용을 직접 확인한다.
+setup 완료 뒤에만 아래 `0 → 1 → 2 → 3` 운용 순서를 시작한다.
 
 ## 0. 안전·설정 preflight
 
@@ -140,6 +168,12 @@ Main process group을 역순으로 종료한다. robot base는 SBC terminal에�
 ## 4. ArUco 주차·충전
 
 오늘 목표가 localization·Main 주행이면 이 단계를 `NOT_IN_SCOPE`로 건너뛴다. 현장 marker와 `robot2_map` pose가 commissioned된 항목만 [ArUco docking runbook](../../nav-server/docs/runbook/RUNBOOK_ARUCO_DOCKING.md)으로 검증한다.
+
+표준 stack은 detector process를 미리 관리하되 camera 구독은 docking 요청 구간에만
+활성화한다. detector는 camera가 30 FPS를 내더라도 기본 `5 Hz`로만 처리한다. 이 저주기
+기준에서 중요한 합격 신호는 FPS 숫자가 아니라 첫 검출 지연, detection freshness,
+marker ID와 저속 정렬의 terminal 결과다. 물리 이동은 `0.5초`보다 오래된 검출을
+거부한다. 현장 근거 없이 30 FPS 목표로 올리거나 freshness를 느슨하게 하지 않는다.
 
 - [ ] scan approach까지 Nav2로 이동한다.
 - [ ] detector freshness와 marker ID를 확인한다.
@@ -273,7 +307,7 @@ cd <repository-root>/main-server
    ./ai-server/scripts/vision/sf_lab.sh low-load
    ```
 
-4. 화물 `PART-GEAR · A22` 한 개를 `INBOUND_01`의 global camera ROI에 놓고 로봇 진행 경로와 lift 주변을 비운다.
+4. 공통 baseline 화물 `PART-MOTOR · A23` 한 개를 `INBOUND_02`의 global camera ROI에 놓고 로봇 진행 경로와 lift 주변을 비운다.
 
 ### 8.2 통합 stack을 시작한다
 
@@ -281,14 +315,14 @@ cd <repository-root>/main-server
 
 ```bash
 cd <repository-root>
-PROFILE=tb1-local-e2e  # TB2 시험이면 tb2-local-e2e
+PROFILE=tb1-local-e2e  # TB2는 tb2-local-e2e, 두 대 동시는 all-local-e2e
 scripts/sf_stack.sh --profile "$PROFILE" down
 scripts/sf_stack.sh --profile "$PROFILE" print-config
 scripts/sf_stack.sh --profile "$PROFILE" check
 scripts/sf_stack.sh --profile "$PROFILE" foreground
 ```
 
-`print-config`에는 선택한 Nav live profile, Main `8088`, 해당 Nav port, UI `5173`, map `robot2_map`, physical lift, `global_cam_01` evidence gate가 표시돼야 한다. profile 결과와 실제 health가 다르면 UI 작업을 만들지 않는다.
+`print-config`에는 선택한 Nav live profile, Main `8088`, 해당 Nav port, UI `5173`, map `robot2_map`, physical lift, `global_cam_01` evidence gate가 표시돼야 한다. `all-local-e2e`는 Nav port `8001`과 `8002`, Main Movement URL `tb3_1`과 `tb3_2`, Nav profile `all-live`를 모두 표시해야 한다. profile 결과와 실제 health가 다르면 UI 작업을 만들지 않는다.
 
 ### 8.3 주행 전 상태를 확인한다
 
@@ -296,6 +330,11 @@ scripts/sf_stack.sh --profile "$PROFILE" foreground
 2. TB1은 port `8001`·robot `tb3_burger_01`·profile `tb1-live`, TB2는 port `8002`·robot `tb3_burger_02`·profile `tb2-live`인지 확인한다. 같은 health에서 map `robot2_map`, `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false`, lift ready를 확인한다.
 3. `http://smartfactory-integration.local:5173/operate/control`에서 선택 로봇의 pose와 연결 상태, `global_cam_01`, 해당 PiCam 영상을 확인한다.
 4. Main 배경 map ID와 pose map ID가 모두 `robot2_map`인지 확인한다. `robot1_map` 배경이나 remap을 사용하지 않는다.
+
+`all-local-e2e`에서는 위 2~3번을 두 로봇에 각각 적용한다. TB1 domain bridge와 두
+Nav health가 모두 준비되고, 두 health가 각자 `lift.ready=true`를 보고해야 공용 profile을
+물리 준비 완료로 판정한다. 한 로봇만 시험할 때는 공용 profile 대신 해당 단독 profile을
+사용해 다른 로봇의 readiness를 우회하지 않는다.
 
 선택 로봇의 초기 위치 탐색은 로봇을 움직이지 않고 전체 map의 독립 벽 선분·방향 정합 후보를 비교한다. 초기 전역 정합만 사용하고 주행 중 연속 정합 차단은 사용하지 않는다. 작업 직전 AMCL 표본만 오래된 경우에는 Nav가 `/request_nomotion_update`로 한 번 갱신한 뒤 같은 freshness 기준을 다시 판정한다.
 
@@ -306,15 +345,15 @@ scripts/sf_stack.sh --profile "$PROFILE" foreground
 Main UI `http://smartfactory-integration.local:5173/operate/control`의 **입출고 요청**에서 다음을 선택한다.
 
 1. `입고 재고 배치`
-2. `기어 (PART-GEAR · A22)`, 수량 `1`, `1층`
-3. 입고 위치 `INBOUND_01`, 보관 슬롯 `STORAGE_S1`
+2. `모터 (PART-MOTOR · A23)`, 수량 `1`, `1층`
+3. 입고 위치 `INBOUND_02`, 보관 슬롯 `STORAGE_S1`
 4. `실물 리프트`, 시험할 로봇 `tb3_1` 또는 `tb3_2`, `생성 후 자동 시작`
 
-`INBOUND_01`은 이번 현장 commissioning 입력이고, 과거 동일 장비에서 완료된 최소 source baseline은 `INBOUND_02(#1)`다. 따라서 첫 실행에서는 INBOUND_01 접근·marker 0 정렬을 별도 현장 판정으로 남긴다. 보관 측은 검증 이력이 있는 `STORAGE_S1(#7)`·1층을 먼저 사용한다.
+`INBOUND_02(#1) → STORAGE_S1(#7)` 1층은 TB2에서 완료한 최소 source path이며 TB1·TB2의 공통 baseline이다. 첫 통합 실행은 두 로봇 모두 이 경로를 사용한다. `INBOUND_01(#0)` 등 다른 경로는 확장 commissioning 항목으로 남긴다.
 
 ### 8.5 실시간 작업 큐에서 진행을 확인한다
 
-UI의 **실시간 작업 큐**에서 `입고 접근(person monitor) → load → POST_PICK_UP → 보관소 이동(person monitor) → PRE_DROP_OFF → unload → 선택 로봇 HOME 복귀(person monitor)`가 같은 task와 runtime command ID 흐름으로 진행되는지 확인한다. 정적 recipe command와 실행별 runtime command ID는 구분돼야 한다. 재고는 `DONE`에서만 `INBOUND_01`에서 빠지고 `STORAGE_S1`에 더해져야 한다.
+UI의 **실시간 작업 큐**에서 `입고 접근(person monitor) → load → POST_PICK_UP → 보관소 이동(person monitor) → PRE_DROP_OFF → unload → 선택 로봇 HOME 복귀(person monitor)`가 같은 task와 runtime command ID 흐름으로 진행되는지 확인한다. 정적 recipe command와 실행별 runtime command ID는 구분돼야 한다. 재고는 `DONE`에서만 `INBOUND_02`에서 빠지고 `STORAGE_S1`에 더해져야 한다.
 
 실시간 작업 큐에는 `QUEUED`, `ASSIGNED`, `RUNNING`과 운영자 복구가 필요한 hold 작업만 표시한다. 완료·취소·복구 불가 실패 작업은 **작업 기록**에서 확인한다. 복구 가능한 실패 작업은 실시간 작업 큐의 **복구 열기**로 원래 task 복구 화면에 진입한다.
 
@@ -324,7 +363,7 @@ unload가 끝났을 때 같은 로봇이 바로 수행할 수 있는 예약 작�
 
 - 일시적인 frame/pose freshness 지연은 자동 흡수되고 작업을 끊지 않아야 한다.
 - 사람 감지 시 자동 재개하지 않는다. 현장을 비우고 E-stop을 해제한 뒤 UI 복구 패널에서 화물 상태를 확인하고 **기존 작업 계속**을 선택한다.
-- 잘못된/없는 A22, ArUco 불일치, dock·lift·화물 상태 불확실은 자동 추측하지 않는다. 실물을 바로잡고 **증거 다시 확인** 또는 상황에 맞는 수동 복구를 사용한다.
+- 잘못된/없는 A23, ArUco 불일치, dock·lift·화물 상태 불확실은 자동 추측하지 않는다. 실물을 바로잡고 **증거 다시 확인** 또는 상황에 맞는 수동 복구를 사용한다.
 
 ### 8.7 물리 합격을 판정하고 종료한다
 
@@ -337,7 +376,7 @@ unload가 끝났을 때 같은 로봇이 바로 수행할 수 있는 예약 작�
 - [ ] A/B는 0.18m, C/D·입고·출고는 0.20m 목표에서 멈추고 조향이 잠긴다.
 - [ ] transfer 뒤 저장한 0.40m map pose로 후진하며 lateral corridor 이탈 시 fail closed 한다.
 - [ ] 실제 load/unload와 pallet 상태를 현장 관찰·AI evidence·Nav telemetry로 함께 확인한다.
-- [ ] synthetic event나 다른 로봇의 결과를 선택 로봇의 물리 합격 근거로 사용하지 않는다.
+- [ ] TB2 완료 경로는 공통 commissioning baseline으로 사용하되, 현재 선택 로봇의 readiness와 실제 task terminal 결과는 해당 실행 기록에 남긴다.
 - [ ] 정밀 metric 항목을 안전한 제한 시험으로 통과한 로봇만 `metric_docking.live_enabled=true`, `commissioning_status=COMMISSIONED`, `camera_to_base.measured=true`를 한 변경으로 승인한다.
 
 작업이 `DONE`이고 선택 로봇이 자신의 HOME에 복귀했으며 재고·기록이 일치하면 `Ctrl+C`로 통합 stack을 종료한다. `Ctrl+C`는 stack이 소유한 Main·Nav process group을 종료하며, 로봇 SBC bringup과 외부 AI는 각 host에서 별도로 종료한다.
@@ -346,6 +385,7 @@ unload가 끝났을 때 같은 로봇이 바로 수행할 수 있는 예약 작�
 
 | 판정 | 필수 조건 |
 | --- | --- |
+| `ROBOT2_MAP_LEVEL1_SHARED_COMMISSIONED` | TB2에서 완료한 `INBOUND_02 → STORAGE_S1` 1층 path와 map·coordinate·marker·lift 설정을 TB1·TB2 공통 baseline으로 적용 |
 | `TB1_PHYSICAL_BASE_ACCEPTED` | 0~3과 5의 `tb3_1_picam` 항목 PASS, 실제 localization·주행·Main UI·PiCam 증거 있음. 4는 commissioned scope일 때 별도 판정 |
 | `TB1_PERSON_SAFETY_ACCEPTED` | 6 PASS, 같은 task의 AI advisory→Main trusted stop→Nav E-stop→operator recovery 증거 있음 |
 | `TB1_FIRST_E2E_ACCEPTED` | `TB1_PHYSICAL_BASE_ACCEPTED`와 `TB1_PERSON_SAFETY_ACCEPTED`가 모두 PASS |

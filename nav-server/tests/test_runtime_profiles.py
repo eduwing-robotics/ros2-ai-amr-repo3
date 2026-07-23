@@ -26,6 +26,7 @@ def test_selection_precedence_and_tb1_is_default(monkeypatch):
 def test_all_live_expands_in_canonical_config_order():
     resolved = resolve_runtime_profile(cli_profile="all-live")
     assert [robot["robot_id"] for robot in resolved["robots"]] == ["tb3_burger_01", "tb3_burger_02"]
+    assert resolved["components"]["bridge"]["robot_ids"] == ["tb3_burger_01"]
     assert resolved["components"]["lift"]["required"] is True
     assert resolved["components"]["lift"]["robot_ids"] == ["tb3_burger_01", "tb3_burger_02"]
     assert resolved["lift_backends"] == {

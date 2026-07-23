@@ -10,6 +10,7 @@ from nav_app.errors import StageError
 from nav_app.models import MovementStep, RobotCommandRequest
 from nav_app.runtime import runtime
 from nav_app.services.docking import (
+    _physical_aruco_max_age_sec,
     _require_center_before_insert,
     compute_fork_insert_motion,
     execute_camera_distance_insert,
@@ -73,6 +74,16 @@ def _live_map_pose(x: float, y: float, yaw: float = 0.0):
 
 
 class DockingMotionTests(unittest.TestCase):
+    def test_physical_aruco_freshness_cannot_be_relaxed_by_payload(self):
+        self.assertEqual(
+            _physical_aruco_max_age_sec({"marker_search_max_age_sec": 5.0}),
+            0.5,
+        )
+        self.assertEqual(
+            _physical_aruco_max_age_sec({"aruco_max_age_sec": 5.0}, "aruco_max_age_sec"),
+            0.5,
+        )
+
     def test_pre_insert_zero_or_explicit_home_uses_lower_limit_home(self):
         old_lift_client = runtime.lift_client
         lift_client = MagicMock()
@@ -1209,7 +1220,7 @@ class ApproachChainingTests(unittest.TestCase):
         self.assertEqual(payload.get("docking_freshness_segment_sec"), 0.10)
         self.assertEqual(payload.get("scan_max_age_sec"), 1.0)
         self.assertEqual(payload.get("tf_max_age_sec"), 1.0)
-        self.assertEqual(payload.get("aruco_max_age_sec"), 1.0)
+        self.assertEqual(payload.get("aruco_max_age_sec"), 0.5)
         self.assertFalse(payload.get("fork_insert_enabled"))
         self.assertEqual(payload.get("action"), "unload")
 

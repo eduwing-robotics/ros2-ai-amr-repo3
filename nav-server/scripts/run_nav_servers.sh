@@ -29,6 +29,7 @@ NAV_APPROACH_SOFT_XY_TOLERANCE_M="${NAV_APPROACH_SOFT_XY_TOLERANCE_M:-0.07}"
 NAV_APPROACH_SOFT_YAW_TOLERANCE_RAD="${NAV_APPROACH_SOFT_YAW_TOLERANCE_RAD:-0.25}"
 RECORD_MAX_XY_ERROR_M="${RECORD_MAX_XY_ERROR_M:-0.02}"
 ARUCO_DOCK_CENTER_TOLERANCE_NORM="${ARUCO_DOCK_CENTER_TOLERANCE_NORM:-0.03}"
+ARUCO_PROCESS_RATE_HZ="${ARUCO_PROCESS_RATE_HZ:-5.0}"
 
 mode="run"
 pids=()
@@ -56,6 +57,7 @@ Environment:
   PYTHON_BIN          Python executable. Default: .venv/bin/python
   DRY_RUN_MISSION     1 to accept missions without moving robots. Default: 0
   DRY_RUN_STEP_DELAY_SEC  Delay used by dry-run missions. Default: 0.2
+  ARUCO_PROCESS_RATE_HZ   Managed detector processing cap. Default: 5.0
 
 Robot id, ROS domain, API port, and active map are read from enabled entries in ROBOTS_CONFIG_PATH.
 EOF
@@ -380,7 +382,7 @@ for robot in json.load(open(config_path, encoding="utf-8"))["robots"]:
 raise SystemExit(f"unknown robot: {robot_id}")
 PY
 )"
-  echo "[nav_servers] starting managed ArUco detector ${robot_id}: hardware_domain=${hardware_domain_id}, marker_size=${marker_size_m}m"
+  echo "[nav_servers] starting managed ArUco detector ${robot_id}: hardware_domain=${hardware_domain_id}, marker_size=${marker_size_m}m, process_rate=${ARUCO_PROCESS_RATE_HZ}Hz"
   (
     cd "$ROOT"
     export ROS_DOMAIN_ID="$hardware_domain_id"
@@ -393,6 +395,7 @@ PY
       ROS_DOMAIN_ID_OVERRIDE="$hardware_domain_id" \
       ROBOTS_CONFIG_PATH="$ROBOTS_CONFIG_PATH" \
       ARUCO_MARKER_SIZE_M="$marker_size_m" \
+      ARUCO_PROCESS_RATE_HZ="$ARUCO_PROCESS_RATE_HZ" \
       ARUCO_DETECTOR_ACTIVATION_FILE="$activation_file" \
       ARUCO_ENABLED_ON_START="0" \
       START_CAMERA_LAUNCH="0" \

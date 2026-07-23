@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate Nav zones against the active map bounds and occupancy raster."""
 
+import argparse
 import json
 import math
 import os
@@ -104,8 +105,20 @@ def has_clearance(cell: tuple[int, int], clearance_m: float, width: int, height:
     return True
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--scope",
+        choices=("full", "field-e2e"),
+        default="full",
+        help="full validates every layout coordinate; field-e2e validates marker approach/dock waypoints used by Main E2E",
+    )
+    return parser.parse_args()
+
+
 def main():
-    print("구역 및 웨이포인트 검증을 시작합니다...")
+    args = parse_args()
+    print(f"구역 및 웨이포인트 검증을 시작합니다... scope={args.scope}")
     if not YAML_PATH.exists() or not ZONES_PATH.exists():
         print(f"오류: 필요한 설정 파일이 없습니다. map={YAML_PATH}, zones={ZONES_PATH}")
         return 1
@@ -121,18 +134,35 @@ def main():
     min_y, max_y = origin_y, origin_y + height * resolution
     errors = []
 
-    for name, pose in zones.get("waypoints", {}).items():
+    waypoints = zones.get("waypoints", {})
+    semantic_zones = zones.get("semantic_zones", {})
+    if args.scope == "field-e2e":
+        selected_waypoints = {
+            waypoint_id
+            for zone in semantic_zones.values()
+            if isinstance(zone, dict) and isinstance(zone.get("aruco_marker_id"), int)
+            for waypoint_id in (zone.get("approach_waypoint"), zone.get("dock_waypoint"))
+            if isinstance(waypoint_id, str)
+        }
+    else:
+        selected_waypoints = set(waypoints)
+
+    for name in sorted(selected_waypoints):
+        pose = waypoints.get(name)
+        if not isinstance(pose, dict):
+            errors.append(f"웨이포인트 누락: {name}")
+            continue
         x, y = float(pose["x"]), float(pose["y"])
         if not (min_x <= x <= max_x and min_y <= y <= max_y):
             errors.append(f"웨이포인트 범위 초과: {name} ({x}, {y})")
 
-    for name, zone in zones.get("semantic_zones", {}).items():
-        rect = zone["rect"]
-        for x, y in ((rect["min_x"], rect["min_y"]), (rect["max_x"], rect["max_y"])):
-            if not (min_x <= x <= max_x and min_y <= y <= max_y):
-                errors.append(f"구역 범위 초과: {name} ({x}, {y})")
+    if args.scope == "full":
+        for name, zone in semantic_zones.items():
+            rect = zone["rect"]
+            for x, y in ((rect["min_x"], rect["min_y"]), (rect["max_x"], rect["max_y"])):
+                if not (min_x <= x <= max_x and min_y <= y <= max_y):
+                    errors.append(f"구역 범위 초과: {name} ({x}, {y})")
 
-    waypoints = zones.get("waypoints", {})
     for segment_id, segment in zones.get("traffic_segments", {}).items():
         for field in ("entry_waypoints", "right_hand_waypoints"):
             for waypoint_name in segment.get(field, []):

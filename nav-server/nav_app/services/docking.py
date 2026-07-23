@@ -66,11 +66,13 @@ from nav_app.settings import (
     LEAVE_DOCK_REAR_ARC_DEG,
     LEAVE_DOCK_REAR_SCAN_MAX_AGE_SEC,
     LEAVE_DOCK_REVERSE_SPEED,
+    METRIC_DOCK_ARUCO_MAX_AGE_SEC,
     METRIC_DOCK_REVERSE_MAX_DURATION_SEC,
     METRIC_DOCK_REVERSE_MAX_SPEED_MPS,
     NAV_APPROACH_ROTATE_MAX_SEC,
     NAV_APPROACH_ROTATE_SPEED_RAD,
     NAV_APPROACH_ROTATE_YAW_THRESHOLD_RAD,
+    PHYSICAL_ARUCO_MAX_AGE_SEC,
     PRE_INSERT_CENTER_CYCLES,
     PRE_INSERT_CREEP_SEC,
     PRE_INSERT_CREEP_SPEED_MPS,
@@ -86,6 +88,14 @@ def _physical_motion_bypassed(payload: Dict[str, Any]) -> bool:
         or is_simulation_mode()
         or (runtime.mission_manager and runtime.mission_manager.dry_run)
     )
+
+
+def _physical_aruco_max_age_sec(
+    payload: Dict[str, Any], key: str = "marker_search_max_age_sec"
+) -> float:
+    """Keep every physical ArUco-guided path within the server freshness ceiling."""
+    requested = float(payload.get(key, ARUCO_DETECTION_MAX_AGE_SEC))
+    return max(0.05, min(PHYSICAL_ARUCO_MAX_AGE_SEC, requested))
 
 
 def require_docking_motion_freshness(
@@ -109,12 +119,16 @@ def require_docking_motion_freshness(
             payload, "tf_max_age_sec", 1.0, minimum=0.05, maximum=1.0
         )
         aruco_max_age_sec = _bounded_metric_motion_value(
-            payload, "aruco_max_age_sec", 1.0, minimum=0.05, maximum=1.0
+            payload,
+            "aruco_max_age_sec",
+            METRIC_DOCK_ARUCO_MAX_AGE_SEC,
+            minimum=0.05,
+            maximum=METRIC_DOCK_ARUCO_MAX_AGE_SEC,
         )
     else:
         scan_max_age_sec = payload.get("scan_max_age_sec")
         tf_max_age_sec = payload.get("tf_max_age_sec")
-        aruco_max_age_sec = payload.get("aruco_max_age_sec")
+        aruco_max_age_sec = _physical_aruco_max_age_sec(payload, "aruco_max_age_sec")
     navigator = runtime.navigator
     if not navigator or not hasattr(navigator, "docking_sensor_freshness"):
         raise RuntimeError(f"{stage}: docking_sensor_freshness_unavailable")
@@ -533,7 +547,7 @@ def skip_approach_yaw_if_marker_visible(marker_id: int, payload: Dict[str, Any])
     """마커가 이미 보이면 map yaw 회전을 건너뛴다 (ArUco center 정렬이 이어짐)."""
     if not runtime.navigator:
         return False
-    max_age_sec = float(payload.get("marker_search_max_age_sec", ARUCO_DETECTION_MAX_AGE_SEC))
+    max_age_sec = _physical_aruco_max_age_sec(payload)
     detection = runtime.navigator.get_latest_aruco_detection(marker_id, max_age_sec=max_age_sec)
     error_norm = _marker_center_error_norm(detection)
     threshold = float(
@@ -624,7 +638,7 @@ def execute_aruco_yaw_seek(marker_id: int, payload: Dict[str, Any]):
     deadline = time.monotonic() + float(
         payload.get("marker_search_timeout_sec", ARUCO_MARKER_SEARCH_TIMEOUT_SEC)
     )
-    max_age_sec = float(payload.get("marker_search_max_age_sec", ARUCO_DETECTION_MAX_AGE_SEC))
+    max_age_sec = _physical_aruco_max_age_sec(payload)
     acquire_tolerance = float(
         payload.get(
             "marker_acquire_center_tolerance_norm",
@@ -734,7 +748,7 @@ def execute_marker_search_rotate(marker_id: int, payload: Dict[str, Any]):
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
 
-    max_age_sec = float(payload.get("marker_search_max_age_sec", ARUCO_DETECTION_MAX_AGE_SEC))
+    max_age_sec = _physical_aruco_max_age_sec(payload)
     detection = runtime.navigator.get_latest_aruco_detection(marker_id, max_age_sec=max_age_sec)
     if detection:
         return detection
@@ -778,7 +792,7 @@ def acquire_dock_marker(marker_id: int, payload: Dict[str, Any]):
     """마커 탐색+중앙 정렬. approach 정렬 직후(skip)면 느슨한 허용치·회전 seek 생략."""
     if not runtime.navigator:
         raise RuntimeError("runtime.navigator is not initialized")
-    max_age_sec = float(payload.get("marker_search_max_age_sec", ARUCO_DETECTION_MAX_AGE_SEC))
+    max_age_sec = _physical_aruco_max_age_sec(payload)
     center_tolerance = _acquire_center_tolerance(payload)
     detection = runtime.navigator.get_latest_aruco_detection(marker_id, max_age_sec=max_age_sec)
     error_norm = _marker_center_error_norm(detection)
@@ -1519,7 +1533,7 @@ def ensure_marker_centered_for_insert(marker_id: int, payload: Dict[str, Any]):
     max_cycles = int(payload.get("pre_insert_center_cycles", PRE_INSERT_CENTER_CYCLES))
     creep_speed = abs(float(payload.get("pre_insert_creep_speed_mps", PRE_INSERT_CREEP_SPEED_MPS)))
     creep_sec = abs(float(payload.get("pre_insert_creep_sec", PRE_INSERT_CREEP_SEC)))
-    max_age_sec = float(payload.get("marker_search_max_age_sec", ARUCO_DETECTION_MAX_AGE_SEC))
+    max_age_sec = _physical_aruco_max_age_sec(payload)
 
     print(
         f"[dock] pre-insert centering marker={marker_id} "

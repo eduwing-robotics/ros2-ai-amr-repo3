@@ -4,9 +4,9 @@ Nav 로컬 검증 계층과 실행 순서를 정의한다.
 
 ## 검증 계층
 
-1. **Unit (ROS-free):** `python -m pytest tests/`
+1. **Unit/contract (live ROS graph 없음):** `python -m pytest tests/` (`rclpy` import는 system ROS 사용)
 2. **Compile:** `python -m py_compile nav_app/... scripts/nav_server.py`
-3. **Config:** `python scripts/validate_robot_domains.py`, `python scripts/validate_zones.py`
+3. **Config:** `python scripts/validate_robot_domains.py`, `python scripts/validate_zones.py --scope field-e2e`
 4. **Smoke (SIMULATION_MODE=1):** `scripts/smoke_nav_servers.sh`, `scripts/smoke_movement_api.sh`, `scripts/smoke_main_contract.sh`
 5. **Real robot validation:** `API_MOVEMENT_CHECKLIST.md`
 
@@ -14,7 +14,7 @@ Nav 로컬 검증 계층과 실행 순서를 정의한다.
 
 | 계층 | Windows (ROS 없음) | Linux + ROS 2 (`rclpy`) |
 | --- | --- | --- |
-| 1 Unit pytest | ✅ | ✅ |
+| 1 Unit pytest | 일부 pure-Python 대상만 | ✅ (system ROS setup 필요) |
 | 2 py_compile | ✅ | ✅ |
 | 3 Config validators | ✅ | ✅ |
 | 4 Smoke (`smoke_*.sh`) | ❌ | ✅ (Nav PC 권장) |
@@ -27,6 +27,7 @@ Nav 로컬 검증 계층과 실행 순서를 정의한다.
 ## 통합 명령
 
 ```bash
+scripts/setup_nav_server_env.sh  # 최초 설치 또는 dependency 변경 뒤
 scripts/check_all.sh
 ```
 
@@ -36,7 +37,18 @@ absent, it exits before running checks and prints setup guidance. CI or custom
 environments can intentionally select another interpreter with
 `PYTHON_BIN=/path/to/python scripts/check_all.sh`.
 
+Nav의 `rclpy`는 pip dependency가 아니라 system ROS 2가 제공한다. setup과
+`check_all.sh`는 `ROS_SETUP`(기본 `/opt/ros/jazzy/setup.bash`)을 사용해 선택한
+가상환경에서 import 가능한지 확인한다. 다른 ROS 설치는
+`ROS_SETUP=/path/to/setup.bash`로 명시한다.
+
 `check_all.sh`는 1–3 계층을 기본 실행한다. live smoke는 Nav 서버 기동 후 **Nav PC에서** 선택 실행한다.
+
+`field-e2e`는 Main field binding이 실제로 사용하는 marker approach/dock waypoint를
+현재 `robot2_map`에서 검사한다. 인자 없는 `python scripts/validate_zones.py`는 legacy
+right-hand-lane waypoint와 semantic rectangle까지 포함하는 `full` layout commissioning
+검사다. `full`이 실패하는 동안 item-name 기반 legacy route를 물리 합격 범위로 넓히지
+않는다.
 
 ## Smoke 전제 (Nav PC)
 

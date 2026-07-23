@@ -16,6 +16,16 @@ Main 관제 서버를 FastAPI, PostgreSQL, React, TypeScript, Vite 기반으로 
 
 Production 준비·실행·종료·health 명령은 [서버 실행 명령어](docs/operations/SERVER_RUN_COMMANDS.md)를 따른다. 시작 전에 root [운영 네트워크와 호스트명](../docs/operations/network-hostnames.md)을 확인한다.
 
+최초 설치나 dependency 변경 후에는 Main 환경을 먼저 준비한다.
+
+```bash
+cd main-server
+./scripts/bootstrap.sh --skip-db
+```
+
+이 명령이 `backend/.venv`, frontend `node_modules`, `.env`와 site credential을
+준비한다. PostgreSQL을 로컬로 구성할 때만 별도 DB 옵션을 사용한다.
+
 ```bash
 cd <repository-root>
 main-server/scripts/real.sh

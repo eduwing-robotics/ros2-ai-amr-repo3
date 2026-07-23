@@ -542,7 +542,7 @@ class LogisticsNavigator(Node):
         now_wall = time.time()
         scan_limit = float(max_scan_age_sec if max_scan_age_sec is not None else os.getenv("DOCK_SCAN_MAX_AGE_SEC", "2.0"))
         tf_limit = float(max_tf_age_sec if max_tf_age_sec is not None else os.getenv("DOCK_TF_MAX_AGE_SEC", "2.0"))
-        aruco_limit = float(max_aruco_age_sec if max_aruco_age_sec is not None else os.getenv("ARUCO_DETECTION_MAX_AGE_SEC", "5.0"))
+        aruco_limit = float(max_aruco_age_sec if max_aruco_age_sec is not None else os.getenv("ARUCO_DETECTION_MAX_AGE_SEC", "0.5"))
         future_limit = float(os.getenv("SENSOR_FUTURE_TOLERANCE_SEC", "0.25"))
         tf_future_limit = float(os.getenv("TF_FUTURE_TOLERANCE_SEC", "2.0"))
         with self.scan_lock:

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared production service-credential bootstrap/loader.
-# The generated values stay in one ignored repository-local file and are never printed.
+# The generated values stay in one site-local repository file and are never printed.
 
 _sf_site_credentials_tool() {
   local action="$1" repo_root="$2"

@@ -27,7 +27,7 @@
       },
       "aruco_detector": {
         "transport": "ros_topic",
-        "marker_size_m": 0.05
+        "marker_size_m": 0.055
       },
       "lift": {
         "enabled": true,
@@ -191,7 +191,7 @@
       "field_dispatch": {
         "inbound": true,
         "outbound": true,
-        "status": "ENABLED_SHARED_TB2_PHYSICAL_LEVEL1"
+        "status": "COMMISSIONED_ROBOT2_MAP_PHYSICAL_LEVEL1"
       },
       "metric_docking": {
         "enabled": false,
@@ -225,7 +225,7 @@
       },
       "aruco_detector": {
         "transport": "ros_topic",
-        "marker_size_m": 0.04
+        "marker_size_m": 0.055
       },
       "lift": {
         "enabled": true,
@@ -389,7 +389,7 @@
       "field_dispatch": {
         "inbound": true,
         "outbound": true,
-        "status": "COMMISSIONED_TB2_PHYSICAL_LEVEL1"
+        "status": "COMMISSIONED_ROBOT2_MAP_PHYSICAL_LEVEL1"
       },
       "metric_docking": {
         "enabled": true,

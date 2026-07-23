@@ -109,8 +109,8 @@ def test_aruco_observation_sources_keep_http_alignment_and_local_detector_contra
             "limit": 20,
         }
         assert by_bridge[bridge_robot_id]["aruco_detector"]["transport"] == "ros_topic"
-    assert by_bridge["tb3_1"]["aruco_detector"]["marker_size_m"] == 0.05
-    assert by_bridge["tb3_2"]["aruco_detector"]["marker_size_m"] == 0.04
+    assert by_bridge["tb3_1"]["aruco_detector"]["marker_size_m"] == 0.055
+    assert by_bridge["tb3_1"]["aruco_detector"] == by_bridge["tb3_2"]["aruco_detector"]
     assert not validate_robot_profile(by_bridge["tb3_1"])
     assert not validate_robot_profile(by_bridge["tb3_2"])
 
@@ -404,14 +404,18 @@ def test_validate_robot_profile_rejects_bad_lift_topic():
     assert any("lift.topics.cmd_move" in error for error in errors)
 
 
-def test_robot2_field_dispatch_is_commissioned_with_physical_lift():
+def test_robot2_map_field_dispatch_is_commissioned_with_physical_lift():
     import json
     from pathlib import Path
 
     robot = next(item for item in json.loads((Path(__file__).resolve().parents[1] / "config" / "robots.json").read_text())["robots"] if item["robot_id"] == "tb3_burger_02")
     assert robot["active_map_yaml"] == "map/robot2_map.yaml"
     assert robot["localization"]["map_id"] == "robot2_map"
-    assert robot["field_dispatch"] == {"inbound": True, "outbound": True, "status": "COMMISSIONED_TB2_PHYSICAL_LEVEL1"}
+    assert robot["field_dispatch"] == {
+        "inbound": True,
+        "outbound": True,
+        "status": "COMMISSIONED_ROBOT2_MAP_PHYSICAL_LEVEL1",
+    }
     assert "lift" in robot["capabilities"] and robot["lift"]["enabled"] is True
     assert not validate_robot_profile(robot)
 
@@ -440,13 +444,18 @@ def test_robot1_uses_confirmed_map_and_shared_physical_lift_path():
         robot1["localization"]["global_search"]["nomotion_update_timeout_sec"] + 30.0
     )
     assert robot1["lift"]["enabled"] is True and "lift" in robot1["capabilities"]
-    assert robot1["lift"]["command_scale"] == robot2["lift"]["command_scale"]
-    assert robot1["field_dispatch"]["inbound"] is True
-    assert robot1["field_dispatch"]["outbound"] is True
+    assert robot1["lift"] == robot2["lift"]
     assert (robot2["bridge_robot_id"], robot2["ros_domain_id"], robot2["api_port"]) == ("tb3_2", 5, 8002)
     assert robot2["lift"]["enabled"] is True and "lift" in robot2["capabilities"]
-    assert robot2["field_dispatch"]["inbound"] is True
-    assert robot2["field_dispatch"]["outbound"] is True
+    assert robot1["field_dispatch"] == robot2["field_dispatch"] == {
+        "inbound": True,
+        "outbound": True,
+        "status": "COMMISSIONED_ROBOT2_MAP_PHYSICAL_LEVEL1",
+    }
+    assert robot1["aruco_detector"] == robot2["aruco_detector"] == {
+        "transport": "ros_topic",
+        "marker_size_m": 0.055,
+    }
     assert not validate_robot_profile(robot1)
     assert not validate_robot_profile(robot2)
 

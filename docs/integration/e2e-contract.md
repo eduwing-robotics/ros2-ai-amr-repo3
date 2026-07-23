@@ -21,12 +21,17 @@ AI evidence/advisory는 `trusted=false`다. Main이 trusted gate와 safety decis
 - Main↔Nav mutation/callback은 `LMS_MOVEMENT_HMAC_SECRET`/`NAV_MAIN_HMAC_SECRET`을 공유한다.
 - Main↔AI mutation은 `LMS_VISION_HMAC_SECRET`/`MAIN_HMAC_SECRET`을 공유하고, frame gateway ingress는 `VISION_GATEWAY_HMAC_SECRET`을 사용한다.
 - Machine HMAC 요청은 method, canonical path, body hash, timestamp, nonce를 서명한다. missing secret, invalid signature, stale timestamp, replay는 fail closed 한다.
-- `main-server/scripts/bootstrap.sh`가 세 범위를 서로 다른 고엔트로피 값으로 한 번 생성하고, alias pair와 credential material에서 계산한 비밀이 아닌 set ID를 저장소에서 제외된 `.secrets/service-hmac.env` 한 파일에 `0600`으로 기록한다. `main-server/scripts/real.sh`, `nav-server/scripts/sf_nav.sh`, `ai-server/scripts/vision/sf_vision.sh`는 시작 때 같은 파일을 자동 로드하며 누락, 권한 오류, ID/material 불일치, pair 불일치, service `.env`/process env의 오래된 값 충돌을 시작 전에 거부한다.
+- `main-server/scripts/bootstrap.sh`가 세 범위를 서로 다른 고엔트로피 값으로 한 번 생성하고, alias pair와 credential material에서 계산한 비밀이 아닌 set ID를 site-local `.secrets/service-hmac.env` 한 파일에 `0600`으로 기록한다. 이 파일은 `.gitignore`로 숨기지 않아 stage 전에 변경 여부를 확인할 수 있다. `main-server/scripts/real.sh`, `nav-server/scripts/sf_nav.sh`, `ai-server/scripts/vision/sf_vision.sh`는 시작 때 같은 파일을 자동 로드하며 누락, 권한 오류, ID/material 불일치, pair 불일치, service `.env`/process env의 오래된 값 충돌을 시작 전에 거부한다.
 - 서로 다른 host checkout 사이에 비밀을 안전하게 전달할 SSH identity, 배포 경로, secret manager는 이 저장소가 소유하지 않는다. 따라서 최초 trusted deployment가 Main bootstrap이 만든 **같은 파일**을 Git 밖에서 각 checkout에 배치하는 것이 1회 전제다. 애플리케이션은 이를 대신하려고 결정론적 기본키, 무인증 pairing endpoint, 새 SSH 배포 wrapper를 만들지 않는다. 이후 정상 시작과 API 호출에는 secret export/copy가 필요 없다.
 
 ## Nav ingress와 lock API
 
 `POST /mission/start`는 기본 HTTP 410이다. INBOUND/OUTBOUND business command는 Movement route command를 사용한다.
+
+현재 통합 E2E의 commissioned software 범위는 Main field binding이 생성하는 직접
+scan/dock command다. legacy right-hand-lane waypoint를 포함하는 item-name 기반
+`/movement-api/v1/routes/commands`는 full layout validator가 통과하기 전까지 물리
+합격 경로로 사용하지 않는다.
 
 Traffic/zone lock의 diagnostic GET은 read-only다. lock acquire/release mutation은 Main HMAC 서명이 필요하다.
 
@@ -42,7 +47,9 @@ Nav는 configured Main origin과 고정 Movement callback path만 허용하고 r
 
 실물 위치·마커·도킹 값의 정본은 `nav-server/map/zones.json`이다. `main-server/backend/config/field-bindings.json`은 그 값을 Main location과 연결하는 실행 계약이며, 계약 테스트가 Nav zone·dock pose·scan marker와의 정적 불일치를 거부한다. 운영 DB row가 이 계약과 다르면 Main은 command 계획을 HTTP 409로 거부한다. 현재 field asset은 `robot2_map`이며 Main은 coordinate와 initial-pose dispatch 전에 Nav의 map ID·geometry·YAML/PGM digest를 exact match로 검증한다. UI/legacy map remap은 적용하지 않는다.
 
-`tb3_1`과 `tb3_2`는 production에서 `robot2_map`을 보고한다. TB1은 `HOME_01`/marker 3, TB2는 `HOME_02`/marker 4로 복귀한다. 두 live profile은 동일한 실물 리프트·입출고 command 계약을 사용한다. TB1은 TB2에서 완료한 1층 물리 경로를 공통 baseline으로 활성화했으며 TB1 현장 결과는 별도로 기록한다. no-hardware의 field dispatch는 두 로봇 모두 차단한다.
+`tb3_1`과 `tb3_2`는 production에서 동일한 `robot2_map`과 localization 설정을 보고한다. TB1은 `HOME_01`/marker 3, TB2는 `HOME_02`/marker 4로 복귀하지만 두 live profile은 TB2에서 완료한 1층 E2E를 공통 field commissioning baseline으로 사용한다. 따라서 lift 설정, 직접 입출고 command 계약, 현장 위치·도킹 ArUco marker 한 변 `0.055 m`, `field_dispatch` 상태가 동일하며 두 로봇 모두 `COMMISSIONED_ROBOT2_MAP_PHYSICAL_LEVEL1`을 사용한다. no-hardware의 field dispatch는 두 로봇 모두 차단한다.
+
+두 대를 함께 선택하는 `all-live`/`all-local-e2e`도 각 로봇의 physical lift backend와 lift readiness를 모두 요구하고 Main에 `tb3_1:8001`, `tb3_2:8002`를 함께 제공한다. TB1만 hardware domain 2와 Nav-local domain 42 사이의 bridge가 필요하며, TB2는 domain 5에서 직접 실행한다. bridge·domain·port·HOME·PiCam source는 로봇 식별과 통신에 필요하므로 유지하고, camera-to-base metric 보정은 실제 camera mount의 로봇별 실측값이므로 공통 baseline으로 복사하지 않는다. 공통 commissioning은 현재 실행의 로봇별 health·localization·lift readiness 확인을 생략하지 않는다.
 
 Nav의 현재 `robot2_map` 현장 scan approach는 다음과 같다. 같은 실물 장비와 맵으로 검증한 Nav tag `pre-scenario-api-v1-20260716` (`3ed56bf`)의 값만 `nav-server/map/zones.json`에 선별 반영했다.
 
@@ -55,7 +62,7 @@ Nav의 현재 `robot2_map` 현장 scan approach는 다음과 같다. 같은 실�
 
 TB2에서 실물 완료된 최소 경로는 `HOME_02(#4) → INBOUND_02(#1) → STORAGE_S1(#7) → HOME_02(#4)`와 `HOME_02(#4) → STORAGE_S1(#7) → OUTBOUND_02(#6) → HOME_02(#4)`다. 이 경로의 A구역 1층 lift cycle은 `0 → 6 → 0 mm`이며, Main의 분리된 evidence gate와 Nav의 `dock_transfer` 구조는 그대로 유지한다.
 
-변경된 A/C 접근점은 `robot2_map`에서 0.18m 자유 공간 검사를 통과했고 Main binding·테스트 seed와도 일치한다. TB2의 위 1층 baseline 경로만 field E2E 대상으로 승인됐다. 다른 슬롯·층과 `metric_docking.live_enabled`는 별도 commissioning 대상이며, 정적 일치만으로 승인 범위를 넓히지 않는다.
+변경된 A/C 접근점은 `robot2_map`에서 0.18m 자유 공간 검사를 통과했고 Main binding·테스트 seed와도 일치한다. TB2에서 완료한 위 1층 경로를 TB1·TB2 공통 commissioning baseline으로 적용하며, TB1도 동일한 map·coordinate·marker·lift 계약으로 해당 경로를 dispatch한다. 다른 입출고·슬롯·층과 `metric_docking.live_enabled`는 별도 commissioning 대상이며, 공통 baseline으로 승인 범위를 넘지 않는다. TB2의 camera calibration을 TB1에 복사하지 않으며 현재 두 로봇 모두 live metric docking은 비활성이다.
 
 ## DB reservation과 orchestration
 

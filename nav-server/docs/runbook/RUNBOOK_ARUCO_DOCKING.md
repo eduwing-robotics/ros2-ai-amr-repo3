@@ -3,10 +3,12 @@
 상태: Active
 분류: Runbook
 작성: 2026-06-25 00:00 KST
-최종 갱신: 2026-07-14 KST
+최종 갱신: 2026-07-23 KST
 목적: Pi Camera, ArUco 검출, Movement API, LMS 원자 명령 흐름 실행 절차를 정의한다.
 
-이 문서는 전원을 켠 뒤 Pi Camera, ArUco 검출, Movement API, LMS 원자 명령 흐름까지 처음부터 실행하는 절차다. 로봇 2대 bringup, Navigation2/RViz, Nav 서버, LMS 명령 전송까지 한 번에 보는 전체 순서는 [RUNBOOK_LMS_FULL_STARTUP.md](RUNBOOK_LMS_FULL_STARTUP.md)를 기준으로 한다.
+이 문서는 Pi Camera와 docking 세부 절차다. Main·Nav·AI를 처음부터 끝까지 한 번에
+운용할 때는 [단일 통합 실물 E2E 운용 절차](../../../docs/operations/physical-e2e-checklist.md)를
+기준으로 하고, 역할별 Nav 상세 순서는 [Navigation Startup Index](RUNBOOK_LMS_FULL_STARTUP.md)를 사용한다.
 
 ## 0. 전제
 
@@ -67,7 +69,6 @@ MARKER_ID=0 scripts/nav_ops.sh aruco2
 | 전진 속도 | `DOCK_LINEAR_SPEED=0.018` |
 | 최소 전진 속도 | `DOCK_MIN_LINEAR_SPEED=0.006` |
 | 회전 gain / 최대 회전 | `0.45` / `0.16` |
-| detector max age | `ARUCO_DETECTION_MAX_AGE_SEC=5` |
 | docking timeout | `35s` |
 
 성공 로그 기준:
@@ -86,6 +87,16 @@ final center_px = [167.5, 52.0], image_width = 320
 cd "$NAV_SERVER_ROOT"
 MARKER_ID=0 ROBOT_ID=tb3_burger_01 scripts/local_aruco_parking_test.sh
 ```
+
+## 0.3 현재 관리형 stack 운용값 (2026-07-23)
+
+아래 값은 위 2026-06-26 실물 성공 로그를 소급해 설명하는 수치가 아니라, 현재
+`sf_stack`/`sf_nav` 운용에 적용하는 처리량·freshness 정책이다.
+
+| 항목 | 현재 운용값 |
+| --- | --- |
+| detector 처리율 | `ARUCO_PROCESS_RATE_HZ=5.0` (요청 구간에만 활성) |
+| detector max age | `ARUCO_DETECTION_MAX_AGE_SEC=0.5` (물리 이동 상한) |
 
 실제 이동이 안 되면 먼저 motor power를 확인한다. 이번 성공 전에도 `/cmd_vel`은 나가지만 모터 전원이 꺼져 있으면 로봇이 안 움직였다.
 
@@ -137,6 +148,14 @@ ros2 topic info -v /scan
 ```
 
 ## 2. Pi Camera + ArUco detector 실행
+
+표준 `sf_stack`/`sf_nav` 경로는 detector process를 관리하지만 camera 구독은 docking
+요청 때만 켠다. 활성 구간에도 입력 stream 전체를 추론하지 않고 기본 `5 Hz`로 제한한다.
+카메라가 30 FPS를 publish해도 detector 30 FPS를 목표로 하지 않는다. 도킹 속도와
+freshness 기준에 맞춘 저주기 검출이 정본이며, 필요하면 시작 전에만
+`ARUCO_PROCESS_RATE_HZ=<hz>`로 조정한다. `0`은 진단용 무제한 처리이므로 현장 기본값으로
+사용하지 않는다. 물리 도킹은 `ARUCO_DETECTION_MAX_AGE_SEC=0.5`보다 오래된 관측을
+거부하므로 처리율을 낮출 때도 freshness를 별도로 느슨하게 만들지 않는다.
 
 ### 2.1 권장: 로봇 SBC에서 카메라만 실행하고 Nav PC에서 detector 실행
 
@@ -579,7 +598,7 @@ level=2 unload -> pre_insert 50mm -> unload 43mm
 ```bash
 cd "$NAV_SERVER_ROOT"
 python3 scripts/validate_robot_domains.py
-python3 scripts/validate_zones.py
+python3 scripts/validate_zones.py --scope field-e2e
 scripts/smoke_main_contract.sh
 scripts/smoke_movement_api.sh
 ```

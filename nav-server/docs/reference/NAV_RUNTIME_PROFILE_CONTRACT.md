@@ -23,10 +23,12 @@ launch, status, and compatibility wrappers. Profiles reference canonical robot
 IDs and express component ownership (`external` or `managed-script`);
 `service-managed` fails closed until an adapter exists.
 Required heterogeneous components may declare `robot_ids`; for example,
-`all-live` requires physical lift readiness from both lift-capable robots. Base
-readiness requires an expected controller node on `/cmd_vel`, and physical lift
-readiness comes from the API's subscriber-and-fresh-telemetry `lift.ready` gate,
-not from topic names alone.
+`all-live` scopes bridge readiness to TB1 but requires physical lift readiness
+from both lift-capable robots. TB1 needs the hardware-domain 2 to Nav-local
+domain 42 bridge; TB2 runs directly in domain 5 and must not wait for a bridge
+it does not use. Base readiness requires an expected controller node on
+`/cmd_vel`, and physical lift readiness comes from the API's
+subscriber-and-fresh-telemetry `lift.ready` gate, not from topic names alone.
 
 Each selected robot also has one explicit `lift_backends` value:
 `disabled`, `virtual`, or `physical`. TB1 and TB2 live select `physical`, while
@@ -34,7 +36,14 @@ TB1 synthetic HIL selects `virtual`. A
 `physical` selection is rejected unless the same robot's canonical hardware
 facts enable lift and advertise the lift capability. Docking and task code use
 the same physical path for TB1 and TB2; robot ID, ROS domain, and camera source
-remain profile-specific.
+remain profile-specific. The complete lift configuration, including topics,
+levels, heights, timeouts, tolerance, and command scale, is identical for TB1
+and TB2. The TB2-completed `robot2_map` level-1 E2E is the shared field
+commissioning baseline: both robots use the same `0.055 m` field ArUco marker size and
+`COMMISSIONED_ROBOT2_MAP_PHYSICAL_LEVEL1` dispatch policy. Metric camera
+calibration remains robot-specific and is not copied between mounts;
+`metric_docking.live_enabled` remains false for both. Shared commissioning does
+not remove the per-run health, localization, and physical lift readiness gates.
 
 Every live or synthetic-HIL Nav profile owns its selected robots' Nav2 helper as
 `managed-script`. The supervisor starts Movement API endpoints first, then

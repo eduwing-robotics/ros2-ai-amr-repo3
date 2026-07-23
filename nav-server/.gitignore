@@ -1,31 +1,16 @@
-# Python runtime
+# Python generated files
+.venv/
+venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
-.venv/
-venv/
 
-# Operator/runtime outputs
+# Generated stack runtime and camera evidence
 .runtime/
-logs/
-tmp/
-backups/
-worklog/*.log
 worklog/insert_snapshots/
-*.pid
-
-# Local secrets
-.env
-
-# Map tuning backups and camera captures
-map/*.bak
-map/*.bak.*
-map/*.jpg
-map/*.png
-map/*.svg
 map/camera_snapshot_*
 
-# Editor
+# Editor metadata
 .vscode/
 .idea/

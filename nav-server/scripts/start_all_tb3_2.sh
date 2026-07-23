@@ -219,7 +219,7 @@ cmd_detector2() {
   printf 'source %s 2>/dev/null || true\n' "$ros_setup_q"
   cat <<'EOF'
 export ROBOT_ID=tb3_burger_02
-export ARUCO_MARKER_SIZE_M=0.04
+export ARUCO_MARKER_SIZE_M=0.055
 export START_CAMERA_LAUNCH=0
 export START_CAMERA_RELAY=1
 set +e

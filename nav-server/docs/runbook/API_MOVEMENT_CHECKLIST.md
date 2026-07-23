@@ -13,8 +13,12 @@
 ```bash
 python -m pytest tests/ -q
 python scripts/validate_robot_domains.py --config config/robots.json --bridge-dir config/domain_bridge
-python scripts/validate_zones.py
+python scripts/validate_zones.py --scope field-e2e
 ```
+
+인자 없는 `validate_zones.py`는 legacy lane과 semantic rectangle까지 포함한 full
+layout commissioning 검사다. 이 검사가 별도로 통과하기 전에는 item-name 기반
+`/movement-api/v1/routes/commands`를 실물 합격 경로로 사용하지 않는다.
 
 Nav PC에서 확인한다.
 

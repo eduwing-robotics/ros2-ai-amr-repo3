@@ -1,7 +1,7 @@
-# Workspace metadata
+# Workspace tool metadata
 .omx/
 
-# Service environments and dependencies
+# Reproducible dependency environments
 ai-server/.venv/
 ai-server/.venv-*/
 main-server/.venv/
@@ -10,6 +10,17 @@ main-server/backend/.venv
 nav-server/.venv/
 nav-server/venv/
 **/node_modules/
+
+# Large generated runtime and presentation outputs
+/presentation/
+ai-server/.run/
+ai-server/models/
+main-server/.bootstrap/
+nav-server/.runtime/
+nav-server/worklog/insert_snapshots/
+nav-server/map/camera_snapshot_*
+
+# Site .env/.secrets and curated logs/data stay visible for deliberate review.
 
 # Generated caches and test coverage
 __pycache__/
@@ -24,51 +35,14 @@ coverage.xml
 htmlcov/
 *.tsbuildinfo
 
-# Build and installation outputs
-**/build/
-**/dist/
-**/install/
-*.egg-info/
-
-# Local service runtime state
-ai-server/logs/
-ai-server/run/
-ai-server/.run/
-ai-server/media/
-ai-server/captures/
-ai-server/models/
-ai-server/runtime/
-ai-server/data/
-main-server/logs/
-main-server/runtime/
-main-server/data/
-main-server/backups/
-main-server/backend/data/
-nav-server/logs/
-nav-server/tmp/
-nav-server/runtime/
-nav-server/data/
-nav-server/backups/
-nav-server/worklog/*.log
-nav-server/worklog/insert_snapshots/
-nav-server/map/camera_snapshot_*
-*.log
-*.pid
-*.rdb
-*.aof
-*.bak
-
-# Local configuration and credentials
-.env
-.env.*
-!.env.example
-!.env.*.example
-secrets/
-.secrets/
-*.pem
-*.key
-*.p12
-*.pfx
+# Project build and installation outputs
+/build/
+/dist/
+/install/
+/ai-server/ros2/build/
+/ai-server/ros2/install/
+/nav-server/build/
+/nav-server/install/
 
 # Editor and operating-system artifacts
 .vscode/

@@ -21,6 +21,7 @@ Repository-wide placement and ownership rules live in the
 
 ## Operations
 
+- [Single follow-along cross-service field procedure](../../docs/operations/physical-e2e-checklist.md)
 - [Ordered startup by role](runbook/RUNBOOK_LMS_FULL_STARTUP.md)
 - [Robot SBC guide](runbook/roles/robot-sbc.md)
 - [Navigation PC guide](runbook/roles/nav-pc.md)

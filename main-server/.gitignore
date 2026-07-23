@@ -1,5 +1,6 @@
-# Python
+# Python generated files
 backend/.venv/
+backend/.venv
 __pycache__/
 *.pyc
 *.pyo
@@ -16,43 +17,24 @@ backend/.coverage
 backend/coverage.xml
 backend/htmlcov/
 
-# Local runtime config/data
-.bootstrap/
-.env
-.env.local
-.env.*.local
-data/*.db
-data/*.sqlite
-data/*.sqlite3
-backend/data/*.db
-backend/data/*.sqlite
-backend/data/*.sqlite3
-
-# One-off local safety backups (not the tracked DB snapshot)
-backups/
-
-# Node / Vite
+# Frontend build outputs
 frontend/web/node_modules/
 frontend/web/dist/
 *.tsbuildinfo
 
-# logs
-*.log
+# Recreated bootstrap state
+.bootstrap/
 
 # Local tool settings
 .claude/settings.local.json
 
-# Office/temp files
+# Office/render temporary files
 .~lock.*
-
-# Chrome headless render profiles
 **/.chrome-*/
-
-# Presentation slides: track finals; ignore preview HTML / chrome junk
 slides/**/*-preview.html
 slides/**/.chrome-*/
 
-# OS/editor temp files
+# OS/editor temporary files
 .DS_Store
 Thumbs.db
 *.swp

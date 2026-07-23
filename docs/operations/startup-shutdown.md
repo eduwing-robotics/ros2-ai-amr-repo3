@@ -2,15 +2,26 @@
 
 ## 시작 순서
 
-1. 최초 설치에서만 authoritative checkout의 `main-server/scripts/bootstrap.sh --skip-db`가 `.secrets/service-hmac.env`를 생성한다. Main, Nav, AI가 별도 host checkout이면 trusted deployment가 같은 `0600` 파일을 Git 밖에서 각 checkout에 한 번 배치한다. 이후 표준 launcher가 Movement, Vision, frame gateway credential을 자동 로드하므로 정상 시작이나 health/mutation 명령에 secret export는 없다.
+1. 새 checkout 또는 dependency 변경 뒤에는 담당 host에서 서비스별 setup을 한 번 실행한다.
+   AI와 Nav는 각각의 `.venv`를, Main은 backend `.venv`와 frontend dependency를
+   준비한다. Main bootstrap은 authoritative checkout에 credential bundle이 없을 때만
+   `.secrets/service-hmac.env`도 생성한다. Main, Nav, AI가 별도 host checkout이면
+   trusted deployment가 같은 `0600` 파일을 Git 밖에서 각 checkout에 한 번 배치한다.
+   이후 표준 launcher가 credential을 자동 로드한다.
    모든 서버에서 [운영 네트워크와 호스트명](network-hostnames.md)의 공통
    `192.168.30.x` 매핑을 먼저 확인한다.
 
    ```bash
-   cd main-server && ./scripts/bootstrap.sh --skip-db   # 최초 authoritative checkout에서만
+   cd ai-server && ./scripts/ai/setup_ai_server_env.sh
+   cd ../main-server && ./scripts/bootstrap.sh --skip-db
+   cd ../nav-server && ./scripts/setup_nav_server_env.sh
    cd ..
    ./scripts/install-smartfactory-hosts.sh --check
    ```
+
+   실제로 서비스가 분리된 host라면 위 세 명령을 한 host에서 모두 실행하지 않고 해당
+   서비스 명령만 실행한다. 가상환경·`node_modules`·stack runtime log는 재생성 가능한
+   대용량 산출물이므로 Git에서 제외한다.
 2. 첫 설치, credential deployment, dependency·설정·맵 변경, 또는 빠른 시작 실패 때만 read-only [operator preflight](../../scripts/operator-preflight.sh)를 각 host에서 실행한다. 출력된 credential-set ID가 모두 같아야 한다. 누락, `0600` 위반, pair/기존 env 충돌은 명확히 실패한다. 정상 반복 운용에서는 이 단계를 건너뛴다. 이 명령은 service를 시작하거나 robot motion을 명령하지 않는다.
 
    ```bash
@@ -46,8 +57,25 @@
    scripts/sf_stack.sh --profile tb2-local-e2e foreground
    ```
 
+   두 로봇을 함께 운용할 때는 공용 profile을 명시한다.
+
+   ```bash
+   scripts/sf_stack.sh --profile all-local-e2e check
+   scripts/sf_stack.sh --profile all-local-e2e foreground
+   ```
+
+   공용 profile은 TB1 bridge 하나와 Nav port `8001`·`8002`를 시작하고, 두 로봇의
+   physical lift health를 모두 요구한다. 한 로봇의 base 또는 lift를 시작하지 않은
+   단독 시험에는 `all-local-e2e`를 사용하지 않는다. TB1·TB2는 TB2에서 완료한
+   `robot2_map` 1층 E2E를 공통 commissioning baseline으로 사용하지만 각 health의
+   localization·lift readiness는 현재 실행에서 각각 통과해야 한다.
+
    Nav를 포함한 profile은 Movement API가 준비된 뒤 선택 로봇의 Nav2/RViz와
    `observe_only` localization까지 같은 소유 process group에서 시작한다.
+   관리형 ArUco detector process도 함께 시작하지만 camera 구독은 docking 요청 때만
+   활성화되며, 기본 검출 처리율은 `ARUCO_PROCESS_RATE_HZ=5.0`이다. 카메라 stream FPS와
+   detector 처리율은 별도이며 30 FPS 검출은 운용 합격 조건이 아니다. 세부 기준은
+   [ArUco docking runbook](../../nav-server/docs/runbook/RUNBOOK_ARUCO_DOCKING.md)을 따른다.
    `foreground`의 `Ctrl+C`는 stack이 시작한 Main, Nav2/RViz, Movement API와
    bridge를 역순으로 종료한다. SBC의 robot base는 외부 프로세스이므로 건드리지
    않는다. 백그라운드가 필요하면 `up`, 확인은 `status`와 `logs`, 종료는 `down`을
@@ -64,7 +92,7 @@
    `AWAITING_OPERATOR`로 고정되므로 재시작만으로 clear하거나 자동 재개하지 말고
    [ESTOP 복구 절차](../../main-server/docs/operations/ESTOP_RECOVERY_PLAYBOOK.md)를 따른다.
 
-7. 선택 profile과 Main·AI health를 확인한 뒤 [TB1 우선 실물 E2E 실행 체크리스트](physical-e2e-checklist.md)의 빠른 순서로 진행한다. stack 시작 완료는 Movement API와 Main UI의 생존을 뜻한다. 실제 주행 전에는 `localized=true`, `nav2_ready=true`, fresh scan/TF를 별도로 확인하며, `smoke`만으로 실제 맵 정합이나 현장 주행 합격을 대신 판정하지 않는다.
+7. 선택 profile과 Main·AI health를 확인한 뒤 [TB1·TB2 실물 E2E 통합 실행서](physical-e2e-checklist.md)의 빠른 순서로 진행한다. stack 시작 완료는 Movement API와 Main UI의 생존을 뜻한다. 실제 주행 전에는 `localized=true`, `nav2_ready=true`, fresh scan/TF를 별도로 확인하며, `smoke`만으로 실제 맵 정합이나 현장 주행 합격을 대신 판정하지 않는다.
 
    ```bash
    scripts/sf_stack.sh status

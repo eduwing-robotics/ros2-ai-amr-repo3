@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROS_SETUP="${ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
 
 # Verification must use the dependencies installed for this service.  An
 # explicit PYTHON_BIN remains available for CI or deliberately custom setups.
@@ -14,11 +15,25 @@ else
   PYTHON_BIN="$ROOT/.venv/bin/python"
   if [[ ! -x "$PYTHON_BIN" ]]; then
     echo "[check_all] Nav virtual environment is missing: $PYTHON_BIN" >&2
-    echo "[check_all] Create it with: python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-dev.txt" >&2
+    echo "[check_all] Create it with: scripts/setup_nav_server_env.sh" >&2
     echo "[check_all] To use another interpreter explicitly, set PYTHON_BIN=/path/to/python." >&2
     exit 1
   fi
 fi
+
+if [[ ! -f "$ROS_SETUP" ]]; then
+  echo "[check_all] ROS setup is missing: $ROS_SETUP" >&2
+  echo "[check_all] Set ROS_SETUP to the installed ROS 2 setup.bash." >&2
+  exit 1
+fi
+# shellcheck source=/dev/null
+set +u
+source "$ROS_SETUP"
+set -u
+"$PYTHON_BIN" -c 'import rclpy' || {
+  echo "[check_all] the selected Python cannot import rclpy after sourcing $ROS_SETUP" >&2
+  exit 1
+}
 
 cd "$ROOT"
 
@@ -56,12 +71,12 @@ echo "[check_all] py_compile nav_app + deployment scripts"
 echo "[check_all] ruff"
 "$PYTHON_BIN" -m ruff check nav_app scripts/nav_server.py scripts/logistics_navigator.py map/generate_factory_map.py tests
 
-echo "[check_all] pytest (ROS-free unit layer)"
-"$PYTHON_BIN" -m pytest tests/ -q
+echo "[check_all] pytest (unit/contract layer; no live ROS graph)"
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "$PYTHON_BIN" -m pytest tests/ -q
 
 echo "[check_all] config validators"
 "$PYTHON_BIN" "$SCRIPT_DIR/validate_robot_domains.py" --config "$ROOT/config/robots.json" --bridge-dir "$ROOT/config/domain_bridge"
-"$PYTHON_BIN" "$SCRIPT_DIR/validate_zones.py"
+"$PYTHON_BIN" "$SCRIPT_DIR/validate_zones.py" --scope field-e2e
 "$PYTHON_BIN" -c 'from nav_app.config import MAIN_SERVER_ROUTES; assert MAIN_SERVER_ROUTES["nav_pc_host"]'
 
 echo "[check_all] shell syntax"

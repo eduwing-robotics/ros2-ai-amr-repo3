@@ -14,13 +14,15 @@ and map/waypoint data for the AMR fleet.
 Run these commands from this directory:
 
 ```bash
+scripts/setup_nav_server_env.sh
 scripts/check_all.sh
 scripts/run_nav_servers.sh --print-plan
 ROS_SETUP=/opt/ros/jazzy/setup.bash scripts/run_nav_servers.sh --check
 ```
 
-The first command runs local checks. The remaining commands print and validate
-the enabled robot-server plan without starting robot motion.
+The setup command recreates the ignored `.venv` from tracked requirements.
+`check_all.sh` runs local checks. The remaining commands print and validate the
+enabled robot-server plan without starting robot motion.
 
 ## Current documentation
 

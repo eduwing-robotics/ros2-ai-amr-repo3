@@ -106,7 +106,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 # One bootstrap owns generation/pairing. Ordinary service launchers only load
-# this ignored 0600 bundle and never ask an operator for request-time secrets.
+# this site-local 0600 bundle and never ask an operator for request-time secrets.
 # shellcheck source=/dev/null
 source "$REPO_ROOT/scripts/lib/site_credentials.sh"
 sf_ensure_site_credentials "$REPO_ROOT"

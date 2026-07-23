@@ -189,7 +189,7 @@ def test_metric_robot_command_uses_server_owned_motion_and_freshness_limits(monk
     assert payload["docking_freshness_segment_sec"] == 0.10
     assert payload["scan_max_age_sec"] == 1.0
     assert payload["tf_max_age_sec"] == 1.0
-    assert payload["aruco_max_age_sec"] == 1.0
+    assert payload["aruco_max_age_sec"] == 0.5
     assert payload["dock_linear_speed"] == 0.018
     assert payload["reverse_speed"] == 0.05
     assert math.isfinite(payload["reverse_target_max_duration_sec"])

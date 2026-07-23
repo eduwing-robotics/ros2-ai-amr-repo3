@@ -1,5 +1,9 @@
 # Navigation Startup Index
 
+For one start-to-finish Main/Nav/AI field procedure, follow the
+[single integrated physical E2E runbook](../../../docs/operations/physical-e2e-checklist.md).
+This page is the Nav role index used when a step needs service-specific detail.
+
 Use one terminal per foreground process. Do not send a movement command until
 each applicable readiness check has passed.
 

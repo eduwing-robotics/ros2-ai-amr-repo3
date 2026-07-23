@@ -235,6 +235,14 @@ def _attach_proof_image_if_requested(
     evaluation["data_json"]["proof_image"] = {
         "image_uri": location.image_uri,
         "content_type": location.content_type,
+        "source": frame.source,
+        "frame_seq": frame.frame_seq,
+        "frame_timestamp": frame.timestamp,
+        "image": {
+            "width": frame.image_width,
+            "height": frame.image_height,
+        },
+        "capture_semantics": "latest_live_input_frame",
     }
     validate_evidence_evaluation(evaluation)
     return evaluation

@@ -30,7 +30,10 @@
       "required": true,
       "ownership": "external",
       "start_script": "",
-      "readiness_probe": "ros-domain-route"
+      "readiness_probe": "ros-domain-route",
+      "robot_ids": [
+        "tb3_burger_01"
+      ]
     },
     "nav2": {
       "enabled": true,

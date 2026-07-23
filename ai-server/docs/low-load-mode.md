@@ -47,7 +47,7 @@ mDNS address. From the repository root, run
 mapping instead of using a direct-IP fallback.
 
 The production `sf_vision` operator path loads Main↔AI and the distinct Vision
-gateway credential from the repository-level ignored
+gateway credential from the repository-level site-local
 `.secrets/service-hmac.env` bundle before starting low-load children. The bundle
 is provisioned once by the trusted deployment; ordinary low-load starts require
 no secret export. Direct local bundle helpers outside `sf_vision` may still create

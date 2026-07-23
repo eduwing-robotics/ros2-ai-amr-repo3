@@ -112,11 +112,11 @@ def check_field_bindings(zones: dict, locations: dict[str, tuple]) -> None:
         "outbound": False,
         "status": "BLOCKED_SUPERSEDED_MAP_COORDINATES_UNVERIFIED",
     }
-    expected_robot2_policy = {"inbound": False, "outbound": False, "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS"}
+    expected_robot2_policy = {"inbound": True, "outbound": True, "status": "COMMISSIONED"}
     if map_dispatch.get("robot1_map") != expected_robot1_policy:
         fail("robot1_map must remain blocked because its coordinates belong to the superseded map")
     if map_dispatch.get("robot2_map") != expected_robot2_policy:
-        fail("robot2_map must remain explicitly blocked pending per-map field bindings")
+        fail("robot2_map must remain explicitly commissioned for the bound Main E2E path")
     waypoints = zones["waypoints"]
     semantic = zones["semantic_zones"]
     required_kinds = {"inbound", "outbound", "storage", "home", "charge"}
@@ -201,12 +201,17 @@ def check_robots_routes_maps_bridges() -> tuple[list[dict], dict]:
         if not image or not (NAV / map_rel).parent.joinpath(image).is_file():
             fail(f"{robot_id} active map image is missing for {map_rel}")
 
-        # zones.json has one canonical coordinate frame.  Audit it against
-        # every enabled robot map, rather than only the default map selected by
-        # validate_zones.py, so a second robot cannot inherit invalid poses.
+        route = next(route for route in route_robots if route.get("robot_id") == robot_id)
+        if "nav_api_fallback_url" in route:
+            fail(f"{robot_id} must not declare automatic fixed-IP fallback routing")
+
+        # The Main E2E path consumes marker approach/dock waypoints, not legacy
+        # layout rectangles or right-hand-lane goals. Validate that exact
+        # operational subset against every enabled robot map. Full layout
+        # commissioning remains the default validate_zones.py scope.
         if robot.get("enabled") and any(robot.get("field_dispatch", {}).get(kind, False) for kind in ("inbound", "outbound")):
             result = subprocess.run(
-                [sys.executable, str(NAV / "scripts/validate_zones.py")],
+                [sys.executable, str(NAV / "scripts/validate_zones.py"), "--scope", "field-e2e"],
                 cwd=NAV,
                 env={**__import__("os").environ, "ACTIVE_MAP_YAML": str(NAV / map_rel)},
                 text=True,
@@ -217,12 +222,9 @@ def check_robots_routes_maps_bridges() -> tuple[list[dict], dict]:
                 detail = (result.stdout + result.stderr).strip().replace("\n", "; ")
                 fail(f"{robot_id}.active_map_yaml fails zones/waypoints audit: {detail}")
 
-        route = next(route for route in route_robots if route.get("robot_id") == robot_id)
         for key in ("bridge_robot_id", "ros_domain_id", "center_domain_id"):
             if route.get(key) != robot.get(key):
                 fail(f"{robot_id} route {key} must match robots.json")
-        if "nav_api_fallback_url" in route:
-            fail(f"{robot_id} must not declare automatic fixed-IP fallback routing")
         require_url(route.get("nav_api_url"), f"{robot_id}.nav_api_url")
         parsed = urlparse(str(route["nav_api_url"]))
         if parsed.port != robot["api_port"]:
@@ -268,9 +270,16 @@ def check_nohardware_profile(robots: list[dict]) -> None:
         fixture = fixture_by_id[robot_id]
         if fixture.get("simulation_fixture") is not True:
             fail(f"{robot_id} nohardware profile must be explicitly marked simulation_fixture")
-        for key in ("active_map_yaml", "localization", "field_dispatch", "capabilities"):
+        for key in ("active_map_yaml", "localization", "capabilities"):
             if fixture.get(key) != production.get(key):
                 fail(f"{robot_id} nohardware profile must not relabel production {key}")
+        blocked = {
+            "inbound": False,
+            "outbound": False,
+            "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS",
+        }
+        if fixture.get("field_dispatch") != blocked:
+            fail(f"{robot_id} nohardware profile must keep field dispatch blocked")
 
 
 def check_locations_markers_and_task_config() -> None:

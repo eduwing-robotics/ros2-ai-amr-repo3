@@ -70,7 +70,7 @@ def test_rejects_automatic_fixed_ip_fallback_route(monkeypatch):
         checker.check_robots_routes_maps_bridges()
 
 
-def test_robot2_map_dispatch_is_scoped_to_the_commissioned_tb2_live_path():
+def test_robot2_map_dispatch_supports_both_live_physical_profiles_only():
     nav = ROOT / "nav-server"
     main = ROOT / "main-server"
     production = json.loads((nav / "config/robots.json").read_text(encoding="utf-8"))
@@ -83,22 +83,26 @@ def test_robot2_map_dispatch_is_scoped_to_the_commissioned_tb2_live_path():
         "outbound": False,
         "status": "BLOCKED_PENDING_PER_MAP_FIELD_BINDINGS",
     }
-    commissioned_tb2 = {
+    commissioned = {
         "inbound": True,
         "outbound": True,
-        "status": "COMMISSIONED_TB2_PHYSICAL_LEVEL1",
+        "status": "COMMISSIONED_ROBOT2_MAP_PHYSICAL_LEVEL1",
     }
-    for document in (production, nohardware):
+    live_policies = {robot_id: commissioned for robot_id in ("tb3_burger_01", "tb3_burger_02")}
+    for document, expected_policy in ((production, live_policies), (nohardware, {})):
         robot1 = next(robot for robot in document["robots"] if robot["robot_id"] == "tb3_burger_01")
         robot2 = next(robot for robot in document["robots"] if robot["robot_id"] == "tb3_burger_02")
         assert robot1["active_map_yaml"] == "map/robot2_map.yaml"
         assert robot1["localization"]["map_id"] == "robot2_map"
         assert robot1["localization"]["map_metadata_identity"] == "map/robot2_map.yaml"
-        assert robot1["field_dispatch"] == blocked
+        assert robot1["field_dispatch"] == expected_policy.get("tb3_burger_01", blocked)
         assert (robot1["ros_domain_id"], robot1["api_port"]) == (2, 8001)
         assert (robot2["ros_domain_id"], robot2["api_port"]) == (5, 8002)
         assert robot2["active_map_yaml"] == "map/robot2_map.yaml"
-        assert robot2["field_dispatch"] == (commissioned_tb2 if document is production else blocked)
+        assert robot2["field_dispatch"] == expected_policy.get("tb3_burger_02", blocked)
+        if document is production:
+            assert robot1["field_dispatch"] == robot2["field_dispatch"]
+            assert robot1["aruco_detector"] == robot2["aruco_detector"]
 
     robot1_route = next(route for route in routes["robots"] if route["robot_id"] == "tb3_burger_01")
     robot2_route = next(route for route in routes["robots"] if route["robot_id"] == "tb3_burger_02")

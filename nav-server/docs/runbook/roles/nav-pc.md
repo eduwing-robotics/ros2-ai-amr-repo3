@@ -20,6 +20,14 @@ window to stop a process, and inspect remaining windows with
 
 ## Preflight
 
+새 checkout 또는 dependency 변경 뒤 먼저 실행한다.
+
+```bash
+scripts/setup_nav_server_env.sh
+```
+
+그 다음 process를 시작하지 않는 preflight를 실행한다.
+
 ```bash
 scripts/run_nav_servers.sh --print-plan
 ROS_SETUP=/opt/ros/jazzy/setup.bash scripts/run_nav_servers.sh --check

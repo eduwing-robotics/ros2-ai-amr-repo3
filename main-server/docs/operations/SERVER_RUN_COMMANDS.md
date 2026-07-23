@@ -9,14 +9,15 @@
 
 ## 1. 환경 파일
 
-처음 한 번 생성한다.
+새 checkout 또는 dependency 변경 뒤 Main bootstrap으로 준비한다.
 
 ```bash
 cd <repository-root>/main-server
-cp .env.example .env
+./scripts/bootstrap.sh --skip-db
 ```
 
-`.env`에는 service hostname과 port를 설정한다.
+이 명령이 backend `.venv`, frontend `node_modules`, `.env`와 site credential을
+준비한다. 생성된 `.env`에는 service hostname과 port를 설정한다.
 
 ```env
 LMS_PUBLIC_BASE_URL=http://smartfactory-main.local:8088

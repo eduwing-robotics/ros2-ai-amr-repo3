@@ -21,6 +21,22 @@
       "review_only_content_rule": "Repository routing only."
     },
     {
+      "rule_id": "root-scripts-index",
+      "document_type": "index",
+      "subject": "repository-scripts",
+      "path_globs": [
+        "scripts/README.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Root script catalog, safe entrypoint usage, and links only."
+    },
+    {
       "rule_id": "root-policy",
       "document_type": "index",
       "subject": "documentation",

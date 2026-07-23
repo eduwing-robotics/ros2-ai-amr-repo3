@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from api_test_helpers import client, main_module, np
+from api_test_helpers import client, cv2, main_module, np
 
 from app.config import get_settings
 from app.contracts import validate_evidence_evaluation
@@ -311,12 +311,53 @@ def test_evidence_evaluate_latest_synthetic_event_can_store_proof_image(
     assert body["data_json"]["proof_image"] == {
         "image_uri": body["image_uri"],
         "content_type": "image/jpeg",
+        "source": "global_cam_01",
+        "frame_seq": 1,
+        "frame_timestamp": body["data_json"]["proof_image"]["frame_timestamp"],
+        "image": {"width": 160, "height": 160},
+        "capture_semantics": "latest_live_input_frame",
     }
     assert str(tmp_path) not in str(body["data_json"]["proof_image"])
 
     image_response = client.get(body["image_uri"])
     assert image_response.status_code == 200
     assert image_response.content
+
+
+def test_evidence_proof_preserves_1080p_live_input_frame_metadata(monkeypatch, tmp_path: Path):
+    _reset_runtime_state()
+    monkeypatch.setattr(get_settings(), "evidence_image_root", tmp_path)
+    frame = np.full((1080, 1920, 3), 96, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", frame)
+    assert ok
+
+    ingest = client.post(
+        "/api/v1/vision/frame",
+        data={"source": "global_cam_01"},
+        files={"image": ("gopro-1080p.jpg", encoded.tobytes(), "image/jpeg")},
+    )
+    assert ingest.status_code == 200
+    assert ingest.json()["frame"]["image"] == {"width": 1920, "height": 1080}
+
+    response = client.post(
+        "/api/v1/evidence/evaluate",
+        json={
+            "source": "global_cam_01",
+            "view": "full",
+            "operation": "MONITOR",
+            "expected_evidence_type": "STATUS",
+            "image_policy": {"save_proof": True, "proof_label": "gopro-live-proof"},
+        },
+    )
+
+    assert response.status_code == 200
+    proof = response.json()["data_json"]["proof_image"]
+    assert proof["image"] == {"width": 1920, "height": 1080}
+    assert proof["capture_semantics"] == "latest_live_input_frame"
+    saved = client.get(proof["image_uri"])
+    assert saved.status_code == 200
+    decoded = cv2.imdecode(np.frombuffer(saved.content, dtype=np.uint8), 1)
+    assert decoded.shape[:2] == (1080, 1920)
 
 
 def test_evidence_evaluate_rejects_legacy_image_policy_aliases():

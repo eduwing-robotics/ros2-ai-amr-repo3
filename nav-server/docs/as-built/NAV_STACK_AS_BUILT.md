@@ -19,7 +19,7 @@
   - `nav_app/services/`: command, docking, movement, robot context 등 도메인 로직
 - 설정: `config/robots.json`, `config/main_server_routes.json`, `config/inventory_locations.json`, `config/domain_bridge/*.yaml`
 - 지도·경로: confirmed field asset `map/robot2_map.yaml`; `map/zones.json`은 robot2 map 재검증 전 dispatch에 사용하지 않음
-- 활성 runtime 산출물: `logs/`, `tmp/` (`.gitignore`). 보존 스냅샷: `LEGACY/runtime/`
+- 관리형 runtime 산출물: `.runtime/sf-nav/` (`.gitignore`). 보존할 증거만 `logs/`, `worklog/` 또는 root `deliverables/`로 선별한다.
 
 ## 현재 동작
 
@@ -41,7 +41,7 @@
 
 ## 검증
 
-| 계층 | 도구 | ROS-free |
+| 계층 | 도구 | 장비/live ROS graph 불필요 |
 | --- | --- | --- |
 | Unit + contract | `python -m pytest tests/` | ✅ |
 | Compile | `scripts/check_all.sh` (py_compile) | ✅ |
