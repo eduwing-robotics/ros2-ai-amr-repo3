@@ -1,7 +1,7 @@
 # tb3_1 현재 스택 통합 운영 Runbook
 
 상태: Active / Current  
-최종 갱신: 2026-07-20 KST
+최종 갱신: 2026-07-22 KST
 
 이 문서는 1호기 전원을 켠 뒤 전체 스택을 시작하고, 정상 여부를 확인하고, 종료하거나 복구하는 현재 정본이다. 리프트 높이 교정과 실제 주행 시나리오는 이 문서의 자동 실행 범위가 아니다.
 
@@ -43,10 +43,10 @@ stat -c '%a %n' /home/lucas/slam_nav_ws/.env
 정상 권한은 `600`이다. 파일 형식은 다음과 같지만 실제 값을 문서나 Git에 기록하지 않는다.
 
 ```dotenv
-ROBOT_PW=<robot1-password>
+ROBOT1_PW=<robot1-password>
 ```
 
-`.env`는 Git ignore 대상이며 `scripts/start_all_tb3_1.sh`가 자동으로 읽는다.
+`.env`는 Git ignore 대상이며 `scripts/start_all_tb3_1.sh`가 자동으로 읽는다. 런처는 `ROBOT1_PW`를 우선하며 `ROBOT_PW`는 하위 호환용이다.
 
 ## 3. 전원을 켠 뒤 실행 순서
 
@@ -66,16 +66,25 @@ ssh codelab@192.168.30.101 'uptime'
 
 SSH가 응답하기 전에 스택을 시작하지 않는다.
 
-### 3.3 전체 스택 재기동
+### 3.3 전체 스택 기동
 
-전원 재인가 뒤에는 기존 Nav PC 프로세스가 남아 있을 수 있으므로 `start`가 아니라 `restart`를 사용한다.
+현장 권장 절차는 SSH 지연 중 `restart`가 멈추는 경우를 피하기 위해 `stop` 완료 후 `start`를 별도로 실행하는 것이다.
 
 ```bash
 cd /home/lucas/slam_nav_ws
-scripts/start_all_tb3_1.sh restart
+scripts/start_all_tb3_1.sh stop
+scripts/start_all_tb3_1.sh start
 ```
 
-`restart`는 1호기/domain 2/API 8001 범위만 정리한다. 2호기 스택은 종료하지 않는다.
+정상 네트워크에서는 `scripts/start_all_tb3_1.sh restart`도 사용할 수 있다. 두 명령 모두 1호기/domain 2/API 8001 범위만 다루며 2호기 스택은 종료하지 않는다. segment 교통 조정 시험에서는 시작 전에 아래 값을 지정한다.
+
+```bash
+export TRAFFIC_COORDINATION_MODE=segment
+export TRAFFIC_DEPARTURE_STAGGER_SEC=4
+export TRAFFIC_SEGMENT_WAIT_TIMEOUT_SEC=300
+export TRAFFIC_SEGMENT_TTL_SEC=900
+scripts/start_all_tb3_1.sh start
+```
 
 정상 시작 로그:
 
@@ -137,7 +146,9 @@ cd /home/lucas/slam_nav_ws
 scripts/start_all_tb3_1.sh stop
 ```
 
-이 명령은 1호기 관련 Nav PC 프로세스와 SBC bringup/camera/lift bridge를 종료한다. 물리 전원을 끄기 전 소프트웨어 스택을 정리할 때 사용한다.
+이 명령은 1호기 관련 Nav PC 프로세스와 SBC bringup/camera/lift bridge를 종료한다. SSH가 지연되어 출력이 중간에 끝나면 같은 `stop`을 다시 실행해 `remaining bringup processes=0`과 `전체 종료 완료`를 확인한다. 물리 전원을 끄기 전 소프트웨어 스택을 정리할 때 사용한다.
+
+종료 후에는 API 8001, Terminator, Nav2/RViz, detector/relay와 SBC camera/bringup/lift가 남지 않아야 한다. 고아 프로세스가 보이면 새 스택을 시작하지 말고 먼저 제거한다.
 
 ## 6. 장애 복구
 
@@ -197,6 +208,10 @@ scripts/start_all_tb3_1.sh restart
 ### Terminator pane이 7개보다 적음
 
 현재 런처는 누락된 pane을 별도 fallback 프로세스로 숨기지 않는다. 로그에 표시된 누락 pane을 확인하고 전체 `restart`를 실행한다.
+
+### 로봇을 사람이 들어 옮긴 뒤
+
+API의 과거 `localized=true`나 오래된 pose를 신뢰하지 않는다. 실제 대기장소 기준으로 RViz의 `2D Pose Estimate` 또는 승인된 초기 위치 절차를 다시 수행하고, pose age와 공분산이 안정된 뒤에만 `command_accepting=true`를 주행 승인 근거로 사용한다.
 
 ## 7. 현재 검증 및 보류 사항
 

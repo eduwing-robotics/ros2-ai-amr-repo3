@@ -82,9 +82,10 @@ ROBOT_TOPIC_WAIT_SEC="${ROBOT_TOPIC_WAIT_SEC:-120}"
 CAMERA_TOPIC_WAIT_SEC="${CAMERA_TOPIC_WAIT_SEC:-60}"
 MODE="${MODE:-terminator}"
 
-# ssh 비밀번호는 ROBOT_PW 환경변수로만 전달한다. sshpass 우선, 없으면 SSH_ASKPASS 헬퍼 사용.
+# ssh 비밀번호는 로봇별 ROBOT1_PW를 우선하고, 하위 호환용 ROBOT_PW를 사용한다.
 # bringup/카메라는 stdin 파이프(bash -s)를 쓰므로 -tt 사용하지 않음.
-ROBOT_PW="${ROBOT_PW:?Set ROBOT_PW in the environment}"
+ROBOT_PW="${ROBOT1_PW:-${ROBOT_PW:-}}"
+: "${ROBOT_PW:?Set ROBOT1_PW (preferred) or ROBOT_PW in the environment}"
 SSH_ASKPASS_HELPER="$SCRIPT_DIR/ssh_askpass_robot.sh"
 SSH_USE_ASKPASS=0
 SSH_MODE="interactive"
@@ -168,19 +169,19 @@ ssh_robot_bringup_body() {
     ekf_exports="TB3_EKF_MODE=1 TB3_EKF_OVERLAY=/tmp/tb3_ekf_bringup_overlay.yaml"
   fi
   cat <<EOF
-${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET ROS_STATIC_PEERS=192.168.30.12 FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/fastdds_robot_sbc.xml LDS_MODEL=$ROBOT_LDS_MODEL USB_PORT='$ROBOT_USB' EXPECTED_USB_TOPOLOGY='$ROBOT_USB_TOPOLOGY' WS_SETUP='$ROBOT_WS_SETUP' $ekf_exports; bash -s" < "$ROBOT_SBC_DIR/start_bringup.sh"
+${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_STATIC_PEERS=192.168.30.12 FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/fastdds_robot_sbc.xml LDS_MODEL=$ROBOT_LDS_MODEL USB_PORT='$ROBOT_USB' EXPECTED_USB_TOPOLOGY='$ROBOT_USB_TOPOLOGY' WS_SETUP='$ROBOT_WS_SETUP' $ekf_exports; bash -s" < "$ROBOT_SBC_DIR/start_bringup.sh"
 EOF
 }
 
 ssh_robot_camera_body() {
   cat <<EOF
-${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN BRINGUP_WAIT_SEC=$ROBOT_BRINGUP_WAIT_SEC CAMERA_LAUNCH='$CAMERA_LAUNCH' CAMERA_ROTATION_DEG=180 WS_SETUP='$ROBOT_WS_SETUP'; bash -s" < "$ROBOT_SBC_DIR/start_camera.sh"
+${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/fastdds_robot_sbc.xml BRINGUP_WAIT_SEC=$ROBOT_BRINGUP_WAIT_SEC CAMERA_LAUNCH='$CAMERA_LAUNCH' CAMERA_ROTATION_DEG=180 WS_SETUP='$ROBOT_WS_SETUP'; bash -s" < "$ROBOT_SBC_DIR/start_camera.sh"
 EOF
 }
 
 ssh_robot_lift_body() {
   cat <<EOF
-${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN LIFT_WS_SETUP='$LIFT_WS_SETUP' LIFT_SERIAL_PORT='$LIFT_SERIAL_PORT' LIFT_BRIDGE_PKG='$LIFT_BRIDGE_PKG'; bash -s" < "$ROBOT_SBC_DIR/start_lift_bridge.sh"
+${SSH_CMD[*]} $ROBOT_SSH "export ROS_DOMAIN_ID=$DOMAIN FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/fastdds_robot_sbc.xml LIFT_WS_SETUP='$LIFT_WS_SETUP' LIFT_SERIAL_PORT='$LIFT_SERIAL_PORT' LIFT_BRIDGE_PKG='$LIFT_BRIDGE_PKG'; bash -s" < "$ROBOT_SBC_DIR/start_lift_bridge.sh"
 EOF
 }
 
@@ -219,6 +220,7 @@ cmd_detector1() {
 cd '$ROOT'
 source '$ROS_NETWORK_SETUP' 2>/dev/null || true
 export ROS_DOMAIN_ID=$DOMAIN
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 export ROBOT_ID=tb3_burger_01
 # Keep the complete peer roster loaded by ROS_NETWORK_SETUP.
 export ARUCO_MARKER_SIZE_M=0.05

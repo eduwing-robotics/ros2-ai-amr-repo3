@@ -1,7 +1,7 @@
 # tb3_2 현재 스택 운영 Runbook
 
 상태: Active / Current
-최종 갱신: 2026-07-18 15:55 KST
+최종 갱신: 2026-07-22 KST
 기준 복구 지점: `backups/nav_stack_snapshots/tb3_2_verified_20260718`
 
 ## 1. 현재 운영 기준
@@ -34,60 +34,56 @@ ArUco detector process = 1
 
 ## 2. 비밀번호 저장 방식
 
-비밀번호는 저장소 안에 넣지 않는다. 현재 파일은 아래 위치에 있고 권한은 `600`이어야 한다.
-
-```text
-/home/lucas/.config/slam_nav_ws/robot_pw
-```
-
-확인:
+실행 작업공간의 `/home/lucas/slam_nav_ws/.env`를 사용한다. 실제 비밀번호는 문서나 Git에 기록하지 않는다.
 
 ```bash
-stat -c '%a %n' /home/lucas/.config/slam_nav_ws/robot_pw
+stat -c '%a %n' /home/lucas/slam_nav_ws/.env
 ```
 
-정상 출력은 `600`이다. 명령행에 비밀번호 값을 직접 쓰지 말고 다음처럼 파일에서 읽는다.
+정상 권한은 `600`이다. 런처는 로봇별 변수를 우선하고 `ROBOT_PW`는 하위 호환용으로만 사용한다.
 
-```bash
-ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)" \
-  scripts/start_all_tb3_2.sh start
+```dotenv
+ROBOT1_PW=<robot1-password>
+ROBOT2_PW=<robot2-password>
 ```
 
 ## 3. 권장 원샷 실행
 
-새 터미널에서:
+새 터미널에서 현장 권장 절차는 `stop`과 `start`를 분리하는 것이다. SSH 지연 중 `restart`가 멈춘 상태로 중복 실행되는 것을 막는다.
 
 ```bash
 cd /home/lucas/slam_nav_ws
-ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)" \
-  scripts/start_all_tb3_2.sh start
+scripts/start_all_tb3_2.sh stop
+scripts/start_all_tb3_2.sh start
 ```
 
-완전히 정리하고 다시 시작:
+정상 네트워크에서는 `scripts/start_all_tb3_2.sh restart`도 사용할 수 있다. segment 교통 조정 시험에서는 `start` 전에 다음 값을 지정한다.
 
 ```bash
-cd /home/lucas/slam_nav_ws
-ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)" \
-  scripts/start_all_tb3_2.sh restart
+export TRAFFIC_COORDINATION_MODE=segment
+export TRAFFIC_DEPARTURE_STAGGER_SEC=4
+export TRAFFIC_SEGMENT_WAIT_TIMEOUT_SEC=300
+export TRAFFIC_SEGMENT_TTL_SEC=900
+scripts/start_all_tb3_2.sh start
 ```
 
 상태 확인:
 
 ```bash
 cd /home/lucas/slam_nav_ws
-ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)" \
-  scripts/start_all_tb3_2.sh status
+scripts/start_all_tb3_2.sh status
 ```
 
 전체 종료:
 
 ```bash
 cd /home/lucas/slam_nav_ws
-ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)" \
-  scripts/start_all_tb3_2.sh stop
+scripts/start_all_tb3_2.sh stop
 ```
 
 로봇 배터리를 교체하거나 SBC를 재부팅한 경우 `ping 192.168.30.102`가 응답한 다음 `restart`를 실행한다.
+
+SSH 지연으로 첫 `stop`이 중간 종료되면 같은 `stop`을 다시 실행하여 `remaining bringup processes=0`과 `전체 종료 완료`를 확인한다. 고아 Terminator, detector/relay 또는 SBC camera publisher가 남아 있으면 새 `start`나 `restart`를 실행하지 않는다.
 
 ## 4. 각 컴포넌트 수동 실행
 
@@ -97,8 +93,7 @@ ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)" \
 
 ```bash
 cd /home/lucas/slam_nav_ws
-ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)" \
-  scripts/start_all_tb3_2.sh stop
+scripts/start_all_tb3_2.sh stop
 ```
 
 ### 4.2 터미널 1: 로봇 SBC bringup
@@ -107,9 +102,10 @@ Nav PC에서 실행:
 
 ```bash
 cd /home/lucas/slam_nav_ws
-export ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)"
+set -a; source .env; set +a
+export ROBOT_PW="$ROBOT2_PW"
 sshpass -p "$ROBOT_PW" ssh -o StrictHostKeyChecking=accept-new musk@192.168.30.102 \
-  "export ROS_DOMAIN_ID=5 ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET ROS_STATIC_PEERS=192.168.30.12 FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/fastdds_robot_sbc.xml LDS_MODEL=LDS-03 USB_PORT='/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00' WS_SETUP='/home/musk/turtlebot3_ws/install/setup.bash' TB3_EKF_MODE=0; bash -s" \
+  "export ROS_DOMAIN_ID=5 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_STATIC_PEERS=192.168.30.12 FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/fastdds_robot_sbc.xml LDS_MODEL=LDS-03 USB_PORT='/dev/serial/by-id/usb-ROBOTIS_OpenCR_Virtual_ComPort_in_FS_Mode_FFFFFFFEFFFF-if00' WS_SETUP='/home/musk/turtlebot3_ws/install/setup.bash' TB3_EKF_MODE=0; bash -s" \
   < scripts/robot_sbc/start_bringup.sh
 ```
 
@@ -117,9 +113,10 @@ sshpass -p "$ROBOT_PW" ssh -o StrictHostKeyChecking=accept-new musk@192.168.30.1
 
 ```bash
 cd /home/lucas/slam_nav_ws
-export ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)"
+set -a; source .env; set +a
+export ROBOT_PW="$ROBOT2_PW"
 sshpass -p "$ROBOT_PW" ssh -o StrictHostKeyChecking=accept-new musk@192.168.30.102 \
-  "export ROS_DOMAIN_ID=5 LIFT_WS_SETUP='/home/musk/lift_project/ros2_ws/install/setup.bash' LIFT_SERIAL_PORT='' LIFT_BRIDGE_PKG='lift_bridge'; bash -s" \
+  "export ROS_DOMAIN_ID=5 FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/fastdds_robot_sbc.xml LIFT_WS_SETUP='/home/musk/lift_project/ros2_ws/install/setup.bash' LIFT_SERIAL_PORT='' LIFT_BRIDGE_PKG='lift_bridge'; bash -s" \
   < scripts/robot_sbc/start_lift_bridge.sh
 ```
 
@@ -129,9 +126,10 @@ bringup이 먼저 준비된 뒤 실행한다.
 
 ```bash
 cd /home/lucas/slam_nav_ws
-export ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)"
+set -a; source .env; set +a
+export ROBOT_PW="$ROBOT2_PW"
 sshpass -p "$ROBOT_PW" ssh -o StrictHostKeyChecking=accept-new musk@192.168.30.102 \
-  "export ROS_DOMAIN_ID=5 BRINGUP_WAIT_SEC=10 CAMERA_LAUNCH='turtlebot3_bringup camera.launch.py' WS_SETUP='/home/musk/turtlebot3_ws/install/setup.bash'; bash -s" \
+  "export ROS_DOMAIN_ID=5 FASTRTPS_DEFAULT_PROFILES_FILE=/tmp/fastdds_robot_sbc.xml BRINGUP_WAIT_SEC=10 CAMERA_LAUNCH='turtlebot3_bringup camera.launch.py' WS_SETUP='/home/musk/turtlebot3_ws/install/setup.bash'; bash -s" \
   < scripts/robot_sbc/start_camera.sh
 ```
 
@@ -245,6 +243,21 @@ pgrep -af 'python3 /home/lucas/slam_nav_ws/scripts/aruco_detector_node.py'
 
 ## 7. 로그 해석
 
+### 7.1 2026-07-22 로봇2 RTPS 판정 기준
+
+현재 재현된 오류 원문은 Nav PC의 `nav2 component_container`에서 발생한 다음 형태다.
+
+```text
+[RTPS_READER_HISTORY Error] Change payload size of 24 bytes is larger than the history payload size of 11 bytes ...
+```
+
+`/odom`, `/scan`, `/tf`가 수신되고 lifecycle이 active여도 이 오류가 반복되면 정상으로 판정하지 않는다. 오류 확인은 반드시 해당 재시작 시각 이후의 새 ROS 로그와 현재 Terminator pane을 사용한다. 과거 supervisor/detector 로그를 현재 재발 근거로 사용하지 않는다.
+
+`/map`의 정상 endpoint는 publisher `map_server` 1개와 subscriber `amcl`, `/global_costmap/global_costmap`, `rviz2` 3개다. subscription count 3은 중복 Nav2가 아니다.
+
+로봇2 API가 `robot_online=false`, `nav2_ready=false`이거나 ping이 초 단위 지연/손실을 보이면 실제 이동 명령을 보내지 않는다.
+
+
 현재 API pane은 stdout/stderr를 직접 보여준다. 아래 파일은 현재 로그로 오해하지 않는다.
 
 - `logs/tb3_2_supervisor/api.log`: 폐기된 중앙 Supervisor 실행 당시 로그
@@ -280,11 +293,9 @@ scripts/restore_nav_stack_snapshot.sh --list
 
 ```bash
 cd /home/lucas/slam_nav_ws
-ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)" \
-  scripts/start_all_tb3_2.sh stop
+scripts/start_all_tb3_2.sh stop
 scripts/restore_nav_stack_snapshot.sh tb3_2_verified_20260718
-ROBOT_PW="$(< /home/lucas/.config/slam_nav_ws/robot_pw)" \
-  scripts/start_all_tb3_2.sh start
+scripts/start_all_tb3_2.sh start
 ```
 
 복구 후에도 반드시 6절의 health, pose, nav-state를 다시 확인한다.

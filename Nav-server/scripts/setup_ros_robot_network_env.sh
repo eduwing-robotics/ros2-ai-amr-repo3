@@ -14,5 +14,5 @@ else
 fi
 # Avoid subnet-wide DDS multicast storms on the robot Wi-Fi. Local processes
 # discover each other on localhost; the two robot SBCs are explicit peers.
-export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROBOT_NETWORK_DISCOVERY_RANGE:-SUBNET}"
+export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROBOT_NETWORK_DISCOVERY_RANGE:-LOCALHOST}"
 export ROS_STATIC_PEERS="${ROBOT_NETWORK_STATIC_PEERS:-192.168.30.101;192.168.30.102;192.168.30.12}"
