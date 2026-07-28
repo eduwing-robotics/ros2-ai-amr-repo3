@@ -41,7 +41,7 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     UI->>Main: 작업 또는 복구 요청
-    Main->>DB: 현재 상태 재검증
+    Main->>DB: 명령 실행 유효성 검증 (DB 대조)
     Main->>Nav: POST /robot-commands + HMAC
     Nav-->>Main: ACCEPTED
 
