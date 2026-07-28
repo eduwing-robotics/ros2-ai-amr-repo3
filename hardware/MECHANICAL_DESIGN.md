@@ -86,6 +86,7 @@ STL을 다시 생성한다. Lift, Rack, Pallet 중 하나의 결합 치수를 �
 ## 4. Rack 설계
 
 Pallet을 보관하는 2단 Rack으로 설계됐다.
+
 ![2단 Rack CAD](images/cad/rack.png)
 ## 5. Pallet 설계
 
