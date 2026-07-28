@@ -68,7 +68,7 @@ Main Server의 실행 모드, 상태 점검, E-stop 복구와 검증 절차입�
 ```mermaid
 flowchart TD
     Stop[E-stop·작업 정지] --> Hold[로봇 정지·작업 보류]
-    Hold --> Inspect{현장·위치·화물·이전 명령 확인}
+    Hold --> Inspect{"현장·위치·화물<br/>이전 명령 확인"}
     Inspect -->|반복 가능한 단계| Resume[작업 재개]
     Inspect -->|안전 위치 필요| Safe[승인된 안전 위치 이동]
     Inspect -->|계속할 수 없음| Abort[작업 중단]

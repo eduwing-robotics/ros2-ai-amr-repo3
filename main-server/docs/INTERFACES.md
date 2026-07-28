@@ -7,19 +7,15 @@
 ## 연결 경계
 
 ```mermaid
-flowchart LR
+flowchart TB
     User[운영자] --> Browser[React UI]
-    Browser -->|동일 출처 /api/v1| Main[Main FastAPI]
+    Browser <-->|동일 출처 /api/v1| Main[Main FastAPI]
     Main <--> DB[(PostgreSQL)]
-    Main -->|HMAC 명령·취소| Nav[Nav Server]
-    Nav -->|HMAC Callback·pose| Main
-    Main -->|HMAC 분석 요청| AI[AI Server]
-    AI -->|영상·화물·위험 결과| Main
-
-    Browser -. 직접 연결하지 않음 .-> Nav
-    Browser -. 직접 연결하지 않음 .-> AI
-    Browser -. 직접 연결하지 않음 .-> DB
+    Main <-->|HMAC 명령 · 상태| Nav[Nav Server]
+    Main <-->|HMAC 분석 · 결과| AI[AI Server]
 ```
+
+Browser는 Nav Server, AI Server, PostgreSQL에 직접 연결하지 않습니다.
 
 | 연결 | Main의 책임 |
 | --- | --- |

@@ -84,7 +84,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 > **Sequence Diagram  — 입고 작업**
 
-![입고 작업 시퀀스 다이어그램](assets/InBound.png)
+![입고 작업 시퀀스 다이어그램](assets/Images/InBound.png)
 ### 5.2 출고 시나리오
 
 1. 운영자가 출고할 품목과 수량을 요청합니다.
@@ -98,7 +98,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 > **Sequence Diagram  — 출고 작업**
 
-![출고 작업 시퀀스 다이어그램](assets/OutBound.png)
+![출고 작업 시퀀스 다이어그램](assets/Images/OutBound.png)
 
 ### 5.3 위험 감지와 복구 시나리오
 
@@ -113,14 +113,14 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 > **Sequence Diagram — 위험 감지, E-stop과 작업 복구**
 
-![위험 감지와 E-stop 복구 시퀀스 다이어그램](assets/estop.png)
+![위험 감지와 E-stop 복구 시퀀스 다이어그램](assets/Images/estop.png)
 ---
 
 ## 6. 시스템 설계
 
 ### 6.1 소프트웨어 아키텍처
 
-![소프트웨어 아키텍처](<assets/SW Architecture (1)(1).png>)
+![소프트웨어 아키텍처](<assets/Images/SW Architecture (1)(1)(1).png>)
 
 ---
 

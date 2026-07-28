@@ -25,10 +25,8 @@ Main Server는 업무 상태와 다음 단계의 판단을 소유합니다. 실�
 ## 처리 구조
 
 ```mermaid
-flowchart LR
+flowchart TB
     Operator[운영자]
-    Nav[Nav Server]
-    AI[AI Server]
 
     subgraph Main["Main Server"]
         UI[React Admin UI] <--> API[FastAPI API]
@@ -39,12 +37,15 @@ flowchart LR
         Orch <--> DB
     end
 
+    Nav[Nav Server]
+    AI[AI Server]
+
     Operator --> UI
-    Orch -->|원자 명령·취소| Nav
-    Nav -->|Callback·Polling·Pose| Orch
-    Orch -->|분석 요청| AI
-    AI -->|Evidence·Hazard| Orch
+    Orch <-->|명령 · 상태| Nav
+    Orch <-->|분석 · 결과| AI
 ```
+
+명령·상태 연결은 원자 명령·취소와 Callback·Polling·Pose를, 분석·결과 연결은 분석 요청과 Evidence·Hazard를 묶어 표현합니다.
 
 ## 핵심 설계 포인트
 

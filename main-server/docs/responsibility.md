@@ -35,20 +35,17 @@ Main Server는 입출고 작업의 업무 정본입니다. 작업을 만들고 �
 ## Collaboration Diagram
 
 ```mermaid
-flowchart LR
-    UI[Admin UI] -->|작업·운영 요청| Main[Main Server]
-    Main -->|통합 상태| UI
-    Main <--> |작업·재고·이력| DB[(PostgreSQL)]
-    Main -->|원자 명령·취소| Nav[Nav Server]
-    Nav -->|Callback·Polling·Pose| Main
-    Main -->|분석·Evidence 요청| AI[AI Server]
-    AI -->|관측·위험 결과| Main
+flowchart TB
+    UI[Admin UI] <-->|요청 · 상태| Main[Main Server]
+    Main <-->|업무 데이터| DB[(PostgreSQL)]
+    Main <-->|명령 · 상태| Nav[Nav Server]
+    Main <-->|분석 · 결과| AI[AI Server]
 ```
 
 ## Internal Responsibility Diagram
 
 ```mermaid
-flowchart LR
+flowchart TB
     API[API Routers] --> Work[Work Order Service]
     Work --> Planner[Planner]
     Work --> Assign[Robot Assignment]
