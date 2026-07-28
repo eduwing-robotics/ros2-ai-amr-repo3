@@ -15,7 +15,7 @@
 
 ## 격리 순서
 
-1. **Nav**: profile, `localized`, `nav2_ready`, `command_accepting`, `is_emergency`, capability, lift, sensor freshness를 health에서 확인한다. Nav 실행/상태 명령은 [Nav 실행 가이드](../../nav-server/docs/runbook/NAV_SERVER_BEGINNER_GUIDE.md)를 따른다.
+1. **Nav**: profile, `localized`, `nav2_ready`, `command_accepting`, `is_emergency`, capability, lift, sensor freshness를 health에서 확인한다. Nav 실행/상태 명령은 [Nav 실행 가이드](../../nav-server/docs/runbook/OPERATIONS.md)를 따른다.
 2. **AI**: `/api/v1/health`와 대상 stream/source를 확인한다. source 또는 monitor가 실패하면 movement를 재개하지 않는다.
 3. **Main**: `scripts/sf_stack.sh status`에서 Main이 선택 profile 소유인지, profile site hostname이 이 PC의 로컬 `192.168.30.x` interface인지, `/health`, PostgreSQL 연결, Movement/AI URL, task/evidence/safety/recovery DB state를 확인한다. 실행기는 DB snapshot을 자동 복원하지 않는다.
 4. **network**: Main↔Nav, Main↔AI HTTP와 ROS/DDS 연결을 분리해 확인한다. nohardware TCP success는 현장 reachability를 보장하지 않는다.

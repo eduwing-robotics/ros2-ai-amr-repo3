@@ -88,7 +88,7 @@
 | 단계 | 실행 | 통과 기준 |
 | --- | --- | --- |
 | nohardware | `./scripts/operator-preflight.sh --nohardware` | actual Main·Nav·AI·PostgreSQL·built UI의 loopback software merge proof PASS |
-| Gazebo | [Gazebo simulation runbook](../../nav-server/docs/runbook/RUNBOOK_GAZEBO_SIMULATION.md) | `NavigateToPose SUCCEEDED`, final error `0.251999 m` ≤ `0.30 m` |
+| Gazebo | [Gazebo simulation runbook](../../nav-server/docs/runbook/OPERATIONS.md#gazebo-검증) | `NavigateToPose SUCCEEDED`, final error `0.251999 m` ≤ `0.30 m` |
 | 현장 | 선택 profile `status`·`smoke`·health 후 필요한 기능 checklist | 선택 robot의 hardware/network live와 physical health 조건 충족 |
 
 종료 시 사용한 terminal 또는 tmux window에서 `Ctrl+C`로 프로세스를 중지하고, 이번에 시험한 기능의 최소 evidence만 남긴다. 이름 있는 tmux session을 사용했다면 managed process 종료 확인 후 session을 종료한다.

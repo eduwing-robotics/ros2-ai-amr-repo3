@@ -170,5 +170,5 @@ curl -s "$NAV_BASE/robot-commands/<command_id>" | python3 -m json.tool
 
 - 재현 스크립트: `scripts/scenarios/replay_task206_inbound2_tb3_2.sh`
 - payload JSON: `scripts/scenarios/task206_inbound2_tb3_2.json`
-- API 계약: `docs/reference/MAIN_SERVER_CONTRACT.md`
+- API 계약: `docs/reference/INTERFACES.md`
 - 웨이포인트 SoT: `map/zones.json`

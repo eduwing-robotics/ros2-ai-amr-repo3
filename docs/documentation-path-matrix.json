@@ -125,7 +125,8 @@
       "subject": "navigation",
       "path_globs": [
         "nav-server/docs/reference/*.md",
-        "nav-server/docs/as-built/*.md"
+        "nav-server/docs/as-built/*.md",
+        "nav-server/docs/responsibility.md"
       ],
       "allowed_index_names": [
         "README.md"
@@ -190,30 +191,27 @@
       "subject": "main",
       "path_globs": [
         "main-server/README.md",
-        "main-server/AGENTS.md",
-        "main-server/docs/README.md",
-        "main-server/docs/DOCUMENTATION_GUIDE.md"
+        "main-server/AGENTS.md"
       ],
       "allowed_index_names": [
         "README.md",
-        "AGENTS.md",
-        "DOCUMENTATION_GUIDE.md"
+        "AGENTS.md"
       ],
       "requires_index": false,
       "required_markdown_metadata": [
         "h1"
       ],
-      "review_only_content_rule": "Main routing and service-local additions only."
+      "review_only_content_rule": "Main service entrypoint and routing only."
     },
     {
       "rule_id": "main-reference",
       "document_type": "reference",
       "subject": "main",
       "path_globs": [
-        "main-server/docs/api/**/*.md",
-        "main-server/docs/interfaces/**/*.md",
-        "main-server/docs/architecture/**/*.md",
-        "main-server/docs/ui-ux/**/*.md"
+        "main-server/docs/WORKFLOW.md",
+        "main-server/docs/DATABASE.md",
+        "main-server/docs/INTERFACES.md",
+        "main-server/docs/responsibility.md"
       ],
       "allowed_index_names": [
         "README.md"
@@ -222,23 +220,39 @@
       "required_markdown_metadata": [
         "h1"
       ],
-      "review_only_content_rule": "Current Main contracts and behavior only."
+      "review_only_content_rule": "Current Main workflow, data model, and external contracts only."
     },
     {
       "rule_id": "main-operations",
       "document_type": "operations",
       "subject": "main",
       "path_globs": [
-        "main-server/docs/operations/*.md"
+        "main-server/docs/OPERATIONS.md"
       ],
       "allowed_index_names": [
         "README.md"
       ],
-      "requires_index": true,
+      "requires_index": false,
       "required_markdown_metadata": [
         "h1"
       ],
       "review_only_content_rule": "Executable Main procedures only."
+    },
+    {
+      "rule_id": "main-ui-package-index",
+      "document_type": "index",
+      "subject": "main-ui",
+      "path_globs": [
+        "main-server/frontend/web/README.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Frontend package entrypoint, local commands, and links only."
     },
     {
       "rule_id": "main-decisions",
@@ -255,23 +269,6 @@
         "h1"
       ],
       "review_only_content_rule": "Decisions and tradeoffs only."
-    },
-    {
-      "rule_id": "main-support",
-      "document_type": "support",
-      "subject": "main",
-      "path_globs": [
-        "main-server/docs/contributing/**/*.md",
-        "main-server/docs/assets/*.md"
-      ],
-      "allowed_index_names": [
-        "README.md"
-      ],
-      "requires_index": false,
-      "required_markdown_metadata": [
-        "h1"
-      ],
-      "review_only_content_rule": "Declared templates, contributing policy, and assets only."
     },
     {
       "rule_id": "main-worklog",

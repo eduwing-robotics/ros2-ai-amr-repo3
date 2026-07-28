@@ -15,7 +15,7 @@
 | 최종 XY 오차 | `0.251999 m` |
 | acceptance threshold | `0.30 m` |
 
-검증 명령과 acceptance 조건은 [Stock Jazzy Gazebo runbook](../../../nav-server/docs/runbook/RUNBOOK_GAZEBO_SIMULATION.md)을 따른다.
+검증 명령과 acceptance 조건은 [Stock Jazzy Gazebo runbook](../../../nav-server/docs/runbook/OPERATIONS.md#gazebo-검증)을 따른다.
 
 ## 별도 검증 범위
 

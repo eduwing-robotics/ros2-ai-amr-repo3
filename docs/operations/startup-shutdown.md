@@ -28,7 +28,7 @@
    ./scripts/operator-preflight.sh --software
    ```
 
-3. 선택 로봇의 SBC에서 hardware/ROS base와 실물 lift bridge를 시작한다. TB1 PiCam이 필요하면 별도 SBC terminal에서 `ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py`를 실행한다. 로봇별 domain을 포함한 상세 명령은 [LMS Full Startup Runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)을 따른다. 이 외부 프로세스는 stack 실행기가 임의로 종료하지 않는다.
+3. 선택 로봇의 SBC에서 hardware/ROS base와 실물 lift bridge를 시작한다. TB1 PiCam이 필요하면 별도 SBC terminal에서 `ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py`를 실행한다. 로봇별 domain을 포함한 상세 명령은 [Nav 운영 문서](../../nav-server/docs/runbook/OPERATIONS.md)을 따른다. 이 외부 프로세스는 stack 실행기가 임의로 종료하지 않는다.
 4. 각 host에서 공통 stack profile을 확인하고 실행한다. 프로파일을 생략하면
    로컬 `192.168.30.x` 주소에 따라 `.5=tb1-local-e2e`, `.9=main-field`,
    `.12=nav-field-tb1`이 선택된다. 다른 구성은 반드시 `--profile`로 명시한다.
@@ -75,7 +75,7 @@
    관리형 ArUco detector process도 함께 시작하지만 camera 구독은 docking 요청 때만
    활성화되며, 기본 검출 처리율은 `ARUCO_PROCESS_RATE_HZ=5.0`이다. 카메라 stream FPS와
    detector 처리율은 별도이며 30 FPS 검출은 운용 합격 조건이 아니다. 세부 기준은
-   [ArUco docking runbook](../../nav-server/docs/runbook/RUNBOOK_ARUCO_DOCKING.md)을 따른다.
+   [Nav ArUco 알고리즘](../../nav-server/docs/reference/NAV_ALGORITHM.md#aruco-정렬과-도킹)을 따른다.
    `foreground`의 `Ctrl+C`는 stack이 시작한 Main, Nav2/RViz, Movement API와
    bridge를 역순으로 종료한다. SBC의 robot base는 외부 프로세스이므로 건드리지
    않는다. 백그라운드가 필요하면 `up`, 확인은 `status`와 `logs`, 종료는 `down`을
@@ -90,7 +90,7 @@
    Person safety가 활성화된 Main은 시작 시 남아 있는 physical·cancel·recovery·callback
    전이 상태를 poller보다 먼저 확인한다. 중단된 이동 상태는 E-stop과
    `AWAITING_OPERATOR`로 고정되므로 재시작만으로 clear하거나 자동 재개하지 말고
-   [ESTOP 복구 절차](../../main-server/docs/operations/ESTOP_RECOVERY_PLAYBOOK.md)를 따른다.
+   [ESTOP 복구 절차](../../main-server/docs/OPERATIONS.md#e-stop-복구)를 따른다.
 
 7. 선택 profile과 Main·AI health를 확인한 뒤 [TB1·TB2 실물 E2E 통합 실행서](physical-e2e-checklist.md)의 빠른 순서로 진행한다. stack 시작 완료는 Movement API와 Main UI의 생존을 뜻한다. 실제 주행 전에는 `localized=true`, `nav2_ready=true`, fresh scan/TF를 별도로 확인하며, `smoke`만으로 실제 맵 정합이나 현장 주행 합격을 대신 판정하지 않는다.
 
@@ -110,7 +110,7 @@
 | Nav | profile과 일치하는 robot ID/domain/capabilities/lift, `dry_run=false`, `localized=true`, `nav2_ready=true`, `command_accepting=true`, `is_emergency=false` |
 
 Nav health 조건 하나라도 맞지 않으면 physical command를 보내지 않는다.
-Profile과 evidence 경계는 [Nav runtime profile contract](../../nav-server/docs/reference/NAV_RUNTIME_PROFILE_CONTRACT.md)가 소유한다.
+Profile과 evidence 경계는 [Nav runtime profile contract](../../nav-server/docs/reference/RUNTIME.md)가 소유한다.
 
 ## 종료 순서
 

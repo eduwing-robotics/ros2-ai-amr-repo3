@@ -2,7 +2,7 @@
 
 상태: External / Historical
 
-이 디렉터리는 외부에서 가져온 과거 DB 설계 참고자료다. Main Server의 현재 DB 기준이나 Movement 계약이 아니며, 현재 기준 문서는 `main-server/docs/`와 Nav Server의 `docs/reference/MAIN_SERVER_CONTRACT.md`를 따른다.
+이 디렉터리는 외부에서 가져온 과거 DB 설계 참고자료다. Main Server의 현재 DB 기준이나 Movement 계약이 아니며, 현재 기준 문서는 `main-server/docs/`와 Nav Server의 `docs/reference/INTERFACES.md`를 따른다.
 
 ## 포함 파일
 

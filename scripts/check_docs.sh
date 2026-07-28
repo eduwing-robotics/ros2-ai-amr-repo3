@@ -115,6 +115,7 @@ else:
 markdown = sorted(
     path for path in paths
     if path.endswith(".md")
+    and (root / path).is_file()
     and not matches(path, ignored)
     and (not scope or path == scope or path.startswith(scope + "/"))
 )

@@ -20,11 +20,11 @@
 
 리팩토링 전에 백엔드 규칙 문서를 먼저 고정한다.
 
-- 구조 규칙은 [contributing/CODE_QUALITY_POLICY](../contributing/CODE_QUALITY_POLICY.md)에 둔다.
-- API 규칙은 `docs/api/README.md`에 둔다.
-- 검증 기준은 `docs/operations/QUALITY_GATE.md`에 둔다.
-- DB 변경 규칙은 `docs/operations/DB_MIGRATION.md`에 둔다.
-- `docs/contributing/DEVELOPMENT_GUIDE.md`는 기여 규칙 링크 허브로 유지한다.
+- 구조 규칙은 [Main README](../../README.md)에 둔다.
+- API 규칙은 `docs/INTERFACES.md`에 둔다.
+- 검증 기준은 `main-server/README.md`에 둔다.
+- DB 변경 규칙은 `docs/DATABASE.md`와 `docs/OPERATIONS.md`에 둔다.
+- `main-server/README.md`는 기여 규칙 링크 허브로 유지한다.
 
 ## Consequences
 

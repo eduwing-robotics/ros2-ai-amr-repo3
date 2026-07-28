@@ -23,7 +23,7 @@
 | TB2 실물 | `tb2-live` | 공통 baseline의 source path, 실제 lift, global camera load evidence, 입고·출고 전체 | synthetic/HIL 근거로 대체 불가 |
 | 두 대 동시 | `all-live` | TB1·TB2 Movement API, Nav2, detector, physical lift readiness를 함께 운용 | map·coordinate·marker·lift commissioning은 공통이지만 두 health의 readiness는 각각 필요 |
 
-`tb1-synthetic-hil` 실행 전체의 evidence class는 `nonphysical`이다. 실제 base가 움직여도 그 실행으로 물리 lift 또는 완전한 물리 입고·출고를 합격 처리하지 않는다. profile 경계는 [Nav runtime profile contract](../../nav-server/docs/reference/NAV_RUNTIME_PROFILE_CONTRACT.md)를 따른다.
+`tb1-synthetic-hil` 실행 전체의 evidence class는 `nonphysical`이다. 실제 base가 움직여도 그 실행으로 물리 lift 또는 완전한 물리 입고·출고를 합격 처리하지 않는다. profile 경계는 [Nav runtime profile contract](../../nav-server/docs/reference/RUNTIME.md)를 따른다.
 
 ## 현재 중지 조건
 
@@ -120,7 +120,7 @@ setup 완료 뒤에만 아래 `0 → 1 → 2 → 3` 운용 순서를 시작한�
 
 ## 1. 서비스 시작
 
-1. [Nav 전체 시작 runbook](../../nav-server/docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)에 따라 TB1 SBC의 robot base와 lift bridge를 시작한다. PiCam E2E도 확인할 때만 별도 SBC terminal에서 `ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py`를 실행한다.
+1. [Nav 운영 문서](../../nav-server/docs/runbook/OPERATIONS.md)에 따라 TB1 SBC의 robot base와 lift bridge를 시작한다. PiCam E2E도 확인할 때만 별도 SBC terminal에서 `ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py`를 실행한다.
 2. `.5`에서 Main과 TB1 Nav를 함께 시험하면 저장소 루트에서 통합 profile을 실행한다. bridge, Movement API, TB1 Nav2/자동 localization, Main/UI가 profile 소유 순서로 시작된다.
 
    ```bash
@@ -167,7 +167,7 @@ Main process group을 역순으로 종료한다. robot base는 SBC terminal에�
 
 ## 4. ArUco 주차·충전
 
-오늘 목표가 localization·Main 주행이면 이 단계를 `NOT_IN_SCOPE`로 건너뛴다. 현장 marker와 `robot2_map` pose가 commissioned된 항목만 [ArUco docking runbook](../../nav-server/docs/runbook/RUNBOOK_ARUCO_DOCKING.md)으로 검증한다.
+오늘 목표가 localization·Main 주행이면 이 단계를 `NOT_IN_SCOPE`로 건너뛴다. 현장 marker와 `robot2_map` pose가 commissioned된 항목만 [Nav ArUco 알고리즘](../../nav-server/docs/reference/NAV_ALGORITHM.md#aruco-정렬과-도킹)으로 검증한다.
 
 표준 stack은 detector process를 미리 관리하되 camera 구독은 docking 요청 구간에만
 활성화한다. detector는 camera가 30 FPS를 내더라도 기본 `5 Hz`로만 처리한다. 이 저주기
@@ -215,7 +215,7 @@ marker ID와 저속 정렬의 terminal 결과다. 물리 이동은 `0.5초`보�
 - [ ] Main이 trusted stop을 DB에 기록하고 Nav E-stop을 호출한다.
 - [ ] Nav2가 취소되고 base가 0속도이며 UI가 ESTOP와 `AWAITING_OPERATOR`를 표시한다.
 - [ ] 위험 제거 후 E-stop clear만으로 자동 재개되지 않는다.
-- [ ] [ESTOP 복구 runbook](../../main-server/docs/operations/ESTOP_RECOVERY_PLAYBOOK.md)에 따라 cargo 상태와 현장을 확인한다. 현재 step이 `move_to_point`·`aruco_align`·`leave_dock`이면 `resume_task`, 원래 Task를 계속하지 않을 때는 `safe_move` 또는 `manual_abort`를 선택한다.
+- [ ] [ESTOP 복구 runbook](../../main-server/docs/OPERATIONS.md#e-stop-복구)에 따라 cargo 상태와 현장을 확인한다. 현재 step이 `move_to_point`·`aruco_align`·`leave_dock`이면 `resume_task`, 원래 Task를 계속하지 않을 때는 `safe_move` 또는 `manual_abort`를 선택한다.
 - [ ] TB1 person-only 시험은 화물이 없으므로 `EMPTY`를 선택한다. `resume_task`는 같은 Task·같은 목적지에 새 command ID로 재출발하고 monitor가 먼저 재arm되는지 확인한다. `dock_transfer`는 자동 재시도하지 않는다.
 
 중지: monitor 미arm, stale/wrong-task advisory, Main trusted decision 누락, 자동 재개, 시험자의 금지 구역 진입, 정지 담당자의 시야 상실, 정지 거리·시간이 현장 안전 기준을 넘음. 사람 또는 로봇이 지정 경계를 벗어나면 즉시 물리 정지한다.
@@ -230,7 +230,7 @@ marker ID와 저속 정렬의 terminal 결과다. 물리 이동은 `0.5초`보�
 
 이 상태기는 `synthetic_hil`과 동일하게 `evidence_class=nonphysical`, `physical_lift_verified=false`, `inventory_mutation_allowed=false`를 저장한다. 차이는 `evidence_only`가 수동 fixture checkpoint를, `synthetic_hil`이 실제 base 이동과 Nav virtual lift를 사용한다는 점뿐이다.
 
-Main 시작 설정도 [Main lift-load evidence decision](../../main-server/docs/interfaces/LIFT_LOAD_EVIDENCE.md)에 맞춰 아래 gate를 먼저 통과해야 한다.
+Main 시작 설정도 [Main lift-load evidence decision](../../main-server/docs/INTERFACES.md#명령과-결과)에 맞춰 아래 gate를 먼저 통과해야 한다.
 
 - [ ] `LMS_LIFT_LOAD_EVIDENCE_ENABLED=true`다.
 - [ ] `LMS_LIFT_LOAD_EVIDENCE_MODE=gate`다. 기본 `record` mode 결과를 E2E gate PASS로 사용하지 않는다.
@@ -263,7 +263,7 @@ scripts/sf_stack.sh --profile tb1-synthetic-e2e foreground
 
 `/operate/control 출고 생성 → Main task 생성 → Nav storage 접근 → synthetic load → Main POST_PICK_UP gate (AI operation=PICK_UP) → Nav outbound 접근 → AI PRE_DROP_OFF → synthetic unload → home/park → Main DONE(재고 미변경) → UI/기록`
 
-UI 입고 세부 조작은 [Inbound Scenario Test](../../main-server/docs/operations/INBOUND_SCENARIO_TEST.md)를 따른다. 실패·취소·evidence hold도 각각 기록한다.
+UI 입고 세부 조작은 이 실행서의 대표 입고 흐름과 현재 Main UI 표시를 따른다. 실패·취소·evidence hold도 각각 기록한다.
 
 ## 8. TB1·TB2 완전 물리 입고·출고 단일 실행 절차
 

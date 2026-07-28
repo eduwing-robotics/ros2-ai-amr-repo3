@@ -379,7 +379,7 @@ E2E에서 API는 DONE이었으나 실물 동작이 어긋난 원인 4가지를 �
 
 ## 2026-07-05 — 도킹 E2E·슬롯 튜닝
 
-**현재 프로토콜:** [ArUco 도킹 runbook](../../docs/runbook/RUNBOOK_ARUCO_DOCKING.md)
+**현재 프로토콜:** [ArUco 도킹 runbook](../../docs/reference/NAV_ALGORITHM.md#aruco-정렬과-도킹)
 
 ### 한눈에 (쉬운 설명)
 
@@ -390,7 +390,7 @@ E2E에서 API는 DONE이었으나 실물 동작이 어긋난 원인 4가지를 �
 5. **insert 후**: 리프트 없으면 **4초 dwell** → **후진은 insert 실측만** (approach align 전진분은 후진에 미포함).
 6. **시나리오 시작**: hold 주차 상태면 `leave_dock` 먼저.
 
-**알고리즘:** Nav2(전역) + ArUco visual servoing(정밀) + open-loop insert/후진. 현재 값과 절차는 [ArUco 도킹 runbook](../../docs/runbook/RUNBOOK_ARUCO_DOCKING.md)을 따른다.
+**알고리즘:** Nav2(전역) + ArUco visual servoing(정밀) + open-loop insert/후진. 현재 값과 절차는 [ArUco 도킹 runbook](../../docs/reference/NAV_ALGORITHM.md#aruco-정렬과-도킹)을 따른다.
 
 ### 코드·설정 변경
 
@@ -432,10 +432,10 @@ ROBOT_ID=tb3_2 bash scripts/run_inbound2_b_outbound1_wait2_scenario.sh
 | `scripts/run_inbound2_b_outbound1_wait2_scenario.sh` | 입고2→B→출고1→대기2 E2E |
 | `scripts/run_inbound1_c_wait2_scenario.sh` | inbound1→C→대기2 E2E |
 | `scripts/run_outbound2_a_wait2_scenario.sh` | outbound2→A→대기2 E2E |
-| `docs/runbook/RUNBOOK_ARUCO_DOCKING.md` | 현재 도킹 절차와 튜닝 기준 |
+| `docs/reference/NAV_ALGORITHM.md` | 현재 도킹 절차와 튜닝 기준 |
 | `scripts/scenarios/e2e_tb3_2_factory_run.sh` | tb3_2 공장 E2E (대기→입고2→C) |
 | `scripts/scenarios/e2e_tb3_2_park_and_run.sh` | 대기장 주차+leave_dock+E2E |
 | `tests/test_docking.py` | 도킹 거리/align 체인 단위 테스트 |
 | `scripts/scenarios/task206_inbound2_tb3_2.json` | payload JSON |
-| `docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md` | 전체 bringup |
-| `docs/reference/MAIN_SERVER_CONTRACT.md` | API 계약 |
+| `docs/runbook/OPERATIONS.md` | 전체 bringup |
+| `docs/reference/INTERFACES.md` | API 계약 |

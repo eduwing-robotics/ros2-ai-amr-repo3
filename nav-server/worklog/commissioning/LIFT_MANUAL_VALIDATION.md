@@ -183,7 +183,7 @@ scripts/test_lift_tb3_2.sh status
 | SBC | `~/lift_project/ros2_ws/` |
 | slam_nav_ws | `lift_client.py`, `test_lift_tb3_2.sh`, `robot_sbc/start_lift_bridge.sh` |
 
-현재 기동 절차는 [Robot SBC guide](../../docs/runbook/roles/robot-sbc.md)를 따른다.
+현재 기동 절차는 [Robot SBC guide](../../../docs/operations/startup-shutdown.md)를 따른다.
 
 ---
 

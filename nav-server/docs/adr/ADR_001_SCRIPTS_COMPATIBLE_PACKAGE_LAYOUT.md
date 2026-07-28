@@ -25,5 +25,5 @@
 
 ## 관련 문서
 
-- [현재 구현](../as-built/NAV_STACK_AS_BUILT.md)
-- [Repository map](../as-built/REPOSITORY_MAP.md)
+- [현재 구현](../reference/NAV_ALGORITHM.md)
+- [Repository map](../../README.md#directory-structure)

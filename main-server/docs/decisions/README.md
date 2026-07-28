@@ -1,25 +1,11 @@
-# Decisions (ADR)
+# 설계 결정
 
-상태: Active
-소유: Docs
-최종 갱신: 2026-07-09 10:51 KST
-목적: 중요한 아키텍처 결정과 근거를 시간순으로 기록한다.
+Main Server의 현재 구조에 영향을 준 주요 결정과 이유를 기록합니다.
+실행 방법과 현재 동작은 Main Server의 네 상세 문서에서 확인합니다.
 
-파일명은 `YYYY-MM-DD-kebab-topic.md`. 결정과 이유만 담고 실행 절차·구현 현황은 섞지 않는다.
-
-```mermaid
-flowchart LR
- P[문제·대안] --> D[결정]
- D --> R[근거]
- R --> C[영향받는 문서 링크]
- D -.바뀌면.-> S[Superseded 표기 + 새 ADR]
-```
-
-## 기록
-
-- [2026-06-30 postgresql-dbml-source-of-truth](2026-06-30-postgresql-dbml-source-of-truth.md)
-- [2026-06-30 dbml-compat-table-policy](2026-06-30-dbml-compat-table-policy.md)
-- [2026-06-24 movement-map-id-alignment](2026-06-24-movement-map-id-alignment.md)
-- [2026-06-22 operator-admin-two-tier-ui](2026-06-22-operator-admin-two-tier-ui.md)
-- [2026-06-22 docking-and-path-model](2026-06-22-docking-and-path-model.md)
-- [2026-06-22 backend-refactor-rules](2026-06-22-backend-refactor-rules.md)
+- [PostgreSQL과 DBML 관리 기준](2026-06-30-postgresql-dbml-source-of-truth.md)
+- [DBML 호환 테이블 정책](2026-06-30-dbml-compat-table-policy.md)
+- [Nav 지도 ID 일치 규칙](2026-06-24-movement-map-id-alignment.md)
+- [운영자·관리자 UI 구분](2026-06-22-operator-admin-two-tier-ui.md)
+- [도킹과 이동 경로 모델](2026-06-22-docking-and-path-model.md)
+- [백엔드 구조 변경 규칙](2026-06-22-backend-refactor-rules.md)

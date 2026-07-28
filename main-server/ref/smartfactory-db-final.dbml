@@ -1,7 +1,7 @@
 Project SmartFactory_CurrentState_TaskQueue_RuntimeEvidence_FinalLogs {
   database_type: 'PostgreSQL'
   Note: '''
-  Final SmartFactory MVP DB model as of 2026-06-26.
+  Final SmartFactory MVP DB model as of 2026-07-27.
 
   Principle:
   - Keep the main diagram close to the current Image #1 shape.
@@ -10,7 +10,7 @@ Project SmartFactory_CurrentState_TaskQueue_RuntimeEvidence_FinalLogs {
   - commands is a static command definition table keyed by task_type + sequence_no.
   - Runtime command progress/status is derived from evidence_events while a task is active.
   - safety_stops is a mutable current-state latch for temporary HOLD/RESUME control.
-  - evidence_events may be deleted after task completion once needed proof is copied into task_logs.
+  - evidence_events are retained until an explicit compaction and retention policy is implemented.
   - No reservations table in this model: active tasks themselves are the resource claims.
   '''
 }
@@ -22,12 +22,19 @@ Project SmartFactory_CurrentState_TaskQueue_RuntimeEvidence_FinalLogs {
 Table items {
   id text [pk]
   name text [not null]
+  unit text [not null, default: 'EA']
+  aruco_marker_id integer [note: 'NULL or 20..49; PostgreSQL DDL enforces the range']
+
+  indexes {
+    aruco_marker_id [unique]
+  }
 }
 
 Table robots {
   id text [pk]
   domain_id integer [not null]
   status text [not null]
+  enabled boolean [not null, default: true]
   battery_level float8
   last_seen_at timestamptz
 }
@@ -41,6 +48,8 @@ Table locations {
   yaw float8
   marker_id integer
   map_id text [note: 'soft map ownership; no FK to maps (infra). Present in schema_pg.sql']
+  release_managed boolean [not null, default: false]
+  release_revision text
 }
 
 Table inventory {
@@ -54,6 +63,18 @@ Table inventory {
     (item_id, location_id, floor) [pk]
     location_id
     (location_id, floor)
+  }
+}
+
+Table location_route_steps {
+  target_location_id text [not null]
+  step_order integer [not null, note: 'positive integer; PostgreSQL DDL enforces step_order > 0']
+  waypoint_id text [not null]
+
+  indexes {
+    (target_location_id, step_order) [pk]
+    (target_location_id, waypoint_id) [unique]
+    waypoint_id
   }
 }
 
@@ -122,8 +143,8 @@ Table commands {
 /*
   Runtime evidence/event buffer.
   This is the proof source for command progress/status and safety stop creation while a task is active.
-  After task completion, copy the decisive/supporting proof into task_logs.snapshot_json,
-  then these rows can be deleted.
+  Current runtime does not compact this table into task_logs. Keep these rows until an
+  explicit compaction, retention, and restore policy is implemented.
 */
 Table evidence_events {
   id bigint [pk, increment]
@@ -213,44 +234,8 @@ Table item_change_logs {
   No FK to tasks, because finished tasks can be removed.
   The copied fields are intentional audit snapshots, not current-state duplication.
 
-  Recommended snapshot_json shape:
-  {
-    "task": {
-      "robot_id": "tb3_1",
-      "item_id": "BOX_A",
-      "quantity": 1,
-      "from_location_id": "STORAGE_01",
-      "from_floor": 2,
-      "to_location_id": "OUTBOUND_01",
-      "to_floor": 1
-    },
-    "decisive_evidence": {
-      "command_id": 4,
-      "event_type": "ITEM_PLACED",
-      "source": "camera_01",
-      "confidence": 0.94,
-      "severity": "INFO",
-      "trusted": true,
-      "image_url": "...",
-      "observed_at": "...",
-      "data": { "marker_id": 12, "slot": "OUTBOUND_01", "floor": 1 }
-    },
-    "supporting_evidence": [
-      {
-        "command_id": 1,
-        "event_type": "NAV_REACHED",
-        "source": "nav_server",
-        "confidence": null,
-        "severity": "INFO",
-        "trusted": true,
-        "observed_at": "...",
-        "data": { "distance_m": 0.08 }
-      }
-    ]
-  }
-
-  Keep copied evidence compact: no binary images, no full raw payload dumps,
-  only small proof fields needed to explain the final result.
+  Current snapshot_json contains the task snapshot and final inventory quantities.
+  It is not yet a replacement for runtime evidence_events.
 */
 Table task_logs {
   id bigint [pk, increment]
@@ -260,14 +245,14 @@ Table task_logs {
 
   task_type text [not null]
   result text [not null] // COMPLETED, FAILED, CANCELLED
-  result_evidence_type text // decisive evidence type copied from evidence_events
+  result_evidence_type text [note: 'optional; current completion path does not populate it']
 
   started_at timestamptz
   finished_at timestamptz [not null]
   error_reason text
 
   summary text
-  snapshot_json jsonb [note: 'final task snapshot + compact copied evidence rows: command_id, event_type, source, confidence, severity, trusted, image_url, observed_at, small data_json subset']
+  snapshot_json jsonb [note: 'current completion path stores the task snapshot and final inventory quantities']
   logged_at timestamptz [not null]
 
   indexes {
@@ -287,6 +272,9 @@ Table task_logs {
 
 Ref: inventory.item_id > items.id
 Ref: inventory.location_id > locations.id
+
+Ref: location_route_steps.target_location_id > locations.id [delete: cascade]
+Ref: location_route_steps.waypoint_id > locations.id [delete: cascade]
 
 Ref: tasks.robot_id > robots.id
 Ref: tasks.item_id > items.id

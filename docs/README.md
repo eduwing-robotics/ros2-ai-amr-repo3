@@ -8,4 +8,4 @@ contract.
 - [Integration contracts](integration/README.md)
 - [History and evidence](history/README.md)
 - [Navigation documentation](../nav-server/docs/README.md)
-- [Main documentation](../main-server/docs/README.md)
+- [Main documentation](../main-server/README.md)

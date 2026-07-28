@@ -33,5 +33,5 @@ runtime 핵심 경로는 DBML 10테이블 + `repo_bridge`로 정렬했다. UI·�
 
 ## Related
 
-- [db/README](../architecture/db/README.md)
-- [DB_MIGRATION](../operations/DB_MIGRATION.md)
+- [Database](../DATABASE.md)
+- [Operations](../OPERATIONS.md#검증)

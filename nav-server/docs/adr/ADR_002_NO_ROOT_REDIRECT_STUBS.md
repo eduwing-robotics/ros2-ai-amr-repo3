@@ -10,11 +10,11 @@
 
 - 루트에 `MOVED_TO_*.md` 형태의 redirect stub 파일을 **추가하지 않는다**.
 - 이동된 문서의 정본 위치는 `README.md`와 `docs/README.md` 링크로 안내한다.
-- 외부 북마크가 깨질 수 있는 경로는 `LEGACY/README.md` 이동 기록과 reference/runbook 링크로 대체한다.
+- 외부 북마크가 깨질 수 있는 경로는 문서 색인과 worklog의 이동 기록으로 안내한다.
 
 ## 근거
 
-- 정책상 루트 Markdown은 `README.md`만 유지한다 (`worklog/phases/PHASE_01_DOCUMENTATION_LAYOUT.md`).
+- 정책상 루트 Markdown은 `README.md`만 유지하고 현재 문서 배치는 색인에서 관리한다.
 - stub 파일을 늘리면 루트 정책과 충돌하고, 링크 권위가 분산된다.
 - 내부·운영 문서 소비자는 `docs/README.md` 인덱스를 기준으로 한다.
 
@@ -26,4 +26,5 @@
 ## 관련 문서
 
 - [문서 색인](../README.md)
-- [현재 구현](../as-built/NAV_STACK_AS_BUILT.md)
+- [현재 구현](../reference/NAV_ALGORITHM.md)
+- [작업 기록](../../worklog/README.md)

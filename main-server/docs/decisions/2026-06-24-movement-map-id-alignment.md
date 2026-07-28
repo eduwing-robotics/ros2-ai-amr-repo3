@@ -7,7 +7,7 @@
 대체 표기: 2026-07-15 KST
 목적: LMS 맵 ID·메타데이터를 Movement Nav2 active map과 맞추는 정책을 고정한다.
 
-> 이 문서는 2026-06-24 당시 결정 기록이다. 현재 dispatch는 map asset·geometry·digest를 exact match로 검증하고 legacy route fallback을 사용하지 않는다. 현재 계약은 [Main·Nav·AI E2E 계약](../../../docs/integration/e2e-contract.md)과 [Main Server Integration Contract](../../../nav-server/docs/reference/MAIN_SERVER_CONTRACT.md)를 따른다.
+> 이 문서는 2026-06-24 당시 결정 기록이다. 현재 dispatch는 map asset·geometry·digest를 exact match로 검증하고 legacy route fallback을 사용하지 않는다. 현재 계약은 [Main·Nav·AI E2E 계약](../../../docs/integration/e2e-contract.md)과 [Main Server Integration Contract](../../../nav-server/docs/reference/INTERFACES.md)를 따른다.
 
 ## Decision
 
@@ -27,4 +27,4 @@
 
 - 신규·재동기화: Movement에서 `map.pgm`을 `maps/`에 복사한 뒤 `sync-from-movement` 실행(크기 불일치 시 `pgm_note`·`asset_status=mismatch` 경고). mismatch 동안 운영 UI는 배경을 유지하고 경고 배너로만 표시한다.
 - legacy `robot1_map` yaml은 sync 시 제거·DB prune; waypoint `map_id`는 `map`으로 이전.
-- 갱신: [interfaces/README](../interfaces/README.md), [API_MAIN.md](../api/API_MAIN.md), [MOVEMENT_SYNC_DIAGNOSTICS](../operations/MOVEMENT_SYNC_DIAGNOSTICS.md) 링크.
+- 갱신: [Interfaces](../INTERFACES.md), [Main API](../INTERFACES.md#연결-경계), [운영 진단](../OPERATIONS.md#실행과-점검) 링크.
