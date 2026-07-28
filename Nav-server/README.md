@@ -64,6 +64,18 @@ Movement API :8001 / :8002
 - Nav2와 사용자 제어 속도는 `velocity_smoother`와 방향별 Collision Monitor를 통과합니다.
 - ArUco 접근은 카메라 pose 거리 기준으로 `40 cm → 정지 → 18~20 cm`를 폐루프 제어합니다.
 
+### 실제 맵 제작
+
+<p align="center">
+  <img src="docs/images/smartfactory_map_creation_rviz.png" width="800" alt="스마트팩토리 Navigation 맵 제작 화면">
+</p>
+
+<p align="center">
+  <b>실제 운용 환경의 Navigation 맵 제작 화면</b><br>
+  SLAM·RViz에서 작성하고 검토한 occupancy map과 <code>zones.json</code>을
+  Nav2 경로 계획과 Gazebo 시나리오의 공통 입력으로 사용합니다.
+</p>
+
 ## 명령 처리 흐름
 
 ```text
