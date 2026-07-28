@@ -3,7 +3,7 @@
 운영자의 입·출고 요청을 로봇 배정, 자율주행, 정밀 도킹, 적재·하역, Vision 검증과 재고 반영까지 연결한 ROS 2 기반 물류 자동화 프로젝트입니다.
 
 Main Server, Nav Server, AI Server와 두 대의 TurtleBot3가 역할을 나누되, 하나의 `task_id`를 기준으로 작업의 시작부터 완료까지 추적할 수 있도록 구성했습니다.
-
+![[lift_nav_full_e2e_combined.mp4]]
 [![TurtleBot3 기반 AMR 통합 동작](assets/robot_active_6x_30s.gif)](assets/lift_nav_full_e2e_combined.mp4)
 
 > 이미지를 클릭하면 전체 E2E 통합 영상을 볼 수 있습니다.
