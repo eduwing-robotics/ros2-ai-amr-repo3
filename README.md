@@ -58,8 +58,6 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 4. 사용자 요구사항
 
-> 기준 문서: [User Requirements](https://baksa2584.atlassian.net/wiki/spaces/KAN/pages/4128853/User+Requirements) · 현재 구현이 확인된 항목만 재정렬
-
 <table width="100%">
   <thead><tr><th width="12%" nowrap>ID</th><th width="88%" nowrap>현재 구현된 사용자 요구사항</th></tr></thead>
   <tbody>
@@ -77,27 +75,25 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 5. 시스템 요구사항
 
-> 기준 문서: [System Requirements](https://baksa2584.atlassian.net/wiki/spaces/KAN/pages/6389877/System+Requirements) · 현재 구현이 확인된 항목만 재정렬
-
 <table width="100%">
-  <thead><tr><th width="10%" nowrap>ID</th><th width="24%" nowrap>기능</th><th width="66%" nowrap>현재 구현 기준</th></tr></thead>
+  <thead><tr><th width="10%" nowrap>ID</th><th width="24%" nowrap>기능</th><th width="66%" nowrap>요구사항</th></tr></thead>
   <tbody>
     <tr><td align="center" nowrap><code>SR-01</code></td><td nowrap>재고 확인</td><td nowrap>관리자가 품목·보관 위치·층별 현재 재고를 조회할 수 있다.</td></tr>
     <tr><td align="center" nowrap><code>SR-02</code></td><td nowrap>입고 관리</td><td nowrap>관리자가 품목·수량·보관 위치를 지정해 입고 작업을 요청할 수 있다.</td></tr>
     <tr><td align="center" nowrap><code>SR-03</code></td><td nowrap>출고 관리</td><td nowrap>관리자가 품목·수량을 지정해 출고 작업을 요청할 수 있다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-04</code></td><td nowrap>작업 우선순위 관리</td><td nowrap>작업 우선순위를 설정·변경하고 높은 우선순위부터 배정한다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-05</code></td><td nowrap>로봇 자동 할당</td><td nowrap>통신·준비 상태와 지원 기능을 만족하는 가용 로봇을 자동 배정한다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-06</code></td><td nowrap>서버·로봇 통신</td><td nowrap>Main·Nav·AI·Robot이 명령, 상태, 결과와 evidence를 주고받는다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-07</code></td><td nowrap>로봇 상태 확인</td><td nowrap>로봇의 통신·준비·Localization·위치·작업·E-stop 상태를 관제에서 확인한다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-08</code></td><td nowrap>실시간 위치 확인</td><td nowrap>로봇의 현재 pose와 이동 상태를 관제 맵에서 확인한다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-09</code></td><td nowrap>작업 구역 이동</td><td nowrap>로봇이 Nav2를 이용해 입고·출고·보관·대기 구역 사이를 이동한다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-10</code></td><td nowrap>장애물 대응</td><td nowrap>정적 장애물은 Nav2 costmap으로 회피하고 사람 접근이 감지되면 정지한다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-11</code></td><td nowrap>물품 적재·하역</td><td nowrap>ArUco 정렬, 포크 삽입과 Lift 동작으로 적재·하역을 수행하고 결과를 반환한다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-12</code></td><td nowrap>위험 감지·알림</td><td nowrap>사람 접근과 화물 불일치 evidence를 감지해 작업을 보류하고 관제에 표시한다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-13</code></td><td nowrap>긴급 정지·복구</td><td nowrap>위험 감지 또는 운영자 요청으로 E-stop을 실행하고 명시적인 운영자 복구 후 재개한다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-14</code></td><td nowrap>재고 자동 갱신</td><td nowrap>검증된 입·출고 작업이 완료되면 재고와 변경 이력을 함께 반영한다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-15</code></td><td nowrap>작업 이력 조회</td><td nowrap>작업 결과, 실행 상태와 재고 변경 이력을 조회할 수 있다.</td></tr>
-    <tr><td align="center" nowrap><code>SR-16</code></td><td nowrap>오류·안전 이력 관리</td><td nowrap>작업 실패, 통신 오류와 안전 정지 결과를 관제에 표시하고 이력으로 저장한다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-04</code></td><td nowrap>작업 우선순위 관리</td><td nowrap>관리자는 작업 우선순위를 설정·변경할 수 있으며, 시스템은 우선순위가 높은 작업부터 배정한다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-05</code></td><td nowrap>로봇 자동 할당</td><td nowrap>시스템은 작업을 수행할 수 있는 준비된 로봇을 자동으로 배정한다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-06</code></td><td nowrap>서버·로봇 통신</td><td nowrap>각 서버와 로봇은 명령, 상태, 결과와 검증 정보를 주고받는다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-07</code></td><td nowrap>로봇 상태 확인</td><td nowrap>관리자는 로봇의 연결 상태, 준비 여부, 현재 위치, 작업 상태와 긴급 정지 여부를 확인할 수 있다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-08</code></td><td nowrap>실시간 위치 확인</td><td nowrap>관리자는 지도에서 로봇의 현재 위치와 이동 상태를 실시간으로 확인할 수 있다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-09</code></td><td nowrap>작업 구역 이동</td><td nowrap>로봇은 입고·출고·보관·대기 구역 사이를 자율적으로 이동한다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-10</code></td><td nowrap>장애물 대응</td><td nowrap>로봇은 장애물을 회피하며, 사람 접근 등 위험 상황이 감지되면 정지한다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-11</code></td><td nowrap>물품 적재·하역</td><td nowrap>로봇은 물품에 맞춰 위치를 정렬하고 적재·하역한 뒤 작업 결과를 전달한다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-12</code></td><td nowrap>위험 감지·알림</td><td nowrap>시스템은 사람 접근이나 화물 불일치를 감지하면 작업을 중단하고 관리자에게 알린다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-13</code></td><td nowrap>긴급 정지·복구</td><td nowrap>위험 상황이나 관리자 요청이 발생하면 로봇을 정지하고, 안전이 확인된 후 작업을 재개한다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-14</code></td><td nowrap>재고 자동 갱신</td><td nowrap>입·출고 작업이 완료되면 현재 재고와 변경 이력을 자동으로 갱신한다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-15</code></td><td nowrap>작업 이력 조회</td><td nowrap>관리자는 작업 결과, 진행 상태와 재고 변경 이력을 확인할 수 있다.</td></tr>
+    <tr><td align="center" nowrap><code>SR-16</code></td><td nowrap>오류·안전 이력 관리</td><td nowrap>시스템은 작업 실패, 통신 오류와 안전 정지 내용을 표시하고 이력으로 저장한다.</td></tr>
   </tbody>
 </table>
 
@@ -174,7 +170,10 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 9. 상태 다이어그램
 
-## 10. 물류센터 맵과 순찰 경로
+## 10. 물류센터 맵, 요소 지점
+<p align="center">
+  <img src="../assets/smartfactory_map_creation_rviz.png" width="800" alt="스마트팩토리 Navigation 맵 제작 화면">
+</p>
 
 ## 11. 소스 구성
 
@@ -361,48 +360,7 @@ nav-server/scripts/robot_sbc/stop_stack.sh
 
 ### Jira 작업 이력
 
-Jira `MR` 프로젝트에서 담당자가 지정된 이슈를 생성 시각 순으로 정리했습니다. 에픽·작업·하위 작업을 포함하며, 담당자가 지정되지 않은 이슈는 제외했습니다.
-
-#### 1. 하샘
-
-1. 2026-05-26 — [MR-9 User Requirements](https://baksa2584.atlassian.net/browse/MR-9) — 완료
-2. 2026-06-01 — [MR-15 HardWare Architecture](https://baksa2584.atlassian.net/browse/MR-15) — 완료
-3. 2026-06-04 — [MR-22 System Architecture](https://baksa2584.atlassian.net/browse/MR-22) — 완료
-4. 2026-06-04 — [MR-24 Research Area: Perception](https://baksa2584.atlassian.net/browse/MR-24) — 완료
-5. 2026-06-11 — [MR-35 Implementation](https://baksa2584.atlassian.net/browse/MR-35) — 진행 중
-6. 2026-06-15 — [MR-52 State Diagram](https://baksa2584.atlassian.net/browse/MR-52) — 완료
-7. 2026-06-24 — [MR-57 Data Structure](https://baksa2584.atlassian.net/browse/MR-57) — 완료
-8. 2026-06-29 — [MR-62 Interface Specification](https://baksa2584.atlassian.net/browse/MR-62) — 완료
-
-#### 2. 윤주찬
-
-1. 2026-06-02 — [MR-17 Designing](https://baksa2584.atlassian.net/browse/MR-17) — 진행 중
-2. 2026-06-04 — [MR-26 Research Area: Hardware](https://baksa2584.atlassian.net/browse/MR-26) — 완료
-3. 2026-06-19 — [MR-55 Wiring Design](https://baksa2584.atlassian.net/browse/MR-55) — 완료
-4. 2026-06-25 — [MR-58 Hardware](https://baksa2584.atlassian.net/browse/MR-58) — 완료
-5. 2026-06-25 — [MR-59 Arduino uno - Lift Control](https://baksa2584.atlassian.net/browse/MR-59) — 완료
-6. 2026-06-25 — [MR-60 CAD Design](https://baksa2584.atlassian.net/browse/MR-60) — 완료
-
-#### 3. 김현수
-
-1. 2026-05-26 — [MR-5 Planning](https://baksa2584.atlassian.net/browse/MR-5) — 완료
-2. 2026-06-01 — [MR-16 SoftWare Architecture](https://baksa2584.atlassian.net/browse/MR-16) — 완료
-3. 2026-06-04 — [MR-25 Research Area: Communication](https://baksa2584.atlassian.net/browse/MR-25) — 완료
-4. 2026-06-12 — [MR-43 Sequence Diagrams](https://baksa2584.atlassian.net/browse/MR-43) — 완료
-5. 2026-06-29 — [MR-61 UI/UX Design](https://baksa2584.atlassian.net/browse/MR-61) — 완료
-
-#### 4. 손영빈
-
-1. 2026-05-26 — [MR-1 Overview](https://baksa2584.atlassian.net/browse/MR-1) — 완료
-2. 2026-06-01 — [MR-14 System Requirements](https://baksa2584.atlassian.net/browse/MR-14) — 완료
-3. 2026-06-04 — [MR-23 Research Area: SLAM & Navigation](https://baksa2584.atlassian.net/browse/MR-23) — 완료
-4. 2026-06-04 — [MR-28 Last-Mile Precision Control using Nav2 & ArUco](https://baksa2584.atlassian.net/browse/MR-28) — 완료
-5. 2026-06-11 — [MR-34 Scenario](https://baksa2584.atlassian.net/browse/MR-34) — 완료
-6. 2026-06-12 — [MR-36 AI-Based E2E Logistics Control System: SLAM & Navigation Technical Analysis](https://baksa2584.atlassian.net/browse/MR-36) — 완료
-7. 2026-06-12 — [MR-37 Real-World SLAM & Navigation Case Studies and Resources](https://baksa2584.atlassian.net/browse/MR-37) — 완료
-8. 2026-06-19 — [MR-54 Map Design](https://baksa2584.atlassian.net/browse/MR-54) — 완료
-9. 2026-07-13 — [MR-64 Movement/Nav Server Implementation](https://baksa2584.atlassian.net/browse/MR-64) — 완료
-
+![[Screenshot from 2026-07-28 19-00-51.png]]
 ## 17. 프로젝트 기술 스택
 
 ### Robot & Middleware
