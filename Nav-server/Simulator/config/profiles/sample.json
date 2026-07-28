@@ -1,0 +1,21 @@
+{
+  "profile": "sample",
+  "description": "Sample warehouse map (robot1_map copy). Free-space spawn at vehicle_1_approach.",
+  "map_name": "sample",
+  "warehouse_world": true,
+  "wall_height_m": 0.5,
+  "gazebo_gui": false,
+  "rviz": true,
+  "turtlebot3_model": "burger",
+  "ros_domain_id": 2,
+  "spawn": {
+    "x": 0.765,
+    "y": 0.58,
+    "yaw": -1.57
+  },
+  "initial_pose": {
+    "x": 0.765,
+    "y": 0.58,
+    "yaw": -1.57
+  }
+}

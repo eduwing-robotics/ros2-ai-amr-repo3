@@ -23,6 +23,7 @@ TB3_2_PORT="${TB3_2_PORT:-8002}"
 # both | tb3_1 | tb3_2 | tb3_burger_01 | tb3_burger_02
 ONLY_ROBOT="${ONLY_ROBOT:-both}"
 PROJECT_VENV="${PROJECT_VENV:-$ROOT/venv}"
+MOVEMENT_STATE_DIR="${MOVEMENT_STATE_DIR:-$ROOT/worklog}"
 if [[ -z "${PYTHON_BIN:-}" ]]; then
   if [[ -x "$PROJECT_VENV/bin/python" ]]; then
     PYTHON_BIN="$PROJECT_VENV/bin/python"
@@ -60,6 +61,7 @@ Environment:
   TB3_2_PORT          API port for tb3_burger_02. Default: 8002
   ONLY_ROBOT          both | tb3_1 | tb3_2 (or tb3_burger_01/02). Default: both
   PROJECT_VENV        Nav API virtualenv. Default: ./venv
+  MOVEMENT_STATE_DIR  Per-robot state directory. Default: ./worklog
   PYTHON_BIN          Python executable. Default: ./venv/bin/python when present,
                       otherwise python3
   DRY_RUN_MISSION     1 to accept missions without moving robots. Default: 0
@@ -108,13 +110,16 @@ start_nav_server() {
   local domain_id="$2"
   local port="$3"
   local map_yaml="${4:-$ROOT/map/robot1_map.yaml}"
+  local movement_state_path="$MOVEMENT_STATE_DIR/movement_state_${robot_id}.json"
+  mkdir -p "$MOVEMENT_STATE_DIR"
 
-  echo "[nav_servers] starting ${robot_id}: ROS_DOMAIN_ID=${domain_id}, port=${port}, map=${map_yaml}"
+  echo "[nav_servers] starting ${robot_id}: ROS_DOMAIN_ID=${domain_id}, port=${port}, map=${map_yaml}, state=${movement_state_path}"
   (
     cd "$ROOT/scripts"
     ROBOT_ID="$robot_id" \
     ROS_DOMAIN_ID="$domain_id" \
     ACTIVE_MAP_YAML="$map_yaml" \
+    MOVEMENT_STATE_PATH="$movement_state_path" \
     ROBOTS_CONFIG_PATH="$ROBOTS_CONFIG_PATH" \
     ROS_LOCALHOST_ONLY="$ROS_LOCALHOST_ONLY" \
     DRY_RUN_MISSION="$DRY_RUN_MISSION" \

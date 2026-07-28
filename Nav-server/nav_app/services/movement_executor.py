@@ -32,6 +32,7 @@ from nav_app.services.robot_context import (
 from nav_app.services.status_helpers import stage_for_step_action as _stage_for_step_action
 from nav_app.services.traffic_coordination import (
     release_held_segments as _release_held_segments,
+    require_nav_handoff_after_leave_dock as _require_nav_handoff_after_leave_dock,
     segment_mode_enabled as _segment_mode_enabled,
     wait_for_departure_slot as _wait_for_departure_slot,
     wait_for_step_segments as _wait_for_step_segments,
@@ -264,6 +265,16 @@ def execute_real_step(step: MovementStep):
     raise ValueError(f"unsupported movement step action: {step.action}")
 
 
+def _capture_leave_dock_telemetry(command: Dict[str, Any], step: MovementStep) -> None:
+    telemetry = step.payload.get("leave_dock_telemetry")
+    if not isinstance(telemetry, dict):
+        return
+    snapshot = dict(telemetry)
+    snapshot["held_traffic_segments"] = list(command.get("traffic_segments_held") or [])
+    command["leave_dock_telemetry"] = snapshot
+    _persist_command(command)
+
+
 def execute_movement_command(req: MovementCommandRequest):
     """Movement API command를 실행하고 Main callback으로 최종 결과를 보고합니다."""
     if not runtime.mission_manager:
@@ -306,6 +317,8 @@ def execute_movement_command(req: MovementCommandRequest):
             command["stage"] = _stage_for_step_action(step.action)
             command["updated_at"] = _utc_now()
             _persist_command(command)
+            if _segment_mode_enabled() and step.action == "leave_dock":
+                _require_nav_handoff_after_leave_dock(req.steps, index)
             if _segment_mode_enabled() and step.action in ("leave_dock", "nav2_pose", "nav2_waypoints"):
                 _wait_for_departure_slot(command, _persist_command)
             if _segment_mode_enabled() and step.action == "leave_dock" and index + 1 < len(req.steps):
@@ -355,6 +368,8 @@ def execute_movement_command(req: MovementCommandRequest):
                     )
                 if step.payload.get("metric_insert_distance_m") is not None:
                     command["metric_insert_distance_m"] = float(step.payload["metric_insert_distance_m"])
+            if step.action == "leave_dock":
+                _capture_leave_dock_telemetry(command, step)
             if result is not True:
                 detail = result
                 if runtime.navigator and getattr(runtime.navigator, "last_nav_failure", None):
@@ -484,6 +499,9 @@ def execute_movement_command(req: MovementCommandRequest):
         _report_command_callback(command, "COMMAND_FAILED", reason)
         _report_movement_robot_status(req.robot_name, None, "error")
     finally:
+        # Stop every motion source before relinquishing traffic ownership.
+        if runtime.navigator:
+            runtime.navigator.publish_stop_velocity()
         _release_held_segments(command)
         if not _segment_mode_enabled() and command.get("state") != "ARRIVED":
             _release_traffic_locks_for_command(command)

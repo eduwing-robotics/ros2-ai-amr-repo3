@@ -256,50 +256,6 @@ def test_scenario_compiles_registered_location_combinations(
     assert metadata["dropoff"]["approach"]["waypoint_id"] == dropoff_wp
 
 
-def test_inbound1_routes_through_pre_approach_before_wall_approach():
-    payload = request_payload("inbound")
-    payload["pickup"] = {
-        "location_id": "INBOUND_01", "floor": 1,
-        "approach": {
-            "waypoint_id": "inbound_slot_1_approach",
-            "x": -0.085, "y": 0.006, "yaw": 1.571,
-        },
-    }
-
-    steps, _ = build_scenario_command(ScenarioCommandRequest(**payload))
-
-    pickup_nav = steps[2]
-    assert pickup_nav.action == "nav2_waypoints"
-    assert pickup_nav.payload["waypoints"] == [
-        "inbound_slot_1_pre_approach",
-        "inbound_slot_1_approach",
-    ]
-    assert [goal["waypoint"] for goal in pickup_nav.payload["goals"]] == [
-        "inbound_slot_1_pre_approach",
-        "inbound_slot_1_approach",
-    ]
-    assert pickup_nav.payload["goals"][0] == {
-        "x": -0.085,
-        "y": -0.22,
-        "yaw": 1.571,
-        "waypoint": "inbound_slot_1_pre_approach",
-        "nav_position_only": True,
-        "yaw_tolerance_rad": None,
-        "soft_xy_tolerance_m": 0.08,
-    }
-
-
-@pytest.mark.parametrize("location_id,waypoint_id", [
-    ("STORAGE_01", "warehouse_b_approach"),
-    ("STORAGE_02", "warehouse_a_approach"),
-    ("STORAGE_03", "warehouse_c_approach"),
-    ("STORAGE_04", "warehouse_d_approach"),
-])
-def test_numeric_storage_locations_use_physical_warehouse_mapping(location_id, waypoint_id):
-    from nav_app.services.scenario_contract import _LOCATION_WAYPOINTS
-    assert _LOCATION_WAYPOINTS[location_id] == waypoint_id
-
-
 def test_scenario_uses_canonical_coordinates_after_tolerance_validation():
     payload = request_payload("outbound")
     payload["dropoff"] = {

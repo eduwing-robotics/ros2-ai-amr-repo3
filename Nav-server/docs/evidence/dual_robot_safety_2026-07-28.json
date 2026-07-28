@@ -1,0 +1,514 @@
+{
+  "profile": "nav_server_dual_standby",
+  "hold_marker_distance_m": 0.2,
+  "approach_marker_distance_m": 0.4,
+  "generated_at_epoch": 1785217874.770751,
+  "readiness": {
+    "tb3_1": {
+      "health": {
+        "ok": true,
+        "service": "slam_nav_ws movement-api",
+        "active_robot_id": "tb3_burger_01",
+        "robot_name": "tb3_1",
+        "endpoint_contract_url": "/movement-api/v1/endpoints",
+        "advertised_nav_api_url": "http://192.168.30.4:8001",
+        "ros_domain_id": 2,
+        "dry_run": false,
+        "robot_online": true,
+        "cmd_vel_topic": "/cmd_vel",
+        "cmd_vel_subscribers": 1,
+        "cmd_vel_subscriber_nodes": [
+          {
+            "node_name": "tb3_1_gz_bridge",
+            "node_namespace": "/",
+            "topic_type": "geometry_msgs/msg/TwistStamped"
+          }
+        ],
+        "command_accepting": true,
+        "battery": null,
+        "nav2_ready": true,
+        "navigator_status": "IDLE",
+        "is_emergency": false,
+        "map_frame": "map",
+        "pose": {
+          "source": "tf",
+          "frame_id": "map",
+          "child_frame_id": "base_link",
+          "x": 0.5284687652515644,
+          "y": 0.2043759399234322,
+          "yaw": 1.5714819798984627,
+          "stamp": {
+            "sec": 1088,
+            "nanosec": 137000000
+          },
+          "age_sec": 1.359,
+          "reported_at": "2026-07-28T05:51:14Z"
+        },
+        "localized": true,
+        "localization_required": true,
+        "simulation_mode": false,
+        "aruco_detection_topic": "/mission/tb3_1/aruco/detections",
+        "latest_aruco_detections": [
+          {
+            "marker_id": 3,
+            "estimated_distance_m": 0.2,
+            "marker_width_px": 130.0,
+            "center_norm": [
+              0.0,
+              0.0
+            ],
+            "max_abs_angular_z_rps": 0.0,
+            "source": "gazebo_odometry_oracle",
+            "received_at": 1785217874.7171257,
+            "topic": "/mission/tb3_1/aruco/detections"
+          }
+        ]
+      },
+      "nav_state": {
+        "robot_name": "tb3_1",
+        "robot_id": "tb3_burger_01",
+        "ros_domain_id": 2,
+        "map_frame": "map",
+        "dry_run": false,
+        "simulation_mode": false,
+        "robot_online": true,
+        "cmd_vel_topic": "/cmd_vel",
+        "cmd_vel_subscribers": 1,
+        "cmd_vel_subscriber_nodes": [
+          {
+            "node_name": "tb3_1_gz_bridge",
+            "node_namespace": "/",
+            "topic_type": "geometry_msgs/msg/TwistStamped"
+          }
+        ],
+        "command_accepting": true,
+        "nav2_ready": true,
+        "navigator_status": "IDLE",
+        "mission_status": "IDLE",
+        "is_emergency": false,
+        "localized": true,
+        "pose": {
+          "source": "tf",
+          "frame_id": "map",
+          "child_frame_id": "base_link",
+          "x": 0.5284687652515644,
+          "y": 0.2043759399234322,
+          "yaw": 1.5714819798984627,
+          "stamp": {
+            "sec": 1088,
+            "nanosec": 137000000
+          },
+          "age_sec": 1.359,
+          "reported_at": "2026-07-28T05:51:14Z"
+        },
+        "pose_age_sec": 1.359,
+        "last_pose_age_sec": 1.359,
+        "pose_source": "tf",
+        "amcl_pose_received": true,
+        "simulated_pose_received": false,
+        "initial_pose_required": false,
+        "reason": "ok",
+        "active_commands": [],
+        "reported_at": "2026-07-28T05:51:14.792254+00:00"
+      }
+    },
+    "tb3_2": {
+      "health": {
+        "ok": true,
+        "service": "slam_nav_ws movement-api",
+        "active_robot_id": "tb3_burger_02",
+        "robot_name": "tb3_2",
+        "endpoint_contract_url": "/movement-api/v1/endpoints",
+        "advertised_nav_api_url": "http://192.168.30.4:8002",
+        "ros_domain_id": 5,
+        "dry_run": false,
+        "robot_online": true,
+        "cmd_vel_topic": "/cmd_vel",
+        "cmd_vel_subscribers": 1,
+        "cmd_vel_subscriber_nodes": [
+          {
+            "node_name": "tb3_2_gz_bridge",
+            "node_namespace": "/",
+            "topic_type": "geometry_msgs/msg/TwistStamped"
+          }
+        ],
+        "command_accepting": true,
+        "battery": null,
+        "nav2_ready": true,
+        "navigator_status": "IDLE",
+        "is_emergency": false,
+        "map_frame": "map",
+        "pose": {
+          "source": "tf",
+          "frame_id": "map",
+          "child_frame_id": "base_link",
+          "x": 0.8176019455387531,
+          "y": 0.20467860608111502,
+          "yaw": 1.5724359698388137,
+          "stamp": {
+            "sec": 1088,
+            "nanosec": 158000000
+          },
+          "age_sec": 1.327,
+          "reported_at": "2026-07-28T05:51:14Z"
+        },
+        "localized": true,
+        "localization_required": true,
+        "simulation_mode": false,
+        "aruco_detection_topic": "/mission/tb3_2/aruco/detections",
+        "latest_aruco_detections": [
+          {
+            "marker_id": 4,
+            "estimated_distance_m": 0.2,
+            "marker_width_px": 130.0,
+            "center_norm": [
+              0.0,
+              0.0
+            ],
+            "max_abs_angular_z_rps": 0.0,
+            "source": "gazebo_odometry_oracle",
+            "received_at": 1785217874.7565486,
+            "topic": "/mission/tb3_2/aruco/detections"
+          }
+        ]
+      },
+      "nav_state": {
+        "robot_name": "tb3_2",
+        "robot_id": "tb3_burger_02",
+        "ros_domain_id": 5,
+        "map_frame": "map",
+        "dry_run": false,
+        "simulation_mode": false,
+        "robot_online": true,
+        "cmd_vel_topic": "/cmd_vel",
+        "cmd_vel_subscribers": 1,
+        "cmd_vel_subscriber_nodes": [
+          {
+            "node_name": "tb3_2_gz_bridge",
+            "node_namespace": "/",
+            "topic_type": "geometry_msgs/msg/TwistStamped"
+          }
+        ],
+        "command_accepting": true,
+        "nav2_ready": true,
+        "navigator_status": "IDLE",
+        "mission_status": "IDLE",
+        "is_emergency": false,
+        "localized": true,
+        "pose": {
+          "source": "tf",
+          "frame_id": "map",
+          "child_frame_id": "base_link",
+          "x": 0.8176019455387531,
+          "y": 0.20467860608111502,
+          "yaw": 1.5724359698388137,
+          "stamp": {
+            "sec": 1088,
+            "nanosec": 158000000
+          },
+          "age_sec": 1.327,
+          "reported_at": "2026-07-28T05:51:14Z"
+        },
+        "pose_age_sec": 1.327,
+        "last_pose_age_sec": 1.327,
+        "pose_source": "tf",
+        "amcl_pose_received": true,
+        "simulated_pose_received": false,
+        "initial_pose_required": false,
+        "reason": "ok",
+        "active_commands": [],
+        "reported_at": "2026-07-28T05:51:14.797489+00:00"
+      }
+    }
+  },
+  "traffic_scenario": {
+    "passed": true,
+    "submissions": {
+      "tb3_2": {
+        "accepted": true,
+        "command_id": "g108-dual-tb3_2-1785217874798",
+        "state": "ACCEPTED"
+      },
+      "tb3_1": {
+        "accepted": true,
+        "command_id": "g108-dual-tb3_1-1785217874798",
+        "state": "ACCEPTED"
+      }
+    },
+    "observed_traffic_states": {
+      "tb3_1": [
+        "QUEUED",
+        "WAITING_START",
+        "WAITING_TRAFFIC",
+        "LOCKED"
+      ],
+      "tb3_2": [
+        "QUEUED",
+        "LOCKED"
+      ]
+    },
+    "commands": {
+      "tb3_2": {
+        "command_id": "g108-dual-tb3_2-1785217874798",
+        "task_id": 108,
+        "robot_name": "tb3_2",
+        "state": "DONE",
+        "current_step_index": 2,
+        "current_step_action": "wait",
+        "message": "completed",
+        "traffic_segments": [],
+        "traffic_locks": [],
+        "traffic_state": "LOCKED",
+        "callback_url": null,
+        "step_actions": [
+          "leave_dock",
+          "nav2_pose",
+          "wait"
+        ],
+        "steps": [
+          {
+            "action": "leave_dock",
+            "command": null,
+            "duration": null,
+            "payload": {}
+          },
+          {
+            "action": "nav2_pose",
+            "command": null,
+            "duration": null,
+            "payload": {
+              "frame_id": "map",
+              "goal": {
+                "waypoint": "vehicle_2_approach",
+                "x": 0.816,
+                "y": 0.006,
+                "yaw": 1.571,
+                "soft_xy_tolerance_m": 0.08,
+                "soft_yaw_tolerance_rad": 0.4
+              }
+            }
+          },
+          {
+            "action": "wait",
+            "command": null,
+            "duration": 2.0,
+            "payload": {}
+          }
+        ],
+        "gate_timeout_sec": 120.0,
+        "simulation_mode": false,
+        "created_at": "2026-07-28T05:51:14.800750+00:00",
+        "updated_at": "2026-07-28T05:51:25.252603+00:00",
+        "request_fingerprint": "{\"callback_url\":null,\"command_id\":\"g108-dual-tb3_2-1785217874798\",\"robot_name\":\"tb3_2\",\"steps\":[{\"action\":\"leave_dock\",\"command\":null,\"duration\":null,\"payload\":{}},{\"action\":\"nav2_pose\",\"command\":null,\"duration\":null,\"payload\":{\"frame_id\":\"map\",\"goal\":{\"soft_xy_tolerance_m\":0.08,\"soft_yaw_tolerance_rad\":0.4,\"waypoint\":\"vehicle_2_approach\",\"x\":0.816,\"y\":0.006,\"yaw\":1.571}}},{\"action\":\"wait\",\"command\":null,\"duration\":2.0,\"payload\":{}}],\"task_id\":108}",
+        "callback_sequence": -1,
+        "traffic_coordination_mode": "segment",
+        "traffic_segments_held": [],
+        "stage": "wait",
+        "departure_slot_applied": true,
+        "traffic_waiting_for": null,
+        "traffic_nav_leg_count": 1,
+        "leave_dock_telemetry": {
+          "standby_marker_id": 4,
+          "standby_approach_waypoint": "vehicle_2_approach",
+          "start_marker_distance_m": 0.2,
+          "target_marker_distance_m": 0.4,
+          "requested_reverse_distance_m": 0.2,
+          "rear_clearance_m": 0.4062069356441498,
+          "max_abs_angular_z_rps": 0.0,
+          "end_marker_distance_m": 0.396019,
+          "measured_reverse_distance_m": 0.17648924999993704,
+          "feedback_source": "odom_tf",
+          "reverse_stop_reason": "marker_clearance",
+          "approach_target_pose": {
+            "x": 0.816,
+            "y": 0.006
+          },
+          "approach_pose_error_m": 0.012209111880708449,
+          "held_traffic_segments": [
+            "warehouse_aisle"
+          ]
+        },
+        "post_align_done": false,
+        "authority_owner": "MAIN",
+        "authority_released": true,
+        "last_sequence": -1
+      },
+      "tb3_1": {
+        "command_id": "g108-dual-tb3_1-1785217874798",
+        "task_id": 108,
+        "robot_name": "tb3_1",
+        "state": "DONE",
+        "current_step_index": 2,
+        "current_step_action": "wait",
+        "message": "completed",
+        "traffic_segments": [],
+        "traffic_locks": [
+          {
+            "state_type": "lock",
+            "segment_id": "warehouse_aisle",
+            "robot_id": "tb3_1",
+            "command_id": "g108-dual-tb3_1-1785217874798",
+            "route_type": null,
+            "acquired_at": 1785217885.6006706,
+            "expires_at": 1785218005.6006706,
+            "ttl_sec": 120.0
+          }
+        ],
+        "traffic_state": "LOCKED",
+        "callback_url": null,
+        "step_actions": [
+          "leave_dock",
+          "nav2_pose",
+          "wait"
+        ],
+        "steps": [
+          {
+            "action": "leave_dock",
+            "command": null,
+            "duration": null,
+            "payload": {}
+          },
+          {
+            "action": "nav2_pose",
+            "command": null,
+            "duration": null,
+            "payload": {
+              "frame_id": "map",
+              "goal": {
+                "waypoint": "vehicle_1_approach",
+                "x": 0.527,
+                "y": 0.006,
+                "yaw": 1.571,
+                "soft_xy_tolerance_m": 0.08,
+                "soft_yaw_tolerance_rad": 0.4
+              }
+            }
+          },
+          {
+            "action": "wait",
+            "command": null,
+            "duration": 2.0,
+            "payload": {}
+          }
+        ],
+        "gate_timeout_sec": 120.0,
+        "simulation_mode": false,
+        "created_at": "2026-07-28T05:51:14.801793+00:00",
+        "updated_at": "2026-07-28T05:51:33.689217+00:00",
+        "request_fingerprint": "{\"callback_url\":null,\"command_id\":\"g108-dual-tb3_1-1785217874798\",\"robot_name\":\"tb3_1\",\"steps\":[{\"action\":\"leave_dock\",\"command\":null,\"duration\":null,\"payload\":{}},{\"action\":\"nav2_pose\",\"command\":null,\"duration\":null,\"payload\":{\"frame_id\":\"map\",\"goal\":{\"soft_xy_tolerance_m\":0.08,\"soft_yaw_tolerance_rad\":0.4,\"waypoint\":\"vehicle_1_approach\",\"x\":0.527,\"y\":0.006,\"yaw\":1.571}}},{\"action\":\"wait\",\"command\":null,\"duration\":2.0,\"payload\":{}}],\"task_id\":108}",
+        "callback_sequence": -1,
+        "traffic_coordination_mode": "segment",
+        "traffic_segments_held": [
+          "warehouse_aisle"
+        ],
+        "stage": "wait",
+        "traffic_wait_seconds": 0.5,
+        "departure_slot_applied": true,
+        "traffic_waiting_for": null,
+        "traffic_blocked_by": {
+          "state_type": "lock",
+          "segment_id": "warehouse_aisle",
+          "robot_id": "tb3_2",
+          "command_id": "g108-dual-tb3_2-1785217874798",
+          "route_type": null,
+          "acquired_at": 1785217875.5655978,
+          "expires_at": 1785217995.5655978,
+          "ttl_sec": 120.0
+        },
+        "traffic_nav_leg_count": 1,
+        "leave_dock_telemetry": {
+          "standby_marker_id": 3,
+          "standby_approach_waypoint": "vehicle_1_approach",
+          "start_marker_distance_m": 0.2,
+          "target_marker_distance_m": 0.4,
+          "requested_reverse_distance_m": 0.2,
+          "rear_clearance_m": 0.3827972412109375,
+          "max_abs_angular_z_rps": 0.0,
+          "end_marker_distance_m": 0.395371,
+          "measured_reverse_distance_m": 0.17615624999994972,
+          "feedback_source": "odom_tf",
+          "reverse_stop_reason": "marker_clearance",
+          "approach_target_pose": {
+            "x": 0.527,
+            "y": 0.006
+          },
+          "approach_pose_error_m": 0.01814789630085273,
+          "held_traffic_segments": [
+            "warehouse_aisle"
+          ]
+        },
+        "post_align_done": false,
+        "authority_owner": "MAIN",
+        "authority_released": true,
+        "last_sequence": -1
+      }
+    },
+    "final_approach_poses": {
+      "tb3_1": {
+        "pose": {
+          "source": "tf",
+          "frame_id": "map",
+          "child_frame_id": "base_link",
+          "x": 0.5223161050529066,
+          "y": -0.007008392656671275,
+          "yaw": 1.5476122179489233,
+          "stamp": {
+            "sec": 1107,
+            "nanosec": 557000000
+          },
+          "age_sec": 1.329,
+          "reported_at": "2026-07-28T05:51:35Z"
+        },
+        "approach_target_pose": {
+          "x": 0.527,
+          "y": 0.006
+        },
+        "approach_pose_error_m": 0.01382595932966485,
+        "tolerance_m": 0.05
+      },
+      "tb3_2": {
+        "pose": {
+          "source": "tf",
+          "frame_id": "map",
+          "child_frame_id": "base_link",
+          "x": 0.8147425984426155,
+          "y": -0.010494090644998788,
+          "yaw": 1.5515863909422505,
+          "stamp": {
+            "sec": 1107,
+            "nanosec": 538000000
+          },
+          "age_sec": 1.351,
+          "reported_at": "2026-07-28T05:51:35Z"
+        },
+        "approach_target_pose": {
+          "x": 0.816,
+          "y": 0.006
+        },
+        "approach_pose_error_m": 0.016541949246746866,
+        "tolerance_m": 0.05
+      }
+    },
+    "approach_error_spread_m": 0.0027159899170820165
+  },
+  "collision_scenario": {
+    "scenario": "collision_monitor_contact_free_stop",
+    "input_topic": "/cmd_vel_nav",
+    "smoothed_topic": "/cmd_vel_smoothed",
+    "output_topic": "/cmd_vel",
+    "started": true,
+    "stop_observed": true,
+    "stop_evidence_source": "state_topic",
+    "stop_polygon": "VelocityPolygonStop",
+    "smoothed_samples": 5,
+    "output_samples": 5,
+    "max_smoothed_linear_mps": 0.0315,
+    "max_output_linear_mps": 0.00945,
+    "front_clearance_m": 0.347688764333725,
+    "displacement_m": 0.0014738999998221147,
+    "minimum_clearance_m": 0.14,
+    "maximum_displacement_m": 0.45,
+    "passed": true
+  },
+  "passed": true
+}

@@ -50,8 +50,9 @@ class TrafficManager:
             try:
                 handle.seek(0)
                 raw = handle.read().strip()
-                state = json.loads(raw) if raw else {"locks": {}}
+                state = json.loads(raw) if raw else {"locks": {}, "occupancy": {}}
                 state.setdefault("locks", {})
+                state.setdefault("occupancy", {})
                 yield state
                 handle.seek(0)
                 handle.truncate()
@@ -79,6 +80,11 @@ class TrafficManager:
         with self._locked_state() as state:
             self._cleanup_expired(state, now)
             locks = state["locks"]
+            occupancy = state["occupancy"]
+            current_occupancy = occupancy.get(segment_id)
+            if current_occupancy and current_occupancy.get("robot_id") != robot_id:
+                raise TrafficLockConflict(segment_id, current_occupancy)
+
             current = locks.get(segment_id)
             # A robot may carry the same segment from an ARRIVED gate into the
             # following dock/align command. Other robots still conflict.
@@ -87,6 +93,7 @@ class TrafficManager:
                 raise TrafficLockConflict(segment_id, current)
 
             lock = {
+                "state_type": "lock",
                 "segment_id": segment_id,
                 "robot_id": robot_id,
                 "command_id": command_id,
@@ -134,6 +141,57 @@ class TrafficManager:
             self._cleanup_expired(state)
             return dict(state["locks"])
 
+    def set_robot_occupancy(self, segment_ids, robot_id, command_id=None, source=None):
+        """Atomically replace the physical segments occupied by one robot.
+
+        Occupancy is explicit, persistent physical state. Unlike command locks it
+        has no TTL and must be moved or cleared from confirmed robot position.
+        """
+        requested = list(dict.fromkeys(segment_ids or []))
+        for segment_id in requested:
+            self.validate_segment(segment_id)
+        now = time.time()
+        with self._locked_state() as state:
+            self._cleanup_expired(state, now)
+            locks = state["locks"]
+            occupancy = state["occupancy"]
+            for segment_id in requested:
+                current_occupancy = occupancy.get(segment_id)
+                if current_occupancy and current_occupancy.get("robot_id") != robot_id:
+                    raise TrafficLockConflict(segment_id, current_occupancy)
+                current_lock = locks.get(segment_id)
+                if current_lock and current_lock.get("robot_id") != robot_id:
+                    raise TrafficLockConflict(segment_id, current_lock)
+
+            for segment_id, current in list(occupancy.items()):
+                if current.get("robot_id") == robot_id:
+                    occupancy.pop(segment_id, None)
+            for segment_id in requested:
+                occupancy[segment_id] = {
+                    "state_type": "occupancy",
+                    "segment_id": segment_id,
+                    "robot_id": robot_id,
+                    "command_id": command_id,
+                    "source": source,
+                    "occupied_at": now,
+                }
+            return {segment_id: dict(occupancy[segment_id]) for segment_id in requested}
+
+    def clear_robot_occupancy(self, robot_id):
+        """Clear only the named robot's physical occupancy records."""
+        with self._locked_state() as state:
+            occupancy = state["occupancy"]
+            removed = []
+            for segment_id, current in list(occupancy.items()):
+                if current.get("robot_id") == robot_id:
+                    occupancy.pop(segment_id, None)
+                    removed.append(segment_id)
+            return removed
+
+    def list_occupancy(self):
+        with self._locked_state() as state:
+            return {segment_id: dict(item) for segment_id, item in state["occupancy"].items()}
+
     def reserve_departure_slot(self, robot_id, command_id, min_interval_sec):
         """Atomically stagger departures across independent API processes."""
         now = time.time()
@@ -151,3 +209,4 @@ class TrafficManager:
     def reset(self):
         with self._locked_state() as state:
             state["locks"] = {}
+            state["occupancy"] = {}

@@ -140,8 +140,8 @@ class LogisticsNavigator(Node):
         # 4. Nav2 기본 네비게이터 초기화
         self.nav = BasicNavigator()
 
-        # 5. 수동 조작용 속도 명령 publisher
-        self.cmd_vel_pub = self.create_publisher(TwistStamped, "/cmd_vel", 10)
+        # 5. 수동/ArUco 속도는 Nav2와 같은 collision-monitor 입력으로 보낸다.
+        self.cmd_vel_pub = self.create_publisher(TwistStamped, "/cmd_vel_nav", 10)
         self.initial_pose_pub = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 10)
         self.manual_stop_event = threading.Event()
         self.manual_thread = None
@@ -687,7 +687,8 @@ class LogisticsNavigator(Node):
         )
         stamp = transform.header.stamp
         stamp_sec = float(stamp.sec) + float(stamp.nanosec) / 1_000_000_000.0
-        age_sec = max(0.0, time.time() - stamp_sec) if stamp_sec > 0 else 0.0
+        now_sec = float(self.get_clock().now().nanoseconds) / 1_000_000_000.0
+        age_sec = max(0.0, now_sec - stamp_sec) if stamp_sec > 0 else 0.0
         return {
             "source": "tf",
             "frame_id": transform.header.frame_id or "map",
@@ -1173,7 +1174,7 @@ class LogisticsNavigator(Node):
         ]
 
     def publish_stop_velocity(self):
-        """진행 중인 수동 조작을 중단하고 /cmd_vel 정지 명령을 즉시 보냅니다."""
+        """진행 중인 수동 조작을 중단하고 collision gate 입력에 정지를 보냅니다."""
         self.manual_stop_event.set()
         self._publish_stop_velocity()
         if self.status == "MANUAL":
@@ -1220,7 +1221,7 @@ class LogisticsNavigator(Node):
         return True
 
     def publish_velocity_for_duration(self, linear_x=0.0, angular_z=0.0, duration_sec=1.0, rate_hz=10.0, forward_margin_m=None):
-        """짧은 수동 조작을 위해 /cmd_vel을 일정 시간 publish하고 마지막에 정지 명령을 보냅니다."""
+        """collision gate 입력에 짧은 수동 속도를 publish하고 마지막에 정지합니다."""
         if self.safety.estop:
             print("경고: 비상 정지 상태입니다. 수동 조작할 수 없습니다.")
             return False
@@ -1333,6 +1334,7 @@ class LogisticsNavigator(Node):
         twist = TwistStamped()
         twist.header.frame_id = "base_link"
         twist.twist.linear.x = linear_x
+        twist.twist.angular.z = 0.0
         measured = 0.0
         reason = "timeout"
         ok = False

@@ -1,0 +1,164 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.6">
+  <model name="warehouse_zone_markers">
+    <static>true</static>
+    <link name="zones">
+      <visual name="inbound_zone">
+        <pose>0.366102 0.183051 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.366102 0.122034 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.18 0.52 0.86 1</ambient>
+          <diffuse>0.18 0.52 0.86 1</diffuse>
+        </material>
+      </visual>
+      <visual name="vehicle_1_zone">
+        <pose>0.765000 0.274534 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.210000 0.305000 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.22 0.64 0.42 1</ambient>
+          <diffuse>0.22 0.64 0.42 1</diffuse>
+        </material>
+      </visual>
+      <visual name="vehicle_2_zone">
+        <pose>1.035000 0.274534 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.210000 0.305000 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.22 0.64 0.42 1</ambient>
+          <diffuse>0.22 0.64 0.42 1</diffuse>
+        </material>
+      </visual>
+      <visual name="outbound_zone">
+        <pose>1.433898 0.183051 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.366102 0.122034 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.88 0.43 0.20 1</ambient>
+          <diffuse>0.88 0.43 0.20 1</diffuse>
+        </material>
+      </visual>
+      <visual name="warehouse_section_a">
+        <pose>0.854237 1.235593 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.122034 0.152542 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.70 0.42 0.76 1</ambient>
+          <diffuse>0.70 0.42 0.76 1</diffuse>
+        </material>
+      </visual>
+      <visual name="warehouse_section_b">
+        <pose>0.854237 0.991526 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.122034 0.152543 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.70 0.42 0.76 1</ambient>
+          <diffuse>0.70 0.42 0.76 1</diffuse>
+        </material>
+      </visual>
+      <visual name="warehouse_section_c">
+        <pose>0.945763 1.235593 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.122034 0.152542 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.70 0.42 0.76 1</ambient>
+          <diffuse>0.70 0.42 0.76 1</diffuse>
+        </material>
+      </visual>
+      <visual name="warehouse_section_d">
+        <pose>0.945763 0.991526 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.122034 0.152543 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.70 0.42 0.76 1</ambient>
+          <diffuse>0.70 0.42 0.76 1</diffuse>
+        </material>
+      </visual>
+      <visual name="main_aisle">
+        <pose>0.900000 0.935000 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.700000 1.230000 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.82 0.78 0.36 1</ambient>
+          <diffuse>0.82 0.78 0.36 1</diffuse>
+        </material>
+      </visual>
+      <visual name="inbound_slot_1">
+        <pose>0.259322 0.183051 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.152542 0.122034 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.70 0.42 0.76 1</ambient>
+          <diffuse>0.70 0.42 0.76 1</diffuse>
+        </material>
+      </visual>
+      <visual name="inbound_slot_2">
+        <pose>0.472882 0.183051 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.152543 0.122034 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.70 0.42 0.76 1</ambient>
+          <diffuse>0.70 0.42 0.76 1</diffuse>
+        </material>
+      </visual>
+      <visual name="outbound_slot_1">
+        <pose>1.327119 0.183051 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.152543 0.122034 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.70 0.42 0.76 1</ambient>
+          <diffuse>0.70 0.42 0.76 1</diffuse>
+        </material>
+      </visual>
+      <visual name="outbound_slot_2">
+        <pose>1.540678 0.183051 0.006 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.152542 0.122034 0.012</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.70 0.42 0.76 1</ambient>
+          <diffuse>0.70 0.42 0.76 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

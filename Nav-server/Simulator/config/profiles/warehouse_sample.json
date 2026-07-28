@@ -1,0 +1,21 @@
+{
+  "profile": "warehouse_sample",
+  "description": "Sample map with warehouse world; headless Gazebo server + optional GUI attach.",
+  "map_name": "sample",
+  "warehouse_world": true,
+  "wall_height_m": 0.5,
+  "gazebo_gui": true,
+  "rviz": true,
+  "turtlebot3_model": "burger",
+  "ros_domain_id": 2,
+  "spawn": {
+    "x": 0.765,
+    "y": 0.58,
+    "yaw": -1.57
+  },
+  "initial_pose": {
+    "x": 0.765,
+    "y": 0.58,
+    "yaw": -1.57
+  }
+}

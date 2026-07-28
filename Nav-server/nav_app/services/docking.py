@@ -68,6 +68,7 @@ from nav_app.services.robot_commands import (
     apply_slot_lift_defaults,
     approach_waypoint_id_for_marker,
     fork_insert_distance_for_marker,
+    goal_from_waypoint_id,
     load_waypoint_goals,
 )
 from nav_app.services.robot_context import aruco_detection_topic as _aruco_detection_topic
@@ -1886,25 +1887,17 @@ def resolve_leave_dock_distance_m(payload: Dict[str, Any]) -> float:
             return abs(float(payload[key]))
 
     marker_id = payload.get("aruco_marker_id")
-    if marker_id is not None and runtime.navigator:
-        detection = runtime.navigator.get_latest_aruco_detection(
-            int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
+    current_marker_distance = leave_dock_marker_distance_m(payload, marker_id)
+    if current_marker_distance is not None:
+        clearance_m = max(
+            0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40))
         )
-        if detection and detection.get("estimated_distance_m") is not None:
-            try:
-                current_marker_distance = float(detection["estimated_distance_m"])
-                clearance_m = max(
-                    0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40))
-                )
-                if math.isfinite(current_marker_distance) and current_marker_distance >= 0.0:
-                    distance = max(0.0, clearance_m - current_marker_distance)
-                    print(
-                        f"[leave_dock] marker={int(marker_id)} current={current_marker_distance:.3f}m "
-                        f"clearance={clearance_m:.3f}m reverse={distance:.3f}m"
-                    )
-                    return distance
-            except (TypeError, ValueError):
-                pass
+        distance = max(0.0, clearance_m - current_marker_distance)
+        print(
+            f"[leave_dock] marker={int(marker_id)} current={current_marker_distance:.3f}m "
+            f"clearance={clearance_m:.3f}m reverse={distance:.3f}m"
+        )
+        return distance
 
     stored = runtime.get_standby_park_reverse_distance_m()
     if stored is not None and stored > 0.0:
@@ -1916,12 +1909,14 @@ def resolve_leave_dock_distance_m(payload: Dict[str, Any]) -> float:
 
 def normalize_leave_dock_marker(payload: Dict[str, Any]) -> Optional[int]:
     """Use the active robot standby marker even if Main sends another robot marker."""
-    configured = active_robot_profile().get("standby_aruco_marker_id")
+    profile = active_robot_profile()
+    configured = profile.get("standby_aruco_marker_id")
+    approach_waypoint = profile.get("standby_approach_waypoint")
+    if approach_waypoint:
+        payload["standby_approach_waypoint"] = str(approach_waypoint)
     requested = payload.get("aruco_marker_id")
-    if requested is None:
-        return None
     if configured is None:
-        return int(requested)
+        return int(requested) if requested is not None else None
     marker_id = int(configured)
     if requested is not None and int(requested) != marker_id:
         print(
@@ -1932,21 +1927,67 @@ def normalize_leave_dock_marker(payload: Dict[str, Any]) -> Optional[int]:
     return marker_id
 
 
-def leave_dock_marker_clearance_satisfied(payload: Dict[str, Any], marker_id: Optional[int]) -> bool:
-    """Accept an odom false-negative only when fresh vision proves the robot is clear."""
+def leave_dock_marker_distance_m(
+    payload: Dict[str, Any],
+    marker_id: Optional[int],
+    telemetry: Optional[Dict[str, Any]] = None,
+) -> Optional[float]:
+    """Return a fresh, finite standby-marker distance suitable for motion control."""
     if marker_id is None or not runtime.navigator:
-        return False
+        return None
     detection = runtime.navigator.get_latest_aruco_detection(
-        marker_id, max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
+        int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
     )
     if not detection or detection.get("estimated_distance_m") is None:
-        return False
+        return None
+    if telemetry is not None and detection.get("max_abs_angular_z_rps") is not None:
+        try:
+            telemetry["max_abs_angular_z_rps"] = abs(
+                float(detection["max_abs_angular_z_rps"])
+            )
+        except (TypeError, ValueError):
+            pass
     try:
         distance_m = float(detection["estimated_distance_m"])
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(distance_m) or distance_m < 0.0:
+        return None
+    return distance_m
+
+
+def leave_dock_marker_clearance_satisfied(payload: Dict[str, Any], marker_id: Optional[int]) -> bool:
+    """Require fresh vision to prove the robot reached standby-marker clearance."""
+    distance_m = leave_dock_marker_distance_m(payload, marker_id)
+    if distance_m is None:
+        return False
+    try:
         clearance_m = max(0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40)))
     except (TypeError, ValueError):
         return False
-    return math.isfinite(distance_m) and distance_m >= clearance_m - 0.005
+    return distance_m >= clearance_m - 0.005
+
+
+def update_leave_dock_approach_telemetry(payload: Dict[str, Any], telemetry: Dict[str, Any]) -> None:
+    waypoint_id = payload.get("standby_approach_waypoint")
+    if not waypoint_id:
+        return
+    try:
+        target = goal_from_waypoint_id(str(waypoint_id))
+    except Exception:
+        return
+    target_pose = {"x": float(target["x"]), "y": float(target["y"])}
+    telemetry["approach_target_pose"] = target_pose
+    current = runtime.navigator.get_current_pose() if runtime.navigator else None
+    if not current:
+        return
+    try:
+        telemetry["approach_pose_error_m"] = math.hypot(
+            float(current["x"]) - target_pose["x"],
+            float(current["y"]) - target_pose["y"],
+        )
+    except (KeyError, TypeError, ValueError):
+        return
 
 
 def leave_dock_motion_params(payload: Dict[str, Any]):
@@ -1995,26 +2036,27 @@ def execute_leave_dock_step(step: MovementStep):
     # Runtime state can be stale after a previous leave/recovery command while the
     # robot has since been physically parked again. A fresh, close standby marker
     # is stronger evidence than the in-memory flag and must restore reverse-out.
-    marker_requires_reverse = False
-    if parked is False and marker_id is not None:
-        detection = runtime.navigator.get_latest_aruco_detection(
-            int(marker_id), max_age_sec=float(payload.get("reverse_marker_max_age_sec", 5.0))
+    marker_distance = leave_dock_marker_distance_m(payload, marker_id)
+    clearance_m = max(
+        0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40))
+    )
+    telemetry = {
+        "standby_marker_id": marker_id,
+        "standby_approach_waypoint": payload.get("standby_approach_waypoint"),
+        "start_marker_distance_m": marker_distance,
+        "target_marker_distance_m": clearance_m,
+    }
+    payload["leave_dock_telemetry"] = telemetry
+    marker_requires_reverse = (
+        parked is False
+        and marker_distance is not None
+        and marker_distance < clearance_m - 0.005
+    )
+    if marker_requires_reverse:
+        print(
+            f"[leave_dock] stale standby_parked=False overridden by fresh "
+            f"marker={int(marker_id)} distance={marker_distance:.3f}m"
         )
-        if detection and detection.get("estimated_distance_m") is not None:
-            marker_distance = float(detection["estimated_distance_m"])
-            clearance_m = max(
-                0.05, float(payload.get("reverse_clearance_marker_distance_m", 0.40))
-            )
-            marker_requires_reverse = (
-                math.isfinite(marker_distance)
-                and marker_distance >= 0.0
-                and marker_distance < clearance_m - 0.005
-            )
-            if marker_requires_reverse:
-                print(
-                    f"[leave_dock] stale standby_parked=False overridden by fresh "
-                    f"marker={int(marker_id)} distance={marker_distance:.3f}m"
-                )
 
     # 상태 게이트: '대기 도킹이 아님(False)'을 확실히 아는 경우에만 후진을 건너뛴다.
     # None(기동 직후 등 미상)은 대기 상태일 수 있으므로 후방 안전체크를 거쳐 후진한다.
@@ -2023,13 +2065,50 @@ def execute_leave_dock_step(step: MovementStep):
               "강제하려면 params.force=true")
         return True
 
-    requested_distance = resolve_leave_dock_distance_m(payload)
+    explicit_distance = any(
+        payload.get(key) is not None for key in ("distance_m", "reverse_distance_m")
+    )
+    if not explicit_distance and (
+        marker_id is None
+        or not payload.get("standby_approach_waypoint")
+        or marker_distance is None
+    ):
+        print(
+            "[leave_dock] automatic reverse refused: fresh standby marker and "
+            "configured approach waypoint are required"
+        )
+        telemetry["reverse_stop_reason"] = "automatic_reference_unavailable"
+        update_leave_dock_approach_telemetry(payload, telemetry)
+        runtime.navigator.publish_stop_velocity()
+        return False
+    marker_controlled = not explicit_distance and marker_distance is not None
+    if marker_controlled:
+        requested_distance = max(0.0, clearance_m - marker_distance)
+        print(
+            f"[leave_dock] marker={int(marker_id)} current={marker_distance:.3f}m "
+            f"clearance={clearance_m:.3f}m reverse={requested_distance:.3f}m"
+        )
+    else:
+        requested_distance = resolve_leave_dock_distance_m(payload)
+    telemetry["requested_reverse_distance_m"] = requested_distance
     if requested_distance <= 0.005:
         print("[leave_dock] marker clearance already satisfied; handoff=Nav2")
+        telemetry["end_marker_distance_m"] = marker_distance
+        telemetry["measured_reverse_distance_m"] = 0.0
+        telemetry["reverse_stop_reason"] = "marker_clearance_already_satisfied"
+        update_leave_dock_approach_telemetry(payload, telemetry)
         runtime.navigator.publish_stop_velocity()
         runtime.set_standby_parked(False)
         return True
-    speed, duration = leave_dock_motion_params({**payload, "distance_m": requested_distance})
+
+    # Fresh marker feedback is the success criterion. Odom remains a bounded
+    # overrun guard so calibration drift cannot stop the robot short at ~20 cm.
+    drive_distance = requested_distance
+    if marker_controlled:
+        odom_guard_m = max(0.01, float(payload.get("reverse_marker_odom_guard_m", 0.05)))
+        drive_distance += odom_guard_m
+
+    speed, duration = leave_dock_motion_params({**payload, "distance_m": drive_distance})
     stored = runtime.get_standby_park_reverse_distance_m()
     if stored is not None and payload.get("distance_m") is None and payload.get("reverse_distance_m") is None:
         print(f"[leave_dock] using hold-park insert distance {stored:.3f}m for reverse")
@@ -2042,6 +2121,7 @@ def execute_leave_dock_step(step: MovementStep):
             half_angle_deg=arc_deg / 2.0,
             max_age_sec=LEAVE_DOCK_REAR_SCAN_MAX_AGE_SEC,
         )
+        telemetry["rear_clearance_m"] = rear
         if rear is None:
             print("[leave_dock] /scan 후방 데이터 없음 → 클리어런스 체크 생략하고 진행")
         else:
@@ -2059,28 +2139,57 @@ def execute_leave_dock_step(step: MovementStep):
                     f"rear_blocked rear={rear:.2f}m margin={margin:.2f}m; "
                     f"뒤 공간 부족으로 후진 중단",
                 )
-            if allowed < requested_distance:
-                requested_distance = allowed
+            if allowed < drive_distance:
+                drive_distance = allowed
                 duration = allowed / speed
                 print(f"[leave_dock] 후방 여유 {rear:.2f}m → 후진거리 {allowed:.2f}m 로 제한")
 
-    print(f"[leave_dock] reversing out speed={speed:.3f}m/s distance={requested_distance:.3f}m "
-          f"(parked={parked}, force={force})")
+    def _marker_clearance_stop():
+        if leave_dock_marker_clearance_satisfied(payload, marker_id):
+            return "marker_clearance"
+        return None
+
+    print(
+        f"[leave_dock] reversing out speed={speed:.3f}m/s target={requested_distance:.3f}m "
+        f"odom_cap={drive_distance:.3f}m marker_controlled={marker_controlled} "
+        f"(parked={parked}, force={force})"
+    )
     # 대기 슬롯을 벗어날 때는 현재 자세 그대로 직선 후진한다. 지도상의 approach
     # 좌표는 Nav2가 이어서 처리하며, 여기서 횡오차를 실패로 판정하지 않는다.
     distance_drive = runtime.navigator.publish_velocity_for_distance(
-        linear_x=-speed, distance_m=requested_distance, max_duration_sec=duration * 2.0 + 0.5,
+        linear_x=-speed, distance_m=drive_distance, max_duration_sec=duration * 2.0 + 0.5,
         tolerance_m=float(payload.get("reverse_tolerance_m", 0.005)),
+        stop_condition=_marker_clearance_stop if marker_controlled else None,
     )
     runtime.navigator.publish_stop_velocity()
     print(f"[leave_dock] reverse result={distance_drive}; handoff=Nav2")
-    succeeded = bool(distance_drive.get("ok"))
-    if not succeeded and leave_dock_marker_clearance_satisfied(payload, marker_id):
+    end_marker_distance = leave_dock_marker_distance_m(
+        payload, marker_id, telemetry=telemetry
+    )
+    telemetry.update(
+        end_marker_distance_m=end_marker_distance,
+        measured_reverse_distance_m=float(distance_drive.get("distance_m", 0.0) or 0.0),
+        feedback_source=distance_drive.get("feedback_source"),
+        reverse_stop_reason=distance_drive.get("reason"),
+    )
+    update_leave_dock_approach_telemetry(payload, telemetry)
+    if marker_controlled:
+        succeeded = (
+            end_marker_distance is not None
+            and end_marker_distance >= clearance_m - 0.005
+        )
+    else:
+        succeeded = bool(distance_drive.get("ok"))
+    if marker_controlled and succeeded and not distance_drive.get("ok"):
         print(
             f"[leave_dock] odom result={distance_drive.get('reason', 'unknown')} but fresh "
             f"marker={marker_id} proves clearance; treating reverse as complete"
         )
-        succeeded = True
+    elif marker_controlled and not succeeded:
+        print(
+            f"[leave_dock] reverse stopped reason={distance_drive.get('reason', 'unknown')} but "
+            f"fresh marker={marker_id} has not proved {clearance_m:.3f}m clearance"
+        )
     if succeeded:
         runtime.set_standby_parked(False)
     return succeeded

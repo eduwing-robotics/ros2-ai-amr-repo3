@@ -1,35 +1,25 @@
 {
   "format_version": 1,
   "calibration_type": "charuco",
+  "temporary_source": "tb3_burger_02",
+  "temporary_reason": "1호기 전용 ChArUco 보정 전 비교 진단",
   "image_width": 320,
   "image_height": 240,
   "camera_matrix": [
-    [
-      735.0266750990601,
-      0.0,
-      160.66748324004575
-    ],
-    [
-      0.0,
-      733.0407078636576,
-      112.01569633810381
-    ],
-    [
-      0.0,
-      0.0,
-      1.0
-    ]
+    [735.0266750990601, 0.0, 160.77415130617587],
+    [0.0, 733.0407078636576, 121.29401264512643],
+    [0.0, 0.0, 1.0]
   ],
   "dist_coeffs": [
-    0.13457199211772392,
-    1.308479637854666,
+    0.16753779447056907,
+    2.8177141672148656,
     0.0,
     0.0,
     0.0
   ],
-  "rms_reprojection_error_px": 0.08410358364852771,
-  "mean_reprojection_error_px": 0.08256865389028495,
-  "max_view_reprojection_error_px": 0.11059647394831047,
+  "rms_reprojection_error_px": 0.12253518685759446,
+  "mean_reprojection_error_px": 0.11662819850686679,
+  "max_view_reprojection_error_px": 0.24948919694813085,
   "sample_count": 25,
   "squares_x": 5,
   "squares_y": 7,
@@ -37,8 +27,5 @@
   "marker_size_m": 0.0125,
   "dictionary": "DICT_5X5_100",
   "source_topic": "/camera/image_raw/compressed",
-  "calibration_flags": [
-    "ZERO_TANGENT_DIST",
-    "FIX_K3"
-  ]
+  "calibration_flags": ["ZERO_TANGENT_DIST", "FIX_K3"]
 }

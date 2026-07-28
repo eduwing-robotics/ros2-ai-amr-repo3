@@ -3,7 +3,7 @@
 상태: Active
 분류: Docs
 작성: 2026-06-27 12:11 KST
-최종 갱신: 2026-07-19 KST
+최종 갱신: 2026-07-28 KST
 목적: `slam_nav_ws` 기준 문서와 작업 문서의 위치를 안내한다.
 
 ## Codex / 에이전트 이어하기 (최신)
@@ -16,9 +16,16 @@
 - **`handoff/main_tb3_2_level1_20260718/README.md`** — **tb3_2 1층 입·출고 최신 전달 패키지 (승인 좌표·요청 예제·성공 18단계 원본 링크)**
 - **`handoff/LMS_NAV_CONTRACT_2026-07-14.md`** — **현재 실차 이동·도킹 LMS 계약 (최신)**
 - **`handoff/MAIN_LMS_HANDOFF_2026-07-09.md`** — **Main/LMS에 줄 문서 (통합본·유일)**
-- `handoff/MAIN_MOVEMENT_READINESS_2026-07-17.md` — 중앙 Supervisor 적용 후 Main의 명령 전 READY 확인 사항
+- `handoff/MAIN_MOVEMENT_READINESS_2026-07-17.md` — Main의 명령 전 readiness 확인 사항 (Supervisor 부분은 이력)
 - `handoff/TB3_1_PARITY_PLAN_2026-07-09.md` — 로봇1을 로봇2와 동일하게 맞추는 방법 (브링업 포함)
 - `handoff/DUAL_ROBOT_TRAFFIC_REVIEW_2026-07-09.md` — **2대 동시 운용·충돌 방지 방식 검토**
+
+## 검증·데모
+
+- `evidence/dual_robot_safety_2026-07-28.json`: Gazebo 듀얼 로봇 traffic/collision 통과 원본
+- `images/dual_robot_traffic_topview.gif`: README 대표 탑뷰 GIF
+- `videos/dual_robot_traffic_topview.mp4`: 19초 탑뷰 MP4
+- `demo/DUAL_ROBOT_VIDEO_PLAN.md`: 실로봇 촬영 구성과 성공본 판정 기준
 
 ## 기준 문서
 

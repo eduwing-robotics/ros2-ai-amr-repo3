@@ -1,6 +1,7 @@
 """Nav server core: lifecycle wiring and router registration."""
 
 from contextlib import asynccontextmanager
+import os
 import threading
 import time
 
@@ -120,7 +121,11 @@ def startup_runtime() -> None:
     runtime.zone_lock_manager = ZoneLockManager()
     runtime.traffic_manager = TrafficManager()
     if not rclpy.ok():
-        rclpy.init()
+        use_sim_time = os.getenv("NAV_USE_SIM_TIME", "0").strip().lower() not in (
+            "0", "false", "no", "off", "",
+        )
+        init_args = ["--ros-args", "-p", "use_sim_time:=true"] if use_sim_time else None
+        rclpy.init(args=init_args)
     runtime.navigator = LogisticsNavigator()
     runtime.navigator.set_external_spin(True)
     runtime.navigator.configure_aruco_detection_topic(robot_context.aruco_detection_topic())

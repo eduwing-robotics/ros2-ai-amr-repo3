@@ -1,171 +1,187 @@
-# 물류 자율주행 워크스페이스
+# ROS 2 Dual-AMR Navigation Server
 
-이 저장소는 SLAM 맵, 구역/웨이포인트 데이터, Nav2 실행 서버, 그리고 메인 서버 연동 계약을 함께 담는 작업 공간입니다.
+두 대의 TurtleBot3를 독립 ROS domain으로 운용하면서 Nav2 주행, ArUco 정밀 접근,
+리프트 작업, 공유 통로 교통 조정, 충돌 정지를 하나의 Movement API로 연결한 물류
+자율주행 서버입니다.
 
-## 현재 기준
+**담당 범위:** Navigation · Docking · Fleet traffic · Safety · Main/LMS 연동
 
-- 맵: `map/robot1_map.yaml`, `map/robot1_map.pgm`
-- 구역/웨이포인트: `map/zones.json`
-- 실행 서버: `scripts/nav_server.py` → `nav_app/` (compat wrapper)
-- 경로 생성: `scripts/route_builder.py`
-- 시뮬레이션/무하드웨어 테스트: `SIMULATION_MODE=1`
+<p align="center">
+  <img src="docs/images/dual_robot_traffic_topview.gif" width="900" alt="두 로봇 공유 통로 안전 시나리오 탑뷰">
+</p>
 
-## 로봇2 통합 실행 (현재 운영 기준)
+<p align="center">
+  <b>Gazebo 듀얼 로봇 안전 E2E</b><br>
+  20 cm 대기선에서 동시 명령 → 한 대만 공유 구간 진입 → 다른 로봇 대기 → 순차 완료<br>
+  <a href="docs/videos/dual_robot_traffic_topview.mp4">19초 MP4 보기</a>
+</p>
 
-Nav PC에서는 `/home/lucas/slam_nav_ws`만 사용합니다. 사용자가 venv를 직접
-활성화할 필요는 없습니다. 통합 런처가 Nav API에만 `venv/bin/python`을 자동으로
-사용하고, Nav2/RViz/ArUco는 ROS Jazzy 시스템 환경으로 실행합니다.
+## 검증 결과
+
+| 검증 항목 | 결과 | 근거 |
+| --- | ---: | --- |
+| 2대 공유 구간 제어 | `PASS` | `WAITING_TRAFFIC` 관찰, 두 명령 모두 `DONE` |
+| `leave_dock` 마커 거리 | R1 `20 → 39.54 cm`, R2 `20 → 39.60 cm` | 목표 `40 cm` |
+| 최종 AMCL approach 오차 | R1 `1.38 cm`, R2 `1.65 cm` | 허용 기준 `5 cm` 이내 |
+| 로봇 간 위치 오차 편차 | `0.27 cm` | 동일 시작 조건 반복 |
+| Collision Monitor 정지 | `PASS` | 전방 여유 `34.77 cm`, 정지 중 이동 `0.15 cm` |
+| 자동 회귀 검사 | `222 passed + 2 subtests` | ROS-free 전체 테스트 |
+
+수치는 2026-07-28 `nav_server_dual_standby` Gazebo 실행 결과이며
+[원본 증거 JSON](docs/evidence/dual_robot_safety_2026-07-28.json)으로 확인할 수 있습니다.
+실로봇에서 공유 구간 선점과 대기는 확인했지만, **2대 전체 실물 E2E는 아직 최종
+통과로 기록하지 않습니다.** 현재 검증 범위는
+[듀얼 로봇 인수인계](docs/handoff/DUAL_ROBOT_SEGMENT_TRAFFIC_HANDOFF_2026-07-21.md)에
+구분해 두었습니다.
+
+## 시스템 구성
+
+```text
+Main / LMS
+    │  POST /movement-api/v1/routes/commands
+    ▼
+Movement API :8001 / :8002
+    │
+    ├── readiness · command gate · state/callback
+    ├── segment traffic lock ── QUEUED / WAITING_TRAFFIC / LOCKED
+    └── movement executor
+          ├── Nav2 navigation / recovery
+          ├── ArUco metric two-stage docking
+          └── lift / leave_dock
+                    │
+                    ▼
+        /cmd_vel_nav → velocity_smoother → collision_monitor → /cmd_vel
+                    │
+                    ▼
+           TurtleBot3 R1 / R2
+              ▲          ▲
+       AMCL · Scan   ArUco · Lift
+```
+
+- 로봇 1: ROS domain `2`, Movement API `:8001`, `tb3_burger_01`
+- 로봇 2: ROS domain `5`, Movement API `:8002`, `tb3_burger_02`
+- 두 API가 같은 `TRAFFIC_LOCK_STATE_PATH`를 사용해 좁은 통로의 단독 점유를 보장합니다.
+- Nav2와 사용자 제어 속도는 `velocity_smoother`와 방향별 Collision Monitor를 통과합니다.
+- ArUco 접근은 카메라 pose 거리 기준으로 `40 cm → 정지 → 18~20 cm`를 폐루프 제어합니다.
+
+## 2대 시나리오
+
+```text
+R1 / R2: marker 20 cm hold
+          │
+          ├── 동시에 leave_dock + Nav2 명령 수신
+          │
+          ├── 출발 슬롯 배정
+          │
+          ├── warehouse_aisle 선점 로봇만 이동
+          │        └── 다른 로봇은 WAITING_TRAFFIC 상태로 정지
+          ├── marker 40 cm approach까지 후진
+          ├── Nav2 구간 완료 후 lock 해제
+          └── 대기 로봇이 이어서 이동 → 둘 다 DONE
+```
+
+`leave_dock`은 고정 시간 후진이 아니라 마커 거리와 odom/TF 피드백으로 approach
+위치까지 복귀합니다. 두 로봇의 기구·마찰 차이 때문에 실제 이동 거리는 조금 달라도,
+판정 기준은 최종 마커 거리와 map pose 오차입니다.
+
+## 현재 실행 정본
+
+중앙 Supervisor는 현재 사용하지 않습니다. 실로봇 정본은 로봇별
+`start_all_tb3_1.sh`, `start_all_tb3_2.sh`가 각각 7개 pane을 올리는 방식입니다.
+과거 `stack_supervisor_tb3_2.sh`와 Supervisor runbook은 이력 자료이며 실행 대상이
+아닙니다.
+
+| 로봇별 pane | 실행 위치 |
+| --- | --- |
+| TurtleBot bringup · lift · camera | Robot SBC |
+| ArUco detector · Nav2/RViz · Movement API · status | Nav PC |
+
+현재 절차:
+
+- [로봇 1 스택](docs/runbook/TB3_1_CURRENT_STACK.md)
+- [로봇 2 스택](docs/runbook/TB3_2_CURRENT_STACK.md)
+- [2대 전체 실행 순서](docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)
+
+## 빠른 실행
+
+### Gazebo 자동 안전 시험
+
+ROS 2 Jazzy, Gazebo Sim 8, Nav2, `jq`가 필요합니다. GPU/EGL이 불안정한 PC에서는
+`xvfb`를 한 번 설치합니다.
+
+```bash
+cd Nav-server
+sudo apt install xvfb
+bash Simulator/scripts/run_dual_robot_safety_test.sh
+```
+
+시험은 두 로봇을 20 cm 선으로 매번 초기화하고 traffic + collision 시나리오를
+검증합니다. 결과는
+`Simulator/generated/dual_robot/latest_safety_evidence.json`에 생성됩니다.
+
+탑뷰 GUI:
+
+```bash
+cd Nav-server
+GAZEBO_GUI=1 GAZEBO_USE_XVFB=1 \
+  bash Simulator/scripts/start_dual_robot_standby.sh reset
+```
+
+자세한 실행과 장애 대응은 [Simulator runbook](Simulator/docs/runbook/RUN_HOST_NATIVE.md)을
+참조합니다.
+
+### 실로봇 2대 스택
+
+비밀번호는 Git에 넣지 않고 권한 `600`인 `.env`의 `ROBOT1_PW`, `ROBOT2_PW`로
+관리합니다.
 
 ```bash
 cd /home/lucas/slam_nav_ws
-source /opt/ros/jazzy/setup.bash
+export TRAFFIC_COORDINATION_MODE=segment
+export TRAFFIC_DEPARTURE_STAGGER_SEC=4
+export TRAFFIC_SEGMENT_WAIT_TIMEOUT_SEC=300
+export TRAFFIC_SEGMENT_TTL_SEC=900
 
-ROBOT_PW='<robot-password>' scripts/start_all_tb3_2.sh start
+scripts/start_all_tb3_1.sh stop
+scripts/start_all_tb3_2.sh stop
+scripts/start_all_tb3_1.sh start
+scripts/start_all_tb3_2.sh start
 ```
 
-재시작, 상태 확인, 종료:
-
 ```bash
-ROBOT_PW='<robot-password>' scripts/start_all_tb3_2.sh restart
+scripts/start_all_tb3_1.sh status
 scripts/start_all_tb3_2.sh status
-ROBOT_PW='<robot-password>' scripts/start_all_tb3_2.sh stop
 ```
 
-`start`는 로봇 SBC의 TurtleBot3 bringup, lift bridge, 카메라와 Nav PC의
-ArUco detector, Nav2/RViz, Movement API(:8002)를 함께 실행합니다.
-기본 운용은 `WITH_EKF=1`(wheel odom + IMU)이며, EKF 없이 점검할 때만
-`WITH_EKF=0`을 명시합니다.
+## 폴더 구조
 
-Nav PC는 유선과 로봇 WiFi가 동시에 연결된 다중 NIC 환경이므로
-`config/fastdds_robot_network.xml`로 Fast DDS를 로봇망 `192.168.30.12`에 고정합니다.
-이 설정은 `/odom`, `/scan`, 카메라와 API 준비 검사의 공통 통신 기준입니다.
-Fast DDS 초기 discovery 지연을 고려해 센서 준비 검사는 토픽당 10초,
-초기 자세는 60초 동안 반복 발행한 뒤 Nav2 lifecycle을 확인합니다.
-
-Movement API만 별도로 실행할 때만 다음 명령을 사용합니다. 이 명령도 프로젝트
-venv를 자동 선택합니다.
-
-```bash
-cd /home/lucas/slam_nav_ws
-ONLY_ROBOT=tb3_2 scripts/start_nav_servers.sh start
+```text
+Nav-server/
+├── nav_app/       # FastAPI routers, command state, movement services
+├── scripts/       # robot launchers, navigator, traffic manager, operators
+├── launch/        # Nav2 / RViz launch
+├── config/        # robot, Nav2, Fast DDS, route configuration
+├── map/           # occupancy maps, zones, waypoints
+├── Simulator/     # 2대 Gazebo 재현 환경과 자동 안전 시나리오
+├── tests/         # ROS-free contract and regression tests
+└── docs/          # as-built, API contract, runbook, evidence
 ```
 
-이미 `(venv)`가 표시된 터미널에서도 실행은 가능하지만 필요하지 않습니다.
-운영 시에는 새 일반 터미널에서 위 통합 명령을 쓰는 것을 기준으로 합니다.
+## 설계에서 지킨 것
 
-이동 없는 검증 (ROS-free, 모든 OS):
+- **로봇별 격리:** domain, API port, 상태 디렉터리, 토픽을 로봇별로 분리합니다.
+- **좁은 통로 단독 점유:** 출발 전 segment를 예약하고 소유권을 확인한 뒤 해제합니다.
+- **안전 경로 일원화:** Nav2와 ArUco/manual 명령을 smoother와 Collision Monitor로 보냅니다.
+- **거리 기반 복귀:** 두 로봇에 같은 시간을 적용하지 않고 센서 피드백으로 종료합니다.
+- **준비 전 명령 거부:** online, localization, Nav2 lifecycle, `/cmd_vel` subscriber를 확인합니다.
+- **증거 기반 판정:** 명령 상태, traffic state, AMCL 오차, collision state를 JSON으로 남깁니다.
+- **운영과 이력 분리:** 현재 runbook만 실행 정본으로 두고 폐기된 Supervisor는 명시적으로 제외합니다.
 
-```bash
-python -m pytest tests/ -q
-scripts/check_all.sh    # Linux/bash; Windows는 pytest + validators 동일
-```
+## 문서
 
-Nav PC smoke (Linux + ROS 2 필요):
-
-```bash
-scripts/smoke_nav_servers.sh
-scripts/smoke_movement_api.sh
-scripts/smoke_main_contract.sh
-```
-
-## 실로봇 ArUco 2단계 도킹
-
-실로봇 반복 시험에서 카메라 pose 기반 거리가 픽셀 폭이나 속도×시간 추정보다 일관되게 재현되어, 접근 웨이포인트별 `metric_two_stage` 프로필을 사용합니다. 명령은 Nav2 접근 후 다음 순서로 실행됩니다.
-
-1. ArUco 중심을 보정하며 40 cm까지 접근
-2. 바퀴와 차체가 완전히 멈추도록 3초 대기
-3. 같은 마커를 폐루프로 추적해 최종 거리까지 접근 후 `hold`
-
-| 적용 위치 | 1단계 | 정지 | 최종 거리 |
-| --- | ---: | ---: | ---: |
-| 인바운드 1·2 | 40 cm | 3초 | 20 cm |
-| 로봇 대기 1·2 | 40 cm | 3초 | 20 cm |
-| 아웃바운드 1·2 | 40 cm | 3초 | 20 cm |
-| 창고 슬롯 A·B | 40 cm | 3초 | 18 cm |
-| 창고 슬롯 C·D | 40 cm | 3초 | 20 cm |
-
-최종 단계는 `metric_distance_only=true`이며 오돔 기반 추가 전진과 픽셀 폭 정지를 사용하지 않습니다. 정지 위치는 `map/zones.json`, 명령 생성은 `nav_app/services/robot_commands.py`, 정렬 제어는 `nav_app/services/docking.py`가 담당합니다. 카메라 내부 파라미터와 5 cm ArUco 실측 크기로 거리를 계산하며 마커가 사라지면 전진을 중단합니다.
-
-## 최신 API 기준
-
-Movement 서버의 최신 명령 계약은 `POST /robot-commands` 입니다.
-
-- `move_to_point`: 접근 웨이포인트까지 이동 후 `ARRIVED`
-- `dock_transfer`: 직전 `ARRIVED` 게이트 후 ArUco 탐지, 정렬, 포크 삽입, 리프트, 후진 처리 후 `DONE`
-- `aruco_align`: 직전 `ARRIVED` 게이트 후 리프트 없이 ArUco 정밀 정렬 후 `DONE`
-- `leave_dock`: 정면 주차/대기 상태에서 후진 탈출 후 `DONE`
-- `manual_drive`: 짧은 수동 이동
-- `estop`: 비상 정지/해제
-
-LMS 정본 흐름은 원자 kind 조합입니다. 기존 route-builder 경로는 호환용으로 유지합니다.
-
-- `POST /movement-api/v1/routes/preview`
-- `POST /movement-api/v1/routes/commands`
-- `GET /robot-commands/{command_id}`
-- `GET /movement-api/v1/simulation-state`
-
-## 문서 기준
-
-- [docs/README.md](docs/README.md): 문서 인덱스
-- [docs/as-built/NAV_STACK_AS_BUILT.md](docs/as-built/NAV_STACK_AS_BUILT.md): **현재 구현 정본**
-- [docs/as-built/REPOSITORY_MAP.md](docs/as-built/REPOSITORY_MAP.md): 폴더와 주요 모듈 경로 지도
-- [worklog/sessions/REFACTORING_CLOSURE.md](worklog/sessions/REFACTORING_CLOSURE.md): 리팩토링 마무리·검증 상태
-- [docs/reference/MAIN_SERVER_CONTRACT.md](docs/reference/MAIN_SERVER_CONTRACT.md): 메인 서버와 Movement 서버의 현재 계약
-- [docs/runbook/RUNBOOK_GAZEBO_SIMULATION.md](docs/runbook/RUNBOOK_GAZEBO_SIMULATION.md): Gazebo Simulator 기반 RViz/Nav2/Movement API 테스트와 메인서버 접근 절차
-- [docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md](docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md): 로봇 2대 bringup, Navigation2/RViz, 카메라/ArUco, Nav 서버, LMS 명령 전송 전체 실행 순서
-- [docs/runbook/NAV_SERVER_BEGINNER_GUIDE.md](docs/runbook/NAV_SERVER_BEGINNER_GUIDE.md): 서버 실행과 기본 점검
-- [docs/runbook/DEVELOPMENT_VERIFICATION.md](docs/runbook/DEVELOPMENT_VERIFICATION.md): 개발 검증 계층
-- [docs/runbook/real-robot-validation/](docs/runbook/real-robot-validation/): 실로봇 Movement API 검증 절차
-- [docs/runbook/RUNTIME_OUTPUT_POLICY.md](docs/runbook/RUNTIME_OUTPUT_POLICY.md): logs/tmp/venv 정책
-
-
-### Operator shortcut
-
-Common Nav PC commands are grouped under one wrapper:
-
-```bash
-scripts/nav_ops.sh start      # start Nav servers in background
-scripts/nav_ops.sh status     # API and /cmd_vel readiness
-scripts/nav_ops.sh detector1  # run robot1 ArUco detector in this terminal
-MARKER_ID=0 scripts/nav_ops.sh aruco1
-```
-
-Use `scripts/nav_ops.sh help` to see robot SBC camera/bringup helpers and robot2 variants.
-
-## Pi Camera and ArUco Docking
-
-Recommended real-robot flow: start the Pi Camera on the TurtleBot3 SBC, then run only the ArUco detector on the Nav PC.
-
-Robot1 SBC camera:
-
-```bash
-source /opt/ros/jazzy/setup.bash
-export ROS_DOMAIN_ID=2
-ros2 launch turtlebot3_bringup camera_low_bandwidth.launch.py
-```
-
-Nav PC detector:
-
-```bash
-cd /home/lucas/slam_nav_ws
-START_CAMERA_LAUNCH=0 ROBOT_ID=tb3_burger_01 scripts/run_pi_camera_aruco.sh
-```
-
-Before movement, verify the robot is really visible from the Nav PC:
-
-```bash
-source /opt/ros/jazzy/setup.bash
-export ROS_DOMAIN_ID=2
-ros2 node list | grep turtlebot3
-ros2 topic info -v /cmd_vel
-ros2 topic info -v /scan
-ros2 topic info -v /camera/image_raw/compressed
-```
-
-`scripts/aruco_detector_node.py` decodes `sensor_msgs/msg/CompressedImage` from `/camera/image_raw/compressed`, detects ArUco markers with OpenCV, and publishes JSON detections to `/mission/<tb3>/aruco/detections`. `dock_transfer` consumes that detection topic for marker wait, precision alignment to the fork-insert start pose, a short low-speed fork insert, lift hook, and reverse-out. `aruco_align` uses the same marker/alignment path without lift. `leave_dock` reverses out from a front-facing parked/docked standby before the next navigation command.
-
-Full startup procedure:
-- [docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md](docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)
-- [docs/runbook/RUNBOOK_ARUCO_DOCKING.md](docs/runbook/RUNBOOK_ARUCO_DOCKING.md)
-- ArUco marker 크기 기준: 실제 marker는 `5cm x 5cm`, detector 기본값은 `ARUCO_MARKER_SIZE_M=0.05`
-- 2026-06-26 로봇1 marker `0` 정밀주차 성공 기준: `target_marker_width_px=65`, 최종 `center_error_norm=0.046875`, `marker_width_px=65.0077`, command `DONE`
+- [현재 구현 정본](docs/as-built/NAV_STACK_AS_BUILT.md)
+- [Main/LMS API 계약](docs/reference/MAIN_SERVER_CONTRACT.md)
+- [개발 검증](docs/runbook/DEVELOPMENT_VERIFICATION.md)
+- [ArUco 도킹](docs/runbook/RUNBOOK_ARUCO_DOCKING.md)
+- [Simulator](Simulator/README.md)
+- [데모 영상 촬영안](docs/demo/DUAL_ROBOT_VIDEO_PLAN.md)

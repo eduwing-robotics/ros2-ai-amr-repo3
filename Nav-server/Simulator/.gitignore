@@ -1,0 +1,15 @@
+# colcon / local deps build (machine-specific absolute paths inside)
+deps_ws/build/
+deps_ws/install/
+deps_ws/log/
+
+# generated worlds (optional local regen)
+worlds/generated_*.world
+worlds/_scratch_*.world
+models/_scratch_*
+
+# env overrides
+.env
+
+# runtime evidence, generated bridges/SDF, PIDs, and logs
+generated/

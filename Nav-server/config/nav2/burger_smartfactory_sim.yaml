@@ -32,8 +32,10 @@ amcl:
     sigma_hit: 0.2
     tf_broadcast: true
     transform_tolerance: 1.5
-    update_min_a: 0.2
-    update_min_d: 0.25
+    # A standby leave is only 0.20 m. Keep AMCL updates below that motion so
+    # final approach telemetry cannot reuse the pre-leave map pose.
+    update_min_a: 0.03
+    update_min_d: 0.03
     z_hit: 0.5
     z_max: 0.05
     z_rand: 0.5
@@ -375,56 +377,20 @@ collision_monitor:
     cmd_vel_out_topic: cmd_vel
     state_topic: collision_monitor_state
     transform_tolerance: 1.5
-    source_timeout: 5.0
+    source_timeout: 0.5
     base_shift_correction: true
     stop_pub_timeout: 2.0
     enable_stamped_cmd_vel: true
     use_realtime_priority: false
     polygons:
-    - PolygonStop
-    - PolygonSlow
-    PolygonStop:
-      type: circle
-      radius: 0.145
-      action_type: stop
-      min_points: 4
-      visualize: true
-      polygon_pub_topic: polygon_stop
-      enabled: true
-    PolygonSlow:
-      type: polygon
-      points: '[[0.20, 0.11], [0.20, -0.11], [-0.14, -0.11], [-0.14, 0.11]]'
-      action_type: slowdown
-      min_points: 4
-      slowdown_ratio: 0.35
-      visualize: true
-      polygon_pub_topic: polygon_slowdown
-      enabled: true
-    PolygonLimit:
-      type: polygon
-      points: '[[0.22, 0.17], [0.22, -0.17], [-0.18, -0.17], [-0.18, 0.17]]'
-      action_type: limit
-      min_points: 4
-      linear_limit: 0.4
-      angular_limit: 0.5
-      visualize: true
-      polygon_pub_topic: polygon_limit
-      enabled: false
-    FootprintApproach:
-      type: polygon
-      action_type: approach
-      footprint_topic: /local_costmap/published_footprint
-      time_before_collision: 2.0
-      simulation_time_step: 0.02
-      min_points: 6
-      visualize: false
-      enabled: false
+    - VelocityPolygonStop
+    - VelocityPolygonSlow
     VelocityPolygonStop:
       type: velocity_polygon
       action_type: stop
-      min_points: 6
+      min_points: 3
       visualize: true
-      enabled: false
+      enabled: true
       polygon_pub_topic: velocity_polygon_stop
       velocity_polygons:
       - rotation
@@ -433,33 +399,71 @@ collision_monitor:
       - stopped
       holonomic: false
       rotation:
-        points: '[[0.3, 0.3], [0.3, -0.3], [-0.3, -0.3], [-0.3, 0.3]]'
+        points: '[[0.18, 0.18], [0.18, -0.18], [-0.18, -0.18], [-0.18, 0.18]]'
         linear_min: 0.0
-        linear_max: 0.05
-        theta_min: -1.0
-        theta_max: 1.0
+        linear_max: 0.03
+        theta_min: -2.0
+        theta_max: 2.0
       translation_forward:
-        points: '[[0.35, 0.3], [0.35, -0.3], [-0.2, -0.3], [-0.2, 0.3]]'
+        points: '[[0.30, 0.16], [0.30, -0.16], [0.00, -0.16], [0.00, 0.16]]'
         linear_min: 0.0
         linear_max: 1.0
-        theta_min: -1.0
-        theta_max: 1.0
+        theta_min: -2.0
+        theta_max: 2.0
       translation_backward:
-        points: '[[0.2, 0.3], [0.2, -0.3], [-0.35, -0.3], [-0.35, 0.3]]'
+        points: '[[0.00, 0.16], [0.00, -0.16], [-0.15, -0.16], [-0.15, 0.16]]'
         linear_min: -1.0
         linear_max: 0.0
-        theta_min: -1.0
-        theta_max: 1.0
+        theta_min: -2.0
+        theta_max: 2.0
       stopped:
-        points: '[[0.25, 0.25], [0.25, -0.25], [-0.25, -0.25], [-0.25, 0.25]]'
+        points: '[[0.13, 0.12], [0.13, -0.12], [-0.13, -0.12], [-0.13, 0.12]]'
         linear_min: -1.0
         linear_max: 1.0
-        theta_min: -1.0
-        theta_max: 1.0
+        theta_min: -2.0
+        theta_max: 2.0
+    VelocityPolygonSlow:
+      type: velocity_polygon
+      action_type: slowdown
+      min_points: 3
+      slowdown_ratio: 0.35
+      visualize: true
+      enabled: true
+      polygon_pub_topic: velocity_polygon_slowdown
+      velocity_polygons:
+      - rotation
+      - translation_forward
+      - translation_backward
+      - stopped
+      holonomic: false
+      rotation:
+        points: '[[0.24, 0.22], [0.24, -0.22], [-0.24, -0.22], [-0.24, 0.22]]'
+        linear_min: 0.0
+        linear_max: 0.03
+        theta_min: -2.0
+        theta_max: 2.0
+      translation_forward:
+        points: '[[0.48, 0.20], [0.48, -0.20], [0.00, -0.20], [0.00, 0.20]]'
+        linear_min: 0.0
+        linear_max: 1.0
+        theta_min: -2.0
+        theta_max: 2.0
+      translation_backward:
+        points: '[[0.00, 0.20], [0.00, -0.20], [-0.24, -0.20], [-0.24, 0.20]]'
+        linear_min: -1.0
+        linear_max: 0.0
+        theta_min: -2.0
+        theta_max: 2.0
+      stopped:
+        points: '[[0.13, 0.12], [0.13, -0.12], [-0.13, -0.12], [-0.13, 0.12]]'
+        linear_min: -1.0
+        linear_max: 1.0
+        theta_min: -2.0
+        theta_max: 2.0
     observation_sources:
     - scan
     scan:
-      source_timeout: 5.0
+      source_timeout: 0.5
       type: scan
       topic: /scan
       enabled: true
@@ -473,7 +477,7 @@ velocity_smoother:
     - 0.0
     - 0.16
     min_velocity:
-    - 0.0
+    - -0.045
     - 0.0
     - -0.16
     deadband_velocity:

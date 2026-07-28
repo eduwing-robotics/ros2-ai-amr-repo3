@@ -1,0 +1,26 @@
+{
+  "profile": "nav_server_dual_standby",
+  "map_yaml": "maps/nav_server/map.yaml",
+  "zones_json": "maps/nav_server/zones.json",
+  "hold_marker_distance_m": 0.20,
+  "approach_marker_distance_m": 0.40,
+  "traffic_lock_state_path": "/tmp/nav_server_gazebo_traffic_locks.json",
+  "robots": [
+    {
+      "name": "tb3_1",
+      "robot_id": "tb3_burger_01",
+      "ros_domain_id": 2,
+      "api_port": 8001,
+      "marker_id": 3,
+      "approach_waypoint": "vehicle_1_approach"
+    },
+    {
+      "name": "tb3_2",
+      "robot_id": "tb3_burger_02",
+      "ros_domain_id": 5,
+      "api_port": 8002,
+      "marker_id": 4,
+      "approach_waypoint": "vehicle_2_approach"
+    }
+  ]
+}

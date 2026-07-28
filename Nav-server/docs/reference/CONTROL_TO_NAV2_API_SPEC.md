@@ -809,10 +809,30 @@ Movement 서버는 단일 통행 구간을 `traffic_segments`로 관리한다.
 | `warehouse_aisle` | 창고 중앙 단일 통행 구간 |
 | `outbound_lane` | 출고 진출 단일 통행 구간 |
 
-현재 lock 확인:
+현재 공유 교통 상태 확인:
 
 ```http
 GET /traffic/locks
+```
+
+응답의 `locks`는 TTL이 있는 명령 예약이고, `occupancy`는 정지 로봇의 실제 점유이다.
+`occupancy`는 명령 종료나 lock 해제로 사라지지 않으며, 확인된 위치 변경 또는 운영자 reset 때만 이동·해제한다.
+두 상태 모두 다른 로봇의 같은 segment 진입을 차단한다.
+
+```json
+{
+  "locks": {},
+  "occupancy": {
+    "warehouse_aisle": {
+      "state_type": "occupancy",
+      "segment_id": "warehouse_aisle",
+      "robot_id": "tb3_1",
+      "command_id": "task-1001",
+      "source": "stationary"
+    }
+  },
+  "segments": ["inbound_lane", "outbound_lane", "warehouse_aisle"]
+}
 ```
 
 충돌 시 응답:

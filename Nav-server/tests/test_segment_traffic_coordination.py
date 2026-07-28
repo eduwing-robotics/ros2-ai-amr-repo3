@@ -2,15 +2,18 @@ import json
 import threading
 import time
 
+import pytest
+
 from nav_app.models import MovementStep
 from nav_app.runtime import runtime
+from nav_app.services import command_state
 from nav_app.services.command_state import release_traffic_locks_for_command
 from nav_app.services.traffic_coordination import (
     release_held_segments,
     segments_for_step,
     wait_for_step_segments,
 )
-from traffic_manager import TrafficManager
+from traffic_manager import TrafficLockConflict, TrafficManager
 
 
 def zones_file(tmp_path):
@@ -132,3 +135,90 @@ def test_legacy_cleanup_still_releases_full_command_lock(tmp_path, monkeypatch):
         assert tm.list_locks() == {}
     finally:
         runtime.traffic_manager = previous
+
+
+def test_stationary_occupancy_survives_command_lock_release(tmp_path):
+    tm = manager(tmp_path)
+    tm.acquire("warehouse_aisle", "tb3_1", "depart")
+    tm.set_robot_occupancy(
+        ["warehouse_aisle"],
+        robot_id="tb3_1",
+        command_id="depart",
+        source="stationary",
+    )
+
+    tm.release("warehouse_aisle", "tb3_1", "depart")
+
+    assert tm.list_locks() == {}
+    occupancy = tm.list_occupancy()
+    assert occupancy["warehouse_aisle"]["robot_id"] == "tb3_1"
+    assert occupancy["warehouse_aisle"]["source"] == "stationary"
+
+
+def test_other_robot_cannot_lock_physically_occupied_segment(tmp_path):
+    tm = manager(tmp_path)
+    tm.set_robot_occupancy(["warehouse_aisle"], robot_id="tb3_1", source="stationary")
+
+    with pytest.raises(TrafficLockConflict) as exc_info:
+        tm.acquire("warehouse_aisle", "tb3_2", "next-command")
+
+    assert exc_info.value.current_lock["state_type"] == "occupancy"
+    assert exc_info.value.current_lock["robot_id"] == "tb3_1"
+
+
+def test_same_robot_can_reacquire_and_atomically_move_occupancy(tmp_path):
+    tm = manager(tmp_path)
+    tm.set_robot_occupancy(["warehouse_aisle"], robot_id="tb3_1", source="stationary")
+
+    tm.acquire("warehouse_aisle", "tb3_1", "continue")
+    tm.set_robot_occupancy(["inbound_lane"], robot_id="tb3_1", command_id="continue")
+
+    assert set(tm.list_occupancy()) == {"inbound_lane"}
+    assert tm.list_occupancy()["inbound_lane"]["robot_id"] == "tb3_1"
+
+
+def test_legacy_cleanup_cannot_remove_another_commands_lock(tmp_path, monkeypatch):
+    tm = manager(tmp_path)
+    previous = runtime.traffic_manager
+    runtime.traffic_manager = tm
+    monkeypatch.setenv("TRAFFIC_COORDINATION_MODE", "legacy")
+    tm.acquire("warehouse_aisle", "tb3_2", "new-owner")
+    try:
+        release_traffic_locks_for_command({
+            "robot_name": "tb3_1",
+            "command_id": "stale-command",
+            "traffic_segments": ["warehouse_aisle"],
+        })
+        lock = tm.list_locks()["warehouse_aisle"]
+        assert lock["robot_id"] == "tb3_2"
+        assert lock["command_id"] == "new-owner"
+    finally:
+        tm.release("warehouse_aisle", "tb3_2", "new-owner")
+        runtime.traffic_manager = previous
+
+
+def test_gate_timeout_stops_before_releasing_owned_lock(monkeypatch):
+    events = []
+    navigator = type("Navigator", (), {
+        "publish_stop_velocity": lambda self: events.append("stop"),
+    })()
+    traffic_manager = type("TrafficManagerProbe", (), {
+        "release": lambda self, *args, **kwargs: events.append("release"),
+    })()
+    previous = (runtime.navigator, runtime.traffic_manager, runtime.state_store)
+    runtime.navigator, runtime.traffic_manager, runtime.state_store = navigator, traffic_manager, None
+    monkeypatch.setattr(command_state, "report_movement_result", lambda *args: None)
+    monkeypatch.setattr(command_state, "report_command_callback", lambda *args: None)
+    monkeypatch.setattr(command_state, "_report_movement_robot_status", lambda *args: None)
+    command = {
+        "state": "ARRIVED",
+        "command_id": "timed-out",
+        "robot_name": "tb3_1",
+        "traffic_segments": ["warehouse_aisle"],
+    }
+    try:
+        assert command_state.mark_command_aborted(command, "timeout", "gate") is True
+    finally:
+        runtime.navigator, runtime.traffic_manager, runtime.state_store = previous
+
+    assert events == ["stop", "release"]

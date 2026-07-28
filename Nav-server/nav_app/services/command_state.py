@@ -5,6 +5,8 @@ from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
 
+from traffic_manager import TrafficLockConflict
+
 from nav_app.adapters.callbacks import post_json_callback as _post_json_callback
 from nav_app.adapters.callbacks import post_main_callback as _post_main_callback
 from nav_app.runtime import runtime
@@ -25,12 +27,17 @@ def release_traffic_locks_for_command(command: Dict[str, Any]):
     segments = command.get("traffic_segments_held" if command.get("traffic_coordination_mode") == "segment" else "traffic_segments") or []
     if not segments:
         return
-    runtime.traffic_manager.release_many(
-        segments,
-        robot_id=command.get("robot_name"),
-        command_id=command.get("command_id"),
-        force=True,
-    )
+    for segment_id in segments:
+        try:
+            runtime.traffic_manager.release(
+                segment_id,
+                robot_id=command.get("robot_name"),
+                command_id=command.get("command_id"),
+                force=False,
+            )
+        except TrafficLockConflict:
+            # A stale terminal callback must not remove a newer command's lock.
+            pass
 
 
 def persist_command(command: Dict[str, Any]):
@@ -92,6 +99,8 @@ def command_callback_payload(command: Dict[str, Any], event: str, message: Optio
         "robot_at": command.get("robot_at"),
         "resumable": command.get("resumable"),
         "failure_diagnostics": command.get("failure_diagnostics"),
+        "leave_dock_telemetry": command.get("leave_dock_telemetry"),
+        "traffic_segments_held": command.get("traffic_segments_held"),
         "message": message if message is not None else command.get("message"),
         "current_step_index": command.get("current_step_index"),
         "current_step_code": command.get("current_step_code"),
@@ -159,6 +168,8 @@ def mark_command_aborted(command: Dict[str, Any], reason: str, stage: str, robot
         command["authority_owner"] = "MAIN"
         command["authority_released"] = True
         persist_command(command)
+    if runtime.navigator:
+        runtime.navigator.publish_stop_velocity()
     report_movement_result(command.get("command_id"), command.get("task_id"), command.get("robot_name"), "ABORTED", command["message"])
     if reason == "estop":
         report_command_callback(command, "ESTOP_LATCHED", command["message"])

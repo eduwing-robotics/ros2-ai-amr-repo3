@@ -1,0 +1,24 @@
+{
+  "profile": "smartfactory_safe",
+  "description": "SmartFactory 1.8m map with conservative Nav2 clearances for wall-avoidance loop tests.",
+  "map_name": "smartfactory",
+  "warehouse_world": true,
+  "wall_height_m": 0.5,
+  "gazebo_gui": true,
+  "rviz": true,
+  "turtlebot3_model": "burger",
+  "ros_domain_id": 12,
+  "nav2_params_file": "/home/lucas/Downloads/Simulator_0.2./Simulator/config/nav2/smartfactory_safe.yaml",
+  "robots_config_path": "/home/lucas/Downloads/Simulator_0.2./Simulator/config/robots_gazebo_domain12.json",
+  "spawn": {
+    "x": 0.765,
+    "y": 0.58,
+    "yaw": -1.57
+  },
+  "initial_pose": {
+    "x": 0.765,
+    "y": 0.58,
+    "yaw": -1.57
+  },
+  "nav_goal_xy_tolerance_m": 0.25
+}

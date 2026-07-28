@@ -1,0 +1,38 @@
+services:
+  sim:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: nav2_refector_gazebo:jazzy
+    container_name: nav2_refector_gazebo
+    working_dir: /workspace/nav2_REFECTOR/slam_nav_ws
+    environment:
+      ROS_DOMAIN_ID: "2"
+      ROS_LOCALHOST_ONLY: "0"
+      SIMULATOR_ROOT: /workspace/Simulator
+      NAV2_REFECTOR_ROOT: /workspace/nav2_REFECTOR
+      TURTLEBOT3_MODEL: "burger"
+      ROBOT_ID: "tb3_burger_01"
+      MAP_NAME: "${MAP_NAME:-}"
+      WALL_HEIGHT_M: "${WALL_HEIGHT_M:-0.50}"
+      USE_SIM_TIME: "true"
+      GAZEBO_GUI: "${GAZEBO_GUI:-0}"
+      WAREHOUSE_WORLD: "${WAREHOUSE_WORLD:-0}"
+      MULTI_NAV_API: "${MULTI_NAV_API:-0}"
+      TB3_1_PORT: "${TB3_1_PORT:-8001}"
+      TB3_2_PORT: "${TB3_2_PORT:-8002}"
+      INITIAL_X: "${INITIAL_X:-}"
+      INITIAL_Y: "${INITIAL_Y:-}"
+      INITIAL_YAW: "${INITIAL_YAW:-}"
+      DISPLAY: "${DISPLAY:-}"
+      QT_X11_NO_MITSHM: "1"
+    volumes:
+      - .:/workspace/Simulator
+      - ../WS/nav2_REFECTOR:/workspace/nav2_REFECTOR
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    ports:
+      - "8001:8001"
+      - "8002:8002"
+    stdin_open: true
+    tty: true
+    command: ["bash", "-lc", "bash \"$$SIMULATOR_ROOT/scripts/start_demo.sh\""]

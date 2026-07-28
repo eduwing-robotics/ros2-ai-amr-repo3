@@ -23,6 +23,7 @@
       "aruco_marker_yaw_tolerance_deg": 6.0,
       "aruco_pose_reposition_enabled": true,
       "standby_aruco_marker_id": 3,
+      "standby_approach_waypoint": "vehicle_1_approach",
       "lift": {
         "enabled": true,
         "topics": {
@@ -75,6 +76,7 @@
       "aruco_center_angular_sign": -1.0,
       "aruco_marker_yaw_angular_sign": -1.0,
       "standby_aruco_marker_id": 4,
+      "standby_approach_waypoint": "vehicle_2_approach",
       "lift": {
         "enabled": true,
         "topics": {

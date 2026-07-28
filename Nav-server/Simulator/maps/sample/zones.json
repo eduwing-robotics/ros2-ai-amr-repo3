@@ -1,0 +1,490 @@
+{
+  "version": "factory_180cm_aruco_waypoints_v11_approach_backoff",
+  "map": {
+    "image": "map.pgm",
+    "yaml": "map.yaml",
+    "width_m": 1.8,
+    "height_m": 1.8
+  },
+  "notes": [
+    "Nav2 approach points were moved farther back from slots/parking boxes to reduce costmap inflation issues.",
+    "Dock handoff poses and ArUco marker positions remain close to the target; final parking should be handled by ArUco servoing."
+  ],
+  "waypoints": {
+    "inbound_entry": {
+      "x": 0.366,
+      "y": 0.259,
+      "theta": 1.57,
+      "role": "입고존 접근"
+    },
+    "outbound_entry": {
+      "x": 1.434,
+      "y": 0.259,
+      "theta": 1.57,
+      "role": "출고존 접근"
+    },
+    "aisle_right_south": {
+      "x": 1.28,
+      "y": 0.55,
+      "theta": 1.57,
+      "role": "우측 통로 하단"
+    },
+    "aisle_right_mid": {
+      "x": 1.28,
+      "y": 0.95,
+      "theta": 1.57,
+      "role": "우측 통로 중간"
+    },
+    "aisle_right_north": {
+      "x": 1.28,
+      "y": 1.35,
+      "theta": 1.57,
+      "role": "우측 통로 상단"
+    },
+    "warehouse_a_approach": {
+      "x": 0.54,
+      "y": 1.236,
+      "theta": 0.0,
+      "role": "A 슬롯 접근"
+    },
+    "warehouse_a_dock": {
+      "x": 0.74,
+      "y": 1.236,
+      "theta": 0.0,
+      "role": "A 슬롯 ArUco 전환"
+    },
+    "warehouse_b_approach": {
+      "x": 0.54,
+      "y": 0.992,
+      "theta": 0.0,
+      "role": "B 슬롯 접근"
+    },
+    "warehouse_b_dock": {
+      "x": 0.74,
+      "y": 0.992,
+      "theta": 0.0,
+      "role": "B 슬롯 ArUco 전환"
+    },
+    "warehouse_c_approach": {
+      "x": 1.26,
+      "y": 1.236,
+      "theta": 3.14,
+      "role": "C 슬롯 접근"
+    },
+    "warehouse_c_dock": {
+      "x": 1.06,
+      "y": 1.236,
+      "theta": 3.14,
+      "role": "C 슬롯 ArUco 전환"
+    },
+    "warehouse_d_approach": {
+      "x": 1.26,
+      "y": 0.992,
+      "theta": 3.14,
+      "role": "D 슬롯 접근"
+    },
+    "warehouse_d_dock": {
+      "x": 1.06,
+      "y": 0.992,
+      "theta": 3.14,
+      "role": "D 슬롯 ArUco 전환"
+    },
+    "inbound_slot_1_approach": {
+      "x": 0.259,
+      "y": 0.44,
+      "theta": -1.57,
+      "role": "입고 슬롯1 접근"
+    },
+    "inbound_slot_1_dock": {
+      "x": 0.259,
+      "y": 0.27,
+      "theta": -1.57,
+      "role": "입고 슬롯1 ArUco 전환"
+    },
+    "inbound_slot_2_approach": {
+      "x": 0.473,
+      "y": 0.44,
+      "theta": -1.57,
+      "role": "입고 슬롯2 접근"
+    },
+    "inbound_slot_2_dock": {
+      "x": 0.473,
+      "y": 0.27,
+      "theta": -1.57,
+      "role": "입고 슬롯2 ArUco 전환"
+    },
+    "outbound_slot_1_approach": {
+      "x": 1.327,
+      "y": 0.44,
+      "theta": -1.57,
+      "role": "출고 슬롯1 접근"
+    },
+    "outbound_slot_1_dock": {
+      "x": 1.327,
+      "y": 0.27,
+      "theta": -1.57,
+      "role": "출고 슬롯1 ArUco 전환"
+    },
+    "outbound_slot_2_approach": {
+      "x": 1.541,
+      "y": 0.44,
+      "theta": -1.57,
+      "role": "출고 슬롯2 접근"
+    },
+    "outbound_slot_2_dock": {
+      "x": 1.541,
+      "y": 0.27,
+      "theta": -1.57,
+      "role": "출고 슬롯2 ArUco 전환"
+    },
+    "vehicle_1_approach": {
+      "x": 0.765,
+      "y": 0.58,
+      "theta": -1.57,
+      "role": "1호차 대기 접근"
+    },
+    "vehicle_1_dock": {
+      "x": 0.765,
+      "y": 0.33,
+      "theta": -1.57,
+      "role": "1호차 ArUco 정밀주차 전환"
+    },
+    "vehicle_2_approach": {
+      "x": 1.035,
+      "y": 0.58,
+      "theta": -1.57,
+      "role": "2호차 대기 접근"
+    },
+    "vehicle_2_dock": {
+      "x": 1.035,
+      "y": 0.33,
+      "theta": -1.57,
+      "role": "2호차 ArUco 정밀주차 전환"
+    }
+  },
+  "semantic_zones": {
+    "inbound_zone": {
+      "display_name": "입고존",
+      "kind": "keepout_or_controlled_entry",
+      "role": "inbound",
+      "mask_value": 80,
+      "rect": {
+        "min_x": 0.183051,
+        "max_x": 0.549153,
+        "min_y": 0.122034,
+        "max_y": 0.244068
+      }
+    },
+    "vehicle_1_zone": {
+      "display_name": "1호차 대기",
+      "kind": "waiting_charging",
+      "role": "vehicle_1_parking",
+      "mask_value": 130,
+      "aruco_marker_id": 501,
+      "approach_waypoint": "vehicle_1_approach",
+      "dock_waypoint": "vehicle_1_dock",
+      "rect": {
+        "min_x": 0.66,
+        "min_y": 0.122034,
+        "max_x": 0.87,
+        "max_y": 0.427034
+      },
+      "aruco_marker": {
+        "id": 501,
+        "frame": "map",
+        "mounted_on": "vehicle_1_parking_back_wall",
+        "x": 0.765,
+        "y": 0.122034,
+        "theta": 1.57,
+        "side": "bottom",
+        "description": "1호차 대기장소 뒤쪽 벽/바닥 기준 ArUco 마커"
+      }
+    },
+    "vehicle_2_zone": {
+      "display_name": "2호차 대기",
+      "kind": "waiting_charging",
+      "role": "vehicle_2_parking",
+      "mask_value": 130,
+      "aruco_marker_id": 502,
+      "approach_waypoint": "vehicle_2_approach",
+      "dock_waypoint": "vehicle_2_dock",
+      "rect": {
+        "min_x": 0.93,
+        "min_y": 0.122034,
+        "max_x": 1.14,
+        "max_y": 0.427034
+      },
+      "aruco_marker": {
+        "id": 502,
+        "frame": "map",
+        "mounted_on": "vehicle_2_parking_back_wall",
+        "x": 1.035,
+        "y": 0.122034,
+        "theta": 1.57,
+        "side": "bottom",
+        "description": "2호차 대기장소 뒤쪽 벽/바닥 기준 ArUco 마커"
+      }
+    },
+    "outbound_zone": {
+      "display_name": "출고존",
+      "kind": "controlled_exit",
+      "role": "outbound",
+      "mask_value": 100,
+      "rect": {
+        "min_x": 1.250847,
+        "max_x": 1.616949,
+        "min_y": 0.122034,
+        "max_y": 0.244068
+      }
+    },
+    "warehouse_section_a": {
+      "display_name": "A 슬롯",
+      "kind": "inventory_section",
+      "role": "slot_a",
+      "mask_value": 180,
+      "aruco_marker_id": 101,
+      "approach_waypoint": "warehouse_a_approach",
+      "dock_waypoint": "warehouse_a_dock",
+      "rect": {
+        "min_x": 0.79322,
+        "max_x": 0.915254,
+        "min_y": 1.159322,
+        "max_y": 1.311864
+      },
+      "aruco_marker": {
+        "id": 101,
+        "frame": "map",
+        "mounted_on": "central_slot_back_wall",
+        "x": 0.9,
+        "y": 1.236,
+        "theta": 3.14,
+        "side": "left",
+        "description": "슬롯 뒤 중앙 벽에 부착된 ArUco 마커 기준 위치"
+      }
+    },
+    "warehouse_section_b": {
+      "display_name": "B 슬롯",
+      "kind": "inventory_section",
+      "role": "slot_b",
+      "mask_value": 180,
+      "aruco_marker_id": 102,
+      "approach_waypoint": "warehouse_b_approach",
+      "dock_waypoint": "warehouse_b_dock",
+      "rect": {
+        "min_x": 0.79322,
+        "max_x": 0.915254,
+        "min_y": 0.915254,
+        "max_y": 1.067797
+      },
+      "aruco_marker": {
+        "id": 102,
+        "frame": "map",
+        "mounted_on": "central_slot_back_wall",
+        "x": 0.9,
+        "y": 0.992,
+        "theta": 3.14,
+        "side": "left",
+        "description": "슬롯 뒤 중앙 벽에 부착된 ArUco 마커 기준 위치"
+      }
+    },
+    "warehouse_section_c": {
+      "display_name": "C 슬롯",
+      "kind": "inventory_section",
+      "role": "slot_c",
+      "mask_value": 180,
+      "aruco_marker_id": 201,
+      "approach_waypoint": "warehouse_c_approach",
+      "dock_waypoint": "warehouse_c_dock",
+      "rect": {
+        "min_x": 0.884746,
+        "max_x": 1.00678,
+        "min_y": 1.159322,
+        "max_y": 1.311864
+      },
+      "aruco_marker": {
+        "id": 201,
+        "frame": "map",
+        "mounted_on": "central_slot_back_wall",
+        "x": 0.9,
+        "y": 1.236,
+        "theta": 0.0,
+        "side": "right",
+        "description": "슬롯 뒤 중앙 벽에 부착된 ArUco 마커 기준 위치"
+      }
+    },
+    "warehouse_section_d": {
+      "display_name": "D 슬롯",
+      "kind": "inventory_section",
+      "role": "slot_d",
+      "mask_value": 180,
+      "aruco_marker_id": 202,
+      "approach_waypoint": "warehouse_d_approach",
+      "dock_waypoint": "warehouse_d_dock",
+      "rect": {
+        "min_x": 0.884746,
+        "max_x": 1.00678,
+        "min_y": 0.915254,
+        "max_y": 1.067797
+      },
+      "aruco_marker": {
+        "id": 202,
+        "frame": "map",
+        "mounted_on": "central_slot_back_wall",
+        "x": 0.9,
+        "y": 0.992,
+        "theta": 0.0,
+        "side": "right",
+        "description": "슬롯 뒤 중앙 벽에 부착된 ArUco 마커 기준 위치"
+      }
+    },
+    "main_aisle": {
+      "display_name": "중앙통로",
+      "kind": "slow_work_area",
+      "role": "main_aisle",
+      "mask_value": 220,
+      "rect": {
+        "min_x": 0.55,
+        "min_y": 0.32,
+        "max_x": 1.25,
+        "max_y": 1.55
+      }
+    },
+    "inbound_slot_1": {
+      "display_name": "입고 슬롯1",
+      "kind": "inventory_section",
+      "role": "inbound_slot_1",
+      "mask_value": 180,
+      "aruco_marker_id": 301,
+      "approach_waypoint": "inbound_slot_1_approach",
+      "dock_waypoint": "inbound_slot_1_dock",
+      "rect": {
+        "min_x": 0.183051,
+        "max_x": 0.335593,
+        "min_y": 0.122034,
+        "max_y": 0.244068
+      },
+      "aruco_marker": {
+        "id": 301,
+        "frame": "map",
+        "mounted_on": "bottom_slot_back_wall",
+        "x": 0.259,
+        "y": 0.122,
+        "theta": 1.57,
+        "side": "bottom",
+        "description": "슬롯 뒤 하단 벽에 부착된 ArUco 마커 기준 위치"
+      }
+    },
+    "inbound_slot_2": {
+      "display_name": "입고 슬롯2",
+      "kind": "inventory_section",
+      "role": "inbound_slot_2",
+      "mask_value": 180,
+      "aruco_marker_id": 302,
+      "approach_waypoint": "inbound_slot_2_approach",
+      "dock_waypoint": "inbound_slot_2_dock",
+      "rect": {
+        "min_x": 0.39661,
+        "max_x": 0.549153,
+        "min_y": 0.122034,
+        "max_y": 0.244068
+      },
+      "aruco_marker": {
+        "id": 302,
+        "frame": "map",
+        "mounted_on": "bottom_slot_back_wall",
+        "x": 0.473,
+        "y": 0.122,
+        "theta": 1.57,
+        "side": "bottom",
+        "description": "슬롯 뒤 하단 벽에 부착된 ArUco 마커 기준 위치"
+      }
+    },
+    "outbound_slot_1": {
+      "display_name": "출고 슬롯1",
+      "kind": "inventory_section",
+      "role": "outbound_slot_1",
+      "mask_value": 180,
+      "aruco_marker_id": 401,
+      "approach_waypoint": "outbound_slot_1_approach",
+      "dock_waypoint": "outbound_slot_1_dock",
+      "rect": {
+        "min_x": 1.250847,
+        "max_x": 1.40339,
+        "min_y": 0.122034,
+        "max_y": 0.244068
+      },
+      "aruco_marker": {
+        "id": 401,
+        "frame": "map",
+        "mounted_on": "bottom_slot_back_wall",
+        "x": 1.327,
+        "y": 0.122,
+        "theta": 1.57,
+        "side": "bottom",
+        "description": "슬롯 뒤 하단 벽에 부착된 ArUco 마커 기준 위치"
+      }
+    },
+    "outbound_slot_2": {
+      "display_name": "출고 슬롯2",
+      "kind": "inventory_section",
+      "role": "outbound_slot_2",
+      "mask_value": 180,
+      "aruco_marker_id": 402,
+      "approach_waypoint": "outbound_slot_2_approach",
+      "dock_waypoint": "outbound_slot_2_dock",
+      "rect": {
+        "min_x": 1.464407,
+        "max_x": 1.616949,
+        "min_y": 0.122034,
+        "max_y": 0.244068
+      },
+      "aruco_marker": {
+        "id": 402,
+        "frame": "map",
+        "mounted_on": "bottom_slot_back_wall",
+        "x": 1.541,
+        "y": 0.122,
+        "theta": 1.57,
+        "side": "bottom",
+        "description": "슬롯 뒤 하단 벽에 부착된 ArUco 마커 기준 위치"
+      }
+    }
+  },
+  "traffic_segments": {
+    "inbound_lane": {
+      "entry_waypoints": [
+        "inbound_entry"
+      ],
+      "right_hand_waypoints": [
+        "aisle_right_north",
+        "aisle_right_mid",
+        "aisle_right_south"
+      ],
+      "yield_waypoint": "aisle_right_mid"
+    },
+    "warehouse_aisle": {
+      "entry_waypoints": [
+        "aisle_right_south",
+        "aisle_right_mid",
+        "aisle_right_north"
+      ],
+      "right_hand_waypoints": [
+        "aisle_right_south",
+        "aisle_right_mid",
+        "aisle_right_north"
+      ],
+      "yield_waypoint": "aisle_right_mid"
+    },
+    "outbound_lane": {
+      "entry_waypoints": [
+        "outbound_entry"
+      ],
+      "right_hand_waypoints": [
+        "aisle_right_south",
+        "aisle_right_mid",
+        "aisle_right_north"
+      ],
+      "yield_waypoint": "aisle_right_south"
+    }
+  }
+}

@@ -7,6 +7,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -19,6 +20,7 @@ def generate_launch_description():
     params_file = LaunchConfiguration("params_file")
     rviz_config = LaunchConfiguration("rviz_config")
     rviz_title = LaunchConfiguration("rviz_title")
+    launch_rviz = LaunchConfiguration("launch_rviz")
 
     turtlebot3_share = get_package_share_directory("turtlebot3_navigation2")
     nav2_bringup_dir = os.path.join(
@@ -33,6 +35,7 @@ def generate_launch_description():
             DeclareLaunchArgument("params_file"),
             DeclareLaunchArgument("rviz_config", default_value=default_rviz),
             DeclareLaunchArgument("autostart", default_value="true"),
+            DeclareLaunchArgument("launch_rviz", default_value="true"),
             DeclareLaunchArgument(
                 "rviz_title",
                 default_value="RViz2",
@@ -56,6 +59,7 @@ def generate_launch_description():
                 arguments=["-d", rviz_config, "-t", rviz_title],
                 parameters=[{"use_sim_time": use_sim_time}],
                 output="screen",
+                condition=IfCondition(launch_rviz),
             ),
         ]
     )

@@ -1,5 +1,7 @@
+from nav_app.models import MovementStep
 from nav_app.runtime import runtime
 from nav_app.services import command_state
+from nav_app.services.movement_executor import _capture_leave_dock_telemetry
 from nav_app.services.state_store import MovementStateStore
 
 
@@ -35,6 +37,41 @@ def test_callback_snapshot_includes_resume_and_business_fields(monkeypatch):
     assert payload["resume_from_step_index"] == 6
     assert payload["cargo_state"] == "LOADED"
     assert payload["authority_owner"] == "MOVEMENT"
+
+
+def test_leave_dock_callback_persists_motion_and_traffic_evidence(monkeypatch):
+    monkeypatch.setattr(runtime, "navigator", None)
+    monkeypatch.setattr(runtime, "state_store", None)
+    command = {
+        "command_id": "leave-1",
+        "robot_name": "tb3_2",
+        "state": "RUNNING",
+        "callback_sequence": -1,
+        "traffic_segments_held": ["warehouse_aisle"],
+    }
+    step = MovementStep(
+        action="leave_dock",
+        payload={
+            "leave_dock_telemetry": {
+                "requested_reverse_distance_m": 0.20,
+                "measured_reverse_distance_m": 0.198,
+                "start_marker_distance_m": 0.20,
+                "end_marker_distance_m": 0.40,
+                "reverse_stop_reason": "marker_clearance",
+                "approach_pose_error_m": 0.01,
+                "rear_clearance_m": 0.80,
+            },
+        },
+    )
+
+    _capture_leave_dock_telemetry(command, step)
+    payload = command_state.command_callback_payload(command, "STEP_COMPLETED")
+
+    assert command["leave_dock_telemetry"]["held_traffic_segments"] == [
+        "warehouse_aisle"
+    ]
+    assert payload["leave_dock_telemetry"] == command["leave_dock_telemetry"]
+    assert payload["traffic_segments_held"] == ["warehouse_aisle"]
 
 
 def test_initial_acceptance_is_left_in_durable_outbox_on_delivery_failure(tmp_path, monkeypatch):

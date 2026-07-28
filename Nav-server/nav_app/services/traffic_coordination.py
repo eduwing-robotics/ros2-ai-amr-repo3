@@ -31,6 +31,20 @@ def segments_for_step(step):
     return traffic_segments_for_waypoint_id(str(waypoint)) if waypoint else []
 
 
+def require_nav_handoff_after_leave_dock(steps, index):
+    """Reject an unowned standalone departure while segment coordination is active."""
+    if not segment_mode_enabled() or steps[index].action != "leave_dock":
+        return
+    if index + 1 >= len(steps) or steps[index + 1].action not in (
+        "nav2_pose",
+        "nav2_waypoints",
+    ):
+        raise RuntimeError(
+            "standalone leave_dock is unsafe in segment mode; "
+            "submit leave_dock followed by a Nav2 route so corridor ownership is retained"
+        )
+
+
 def release_held_segments(command):
     if not segment_mode_enabled() or not runtime.traffic_manager:
         return

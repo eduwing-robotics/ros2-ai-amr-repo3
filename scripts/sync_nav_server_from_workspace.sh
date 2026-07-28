@@ -27,10 +27,16 @@ rsync -a --delete \
   --exclude '*.bak*' \
   --exclude '*.orig' \
   --exclude '*.rej' \
+  --exclude 'demo_dual_recording.py' \
   --exclude 'robot_sbc/setup_marco_libcamera.sh' \
   "$SRC/scripts/" "$DST/scripts/"
 
 rsync -a --delete \
+  --exclude '*.bak*' \
+  --exclude '*.orig' \
+  --exclude '*.rej' \
+  --exclude 'camera/*candidate*' \
+  --exclude 'camera/*.pre-*' \
   "$SRC/config/" "$DST/config/"
 
 rsync -a --delete \
@@ -52,6 +58,11 @@ rsync -a --delete \
 
 rsync -a --delete \
   --exclude 'plan/' \
+  --exclude 'presentation/' \
+  --exclude '*.bak*' \
+  --exclude '*.orig' \
+  --exclude '*.rej' \
+  --exclude '*.zip' \
   "$SRC/docs/" "$DST/docs/"
 
 rsync -a --delete \
@@ -60,6 +71,22 @@ rsync -a --delete \
 install -m 0644 "$SRC/pytest.ini" "$DST/pytest.ini"
 install -m 0644 "$SRC/.env.example" "$DST/.env.example"
 install -m 0644 "$SRC/README.md" "$DST/README.md"
+
+if [[ -d "$SRC/Simulator" ]]; then
+  rsync -a --delete \
+    --exclude '.git/' \
+    --exclude '.agents/' \
+    --exclude 'deps_ws/' \
+    --exclude 'generated/' \
+    --exclude '__pycache__/' \
+    --exclude '*.py[cod]' \
+    --exclude '.pytest_cache/' \
+    --exclude 'worlds/generated_*.world' \
+    --exclude 'worlds/_scratch_*.world' \
+    --exclude 'models/_scratch_*' \
+    --exclude '.env' \
+    "$SRC/Simulator/" "$DST/Simulator/"
+fi
 
 mkdir -p "$DST/worklog/sessions"
 for note in \

@@ -23,6 +23,7 @@ def list_traffic_locks():
         raise HTTPException(status_code=503, detail="Traffic manager 초기화 중입니다.")
     return {
         "locks": runtime.traffic_manager.list_locks(),
+        "occupancy": runtime.traffic_manager.list_occupancy(),
         "segments": sorted(runtime.traffic_manager.segment_ids),
     }
 
