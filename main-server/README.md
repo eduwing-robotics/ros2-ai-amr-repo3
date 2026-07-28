@@ -25,15 +25,20 @@ Main Server는 업무 상태와 다음 단계의 판단을 소유합니다. 실�
 ## 처리 구조
 
 ```mermaid
-flowchart TB
+flowchart LR
     Operator[운영자]
 
     subgraph Main["Main Server"]
         UI[React Admin UI] <--> API[FastAPI API]
-        API --> Work[Work Order]
-        Work --> Plan[Planning & Assignment]
-        Plan --> Orch[Task Orchestrator]
+        API --> Work[Work Order Service]
+        API --> Task[Task Service]
+        Work --> Plan[Work Order Planner]
+        Work --> Task
+        Task --> Orch[Task Orchestrator]
+        Orch --> Evidence[Evidence & Safety]
         Work <--> DB[(PostgreSQL)]
+        Plan <--> DB
+        Task <--> DB
         Orch <--> DB
     end
 
@@ -42,10 +47,12 @@ flowchart TB
 
     Operator --> UI
     Orch <-->|명령 · 상태| Nav
-    Orch <-->|분석 · 결과| AI
+    Evidence <-->|분석 · 결과| AI
 ```
 
-명령·상태 연결은 원자 명령·취소와 Callback·Polling·Pose를, 분석·결과 연결은 분석 요청과 Evidence·Hazard를 묶어 표현합니다.
+Work Order Service는 계획과 작업 생성을, Task Service는 로봇 배정과 작업
+상태 전이를 담당합니다. Orchestrator는 현재 단계의 Nav 명령을 실행하고,
+Evidence & Safety는 AI 관측 결과를 작업 판단에 연결합니다.
 
 ## 핵심 설계 포인트
 
