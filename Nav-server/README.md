@@ -1,4 +1,4 @@
-# ROS 2 Dual-AMR Navigation Server
+# Nav Server
 
 두 대의 TurtleBot3를 독립 ROS domain으로 운용하면서 Nav2 주행, ArUco 정밀 접근,
 리프트 작업, 공유 통로 교통 조정, 충돌 정지를 하나의 Movement API로 연결한 물류
@@ -16,7 +16,7 @@
   <a href="docs/videos/dual_robot_traffic_topview.mp4">19초 MP4 보기</a>
 </p>
 
-## 검증 결과
+## 최종 성과
 
 | 검증 항목 | 결과 | 근거 |
 | --- | ---: | --- |
@@ -64,7 +64,7 @@ Movement API :8001 / :8002
 - Nav2와 사용자 제어 속도는 `velocity_smoother`와 방향별 Collision Monitor를 통과합니다.
 - ArUco 접근은 카메라 pose 거리 기준으로 `40 cm → 정지 → 18~20 cm`를 폐루프 제어합니다.
 
-## 2대 시나리오
+## 명령 처리 흐름
 
 ```text
 R1 / R2: marker 20 cm hold
@@ -84,7 +84,20 @@ R1 / R2: marker 20 cm hold
 위치까지 복귀합니다. 두 로봇의 기구·마찰 차이 때문에 실제 이동 거리는 조금 달라도,
 판정 기준은 최종 마커 거리와 map pose 오차입니다.
 
-## 현재 실행 정본
+## 핵심 구성
+
+| 구성 | 주요 코드 | 역할 |
+| --- | --- | --- |
+| Movement API | `nav_app/routers/robot_commands.py`, `movement_api.py` | 명령 접수·조회·취소와 idempotency |
+| Command State | `nav_app/services/command_state.py` | 활성 명령, ARRIVED gate, callback 상태 |
+| Movement & Docking | `movement_executor.py`, `docking.py` | Nav2 이동, ArUco 접근, Lift, 거리 기반 복귀 |
+| Traffic Safety | `traffic_coordination.py`, `scripts/traffic_manager.py` | segment 예약, 대기, 소유권 기반 해제 |
+| Robot Runtime | `scripts/start_all_tb3_1.sh`, `start_all_tb3_2.sh` | 로봇별 bringup·Nav2·RViz·API 실행 |
+| Simulator | `Simulator/` | 실제 맵 기반 듀얼 로봇 안전 회귀 시험 |
+
+## 실행
+
+### 실로봇 실행 정본
 
 중앙 Supervisor는 현재 사용하지 않습니다. 실로봇 정본은 로봇별
 `start_all_tb3_1.sh`, `start_all_tb3_2.sh`가 각각 7개 pane을 올리는 방식입니다.
@@ -101,8 +114,6 @@ R1 / R2: marker 20 cm hold
 - [로봇 1 스택](docs/runbook/TB3_1_CURRENT_STACK.md)
 - [로봇 2 스택](docs/runbook/TB3_2_CURRENT_STACK.md)
 - [2대 전체 실행 순서](docs/runbook/RUNBOOK_LMS_FULL_STARTUP.md)
-
-## 빠른 실행
 
 ### Gazebo 자동 안전 시험
 
@@ -167,6 +178,39 @@ Nav-server/
 └── docs/          # as-built, API contract, runbook, evidence
 ```
 
+## 설정과 인터페이스
+
+| 정본 | 내용 |
+| --- | --- |
+| `config/robots.json` | robot ID, ROS domain, API, camera·Lift 설정 |
+| `config/main_server_routes.json` | Main/LMS route와 Nav endpoint |
+| `config/nav2/*.yaml` | planner, controller, costmap, Collision Monitor |
+| `map/zones.json` | waypoint, marker 거리, semantic zone, traffic segment |
+| `Simulator/config/profiles/*.json` | Gazebo 로봇·맵·Nav2 안전 profile |
+
+입력은 Main/LMS의 Movement API 명령, ArUco 관측, AMCL·TF·scan·Lift telemetry입니다.
+출력은 Nav2 goal/cancel, Collision Monitor를 통과한 속도 명령, Lift 명령과
+Main callback·polling 상태입니다. 상세 계약은
+[Main/LMS API 계약](docs/reference/MAIN_SERVER_CONTRACT.md)을 따릅니다.
+
+## 검증
+
+```bash
+cd Nav-server
+python3 -m pytest tests/ -q
+bash Simulator/scripts/run_dual_robot_safety_test.sh
+```
+
+| 검증 계층 | 현재 근거 | 판정 범위 |
+| --- | --- | --- |
+| 자동 테스트 | `222 passed + 2 subtests` | API, 상태, traffic, docking, 안전 설정 |
+| Gazebo 듀얼 E2E | evidence JSON과 탑뷰 영상 | 20 cm 초기화, 40 cm 복귀, traffic, collision |
+| 실로봇 개별 스택 | R1·R2 current-stack runbook | 로봇별 bringup, Nav2/RViz, camera, Lift, API |
+| 실로봇 2대 전체 E2E | 최종 합격 미기록 | 같은 공유 구간 시나리오의 현장 재검증 필요 |
+
+Simulation 성공은 실제 마찰, 센서 오차, 네트워크 지연과 Lift 하중까지 증명하지
+않습니다. 실물 최종 합격 전에는 Gazebo 결과와 실물 결과를 분리해 기록합니다.
+
 ## 설계에서 지킨 것
 
 - **로봇별 격리:** domain, API port, 상태 디렉터리, 토픽을 로봇별로 분리합니다.
@@ -177,7 +221,7 @@ Nav-server/
 - **증거 기반 판정:** 명령 상태, traffic state, AMCL 오차, collision state를 JSON으로 남깁니다.
 - **운영과 이력 분리:** 현재 runbook만 실행 정본으로 두고 폐기된 Supervisor는 명시적으로 제외합니다.
 
-## 문서
+## 관련 문서
 
 - [현재 구현 정본](docs/as-built/NAV_STACK_AS_BUILT.md)
 - [Main/LMS API 계약](docs/reference/MAIN_SERVER_CONTRACT.md)
