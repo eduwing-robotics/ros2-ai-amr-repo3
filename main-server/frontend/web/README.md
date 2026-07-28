@@ -13,6 +13,8 @@ Main Server의 작업·로봇·재고 상태를 조회하고 운영 명령을 �
 | 외부 장비 | Nav·AI 미연결, 이동·카메라 오프라인 표시 |
 | 원본 보기 | 각 이미지 선택 |
 
+> 현재 관제 UI 시연 자산의 정본은 `frontend/web/docs/screens/`입니다. UI 구조가 바뀌면 이 폴더의 캡처와 아래 화면 설명을 함께 갱신하며, 다른 위치의 화면 이미지는 현재 UI 판정 기준으로 사용하지 않습니다.
+
 ### 운영 화면
 
 | 관제 `/operate/control` | 입출고 `/operate/control?drawer=inout` |
@@ -106,14 +108,14 @@ npm ci
 npm run dev
 ```
 
-| 목적 | 명령·설정 |
-| --- | --- |
-| Backend | 기본 `http://localhost:8088` |
-| 개발 UI | 기본 `http://localhost:5173` |
-| Backend 변경 | `VITE_API_PROXY_TARGET` |
-| 타입 검사 | `npm run typecheck` |
-| 코드 검사 | `npm run lint` |
-| 운영 빌드 | `npm run build` → `dist/` |
+| 목적         | 명령·설정                      |
+| ---------- | -------------------------- |
+| Backend    | 기본 `http://localhost:8088` |
+| 개발 UI      | 기본 `http://localhost:5173` |
+| Backend 변경 | `VITE_API_PROXY_TARGET`    |
+| 타입 검사      | `npm run typecheck`        |
+| 코드 검사      | `npm run lint`             |
+| 운영 빌드      | `npm run build` → `dist/`  |
 
 | 관련 문서 | 내용 |
 | --- | --- |

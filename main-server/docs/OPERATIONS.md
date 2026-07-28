@@ -48,6 +48,21 @@ Main Server의 실행 모드, 상태 점검, E-stop 복구와 검증 절차입�
 
 ---
 
+## 정상 기동 기준
+
+| 영역 | 정상 조건 |
+| --- | --- |
+| Main API | `/health`가 성공하고 요청을 수신할 수 있음 |
+| PostgreSQL | 연결, migration checksum과 업무 schema 검증이 통과함 |
+| Nav 연동 | 대상 로봇, Callback 주소, HMAC과 active map 계약이 일치함 |
+| AI 연동 | 사용하는 evidence·hazard 기능의 source가 등록되고 관측 시각이 유효함 |
+| 관제 UI | Main API의 작업·로봇·재고 read model을 오류 없이 다시 조회함 |
+| 작업 실행 | 로봇 준비 상태, 지도, 위치와 외부 기능 조건이 모두 충족됨 |
+
+기능을 사용하지 않는 외부 연동은 명시적으로 비활성화하고, 활성화한 기능의 상태가 불명확하면 실물 명령을 보내지 않습니다.
+
+---
+
 ## E-stop 복구
 
 ```mermaid

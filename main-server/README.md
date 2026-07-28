@@ -1,80 +1,77 @@
 # Main Server
 
-입출고 요청을 작업으로 만들고 로봇 할당, 실행 상태, 재고와 운영 이력을 관리하는 중앙 서버입니다.
+입·출고 요청을 로봇 작업으로 변환하고, Nav·AI의 실행 결과를 검증해 작업·재고·안전 상태를 확정하는 중앙 관제 서버입니다.
 
-## Implementation Overview
+## 관제 화면
+
+[![Main Server 관제 화면](frontend/web/docs/screens/operate-control.png)](frontend/web/README.md)
+
+> 작업, 로봇, 재고와 이벤트를 통합 관리하는 운영 관제 화면입니다.
+
+## 이 폴더가 담당하는 것
+
+| 책임 | 처리 내용 |
+| --- | --- |
+| 작업 계획 | 입·출고 미리보기, 재고·위치 검증과 작업 생성 |
+| 자원 할당 | 준비 상태와 지원 기능을 확인한 뒤 로봇·위치·재고 선점 |
+| 단계 실행 | 현재 단계의 원자 명령을 Nav Server에 전달하고 상태 전이 |
+| 결과 검증 | `task_id`·`robot_id`·`command_id`가 일치하는 결과만 반영 |
+| Vision·안전 판단 | AI evidence를 업무 승인에 사용하고 위험 시 작업 보류·E-stop 요청 |
+| 완료 확정 | 작업 완료, 재고 변경, 이력 기록과 로봇 해제를 하나의 transaction으로 처리 |
+| 관제 제공 | 작업·로봇·재고·지도·장치·이력을 Admin UI용 read model로 제공 |
+
+Main Server는 업무 상태와 다음 단계의 판단을 소유합니다. 실제 주행·도킹·리프트·물리 정지는 Nav Server에, 영상 관측과 객체 탐지는 AI Server에 위임합니다.
+
+## 처리 구조
 
 ```mermaid
 flowchart LR
-    UI[React Admin UI] <--> API[FastAPI Routers]
-    API --> Work[Work Order Service]
-    Work --> Plan[Planner & Robot Assignment]
-    Plan --> Orch[Task Orchestrator]
-    Orch --> Nav[Nav Client]
-    Orch --> Vision[Vision Evidence]
-    Work --> Repo[PostgreSQL Repositories]
-    Orch --> Repo
-    Nav -->|Callback / Polling| Orch
-    Repo --> API
+    Operator[운영자]
+    Nav[Nav Server]
+    AI[AI Server]
+
+    subgraph Main["Main Server"]
+        UI[React Admin UI] <--> API[FastAPI API]
+        API --> Work[Work Order]
+        Work --> Plan[Planning & Assignment]
+        Plan --> Orch[Task Orchestrator]
+        Work <--> DB[(PostgreSQL)]
+        Orch <--> DB
+    end
+
+    Operator --> UI
+    Orch -->|원자 명령·취소| Nav
+    Nav -->|Callback·Polling·Pose| Orch
+    Orch -->|분석 요청| AI
+    AI -->|Evidence·Hazard| Orch
 ```
 
-요청 생성 시 현재 재고와 위치를 다시 검증하고 로봇을 선점합니다. 이후 Orchestrator가 현재 단계의 원자 명령을 Nav Server에 전달하고, Nav callback과 AI evidence를 현재 `task_id`·`robot_id`·`command_id`에 대조한 뒤 다음 상태를 PostgreSQL에 반영합니다.
+## 핵심 설계 포인트
 
-## Main Components
+| 문제 | 구현 기준 |
+| --- | --- |
+| 생성 중 조건 변경 | 자원 잠금 뒤 재고·위치·로봇 조건을 다시 계산 |
+| 중복·오래된 결과 | 현재 작업·단계·`command_id`가 일치할 때만 한 번 반영 |
+| Callback 누락 | 동일한 `command_id`를 Polling해 실행 상태 복구 |
+| 외부 결과 불명확 | 성공으로 추정하지 않고 `AWAITING_OPERATOR`로 전환 |
+| 화물·사람 관측 | source·품목·관측 시각을 검증한 뒤 Main 정책으로 승인 |
+| 작업 완료 정합성 | 재고·완료·이력·로봇 해제를 단일 DB transaction으로 확정 |
 
-| Component | Primary code | 구현 역할 |
-| --- | --- | --- |
-| API Layer | `backend/app/api/routers/` | UI 요청, callback, 운영 API 처리 |
-| Work Order | `backend/app/services/work_orders_pg.py`, `backend/app/services/work_order_planner.py` | 작업 계획, 생성 조건 재검증, 자원 선점 |
-| Task Assignment | `backend/app/services/tasks.py` | 로봇 가용성·기능 확인과 할당 |
-| Orchestrator | `backend/app/services/orchestrator.py` | 단계 전이, 명령 발행, 완료·보류 판단 |
-| External Clients | `backend/app/services/movement.py`, `backend/app/services/lift_load_evidence.py` | Nav 명령과 AI 근거 요청 |
-| Repositories | `backend/app/db/mvp/` | 작업, 재고, 로봇, evidence와 이력 저장 |
+상태 전이와 예외 처리의 세부 규칙은 [작업 흐름](docs/WORKFLOW.md), 서버 간 소유권은 [책임 경계](docs/responsibility.md)에 정리되어 있습니다.
 
-## Directory Structure
+## 폴더 안내
 
 ```text
 main-server/
-├── backend/
-│   ├── app/api/          # FastAPI routes
-│   ├── app/services/     # 작업·안전·외부 연동 흐름
-│   ├── app/db/           # PostgreSQL repositories
-│   └── tests/            # backend unit·contract tests
-├── frontend/web/         # React 관제 UI
-├── database/             # schema, migration, seed
-├── maps/                 # Main이 제공하는 지도 asset
-├── scripts/              # setup, run, test, operation
-└── docs/                 # 구현 참조와 책임 경계
+├── backend/        # FastAPI, 작업 오케스트레이션과 PostgreSQL repository
+├── frontend/web/   # React 관제 UI
+├── database/       # schema, migration과 초기 기준정보
+├── maps/           # Main이 제공하는 지도 asset
+├── scripts/        # 설치, 실행, 점검과 운영 도구
+└── docs/           # 작업·DB·인터페이스·운영·책임 문서
 ```
 
-## Interfaces
-
-| Direction | 상대 시스템 | 인터페이스 | 목적 |
-| --- | --- | --- | --- |
-| Input | Admin UI | REST `/api/v1/*` | 작업·재고·관제 요청 |
-| Input | Nav Server | HMAC callback, polling result | 명령 진행·종료와 pose 수신 |
-| Input | AI Server | evidence·hazard result | 화물·사람 관측 근거 수신 |
-| Output | Nav Server | HMAC Robot Command API | 현재 단계의 원자 명령·취소 |
-| Output | AI Server | HMAC Vision API | 등록 source 분석 요청 |
-| Output | Admin UI | REST read model | 작업·로봇·재고·이력 표시 |
-
-상세 endpoint와 검증 규칙은 [인터페이스 문서](docs/INTERFACES.md)에 있습니다.
-
-## Configuration
-
-| Variable | 필수 여부 | 용도 |
-| --- | :---: | --- |
-| `LMS_DATABASE_URL` | 필수 | PostgreSQL 연결 주소 |
-| `LMS_PUBLIC_BASE_URL` | 필수 | UI와 외부 callback이 접근할 Main 주소 |
-| `LMS_MOVEMENT_HOST` | 필수 | Nav Server canonical hostname |
-| `LMS_MOVEMENT_ACTIVE_MAP_ID` | 필수 | Main·Nav 공통 지도 ID |
-| `LMS_VISION_API_BASE_URL` | 필수 | AI Server API 주소 |
-| `LMS_LIFT_LOAD_EVIDENCE_ENABLED` | 선택 | 적재·하역 evidence gate 활성화 |
-| `LMS_PERSON_HAZARD_ENABLED` | 선택 | 사람 위험 advisory polling 활성화 |
-
-HMAC secret은 저장소에 기록하지 않고 로컬 `.secrets/service-hmac.env`에서 주입합니다.
-
-## Run
+## 빠른 실행
 
 ```bash
 cd main-server
@@ -83,27 +80,31 @@ cd main-server
 ./scripts/real.sh --build
 ```
 
-로컬 개발은 `./scripts/real.sh --dev`, UI 전용 확인은 `LMS_DEV_HOST=127.0.0.1 ./scripts/fake.sh`를 사용합니다.
+| 모드 | 명령 | 용도 |
+| --- | --- | --- |
+| Real | `./scripts/real.sh --build` | Main API, PostgreSQL과 현장 Nav·AI 연동 |
+| Dev | `./scripts/real.sh --dev` | Backend와 React UI 개발 |
+| Fake UI | `LMS_DEV_HOST=127.0.0.1 ./scripts/fake.sh` | 외부 장비 없이 화면 구조 확인 |
 
-## Test
+필수 환경변수, 상태 점검과 장애 복구 절차는 [실행과 운영](docs/OPERATIONS.md)을 따릅니다.
+
+## 테스트
 
 ```bash
-cd main-server
-LMS_DATABASE_URL=postgresql://lms:local-secret@localhost:5433/lms_mvp_test ./scripts/check_all.sh
+LMS_DATABASE_URL=postgresql://lms:local-secret@localhost:5433/lms_mvp_test \
+  ./scripts/check_all.sh
 ```
 
-테스트는 전용 `_test` 데이터베이스에서 실행해야 합니다.
+테스트는 이름에 `_test`가 포함된 전용 PostgreSQL 데이터베이스에서 실행해야 합니다. 이 검증은 API·상태 전이·DB와 계약을 확인하며 실제 로봇의 물리 동작을 대신하지 않습니다.
 
-## Responsibility
+## 세부 문서
 
-Main Server는 작업·재고·운영 상태와 서버 간 업무 판단을 소유하고, 물리 이동은 Nav Server에, 영상 관측은 AI Server에 위임합니다. 결정별 소유자와 비책임 범위는 [Main Server Responsibility](docs/responsibility.md)에 정리되어 있습니다.
-
-## Related Documentation
-
-| 문서 | 내용 |
+| 문서 | 확인할 내용 |
 | --- | --- |
-| [작업 흐름](docs/WORKFLOW.md) | 계획, 상태 전이, 보류와 복구 |
-| [데이터베이스](docs/DATABASE.md) | 자원 점유, 재고 확정, migration |
+| [책임 경계](docs/responsibility.md) | Main이 소유하는 판단과 Nav·AI에 위임하는 실행 |
+| [작업 흐름](docs/WORKFLOW.md) | 작업 계획, 상태 전이, 보류와 복구 |
+| [데이터베이스](docs/DATABASE.md) | 자원 점유, 재고 확정과 migration |
 | [인터페이스](docs/INTERFACES.md) | UI·Nav·AI 계약과 결과 검증 |
-| [실행과 운영](docs/OPERATIONS.md) | 실행, 진단, E-stop 복구 |
-| [관제 UI](frontend/web/README.md) | 화면 구조와 frontend 실행 |
+| [실행과 운영](docs/OPERATIONS.md) | 실행 모드, 설정, 진단과 E-stop 복구 |
+| [관제 UI](frontend/web/README.md) | 화면별 시연, Frontend 구조와 실행 |
+| [설계 결정](docs/decisions/README.md) | 주요 선택의 배경과 변경 이력 |

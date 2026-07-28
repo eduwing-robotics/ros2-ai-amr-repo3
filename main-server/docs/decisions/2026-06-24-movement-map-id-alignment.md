@@ -21,7 +21,7 @@
 
 - 현장: Movement `active_map_id=map`, LMS는 `robot1_map` 등 다른 id·yaml(origin/resolution/크기 불일치).
 - pose는 runtime context 기준으로 수신·진단하고, 배경 overlay는 asset display metadata와 일치할 때만 신뢰한다.
-- Movement 서버는 `/routes/*`는 구현, `/robot-commands` envelope는 미구현(404).
+- 당시 Movement API는 legacy route endpoint와 command envelope가 혼재했다.
 
 ## Consequences
 

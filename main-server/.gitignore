@@ -25,6 +25,12 @@ frontend/web/dist/
 # Recreated bootstrap state
 .bootstrap/
 
+# Local secrets
+.env
+.env.*
+!.env.example
+.secrets/
+
 # Local tool settings
 .claude/settings.local.json
 
