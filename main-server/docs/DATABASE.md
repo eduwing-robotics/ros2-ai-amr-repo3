@@ -6,19 +6,8 @@
 
 ## 데이터 관계
 
-```mermaid
-erDiagram
-    ITEMS ||--o{ INVENTORY : stored_as
-    LOCATIONS ||--o{ INVENTORY : contains
-    ROBOTS ||--o{ TASKS : assigned
-    ITEMS ||--o{ TASKS : handles
-    LOCATIONS ||--o{ TASKS : source_or_target
-    LOCATIONS ||--o{ LOCATION_ROUTE_STEPS : owns
-    COMMANDS ||--o{ EVIDENCE_EVENTS : defines
-    TASKS ||..o{ EVIDENCE_EVENTS : records
-    EVIDENCE_EVENTS ||--o{ SAFETY_STOPS : triggers
-    TASKS ||..o{ TASK_LOGS : completes
-    TASKS ||..o{ ITEM_CHANGE_LOGS : changes
+![[Screenshot from 2026-07-23 10-27-24.png]]
+
 ```
 
 | 데이터 | 테이블 | 역할 |
