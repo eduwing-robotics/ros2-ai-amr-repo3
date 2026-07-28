@@ -4,7 +4,9 @@
 
 Main Server, Nav Server, AI Server와 두 대의 TurtleBot3가 역할을 나누되, 하나의 `task_id`를 기준으로 작업의 시작부터 완료까지 추적할 수 있도록 구성했습니다.
 
-![TurtleBot3 기반 AMR 통합 동작](assets/robot_active_6x_30s.gif)
+[![TurtleBot3 기반 AMR 통합 동작](assets/robot_active_6x_30s.gif)](assets/lift_nav_full_e2e_combined.mp4)
+
+> 이미지를 클릭하면 전체 E2E 통합 영상을 볼 수 있습니다.
 
 ---
 
