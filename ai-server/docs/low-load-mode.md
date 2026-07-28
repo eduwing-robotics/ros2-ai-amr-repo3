@@ -4,20 +4,31 @@ Low-load mode is the primary AI Server lab startup for demos and integration
 checks when the laptop must preserve CPU/GPU headroom. Use the operator wrapper;
 do not start the AI API, gateway, or MediaMTX separately.
 
+## Start
+
 ```bash
 cd ai-server
 ./scripts/ai/setup_ai_server_env.sh
+./scripts/vision/sf_lab.sh check low-load
 ./scripts/vision/sf_lab.sh low-load
 ```
 
-The command stays in the foreground and supervises the complete runtime. Use a
-second terminal for status and URL checks:
+The command stays in the foreground and supervises the complete runtime.
+
+## Check status and URLs
+
+Use a second terminal while the foreground runtime remains active:
 
 ```bash
 cd ai-server
 ./scripts/vision/sf_lab.sh status
 ./scripts/vision/sf_lab.sh urls low-load
 ```
+
+Use the status output to confirm the API and required low-load children. The URL
+command prints the active WebRTC browser paths and MJPEG diagnostic fallbacks.
+
+## Model and ROS configuration
 
 The setup downloads the default pretrained weights used by the low-load profile:
 
@@ -38,8 +49,6 @@ without starting processes with:
 ./scripts/vision/sf_vision.sh print-config lab-gopro-tb3-low-load
 ```
 
-Use `./scripts/vision/sf_lab.sh urls low-load` after launch to print the active WebRTC URLs and MJPEG diagnostic fallbacks.
-
 Low-load is hostname-first and WebRTC-primary. The shared repository hosts
 mapping owns `smartfactory-vision.local`; the runtime does not publish a second
 mDNS address. From the repository root, run
@@ -52,3 +61,18 @@ gateway credential from the repository-level site-local
 is provisioned once by the trusted deployment; ordinary low-load starts require
 no secret export. Direct local bundle helpers outside `sf_vision` may still create
 an ephemeral process-tree gateway credential for isolated smoke work.
+
+## Stop
+
+Stop only the processes supervised by the low-load operator wrapper:
+
+```bash
+cd ai-server
+./scripts/vision/sf_lab.sh down
+```
+
+## Next: hardware validation
+
+After the required sources are connected and status is ready, follow the
+[signed live lab smoke procedure](live-api-smoke-tests.md). If startup, source,
+or stream checks fail, use [Troubleshooting](troubleshooting.md).

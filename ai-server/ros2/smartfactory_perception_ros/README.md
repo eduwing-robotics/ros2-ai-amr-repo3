@@ -1,19 +1,34 @@
 # smartfactory_perception_ros
 
-Thin ROS2 camera snapshot adapter for the SmartFactory AI Server.
+ROS2 companion package for AI Server camera ingest, overlay delivery and passive
+ArUco tuning. Choose the component by purpose before using the detailed launch
+examples below.
 
-## Boundary
+## Choose a component
 
-- Subscribes to ROS camera topics as either:
-  - raw `sensor_msgs/Image`, or
-  - compressed `sensor_msgs/CompressedImage`.
-- Encodes/posts each newly received frame at most once.
-- POSTs snapshots to AI Server `POST /api/v1/detect/image`.
-- Does **not** run inference.
-- Does **not** make WMS decisions.
-- Does **not** depend on YOLO/Torch.
+| Purpose | Component | Use |
+| --- | --- | --- |
+| Standard signed frame ingest | `vision_frame_gateway` | Camera topic → AI Server frame/process API → optional overlay/evidence topics |
+| Overlay transport | `vision_overlay_stream_bridge` | Allowlisted overlay topic → internal/direct MJPEG stream |
+| Diagnostic snapshot | `image_snapshot_client` | Periodic image → `/api/v1/detect/image`; not the normal low-load ingest path |
+| Passive docking tuning | `aruco_pose_monitor` | Marker pose and correction logging without motion commands |
 
-It also includes a passive central-PC ArUco pose monitor for docking tuning:
+The normal low-load path uses `vision_frame_gateway` for signed frame ingest and
+uses the overlay bridge as a media input or diagnostic surface. The public
+operator stream remains WebRTC-primary; MJPEG is the diagnostic fallback.
+
+## Safety boundary
+
+- Camera inputs are raw `sensor_msgs/Image` or compressed
+  `sensor_msgs/CompressedImage` on configured topics.
+- The package does not make Main/WMS decisions, publish motion commands, or call
+  Nav2 actions.
+- `image_snapshot_client` does not run inference or depend on YOLO/Torch; it only
+  posts snapshots to AI Server.
+- `vision_frame_gateway` rejects unsafe input/output topics and requires the
+  dedicated gateway credential for production ingest.
+
+The passive central-PC ArUco pose monitor:
 
 - Subscribes to raw or compressed ROS camera topics.
 - Reuses AI Server pure logic (`app.detectors` + `app.docking`) to compute
@@ -33,7 +48,7 @@ colcon build --symlink-install --packages-select smartfactory_perception_ros
 colcon test --packages-select smartfactory_perception_ros --event-handlers console_direct+
 ```
 
-## Launch directly
+## Diagnostic snapshot client
 
 Global camera/raw example:
 

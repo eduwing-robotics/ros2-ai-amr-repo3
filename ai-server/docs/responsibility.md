@@ -52,8 +52,8 @@ flowchart LR
     Source --> Prep[Preprocessor]
     Prep --> Model[Detector / Segmenter]
     Model --> Rule[Evidence Rules]
-    Rule --> Store[Event & Evidence Store]
-    Store --> Output[API / Stream Publisher]
+    Rule --> Cache[Event & Evidence Cache]
+    Cache --> Output[API / Stream Publisher]
 ```
 
 ## Design Rules
