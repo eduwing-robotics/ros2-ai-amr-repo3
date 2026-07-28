@@ -57,6 +57,18 @@ flowchart LR
 - AI Server는 marker·객체 관측을 만들며, 관측을 조향에 적용하는 판단은 Nav가 담당합니다.
 - Nav2는 global/local path와 goal 실행을 담당하고 Nav는 목적지와 실행 순서를 관리합니다.
 
+### 실제 맵 제작
+
+<p align="center">
+  <img src="../assets/smartfactory_map_creation_rviz.png" width="800" alt="스마트팩토리 Navigation 맵 제작 화면">
+</p>
+
+<p align="center">
+  <b>실제 운용 환경의 Navigation 맵 제작 화면</b><br>
+  SLAM·RViz에서 작성하고 검토한 occupancy map과 <code>zones.json</code>을
+  Nav2 경로 계획과 Gazebo 시나리오의 공통 입력으로 사용합니다.
+</p>
+
 ## 명령 처리 흐름
 
 ```text
