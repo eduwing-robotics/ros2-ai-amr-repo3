@@ -174,19 +174,44 @@ no-hardware와 시뮬레이션 성공을 실물 주행이나 물리 적재·하�
 
 ## 10. 기술 스택
 
-| 영역 | 기술 |
-| --- | --- |
-| Robot Platform | TurtleBot3 Burger, Raspberry Pi 4, OpenCR |
-| Robot Middleware | ROS 2 Jazzy, DDS, domain bridge |
-| Navigation | Nav2, AMCL, Smac Planner 2D, Regulated Pure Pursuit |
-| Perception | OpenCV, YOLO, ArUco, Zone ROI |
-| Backend | Python, FastAPI, Uvicorn |
-| Frontend | React, TypeScript, Vite, TanStack Query |
-| Database | PostgreSQL, SQL migration |
-| Streaming | WebRTC, MediaMTX, MJPEG |
-| Integration | HTTP, HMAC, callback, polling |
-| Validation | Pytest, unittest, Ruff, no-hardware와 실물 E2E |
-| Lift Control | Arduino Uno, TMC2209, Stepper Motor, USB Serial |
+### Robot & Middleware
+
+![ROS 2 Jazzy](https://img.shields.io/badge/ROS%202-Jazzy-22314E?style=for-the-badge&logo=ros&logoColor=white)
+![TurtleBot3 Burger](https://img.shields.io/badge/TurtleBot3-Burger-0085CA?style=for-the-badge)
+![Raspberry Pi 4](https://img.shields.io/badge/Raspberry%20Pi-4-A22846?style=for-the-badge&logo=raspberrypi&logoColor=white)
+![OpenCR](https://img.shields.io/badge/OpenCR-Robot%20Controller-00A6A6?style=for-the-badge)
+![Arduino](https://img.shields.io/badge/Arduino-Lift%20Control-00878F?style=for-the-badge&logo=arduino&logoColor=white)
+
+### Navigation & Perception
+
+![Nav2](https://img.shields.io/badge/Nav2-Navigation-22314E?style=for-the-badge&logo=ros&logoColor=white)
+![AMCL](https://img.shields.io/badge/AMCL-Localization-5A45FF?style=for-the-badge)
+![OpenCV](https://img.shields.io/badge/OpenCV-Vision-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)
+![YOLO](https://img.shields.io/badge/YOLO-Object%20Detection-111F68?style=for-the-badge)
+![ArUco](https://img.shields.io/badge/ArUco-Precision%20Docking-EF6C00?style=for-the-badge)
+
+### Backend & Data
+
+![Python](https://img.shields.io/badge/Python-Backend-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-REST%20API-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![Uvicorn](https://img.shields.io/badge/Uvicorn-ASGI-499848?style=for-the-badge)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?style=for-the-badge&logo=postgresql&logoColor=white)
+
+### Frontend & Streaming
+
+![React](https://img.shields.io/badge/React-Admin%20UI-61DAFB?style=for-the-badge&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-Frontend-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-Build-646CFF?style=for-the-badge&logo=vite&logoColor=white)
+![TanStack Query](https://img.shields.io/badge/TanStack%20Query-Server%20State-FF4154?style=for-the-badge&logo=reactquery&logoColor=white)
+![WebRTC](https://img.shields.io/badge/WebRTC-Streaming-333333?style=for-the-badge&logo=webrtc&logoColor=white)
+![MediaMTX](https://img.shields.io/badge/MediaMTX-Media%20Router-1F6FEB?style=for-the-badge)
+
+### Integration & Validation
+
+![HTTP](https://img.shields.io/badge/HTTP-Server%20Integration-005571?style=for-the-badge)
+![HMAC](https://img.shields.io/badge/HMAC-SHA256-6A1B9A?style=for-the-badge)
+![Pytest](https://img.shields.io/badge/Pytest-Testing-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)
+![Ruff](https://img.shields.io/badge/Ruff-Linting-D7FF64?style=for-the-badge&logo=ruff&logoColor=black)
 
 ---
 
@@ -310,5 +335,3 @@ nav-server/scripts/robot_sbc/stop_stack.sh
 | 김현수 | Main·UI·DB | 작업·재고·관제 UI, PostgreSQL과 서버 오케스트레이션 |
 | 손영빈 | Nav·Hardware | ROS 2·Nav2, 도킹, Lift 연동과 실물 주행 |
 | 하샘 | Vision·Localization | 영상 pipeline, evidence, 안전 감지와 위치 복구 |
-
-프로젝트의 최종 목표는 개별 기능 시연이 아니라, 팀별 구현 결과가 하나의 작업 ID 아래에서 요청·실행·검증·복구·재고 반영으로 닫히는 것을 확인하는 것입니다.
