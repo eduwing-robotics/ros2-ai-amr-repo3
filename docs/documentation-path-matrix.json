@@ -389,6 +389,7 @@
       "document_type": "support",
       "subject": "testing",
       "path_globs": [
+        "tests/README.md",
         "tests/nohardware/**/*.md"
       ],
       "allowed_index_names": [
