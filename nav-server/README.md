@@ -203,4 +203,5 @@ ROS_SETUP=/opt/ros/jazzy/setup.bash ./scripts/verify_gazebo_nav2_e2e.sh --check
 | [Runtime](docs/reference/RUNTIME.md) | profile, readiness, 프로세스 수명주기 |
 | [Operations](docs/runbook/OPERATIONS.md) | 현장 실행과 실패 복구 |
 | [Responsibility](docs/responsibility.md) | Main·Nav·AI 책임 경계 |
+| [Hardware](../hardware/README.md) | Lift·Rack·Pallet 기구와 Lift 전장 설계 |
 | [E2E Contract](../docs/integration/e2e-contract.md) | 서버 간 통합 계약 |

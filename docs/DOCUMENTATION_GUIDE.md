@@ -1,6 +1,6 @@
 # Documentation governance
 
-This guide is the repository-wide policy for Root, Nav, and Main documentation.
+This guide is the repository-wide policy for Root, Hardware, Nav, and Main documentation.
 Service-local guides may add service details, but must link here rather than
 repeat these rules.
 

@@ -21,6 +21,39 @@
       "review_only_content_rule": "Repository routing only."
     },
     {
+      "rule_id": "hardware-index",
+      "document_type": "index",
+      "subject": "hardware",
+      "path_globs": [
+        "hardware/README.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": false,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Hardware documentation routing and asset index only."
+    },
+    {
+      "rule_id": "hardware-reference",
+      "document_type": "reference",
+      "subject": "hardware",
+      "path_globs": [
+        "hardware/MECHANICAL_DESIGN.md",
+        "hardware/WIRING_DESIGN.md"
+      ],
+      "allowed_index_names": [
+        "README.md"
+      ],
+      "requires_index": true,
+      "required_markdown_metadata": [
+        "h1"
+      ],
+      "review_only_content_rule": "Current mechanical, CAD, component and wiring implementation only."
+    },
+    {
       "rule_id": "root-scripts-index",
       "document_type": "index",
       "subject": "repository-scripts",
