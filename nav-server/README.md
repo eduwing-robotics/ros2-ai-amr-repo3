@@ -1,90 +1,174 @@
 # Nav Server
 
-Main Server의 원자 명령을 Nav2·ArUco·리프트 동작으로 실행하고 로봇 상태와 결과를 보고하는 이동 서버입니다.
+Main Server의 원자 명령을 두 대의 TurtleBot3에서 Nav2 주행, ArUco 정밀 도킹,
+Lift 적재·하역으로 실행하고 물리 결과를 보고하는 ROS 2 이동 서버입니다.
 
-## Implementation Overview
+**담당 범위:** Command admission · Navigation · Docking · Lift · Traffic safety · Result reporting
+
+<p align="center">
+  <img src="../assets/robot_active_6x_30s.gif" width="800" alt="TurtleBot3 물류 이동과 도킹 데모">
+</p>
+
+<p align="center">
+  <b>실제 로봇 기반 물류 이동·도킹 데모</b><br>
+  Nav2 이동 → ArUco 정렬 → Lift 작업 → 안전 복귀<br>
+  <a href="../assets/lift_nav_safety_full_e2e_combined.mp4">3분 36초 통합 MP4 보기</a>
+</p>
+
+## 최종 성과
+
+`e2d-docing` 통합 시나리오에서 Nav Server가 담당한 이동·정밀 작업·안전 경로를
+포함해 다음 결과를 기록했습니다.
+
+| 검증 항목 | 결과 | 판정 범위 |
+| --- | ---: | --- |
+| 전체 E2E 시나리오 | `7/7 PASS` | 작업 생성부터 복귀·재고 반영까지 |
+| Evidence gate | `2/2 PASS` | 적재·하역 전후 증거 연계 |
+| 안전 정지·복구 | `2/2 PASS` | E-stop과 사람 감시 경로 |
+| E2E 실행 시간 | `5분 25초` | 기록된 통합 실행 기준 |
+| 로봇 격리 | R1 domain `2` / R2 domain `5` | API `:8001` / `:8002` |
+
+이 수치는 루트 [통합 결과](../README.md#9-통합-결과와-검증)의 기록입니다.
+자동 테스트와 Gazebo 결과는 API·상태·설정·Nav2 경로를 검증하지만 실제 마찰,
+Lift 하중과 센서 오차까지 대신 증명하지는 않습니다.
+
+## 시스템 구성
 
 ```mermaid
 flowchart LR
-    Main[Main Robot Command] --> API[Movement API]
-    API --> Auth[HMAC & Schema]
-    Auth --> Ready[Readiness & Admission]
-    Ready --> State[Command State]
+    Main[Main Server] -->|HMAC 원자 명령| API[Movement API]
+    API --> Gate[Identity · Readiness · Capability]
+    Gate --> Lock[Traffic / Zone Lock]
+    Lock --> State[Command State]
     State --> Exec[Movement Executor]
-    Exec --> Nav2[Nav2 Adapter]
-    Exec --> Dock[Docking / Lift]
-    Exec --> Lock[Traffic / Zone Lock]
+    Exec --> Nav2[Nav2 Goal / Cancel]
+    Exec --> Dock[ArUco Docking]
+    Exec --> Lift[Lift Backend]
     Nav2 --> Robot[Robot SBC]
     Dock --> Robot
-    State -->|Callback / Polling| Main
+    Lift --> Robot
+    AI[AI Server] -->|Fresh ArUco observation| Dock
+    Robot -->|Pose · Scan · TF · Telemetry| Gate
+    State -->|Polling · HMAC Callback| Main
 ```
 
-로봇별 Movement API 프로세스가 격리된 ROS domain을 사용합니다. 명령을 받으면 대상 로봇, 현지화, Nav2, 센서와 장치 readiness를 확인하고 traffic·zone 자원을 점유한 뒤 실행합니다. 종료 상태와 pose는 polling과 서명된 callback으로 Main에 전달합니다.
+- Main Server는 업무 순서, 로봇 할당, 재고와 다음 단계를 소유합니다.
+- Nav Server는 현재 명령을 수락할 수 있는지 판단하고 물리 실행 결과를 소유합니다.
+- AI Server는 marker·객체 관측을 만들며, 관측을 조향에 적용하는 판단은 Nav가 담당합니다.
+- Nav2는 global/local path와 goal 실행을 담당하고 Nav는 목적지와 실행 순서를 관리합니다.
 
-## Main Components
+## 명령 처리 흐름
 
-| Component | Primary code | 구현 역할 |
+```text
+서명 검증
+   ↓
+robot identity · capability · readiness 확인
+   ↓
+traffic segment / zone lock 획득
+   ↓
+ACCEPTED → RUNNING
+   ├── move_to_point ───────────────→ ARRIVED
+   │                                      ↓ ARRIVED gate
+   ├── dock_transfer / aruco_align ─→ DONE
+   ├── leave_dock / manual_drive ───→ DONE
+   └── cancel / estop ───────────────→ CANCELED / ABORTED
+                                          └─ 정지 미확인: STOP_UNCONFIRMED
+   ↓
+소유 lock 해제 · 상태 저장 · callback
+```
+
+| 명령 | Nav 동작 | 정상 결과 |
 | --- | --- | --- |
-| Command API | `nav_app/routers/robot_commands.py`, `nav_app/routers/movement_api.py` | 명령 접수·조회·취소 |
-| Command State | `nav_app/services/command_state.py` | 활성 명령과 종료 상태 관리 |
-| Planner & Executor | `nav_app/services/robot_commands.py`, `nav_app/services/movement_executor.py` | 명령 step 변환과 실행 |
-| Localization | `nav_app/services/localization.py`, `nav_app/services/scan_map_alignment.py` | pose·scan·TF 기반 admission |
-| Docking & Lift | `nav_app/services/docking.py`, `nav_app/services/lift_backends.py` | ArUco 정렬, 삽입, 리프트, 후진 |
-| Runtime | `scripts/sf_nav.sh`, `config/runtime_profiles/` | profile·resource·process 수명주기 |
+| `move_to_point` | waypoint 해석, traffic lock, Nav2 이동 | `ARRIVED` |
+| `dock_transfer` | ArUco 정렬, 포크 삽입, Lift, 후진 | `DONE` |
+| `aruco_align` | ArUco 정렬 또는 대기 위치 주차 | `DONE` |
+| `leave_dock` | 주차 상태와 후방 여유 확인 후 이탈 | `DONE` |
+| `manual_drive` | 제한 속도·시간의 저속 직접 제어 | `DONE` |
+| `estop` | Nav2, base, Lift 정지 | `DONE` 또는 중단 상태 |
 
-## Directory Structure
+같은 `command_id`는 새 물리 동작을 만들지 않으며, 한 로봇에는 하나의 활성 이동
+명령만 허용합니다. 필요한 구간이 점유 중이면 `WAITING_TRAFFIC`, 물리 정지를 확인하지
+못하면 `STOP_UNCONFIRMED`로 보고해 성공 상태로 진행하지 않습니다.
+
+## 핵심 구성
+
+| 구성 | 주요 코드 | 역할 |
+| --- | --- | --- |
+| Command API | `nav_app/routers/robot_commands.py`, `movement_api.py` | HMAC 명령 접수·조회·취소 |
+| Admission | `nav_app/services/capabilities.py`, `localization.py` | robot·Nav2·센서·장치 준비 확인 |
+| Command State | `nav_app/services/command_state.py` | 활성 명령, ARRIVED gate, 종료 상태 |
+| Movement | `nav_app/services/movement_executor.py` | step 실행과 Nav2 연계 |
+| Docking & Lift | `nav_app/services/docking.py`, `lift_backends.py` | ArUco 정렬, 삽입, Lift, 복귀 |
+| Traffic Safety | `scripts/traffic_manager.py`, `zone_lock_manager.py` | segment·zone 소유권 관리 |
+| Runtime | `scripts/sf_nav.sh`, `config/runtime_profiles/` | profile 해석, 프로세스 수명주기 |
+
+| 로봇 | Robot ID | ROS domain | Nav local domain | Movement API | Capability |
+| --- | --- | ---: | ---: | ---: | --- |
+| R1 | `tb3_burger_01` | `2` | `42` | `:8001` | navigate · charge · lift |
+| R2 | `tb3_burger_02` | `5` | `5` | `:8002` | navigate · charge · lift |
+
+R1의 hardware domain `2`와 Nav local domain `42`는 domain bridge로 연결됩니다.
+로봇·domain·port·capability의 정본은 `config/robots.json`입니다.
+
+## 폴더 구조
 
 ```text
 nav-server/
-├── nav_app/              # Movement API와 실행·상태·안전 로직
-├── scripts/              # runtime, ROS adapter, 현장 검증
-├── config/               # 로봇, ROS domain, Nav2 profile
-├── launch/               # ROS launch entrypoints
+├── nav_app/              # Movement API, 실행·상태·안전 로직
+├── scripts/              # sf_nav runtime, ROS adapter, 현장 검증
+├── config/               # 로봇, runtime profile, domain bridge, Nav2
+├── launch/               # ROS launch entrypoint
 ├── map/                  # 지도, waypoint, zone, traffic segment
-├── tests/                # unit·contract·safety tests
-└── docs/                 # 구현 참조, runbook, 책임 경계
+├── tests/                # unit·contract·safety test
+└── docs/                 # 알고리즘, interface, runtime, runbook
 ```
 
-## Interfaces
+## 실행
 
-| Direction | 상대 시스템 | 인터페이스 | 목적 |
-| --- | --- | --- | --- |
-| Input | Main Server | HMAC Robot Command API | 원자 명령·취소·E-stop 수신 |
-| Input | AI Server | latest ArUco detection API | 도킹용 marker 관측 수신 |
-| Input | ROS·Robot SBC | pose·TF·scan·Nav2·lift telemetry | readiness와 물리 결과 확인 |
-| Output | Main Server | polling·HMAC callback | 명령 상태·결과·pose 보고 |
-| Output | Nav2 | goal·cancel | 경로 실행과 취소 |
-| Output | Robot SBC | 저속 제어·lift command | 도킹과 화물 이송 실행 |
-
-상세 endpoint와 상태 계약은 [인터페이스 문서](docs/reference/INTERFACES.md)에 있습니다.
-
-## Configuration
-
-| Variable or File | 필수 여부 | 용도 |
-| --- | :---: | --- |
-| `SF_NAV_PROFILE` | 선택 | runtime profile 선택 |
-| `ROS_SETUP` | 필수 | ROS 2 `setup.bash` 경로 |
-| `NAV_MAIN_HMAC_SECRET` | 필수 | Main 명령 검증과 callback 서명 |
-| `ROBOTS_CONFIG_PATH` | 선택 | 로봇 설정 정본 경로 |
-| `config/robots.json` | 필수 | robot ID, API port, ROS domain |
-| `config/runtime_profiles/` | 필수 | 실행 component와 resource 소유권 |
-
-secret은 저장소에 기록하지 않습니다. profile 우선순위는 [Runtime Reference](docs/reference/RUNTIME.md)를 따릅니다.
-
-## Run
+### 환경 준비와 프로필 확인
 
 ```bash
 cd nav-server
 ./scripts/setup_nav_server_env.sh
 ./scripts/sf_nav.sh profiles
-ROS_SETUP=/opt/ros/jazzy/setup.bash ./scripts/sf_nav.sh --profile tb1-live check
-./scripts/sf_nav.sh --profile tb1-live up
-./scripts/sf_nav.sh --profile tb1-live status
+./scripts/sf_nav.sh --profile all-live print-config
+ROS_SETUP=/opt/ros/jazzy/setup.bash ./scripts/sf_nav.sh --profile all-live check
 ```
 
-종료는 `./scripts/sf_nav.sh --profile tb1-live down`을 사용합니다.
+### 두 로봇 Nav Server 시작
 
-## Test
+```bash
+cd nav-server
+ROS_SETUP=/opt/ros/jazzy/setup.bash ./scripts/sf_nav.sh --profile all-live up
+./scripts/sf_nav.sh --profile all-live status
+```
+
+종료는 자신이 소유한 process group만 정리합니다.
+
+```bash
+./scripts/sf_nav.sh --profile all-live down
+```
+
+현재 정본은 `sf_nav.sh`의 runtime profile 방식입니다. `start_nav_servers.sh`는 호환
+wrapper이며 `start_all_tb3_2.sh`는 SBC·카메라·Lift까지 함께 확인하는 현장 helper입니다.
+
+## 설정과 인터페이스
+
+| 정본 | 내용 |
+| --- | --- |
+| `config/robots.json` | robot ID, domain, endpoint, capability, localization, Lift |
+| `config/runtime_profiles/*.json` | 실행 로봇, component ownership, backend |
+| `config/domain_bridge/*.yaml` | hardware·center·Nav local domain 전달 topic |
+| `config/nav2/*.yaml` | planner, controller, costmap, Collision Monitor |
+| `map/zones.json` | waypoint, marker, semantic zone, traffic segment |
+| `config/main_server_routes.json` | Main endpoint와 callback route |
+
+입력은 Main의 HMAC Robot Command API, AI의 최신 ArUco 관측, ROS pose·TF·scan·Lift
+telemetry입니다. 출력은 Nav2 goal/cancel, Robot SBC의 저속·Lift 명령, Main의 polling·
+서명 callback입니다. 상세 필드는 [Interfaces](docs/reference/INTERFACES.md)를 따릅니다.
+Secret은 저장소에 기록하지 않습니다.
+
+## 검증
 
 ```bash
 cd nav-server
@@ -92,16 +176,31 @@ cd nav-server
 ROS_SETUP=/opt/ros/jazzy/setup.bash ./scripts/verify_gazebo_nav2_e2e.sh --check
 ```
 
-## Responsibility
+| 검증 계층 | 확인 범위 | 제외 범위 |
+| --- | --- | --- |
+| 자동 테스트 | API, HMAC, 상태 전이, 설정, lock, 안전 계약 | 실제 물리 동작 |
+| no-hardware | Main·Nav·AI 계약과 기본 명령 경로 | 실제 Nav2·Lift 하중 |
+| Gazebo | ROS graph, Nav2 goal, pose 오차 | ArUco·Lift hardware |
+| 실물 E2E | 주행, 도킹, Lift, 안전 정지, 복귀 | 모든 환경 조건 |
 
-Nav Server는 수신한 원자 명령의 admission, 물리 실행과 결과를 소유합니다. 작업 순서·재고·업무 완료는 Main Server가, 영상 관측은 AI Server가 소유합니다. 결정별 경계는 [Nav Server Responsibility](docs/responsibility.md)에 정리되어 있습니다.
+## 설계에서 지킨 것
 
-## Related Documentation
+- **Fail closed:** localization, Nav2, robot, sensor가 준비되지 않으면 이동을 거절합니다.
+- **Idempotency:** 동일 `command_id` 재요청은 기존 상태를 반환합니다.
+- **단일 명령:** 로봇 하나에 활성 이동 명령 하나만 허용합니다.
+- **소유권 기반 lock:** 이전 명령이 후속 명령의 새 lock을 해제하지 못합니다.
+- **센서 freshness:** stale scan·TF·AMCL·ArUco·Lift telemetry를 성공 근거로 사용하지 않습니다.
+- **정지 확인:** cancel과 E-stop은 요청 수신과 실제 정지 확인을 구분합니다.
+- **책임 분리:** 업무·재고는 Main, 관측은 AI, 물리 admission과 실행은 Nav가 소유합니다.
+- **실물/비실물 구분:** simulation이나 synthetic HIL 성공을 물리 합격으로 표시하지 않습니다.
+
+## 관련 문서
 
 | 문서 | 내용 |
 | --- | --- |
-| [Nav Algorithm](docs/reference/NAV_ALGORITHM.md) | 경로·도킹·localization 구현 |
+| [Nav Algorithm](docs/reference/NAV_ALGORITHM.md) | 이동·현지화·도킹·안전 알고리즘 |
 | [Interfaces](docs/reference/INTERFACES.md) | 명령, callback, 상태 계약 |
-| [Runtime](docs/reference/RUNTIME.md) | profile과 실행 설정 |
+| [Runtime](docs/reference/RUNTIME.md) | profile, readiness, 프로세스 수명주기 |
 | [Operations](docs/runbook/OPERATIONS.md) | 현장 실행과 실패 복구 |
+| [Responsibility](docs/responsibility.md) | Main·Nav·AI 책임 경계 |
 | [E2E Contract](../docs/integration/e2e-contract.md) | 서버 간 통합 계약 |
