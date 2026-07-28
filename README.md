@@ -4,7 +4,7 @@
 
 Main Server, Nav Server, AI Server와 두 대의 TurtleBot3가 역할을 나누되, 하나의 `task_id`를 기준으로 작업의 시작부터 완료까지 추적할 수 있도록 구성했습니다.
 
-![TurtleBot3 기반 AMR 통합 동작](robot_active_6x_30s.gif)
+![TurtleBot3 기반 AMR 통합 동작](assets/robot_active_6x_30s.gif)
 
 ---
 
@@ -84,7 +84,7 @@ Main Server, Nav Server, AI Server와 두 대의 TurtleBot3가 역할을 나누�
 
 > **Sequence Diagram  — 입고 작업**
 
-![입고 작업 시퀀스 다이어그램](InBound.png)
+![입고 작업 시퀀스 다이어그램](assets/InBound.png)
 ### 5.2 출고 시나리오
 
 1. 운영자가 출고할 품목과 수량을 요청합니다.
@@ -98,7 +98,7 @@ Main Server, Nav Server, AI Server와 두 대의 TurtleBot3가 역할을 나누�
 
 > **Sequence Diagram  — 출고 작업**
 
-![출고 작업 시퀀스 다이어그램](OutBound.png)
+![출고 작업 시퀀스 다이어그램](assets/OutBound.png)
 
 ### 5.3 위험 감지와 복구 시나리오
 
@@ -113,7 +113,7 @@ Main Server, Nav Server, AI Server와 두 대의 TurtleBot3가 역할을 나누�
 
 > **Sequence Diagram — 위험 감지, E-stop과 작업 복구**
 
-![위험 감지와 E-stop 복구 시퀀스 다이어그램](estop.png)
+![위험 감지와 E-stop 복구 시퀀스 다이어그램](assets/estop.png)
 ---
 
 ## 6. 시스템 설계
@@ -128,7 +128,7 @@ Main Server, Nav Server, AI Server와 두 대의 TurtleBot3가 역할을 나누�
 
 ![하드웨어 아키텍처](<assets/HW Architecture (2).png>)
 
-![하드웨어 구성](<Screenshot from 2026-07-27 18-52-57.png>)
+![하드웨어 구성](<assets/Screenshot from 2026-07-27 18-52-57.png>)
 
 ---
 
