@@ -78,22 +78,22 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 <table width="100%">
   <thead><tr><th width="10%" nowrap>ID</th><th width="24%" nowrap>기능</th><th width="66%" nowrap>요구사항</th></tr></thead>
   <tbody>
-    <tr><td align="center" nowrap>SR-01</td><td nowrap>재고 확인</td><td nowrap>관리자가 품목·보관 위치·층별 현재 재고를 조회할 수 있다.</td></tr>
-    <tr><td align="center" nowrap>SR-02</td><td nowrap>입고 관리</td><td nowrap>관리자가 품목·수량·보관 위치를 지정해 입고 작업을 요청할 수 있다.</td></tr>
-    <tr><td align="center" nowrap>SR-03</td><td nowrap>출고 관리</td><td nowrap>관리자가 품목·수량을 지정해 출고 작업을 요청할 수 있다.</td></tr>
-    <tr><td align="center" nowrap>SR-04</td><td nowrap>작업 우선순위 관리</td><td nowrap>관리자는 작업 우선순위를 설정·변경할 수 있으며, 시스템은 우선순위가 높은 작업부터 배정한다.</td></tr>
-    <tr><td align="center" nowrap>SR-05</td><td nowrap>로봇 자동 할당</td><td nowrap>시스템은 작업을 수행할 수 있는 준비된 로봇을 자동으로 배정한다.</td></tr>
-    <tr><td align="center" nowrap>SR-06</td><td nowrap>서버·로봇 통신</td><td nowrap>각 서버와 로봇은 명령, 상태, 결과와 검증 정보를 주고받는다.</td></tr>
-    <tr><td align="center" nowrap>SR-07</td><td nowrap>로봇 상태 확인</td><td nowrap>관리자는 로봇의 연결 상태, 준비 여부, 현재 위치, 작업 상태와 긴급 정지 여부를 확인할 수 있다.</td></tr>
-    <tr><td align="center" nowrap>SR-08</td><td nowrap>실시간 위치 확인</td><td nowrap>관리자는 지도에서 로봇의 현재 위치와 이동 상태를 실시간으로 확인할 수 있다.</td></tr>
-    <tr><td align="center" nowrap>SR-09</td><td nowrap>작업 구역 이동</td><td nowrap>로봇은 입고·출고·보관·대기 구역 사이를 자율적으로 이동한다.</td></tr>
-    <tr><td align="center" nowrap>SR-10</td><td nowrap>장애물 대응</td><td nowrap>로봇은 장애물을 회피하며, 사람 접근 등 위험 상황이 감지되면 정지한다.</td></tr>
-    <tr><td align="center" nowrap>SR-11</td><td nowrap>물품 적재·하역</td><td nowrap>로봇은 물품에 맞춰 위치를 정렬하고 적재·하역한 뒤 작업 결과를 전달한다.</td></tr>
-    <tr><td align="center" nowrap>SR-12</td><td nowrap>위험 감지·알림</td><td nowrap>시스템은 사람 접근이나 화물 불일치를 감지하면 작업을 중단하고 관리자에게 알린다.</td></tr>
-    <tr><td align="center" nowrap>SR-13</td><td nowrap>긴급 정지·복구</td><td nowrap>위험 상황이나 관리자 요청이 발생하면 로봇을 정지하고, 안전이 확인된 후 작업을 재개한다.</td></tr>
-    <tr><td align="center" nowrap>SR-14</td><td nowrap>재고 자동 갱신</td><td nowrap>입·출고 작업이 완료되면 현재 재고와 변경 이력을 자동으로 갱신한다.</td></tr>
-    <tr><td align="center" nowrap>SR-15</td><td nowrap>작업 이력 조회</td><td nowrap>관리자는 작업 결과, 진행 상태와 재고 변경 이력을 확인할 수 있다.</td></tr>
-    <tr><td align="center" nowrap>SR-16</td><td nowrap>오류·안전 이력 관리</td><td nowrap>시스템은 작업 실패, 통신 오류와 안전 정지 내용을 표시하고 이력으로 저장한다.</td></tr>
+    <tr><td align="center" nowrap>SR-01</td><td nowrap>재고 확인</td><td nowrap>관리자가 품목·보관 위치·층별 현재 재고를<br>조회할 수 있다.</td></tr>
+    <tr><td align="center" nowrap>SR-02</td><td nowrap>입고 관리</td><td nowrap>관리자가 품목·수량·보관 위치를 지정해<br>입고 작업을 요청할 수 있다.</td></tr>
+    <tr><td align="center" nowrap>SR-03</td><td nowrap>출고 관리</td><td nowrap>관리자가 품목·수량을 지정해<br>출고 작업을 요청할 수 있다.</td></tr>
+    <tr><td align="center" nowrap>SR-04</td><td nowrap>작업 우선순위 관리</td><td nowrap>관리자는 작업 우선순위를 설정·변경할 수 있으며,<br>시스템은 우선순위가 높은 작업부터 배정한다.</td></tr>
+    <tr><td align="center" nowrap>SR-05</td><td nowrap>로봇 자동 할당</td><td nowrap>시스템은 작업을 수행할 수 있는 준비된 로봇을<br>자동으로 배정한다.</td></tr>
+    <tr><td align="center" nowrap>SR-06</td><td nowrap>서버·로봇 통신</td><td nowrap>각 서버와 로봇은 명령, 상태, 결과와<br>검증 정보를 주고받는다.</td></tr>
+    <tr><td align="center" nowrap>SR-07</td><td nowrap>로봇 상태 확인</td><td nowrap>관리자는 로봇의 연결 상태, 준비 여부, 현재 위치와<br>작업 상태, 긴급 정지 여부를 확인할 수 있다.</td></tr>
+    <tr><td align="center" nowrap>SR-08</td><td nowrap>실시간 위치 확인</td><td nowrap>관리자는 지도에서 로봇의 현재 위치와 이동 상태를<br>실시간으로 확인할 수 있다.</td></tr>
+    <tr><td align="center" nowrap>SR-09</td><td nowrap>작업 구역 이동</td><td nowrap>로봇은 입고·출고·보관·대기 구역 사이를<br>자율적으로 이동한다.</td></tr>
+    <tr><td align="center" nowrap>SR-10</td><td nowrap>장애물 대응</td><td nowrap>로봇은 장애물을 회피하며,<br>사람 접근 등 위험 상황이 감지되면 정지한다.</td></tr>
+    <tr><td align="center" nowrap>SR-11</td><td nowrap>물품 적재·하역</td><td nowrap>로봇은 물품에 맞춰 위치를 정렬하고 적재·하역한 뒤<br>작업 결과를 전달한다.</td></tr>
+    <tr><td align="center" nowrap>SR-12</td><td nowrap>위험 감지·알림</td><td nowrap>시스템은 사람 접근이나 화물 불일치를 감지하면<br>작업을 중단하고 관리자에게 알린다.</td></tr>
+    <tr><td align="center" nowrap>SR-13</td><td nowrap>긴급 정지·복구</td><td nowrap>위험 상황이나 관리자 요청이 발생하면 로봇을 정지하고,<br>안전이 확인된 후 작업을 재개한다.</td></tr>
+    <tr><td align="center" nowrap>SR-14</td><td nowrap>재고 자동 갱신</td><td nowrap>입·출고 작업이 완료되면 현재 재고와<br>변경 이력을 자동으로 갱신한다.</td></tr>
+    <tr><td align="center" nowrap>SR-15</td><td nowrap>작업 이력 조회</td><td nowrap>관리자는 작업 결과, 진행 상태와<br>재고 변경 이력을 확인할 수 있다.</td></tr>
+    <tr><td align="center" nowrap>SR-16</td><td nowrap>오류·안전 이력 관리</td><td nowrap>시스템은 작업 실패, 통신 오류와 안전 정지 내용을<br>표시하고 이력으로 저장한다.</td></tr>
   </tbody>
 </table>
 
@@ -169,6 +169,18 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 ![위험 감지와 E-stop 복구 시퀀스 다이어그램](assets/Images/estop.png)
 
 ## 9. 상태 다이어그램
+
+### 9.1 입출고 작업 상태
+
+![입출고 작업 상태 다이어그램](assets/Images/입출고.png)
+
+### 9.2 안전정지와 운영자 복구
+
+![안전정지와 운영자 복구 다이어그램](assets/Images/복구.png)
+
+### 9.3 로봇 상태
+
+![로봇 상태 다이어그램](assets/Images/로봇.png)
 
 ## 10. 물류센터 맵, 요소 지점
 <p align="center">
