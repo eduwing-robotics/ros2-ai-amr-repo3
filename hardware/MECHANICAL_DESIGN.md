@@ -4,7 +4,7 @@
 Pallet의 실제 기구 설계와 제작 방법을 정리한다.
 ## 1. 최종 구현 형태
 
-![TurtleBot3 Lift 실제 구현](<../assets/Images/Screenshot from 2026-07-27 18-52-57.png>)
+![TurtleBot3 Lift 실제 구현](../assets/Images/TurtleBot3_Result.png)
 
 | 구성 | 역할 | 주요 결합 대상 |
 | --- | --- | --- |
