@@ -1,10 +1,12 @@
 # tb3_2 실로봇 검증 현황 (2026-07-03)
 
-상태: Active
-분류: Runbook
+상태: 보존된 현장 기록
+분류: Commissioning evidence
 작성: 2026-07-03 17:55 KST
 최종 갱신: 2026-07-05 19:35 KST
 목적: SmartFactory tb3_2 실물 검증 진행 상황, 튜닝, LMS 연동 결과를 한곳에 기록한다.
+
+> 현재 운영 절차는 [Nav 운영 문서](../../docs/runbook/OPERATIONS.md)를 따른다.
 
 ---
 

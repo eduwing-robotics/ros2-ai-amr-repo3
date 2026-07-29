@@ -26,4 +26,7 @@ python3 -m pytest -q tests/docs
 python3 -m pytest -q tests/evidence
 ```
 
+`test_frontend_behavior_targets.py`의 구현 대기 항목은 strict xfail로 표시합니다.
+기본 계약 검사는 통과하지만, 구현이 완료되어 XPASS가 되면 marker를 제거할 때까지 실패합니다.
+
 검증 코드와 fixture는 `tests/`, 실행 순서와 환경 구성을 담당하는 runner는 `scripts/`에 둡니다.

@@ -1,16 +1,16 @@
-# Navigation Worklog
+# Navigation 작업 기록
 
-This directory retains field evidence that is useful for future commissioning.
-Current API and operating rules belong in [the documentation index](../docs/README.md),
-not in these dated records.
+이 디렉터리는 이후 commissioning에 필요한 과거 현장 근거를 보존한다.
+현재 API와 운영 기준은 [Nav 문서](../docs/README.md)를 따른다.
 
-## Commissioning evidence
+## Commissioning 기록
 
-- - [Lift manual validation](commissioning/LIFT_MANUAL_VALIDATION.md) — tb3_2 lift setup and safety observations
-- [Task 206 inbound scenario](commissioning/SCENARIO_TASK206_INBOUND2_TB3_2.md) — recovered command sequence
-- [tb3_2 validation status](commissioning/TB3_2_VALIDATION_STATUS_2026-07-03.md) — dated navigation, camera, and docking findings
+- [Commissioning 색인](commissioning/README.md) — lift, task 206, tb3_2 검증 기록
 
-## Session evidence
+## Session 기록
 
-- [EKF session](sessions/SESSION_20260708_EKF.md) — tb3_2 localization experiment
-- [Slot approach and insert handoff](sessions/TB3_2_SLOT_APPROACH_INSERT_HANDOFF_2026-07-07.md) — calibrated slot observations
+- [Session 색인](sessions/README.md) — EKF와 slot approach 실험 기록
+
+## 분석 기록
+
+- [위치추정 기술 발전과 운용 설계 변화](LOCALIZATION_EVOLUTION.md)

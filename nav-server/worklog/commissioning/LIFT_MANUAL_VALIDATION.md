@@ -1,8 +1,11 @@
 # 리프트 수동 조작 Runbook (tb3_2)
 
-상태: Active
+상태: 보존된 현장 기록
+분류: Commissioning evidence
 작성: 2026-07-06 KST
 목적: 하드웨어팀 인수인계 문서 기준으로 **리프트만** 수동 검증하는 절차. Movement/LMS 연동 전 단계.
+
+> 현재 운영 절차는 [Nav 운영 문서](../../docs/runbook/OPERATIONS.md)를 따른다.
 
 **원본(하드웨어팀):** `~/Downloads/lift_project/` (라파이에는 `~/lift_project/`)
 

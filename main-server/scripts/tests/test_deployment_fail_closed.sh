@@ -30,7 +30,10 @@ grep -q '\[pg\] ERROR: set LMS_DATABASE_URL or LMS_POSTGRES_PASSWORD' <<<"$missi
 
 [[ "$(ROOT="$ROOT" BACKEND="$ROOT/backend" bash -c 'source "$1"; declare -F pg_ensure_url' _ "$WRAPPER")" == "pg_ensure_url" ]]
 
-derived="$(env -u LMS_DATABASE_URL -u DATABASE_URL LMS_DISABLE_DOTENV=1 LMS_POSTGRES_PASSWORD='space / secret' ROOT="$ROOT" BACKEND="$ROOT/backend" bash -c 'source "$1"; pg_ensure_url; printf %s "$LMS_DATABASE_URL"' _ "$LIB")"
+test_backend="$missing_env_root/backend"
+mkdir -p "$test_backend/.venv/bin"
+ln -s "$(command -v python3)" "$test_backend/.venv/bin/python"
+derived="$(env -u LMS_DATABASE_URL -u DATABASE_URL LMS_DISABLE_DOTENV=1 LMS_POSTGRES_PASSWORD='space / secret' ROOT="$ROOT" BACKEND="$test_backend" bash -c 'source "$1"; pg_ensure_url; printf %s "$LMS_DATABASE_URL"' _ "$LIB")"
 [[ "$derived" == 'postgresql://lms:space%20%2F%20secret@localhost:5433/lms_mvp' ]]
 
 redacted="$(ROOT="$ROOT" BACKEND="$ROOT/backend" bash -c 'source "$1"; pg_redact_url "$2"' _ "$LIB" 'postgresql://lms:top-secret@db.example:5432/lms_mvp')"
@@ -44,6 +47,12 @@ for script in bootstrap.sh real.sh fake.sh launch_real_terminal.sh; do
   grep -q 'exec "\$ROOT/scripts/' "$ROOT/scripts/launch/$script"
 done
 grep -q 'exec "\$ROOT/scripts/setup_pg.sh"' "$ROOT/scripts/db/setup_pg.sh"
+grep -Fq 'exec "$ROOT/scripts/reset_local_db.sh" "$@"' "$ROOT/scripts/db/reset_local_db.sh"
+grep -Fq 'exec "$ROOT/scripts/dump_current_db.sh" "$@"' "$ROOT/scripts/db/dump_current_db.sh"
+grep -Fq 'exec "$ROOT/scripts/restore_current_db.sh" "$@"' "$ROOT/scripts/db/restore_current_db.sh"
+grep -Fq 'exec "$ROOT/scripts/check_all.sh" "$@"' "$ROOT/scripts/tests/check_all.sh"
+grep -Fq 'exec "$ROOT/scripts/check_pg_mvp.sh" "$@"' "$ROOT/scripts/tests/check_pg_mvp.sh"
+grep -Fq 'exec "$ROOT/scripts/install_desktop_launcher.sh" "$@"' "$ROOT/scripts/launch/install_desktop_launcher.sh"
 grep -q 'bootstrap.sh --local-dev' "$ROOT/scripts/launch_real_terminal.sh"
 grep -q 'pg_redact_url "\$LMS_DATABASE_URL"' "$ROOT/scripts/real.sh"
 grep -Fq '[[ "$DEV" -eq 1 ]] || return 0' "$ROOT/scripts/real.sh"

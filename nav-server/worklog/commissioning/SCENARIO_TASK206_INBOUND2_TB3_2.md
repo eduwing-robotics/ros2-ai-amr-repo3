@@ -1,10 +1,12 @@
 # 시나리오: LMS task 206 — tb3_2 입고2 (실측 2026-07-03)
 
-상태: Active (현장 캡처)
-분류: Runbook
+상태: 보존된 현장 기록
+분류: Commissioning evidence
 작성: 2026-07-03 17:44 KST
 최종 갱신: 2026-07-03 17:55 KST
 목적: 메인 LMS가 보낸 입고 명령을 나중에 혼자 재현·검증할 때 쓰는 기록
+
+> 현재 운영 절차는 [Nav 운영 문서](../../docs/runbook/OPERATIONS.md)를 따른다.
 
 > 전체 진행 현황: [`TB3_2_VALIDATION_STATUS_2026-07-03.md`](TB3_2_VALIDATION_STATUS_2026-07-03.md)
 
