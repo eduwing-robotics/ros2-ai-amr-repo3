@@ -172,7 +172,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 10. 물류센터 맵, 요소 지점
 <p align="center">
-  <img src="../assets/smartfactory_map_creation_rviz.png" width="800" alt="스마트팩토리 Navigation 맵 제작 화면">
+  <img src="assets/smartfactory_map_creation_rviz.png" width="800" alt="스마트팩토리 Navigation 맵 제작 화면">
 </p>
 
 ## 11. 소스 구성
@@ -360,7 +360,8 @@ nav-server/scripts/robot_sbc/stop_stack.sh
 
 ### Jira 작업 이력
 
-![[Screenshot from 2026-07-28 19-00-51.png]]
+![Jira 작업 이력](assets/Images/jira-task-history-2026-07-28.png)
+
 ## 17. 프로젝트 기술 스택
 
 ### Robot & Middleware
