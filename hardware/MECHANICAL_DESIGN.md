@@ -30,10 +30,6 @@ Pallet의 실제 기구 설계와 제작 방법을 정리한다.
 ![Lift 전체 조립체 CAD](images/cad/assembly-front.png)
 ![Lift 전체 조립체 후면 CAD](images/cad/assembly-rear.png)
 
-CAD를 수정할 때는 SLDPRT 또는 STEP을 기준으로 변경하고, 최종 형상에서
-STL을 다시 생성한다. Lift, Rack, Pallet 중 하나의 결합 치수를 바꾸면
-나머지 두 부품과의 간섭을 함께 확인해야 한다.
-
 ## 3. Lift 설계
 
 ### 3.1 `motor_plate_R`
