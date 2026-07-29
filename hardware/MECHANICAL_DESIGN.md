@@ -18,7 +18,7 @@ Pallet의 실제 기구 설계와 제작 방법을 정리한다.
 [CAD Design](https://baksa2584.atlassian.net/wiki/spaces/KAN/pages/30146626/CAD+Design)
 에서 확인할 수 있다. Confluence에 등록된 설계 파트는 다음 여섯 개다.
 
-| 구분 | CAD 원본 파일명 | 용도 |
+| 구분 | CAD 파일명 | 용도 |
 | --- | --- | --- |
 | Lift | [`motor_plate_R`](../assets/Cads/motor_plate_R.STEP) | motor와 수직 기둥을 지지하는 하단 plate |
 | Lift | [`lift__R`](../assets/Cads/lift__R.STEP) | Pallet을 들어 올리는 중심 승강축과 fork |
@@ -29,24 +29,6 @@ Pallet의 실제 기구 설계와 제작 방법을 정리한다.
 
 ![Lift 전체 조립체 CAD](images/cad/assembly-front.png)
 ![Lift 전체 조립체 후면 CAD](images/cad/assembly-rear.png)
-### 2.1 CAD 파일
-
-| 형식 | 사용 목적 | 원본 |
-| --- | --- | --- |
-| SLDPRT | SolidWorks 원본 수정 | [Sldprt File](https://baksa2584.atlassian.net/wiki/spaces/KAN/pages/31326433/Sldprt+File) |
-| STEP | 다른 CAD 도구와 형상 교환·수정 | [Step File](https://baksa2584.atlassian.net/wiki/spaces/KAN/pages/31916050/Step+File) |
-| STL | slicer 입력과 3D printing | [STL File](https://baksa2584.atlassian.net/wiki/spaces/KAN/pages/31883283/STL+File) |
-
-### 2.2 저장소 STEP 파일
-
-| 파트 | STEP 파일 |
-| --- | --- |
-| `motor_plate_R` | [`motor_plate_R.STEP`](../assets/Cads/motor_plate_R.STEP) |
-| `lift__R` | [`lift__R.STEP`](../assets/Cads/lift__R.STEP) |
-| `upper_R` | [`upper_R.STEP`](../assets/Cads/upper_R.STEP) |
-| `Arduino_plate_new` | [`Arduino_plate_new.STEP`](../assets/Cads/Arduino_plate_new.STEP) |
-| `lack` | [`lack.STEP`](../assets/Cads/lack.STEP) |
-| `Pallet` | [`pallet.STEP`](../assets/Cads/pallet.STEP) |
 
 CAD를 수정할 때는 SLDPRT 또는 STEP을 기준으로 변경하고, 최종 형상에서
 STL을 다시 생성한다. Lift, Rack, Pallet 중 하나의 결합 치수를 바꾸면
