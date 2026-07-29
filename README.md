@@ -99,7 +99,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ---
 
-## 6. 하드웨어·소프트웨어 아키텍처
+## 6. 시스템 아키텍처
 
 ### 하드웨어 아키텍처
 
@@ -121,7 +121,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ---
 
-## 7. 운영 시나리오
+## 7. 시나리오
 
 ### 7.1 입고 시나리오
 
@@ -223,25 +223,9 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ---
 
-## 12. 프로젝트 목표와 범위
+## 12. 통합 결과와 검증
 
-<table width="100%">
-  <thead><tr><th width="34%" nowrap>핵심 목표</th><th width="66%" nowrap>구현 범위</th></tr></thead>
-  <tbody>
-    <tr><td nowrap>입·출고 작업과 재고 관리</td><td nowrap>작업 생성·상태 전이와 PostgreSQL 기반 재고·이력 반영</td></tr>
-    <tr><td nowrap>가용 로봇 할당</td><td nowrap>TurtleBot3 두 대의 준비 상태·지원 기능 확인과 중복 할당 방지</td></tr>
-    <tr><td nowrap>자율주행과 정밀 작업</td><td nowrap>Nav2 waypoint 이동, ArUco 도킹과 Lift 적재·하역</td></tr>
-    <tr><td nowrap>작업 결과 검증</td><td nowrap>Vision evidence를 업무 진행의 검증 근거로 사용</td></tr>
-    <tr><td nowrap>위험 대응</td><td nowrap>사람 감지, E-stop, 작업 보류와 운영자 복구</td></tr>
-    <tr><td nowrap>E2E 상태 정합성</td><td nowrap><code>task_id</code>·<code>command_id</code> 기반 결과 추적과 검증 후 재고 반영</td></tr>
-  </tbody>
-</table>
-
----
-
-## 13. 통합 결과와 검증
-
-### 13.1 E2E 시나리오 결과
+### 12.1 E2E 시나리오 결과
 
 기록된 통합 시나리오에서는 작업 266을 기준으로 작업 생성부터 완료와 재고 반영까지 동일한 `task_id`로 대조했습니다.
 
@@ -278,7 +262,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
   </tbody>
 </table>
 
-### 13.2 검증 계층
+### 12.2 검증 계층
 
 <table width="100%">
   <thead><tr><th width="25%" nowrap>검증 구분</th><th width="45%" nowrap>확인 범위</th><th width="30%" nowrap>증명하지 않는 범위</th></tr></thead>
@@ -295,9 +279,9 @@ no-hardware와 시뮬레이션 성공을 실물 주행이나 물리 적재·하�
 
 ---
 
-## 14. 빠른 시작
+## 13. 빠른 시작
 
-### 14.1 No-hardware 검증
+### 13.1 No-hardware 검증
 
 ```bash
 ./scripts/bootstrap-nohardware-envs.sh
@@ -306,7 +290,7 @@ no-hardware와 시뮬레이션 성공을 실물 주행이나 물리 적재·하�
 
 API, 인증, DB와 Main·Nav·AI 계약을 확인하며 실제 주행과 Lift는 포함하지 않습니다.
 
-### 14.2 통합 Profile 실행
+### 13.2 통합 Profile 실행
 
 <table width="100%">
   <thead><tr><th width="24%" nowrap>실행 환경</th><th width="38%" nowrap>Profile</th><th width="38%" nowrap>실행 범위</th></tr></thead>
@@ -325,7 +309,7 @@ API, 인증, DB와 Main·Nav·AI 계약을 확인하며 실제 주행과 Lift는
 ./scripts/sf_stack.sh --profile PROFILE_NAME foreground
 ```
 
-### 14.3 실물 통합 시작
+### 13.3 실물 통합 시작
 
 실물 운용은 Robot SBC → AI → Nav → Main 순서로 시작합니다. 최초 설치 시에는 각 서버의 setup과 공통 hostname·credential 점검을 먼저 완료해야 합니다.
 
@@ -377,7 +361,7 @@ nav-server/scripts/robot_sbc/stop_stack.sh
 
 ---
 
-## 15. 현재 한계와 확장 목표
+## 14. 현재 한계와 확장 목표
 
 <table width="100%">
   <thead><tr><th width="46%" nowrap>현재 확보한 기반</th><th width="54%" nowrap>다음 목표</th></tr></thead>
@@ -395,7 +379,7 @@ nav-server/scripts/robot_sbc/stop_stack.sh
 
 ---
 
-## 16. 프로젝트 타임라인
+## 15. 프로젝트 타임라인
 
 ### Jira 작업 이력
 
@@ -403,7 +387,8 @@ nav-server/scripts/robot_sbc/stop_stack.sh
   <img src="assets/Images/jira-task-history-2026-07-28.png" width="100%" alt="Jira 작업 이력">
 </p>
 프로젝트 기간 [ 2026년 5월 25일 ~ 2026년 7월 24일 ]
-## 17. 프로젝트 기술 스택
+
+## 16. 프로젝트 기술 스택
 
 ### Robot & Middleware
 
@@ -446,7 +431,7 @@ nav-server/scripts/robot_sbc/stop_stack.sh
 
 ---
 
-## 18. 보안 및 제외 항목
+## 17. 보안 및 제외 항목
 
 실제 환경에서는 사용하지만 보안상 GitHub 저장소에는 포함하지 않는 항목입니다.
 
