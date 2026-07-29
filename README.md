@@ -170,15 +170,15 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 9. 상태 다이어그램
 
-### 9.1 입출고 작업 상태
+> **State Diagram — 입출고 작업 상태**
 
 ![입출고 작업 상태 다이어그램](assets/Images/입출고.png)
 
-### 9.2 안전정지와 운영자 복구
+> **State Diagram — 안전정지와 운영자 복구**
 
 ![안전정지와 운영자 복구 다이어그램](assets/Images/복구.png)
 
-### 9.3 로봇 상태
+> **State Diagram — 로봇 상태**
 
 ![로봇 상태 다이어그램](assets/Images/로봇.png)
 
