@@ -10,7 +10,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 1. 팀 구성 및 역할
 
-<table width="100%" align="center">
+<table width="100%">
   <thead><tr><th width="20%" nowrap>팀원</th><th width="20%" nowrap>담당 영역</th><th width="60%" nowrap>주요 역할</th></tr></thead>
   <tbody>
     <tr><td align="center" nowrap>손영빈(팀장)</td><td nowrap>Nav·Hardware</td><td nowrap>ROS 2·Nav2, 도킹, Lift 연동과 실물 주행</td></tr>
@@ -23,7 +23,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 2. 프로젝트 주제
 
-<table width="100%" align="center">
+<table width="100%">
   <thead><tr><th width="24%" nowrap>구분</th><th width="76%" nowrap>내용</th></tr></thead>
   <tbody>
     <tr><td nowrap>프로젝트 목표</td><td nowrap>입·출고 요청부터 재고 반영까지 이어지는 E2E 물류 작업 구현</td></tr>
@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 물류 자동화는 단순 이동뿐 아니라 작업 요청, 로봇 할당, 적재·하역, 영상 검증과 재고 반영을 하나의 흐름으로 연결해야 합니다. 이 프로젝트는 분산된 상태를 추적 가능한 E2E 작업으로 통합하고, 실제 로봇 환경에서 검증하기 위해 선정했습니다.
 
-<table width="100%" align="center">
+<table width="100%">
   <thead><tr><th width="42%" nowrap>선정 배경</th><th width="58%" nowrap>프로젝트 방향</th></tr></thead>
   <tbody>
     <tr><td nowrap>반복적인 입·출고 운반 업무</td><td nowrap>요청부터 재고 반영까지 정형화된 작업 흐름 구성</td></tr>
@@ -58,7 +58,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 4. 사용자 요구사항
 
-<table width="100%" align="center">
+<table width="100%">
   <thead><tr><th width="12%" nowrap>ID</th><th width="88%" nowrap>현재 구현된 사용자 요구사항</th></tr></thead>
   <tbody>
     <tr><td align="center" nowrap>UR-01</td><td nowrap>로봇은 물품을 운송할 수 있어야 한다.</td></tr>
@@ -75,7 +75,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 5. 시스템 요구사항
 
-<table width="100%" align="center">
+<table width="100%">
   <thead><tr><th width="10%" nowrap>ID</th><th width="24%" nowrap>기능</th><th width="66%" nowrap>요구사항</th></tr></thead>
   <tbody>
     <tr><td align="center" nowrap>SR-01</td><td nowrap>재고 확인</td><td nowrap>관리자가 품목·보관 위치·층별 현재 재고를<br>조회할 수 있다.</td></tr>
@@ -225,7 +225,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 12. 프로젝트 목표와 범위
 
-<table width="100%" align="center">
+<table width="100%">
   <thead><tr><th width="34%" nowrap>핵심 목표</th><th width="66%" nowrap>구현 범위</th></tr></thead>
   <tbody>
     <tr><td nowrap>입·출고 작업과 재고 관리</td><td nowrap>작업 생성·상태 전이와 PostgreSQL 기반 재고·이력 반영</td></tr>
@@ -245,11 +245,11 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 기록된 통합 시나리오에서는 작업 266을 기준으로 작업 생성부터 완료와 재고 반영까지 동일한 `task_id`로 대조했습니다.
 
-<table width="100%" align="center">
+<table width="100%">
   <tbody>
     <tr>
       <td width="64%" valign="top">
-        <table width="100%" align="center">
+        <table width="100%">
           <thead><tr><th width="15%" nowrap>시나리오</th><th width="65%" nowrap>검증 내용</th><th width="20%" nowrap>결과</th></tr></thead>
           <tbody>
             <tr><td align="center" nowrap>S01</td><td nowrap>작업 생성과 로봇 배정</td><td align="center" nowrap>PASS</td></tr>
@@ -263,7 +263,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
         </table>
       </td>
       <td width="36%" valign="top">
-        <table width="100%" align="center">
+        <table width="100%">
           <thead><tr><th width="58%" nowrap>통합 지표</th><th width="42%" nowrap>결과</th></tr></thead>
           <tbody>
             <tr><td nowrap>전체 시나리오</td><td nowrap>7/7</td></tr>
@@ -280,7 +280,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ### 13.2 검증 계층
 
-<table width="100%" align="center">
+<table width="100%">
   <thead><tr><th width="25%" nowrap>검증 구분</th><th width="45%" nowrap>확인 범위</th><th width="30%" nowrap>증명하지 않는 범위</th></tr></thead>
   <tbody>
     <tr><td nowrap>자동 테스트</td><td nowrap>API, schema, 인증, 상태 전이, DB와 설정</td><td nowrap>실제 로봇의 물리 동작</td></tr>
@@ -308,7 +308,7 @@ API, 인증, DB와 Main·Nav·AI 계약을 확인하며 실제 주행과 Lift는
 
 ### 14.2 통합 Profile 실행
 
-<table width="100%" align="center">
+<table width="100%">
   <thead><tr><th width="24%" nowrap>실행 환경</th><th width="38%" nowrap>Profile</th><th width="38%" nowrap>실행 범위</th></tr></thead>
   <tbody>
     <tr><td nowrap>단일 로봇 통합 PC</td><td nowrap><code>tb1-local-e2e</code><br><code>tb2-local-e2e</code></td><td nowrap>Main·UI와 선택 Nav</td></tr>
@@ -379,7 +379,7 @@ nav-server/scripts/robot_sbc/stop_stack.sh
 
 ## 15. 현재 한계와 확장 목표
 
-<table width="100%" align="center">
+<table width="100%">
   <thead><tr><th width="46%" nowrap>현재 확보한 기반</th><th width="54%" nowrap>다음 목표</th></tr></thead>
   <tbody>
     <tr><td nowrap>한 대의 로봇으로 Full E2E 검증</td><td nowrap>두 대 이상 동시 배정과 traffic·zone 경합 검증</td></tr>
