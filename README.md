@@ -105,7 +105,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ![하드웨어 아키텍처](<assets/Images/HW Architecture (2).png>)
 
-![하드웨어 구성](<assets/Images/Screenshot from 2026-07-27 18-52-57.png>)
+![하드웨어 구성](<assets/Images/TurtleBot3_Result.png>)
 
 자세한 CAD, 3D 출력과 배선 자료는 [Hardware 문서](hardware/README.md)를 참고합니다.
 
