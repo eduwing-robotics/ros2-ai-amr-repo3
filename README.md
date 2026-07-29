@@ -162,19 +162,19 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 8. 시퀀스 다이어그램
 
-> ### 8.1 Sequence Diagram  — 입고 작업**
+### 8.1 Sequence Diagram  — 입고 작업**
 
 <p align="center">
   <img src="assets/Images/InBound.png" width="100%" alt="입고 작업 시퀀스 다이어그램">
 </p>
 
-> ### 8.2 Sequence Diagram  — 출고 작업**
+### 8.2 Sequence Diagram  — 출고 작업**
 
 <p align="center">
   <img src="assets/Images/OutBound.png" width="100%" alt="출고 작업 시퀀스 다이어그램">
 </p>
 
-> ### 8.3 Sequence Diagram — 위험 감지, E-stop과 작업 복구**
+### 8.3 Sequence Diagram — 위험 감지, E-stop과 작업 복구**
 
 <p align="center">
   <img src="assets/Images/estop.png" width="100%" alt="위험 감지와 E-stop 복구 시퀀스 다이어그램">
@@ -182,19 +182,19 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 9. 상태 다이어그램
 
-> ### 9.1 State Diagram — 입출고 작업 상태**
+### 9.1 State Diagram — 입출고 작업 상태**
 
 <p align="center">
   <img src="assets/Images/입출고.png" width="100%" alt="입출고 작업 상태 다이어그램">
 </p>
 
-> ### 9.2 State Diagram — 안전정지와 운영자 복구**
+### 9.2 State Diagram — 안전정지와 운영자 복구**
 
 <p align="center">
   <img src="assets/Images/복구.png" width="100%" alt="안전정지와 운영자 복구 다이어그램">
 </p>
 
-> ### 9.3 State Diagram — 로봇 상태**
+### 9.3 State Diagram — 로봇 상태**
 
 <p align="center">
   <img src="assets/Images/로봇.png" width="100%" alt="로봇 상태 다이어그램">
