@@ -2,7 +2,7 @@
 
 운영자의 입·출고 요청을 로봇 배정, 자율주행, 정밀 도킹, 적재·하역, Vision 검증과 재고 반영까지 연결한 ROS 2 기반 물류 자동화 프로젝트입니다.
 
-Main Server, Nav Server, AI Server와 두 대의 TurtleBot3가 역할을 나누되, 하나의 `task_id`를 기준으로 작업의 시작부터 완료까지 추적할 수 있도록 구성했습니다.
+Main Server, Nav Server, AI Server가 역할을 나누되, 두 대의 TurtleBot3가 각각의 `task_id`를 기준으로 작업의 시작부터 완료까지 추적할 수 있도록 구성했습니다.
 
 https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
