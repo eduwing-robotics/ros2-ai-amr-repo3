@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
   <tbody>
     <tr><td align="center" nowrap>손영빈(팀장)</td><td nowrap>Nav·Hardware</td><td nowrap>ROS 2·Nav2, 도킹, Lift 연동과 실물 주행</td></tr>
     <tr><td align="center" nowrap>윤주찬</td><td nowrap>Hardware</td><td nowrap>포크리프트 구조, Lift 구동부와 실물 하드웨어 구성</td></tr>
-    <tr><td align="center" nowrap>김현수</td><td nowrap>Main·UI·DB</td><td nowrap>작업·재고·관제 UI, PostgreSQL과 서버 오케스트레이션</td></tr>
+    <tr><td align="center" nowrap>김현수</td><td nowrap>Main·UI·DB</td><td nowrap>작업·재고·관제 UI, DB와 서버 오케스트레이션</td></tr>
     <tr><td align="center" nowrap>하샘</td><td nowrap>Vision·Localization</td><td nowrap>영상 pipeline, evidence, 안전 감지와 위치 복구</td></tr>
   </tbody>
 </table>
@@ -41,7 +41,7 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 3. 주제 선정 이유
 
-물류 자동화는 단순 이동뿐 아니라 작업 요청, 로봇 할당, 적재·하역, 영상 검증과 재고 반영을 하나의 흐름으로 연결해야 합니다. 이 프로젝트는 분산된 상태를 추적 가능한 E2E 작업으로 통합하고, 실제 로봇 환경에서 검증하기 위해 선정했습니다.
+물류 자동화는 단순 이동뿐 아니라 작업요청, 로봇 할당, 적재.하역, 영상 검증과 재고 반영등 여러 요소가 필요합니다. 이 요소들을 묶어 물류 자동화라는 하나의 흐름으로 연결이 필요하다고 생각이 들어서 이 주제를 선정하게 되었습니다.
 
 <table width="100%">
   <thead><tr><th width="42%" nowrap>선정 배경</th><th width="58%" nowrap>프로젝트 방향</th></tr></thead>
@@ -162,19 +162,19 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 8. 시퀀스 다이어그램
 
-> **Sequence Diagram  — 입고 작업**
+> ### 8.1 Sequence Diagram  — 입고 작업**
 
 <p align="center">
   <img src="assets/Images/InBound.png" width="100%" alt="입고 작업 시퀀스 다이어그램">
 </p>
 
-> **Sequence Diagram  — 출고 작업**
+> ### 8.2 Sequence Diagram  — 출고 작업**
 
 <p align="center">
   <img src="assets/Images/OutBound.png" width="100%" alt="출고 작업 시퀀스 다이어그램">
 </p>
 
-> **Sequence Diagram — 위험 감지, E-stop과 작업 복구**
+> ### 8.3 Sequence Diagram — 위험 감지, E-stop과 작업 복구**
 
 <p align="center">
   <img src="assets/Images/estop.png" width="100%" alt="위험 감지와 E-stop 복구 시퀀스 다이어그램">
@@ -182,19 +182,19 @@ https://github.com/user-attachments/assets/155fc71c-53f5-4262-bbdc-710d7563c2a5
 
 ## 9. 상태 다이어그램
 
-> **State Diagram — 입출고 작업 상태**
+> ### 9.1 State Diagram — 입출고 작업 상태**
 
 <p align="center">
   <img src="assets/Images/입출고.png" width="100%" alt="입출고 작업 상태 다이어그램">
 </p>
 
-> **State Diagram — 안전정지와 운영자 복구**
+> ### 9.2 State Diagram — 안전정지와 운영자 복구**
 
 <p align="center">
   <img src="assets/Images/복구.png" width="100%" alt="안전정지와 운영자 복구 다이어그램">
 </p>
 
-> **State Diagram — 로봇 상태**
+> ### 9.3 State Diagram — 로봇 상태**
 
 <p align="center">
   <img src="assets/Images/로봇.png" width="100%" alt="로봇 상태 다이어그램">
@@ -386,7 +386,7 @@ nav-server/scripts/robot_sbc/stop_stack.sh
 <p align="center">
   <img src="assets/Images/jira-task-history-2026-07-28.png" width="100%" alt="Jira 작업 이력">
 </p>
-프로젝트 기간 [ 2026년 5월 25일 ~ 2026년 7월 24일 ]
+프로젝트 기간 [ 2026년 5월 26일 ~ 2026년 7월 24일 ]
 
 ## 16. 프로젝트 기술 스택
 
