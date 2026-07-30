@@ -4,7 +4,9 @@
 
 Main Server, Nav Server, AI Server가 역할을 나누되, 두 대의 TurtleBot3가 각각의 `task_id`를 기준으로 작업의 시작부터 완료까지 추적할 수 있도록 구성했습니다.
 
-https://github.com/user-attachments/assets/cf180907-ecb2-4e76-b309-d111dab5710c
+<p align="center">
+  <a href="assets/e2e_final.mp4"><strong>▶ E2E 통합 시연 영상 보기</strong></a>
+</p>
 
 ---
 
@@ -216,7 +218,7 @@ https://github.com/user-attachments/assets/cf180907-ecb2-4e76-b309-d111dab5710c
 ├── scripts/       # 전체 환경 준비, 실행, 종료와 점검
 ├── tests/         # 서버 간 계약과 no-hardware 검증
 ├── docs/          # 통합 계약, 운영, 검증과 이력
-└── assets/        # README와 발표용 이미지
+└── assets/        # README와 발표용 이미지·영상
 ```
 
 세 서버는 각자 구현과 실행을 설명하는 README와 책임 경계 문서를 가집니다. 최상단 문서는 프로젝트 배경, E2E 시나리오와 통합 결과를 설명하고, 세부 API·설정·운영 절차는 서버별 문서에서 관리합니다.
