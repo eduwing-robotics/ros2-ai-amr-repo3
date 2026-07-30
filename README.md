@@ -118,7 +118,7 @@ Main Server, Nav Server, AI Server가 역할을 나누되, 두 대의 TurtleBot3
 ### 소프트웨어 아키텍처
 
 <p align="center">
-  <img src="assets/Images/SW Architecture (1)(1)(1).png" width="100%" alt="소프트웨어 아키텍처">
+  <img src="assets/Images/SW Architecture.png" width="100%" alt="소프트웨어 아키텍처">
 </p>
 
 ---
