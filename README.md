@@ -429,6 +429,20 @@ nav-server/scripts/robot_sbc/stop_stack.sh
 ![Pytest](https://img.shields.io/badge/Pytest-Testing-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white)
 ![Ruff](https://img.shields.io/badge/Ruff-Linting-D7FF64?style=for-the-badge&logo=ruff&logoColor=black)
 
+### 협업·프로젝트 관리
+
+![Jira](https://img.shields.io/badge/Jira-0052CC?style=for-the-badge&logo=jira&logoColor=white)
+![Confluence](https://img.shields.io/badge/Confluence-172B4D?style=for-the-badge&logo=confluence&logoColor=white)
+![Slack](https://img.shields.io/badge/Slack-4A154B?style=for-the-badge&logo=slack&logoColor=white)
+![GitHub](https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white)
+![Git](https://img.shields.io/badge/Git-F05032?style=for-the-badge&logo=git&logoColor=white)
+
+- **Jira** : 프로젝트 일정 관리
+- **Confluence** : 기술 문서 관리
+- **Slack** : 팀 커뮤니케이션
+- **GitHub** : 원격 코드 협업
+- **Git** : 변경 이력 추적
+
 ---
 
 ## 17. 보안 및 제외 항목
