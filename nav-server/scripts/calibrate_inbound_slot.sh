@@ -115,7 +115,7 @@ if drift > float('$MAX_XY_DRIFT_M'):
     sys.exit(1)
 "
   echo "[calib] recording $APPROACH_WP (samples=$SAMPLES, theta_only)..."
-  python3 "$SCRIPT_DIR/record_waypoint_pose.py" "$APPROACH_WP" --source tf --samples "$SAMPLES" --theta-only --max-xy-error-m "$MAX_XY_DRIFT_M"
+  python3 "$SCRIPT_DIR/tools/mapping/record_waypoint_pose.py" "$APPROACH_WP" --source tf --samples "$SAMPLES" --theta-only --max-xy-error-m "$MAX_XY_DRIFT_M"
   echo "[calib] 완료. preview:"
   python3 "$SCRIPT_DIR/compute_approach_from_marker.py" "$SLOT" --standoff-m "$STANDOFF_M"
 }

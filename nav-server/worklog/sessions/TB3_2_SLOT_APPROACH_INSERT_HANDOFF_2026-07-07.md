@@ -142,7 +142,7 @@ inbound1_turn_in
 ~~A/B/C/D 테스트를 바로 시작하려다 Nav2/localization 상태가 불안정한 것을 확인함.~~
 
 **2026-07-07 15:36 KST Nav2 복구 완료** (`scripts/run_nav2_with_initial_pose.sh`, initial pose 0.14,-0.41)
-**15:39~15:46 KST 중앙 슬롯 A/B/C/D 전부 OK** — 스크립트 `scripts/run_center_slot_insert_test.sh`
+**15:39~15:46 KST 중앙 슬롯 A/B/C/D 전부 OK** — 스크립트 `scripts/scenarios/field/run_center_slot_insert_test.sh`
 
 | 슬롯 | nav | align #marker | insert/후진 | 비고 |
 |------|-----|-------------|-------------|------|
@@ -159,8 +159,8 @@ inbound1_turn_in
 
 ```bash
 # 슬롯별 실행
-SLOT=a bash scripts/run_center_slot_insert_test.sh
-SLOT=b bash scripts/run_center_slot_insert_test.sh
+SLOT=a bash scripts/scenarios/field/run_center_slot_insert_test.sh
+SLOT=b bash scripts/scenarios/field/run_center_slot_insert_test.sh
 # ...
 ```
 
@@ -184,7 +184,7 @@ SLOT=b bash scripts/run_center_slot_insert_test.sh
 ## 이번 세션에서 실제 반영된 파일
 
 - `map/zones.json`
-- `scripts/run_center_slot_insert_test.sh` (신규 — 중앙 슬롯 A/B/C/D 자동 테스트)
+- `scripts/scenarios/field/run_center_slot_insert_test.sh` (신규 — 중앙 슬롯 A/B/C/D 자동 테스트)
 
 ## 마지막 안전 상태
 

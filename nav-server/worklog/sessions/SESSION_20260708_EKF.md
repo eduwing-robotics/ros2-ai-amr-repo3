@@ -31,8 +31,8 @@ EKF 끄고 예전처럼: `WITH_EKF=0 scripts/start_all_tb3_2.sh restart`
 
 ### 4. 스크립트
 - `scripts/save_nav_stack_snapshot.sh` / `restore_nav_stack_snapshot.sh`
-- `scripts/run_inbound2_b_lv2_scenario.sh` — nav 재시도, reverse_out, lift HOME preflight
-- `scripts/run_ekf_zone_approach_insert_test.sh` — 구역별 approach+insert (신규)
+- `scripts/scenarios/field/run_inbound2_b_lv2_scenario.sh` — nav 재시도, reverse_out, lift HOME preflight
+- `scripts/scenarios/field/run_ekf_zone_approach_insert_test.sh` — 구역별 approach+insert (신규)
 
 ---
 
@@ -79,9 +79,9 @@ EKF 끄고 예전처럼: `WITH_EKF=0 scripts/start_all_tb3_2.sh restart`
 3. 구역 테스트 재개:
    ```bash
    ZONES="outbound1,outbound2,a,b,c,d,wait1,wait2" \
-     bash scripts/run_ekf_zone_approach_insert_test.sh
+     bash scripts/scenarios/field/run_ekf_zone_approach_insert_test.sh
    ```
-4. 전체 시나리오: `bash scripts/run_inbound2_b_lv2_scenario.sh`
+4. 전체 시나리오: `bash scripts/scenarios/field/run_inbound2_b_lv2_scenario.sh`
 5. **선택**: B `insert_stop_width_px` 180→175 (과전진 완화)
 6. lift_bridge SBC 재시작 if position 피드백 이상
 

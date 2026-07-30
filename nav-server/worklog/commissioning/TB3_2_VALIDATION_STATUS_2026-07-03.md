@@ -299,7 +299,7 @@ ssh musk@192.168.30.102 'bash ~/slam_nav_camera_fix/setup_marco_libcamera.sh'
 
 ## 2026-07-04 저녁 — 그리드 웨이포인트 + 포크 삽입 캘리브레이션
 
-### 하단 6슬롯 그리드 좌표 (`scripts/generate_factory_grid_waypoints.py`)
+### 하단 6슬롯 그리드 좌표 (`scripts/tools/mapping/generate_factory_grid_waypoints.py`)
 
 - 맵에서 최하단 free band(`y_min=-1.18`)를 자동 검출해 입고1·입고2·1호차대기·2호차대기·출고1·출고2 approach 좌표를 `zones.json`에 적용
 - 미리보기: `map/robot2_grid_waypoints_preview.png`
@@ -345,7 +345,7 @@ E2E에서 API는 DONE이었으나 실물 동작이 어긋난 원인 4가지를 �
 
 **코드 추가/수정 (도킹 버그 수정 이후):**
 - `vehicle_*_approach`는 **자동 aruco_align 체인 제외** (`is_slot_docking_approach()`). 대기장은 출발점(Nav2만), 슬롯(입고/출고/창고)만 Nav2→`aruco_align(center_only)` 체인.
-- `tests/test_docking.py` — 삽입 cap·align mode·approach 체인 단위 테스트
+- `tests/integration/test_docking.py` — 삽입 cap·align mode·approach 체인 단위 테스트
 - `scripts/scenarios/e2e_tb3_2_factory_run.sh` — 2호차대기→입고2 load→C unload E2E
 - `scripts/scenarios/e2e_tb3_2_park_and_run.sh` — 대기장 주차(align hold)→leave_dock→E2E
 
@@ -402,7 +402,7 @@ E2E에서 API는 DONE이었으나 실물 동작이 어긋난 원인 4가지를 �
 | `nav_app/settings.py` | `FORK_INSERT_SLIP_COMPENSATION_M=0.02`, `DOCK_POST_INSERT_DWELL_SEC=4`, `FORK_INSERT_MAX_DURATION_SEC=20` |
 | `nav_app/services/robot_commands.py` | wall-adjacent `full align`, vehicle `center_only`, `leave_dock` prepend |
 | `map/zones.json` | inbound2 x=0.234 (−2cm), outbound1 x=1.121 (+2cm) |
-| `scripts/run_inbound2_b_outbound1_wait2_scenario.sh` | 입고2→B→출고1→대기2 E2E |
+| `scripts/scenarios/field/run_inbound2_b_outbound1_wait2_scenario.sh` | 입고2→B→출고1→대기2 E2E |
 
 ### E2E 시나리오 결과 (tb3_2, API :8002)
 
@@ -417,7 +417,7 @@ E2E에서 API는 DONE이었으나 실물 동작이 어긋난 원인 4가지를 �
 ```bash
 scripts/start_nav_servers.sh restart
 scripts/nav_ops.sh detector2
-ROBOT_ID=tb3_2 bash scripts/run_inbound2_b_outbound1_wait2_scenario.sh
+ROBOT_ID=tb3_2 bash scripts/scenarios/field/run_inbound2_b_outbound1_wait2_scenario.sh
 ```
 
 ---
@@ -431,13 +431,13 @@ ROBOT_ID=tb3_2 bash scripts/run_inbound2_b_outbound1_wait2_scenario.sh
 | `config/nav2/burger_smartfactory.yaml` | Nav2 파라미터 |
 | `config/robots.json` | tb3_2 domain/topic 매핑 |
 | `scripts/scenarios/replay_task206_inbound2_tb3_2.sh` | task 206 재현 |
-| `scripts/run_inbound2_b_outbound1_wait2_scenario.sh` | 입고2→B→출고1→대기2 E2E |
-| `scripts/run_inbound1_c_wait2_scenario.sh` | inbound1→C→대기2 E2E |
-| `scripts/run_outbound2_a_wait2_scenario.sh` | outbound2→A→대기2 E2E |
+| `scripts/scenarios/field/run_inbound2_b_outbound1_wait2_scenario.sh` | 입고2→B→출고1→대기2 E2E |
+| `scripts/scenarios/field/run_inbound1_c_wait2_scenario.sh` | inbound1→C→대기2 E2E |
+| `scripts/scenarios/field/run_outbound2_a_wait2_scenario.sh` | outbound2→A→대기2 E2E |
 | `docs/reference/NAV_ALGORITHM.md` | 현재 도킹 절차와 튜닝 기준 |
 | `scripts/scenarios/e2e_tb3_2_factory_run.sh` | tb3_2 공장 E2E (대기→입고2→C) |
 | `scripts/scenarios/e2e_tb3_2_park_and_run.sh` | 대기장 주차+leave_dock+E2E |
-| `tests/test_docking.py` | 도킹 거리/align 체인 단위 테스트 |
+| `tests/integration/test_docking.py` | 도킹 거리/align 체인 단위 테스트 |
 | `scripts/scenarios/task206_inbound2_tb3_2.json` | payload JSON |
 | `docs/runbook/OPERATIONS.md` | 전체 bringup |
 | `docs/reference/INTERFACES.md` | API 계약 |

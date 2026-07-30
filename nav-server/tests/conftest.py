@@ -1,9 +1,10 @@
 """Shared pytest helpers."""
 
 import sys
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.support import NAV_SERVER_ROOT
+
+ROOT = NAV_SERVER_ROOT
 SCRIPTS = ROOT / "scripts"
 
 for path in (ROOT, SCRIPTS):

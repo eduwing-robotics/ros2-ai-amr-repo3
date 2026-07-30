@@ -219,11 +219,11 @@ scripts/smoke_main_contract.sh
 
 ```bash
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q \
-  tests/test_nohardware_robot_command_contract.py \
-  tests/test_docking_sensor_freshness.py \
-  tests/test_nohardware_estop_lift_stop.py \
-  tests/test_scan_map_alignment.py \
-  tests/test_global_localization_search.py
+  tests/contracts/test_nohardware_robot_command_contract.py \
+  tests/integration/test_docking_sensor_freshness.py \
+  tests/contracts/test_nohardware_estop_lift_stop.py \
+  tests/integration/test_scan_map_alignment.py \
+  tests/integration/test_global_localization_search.py
 ```
 
 ## Gazebo 검증
@@ -258,7 +258,7 @@ Main, Vision process를 임의로 종료하지 않는다.
 실제 로봇을 안전하게 teleop으로 이동해 map pose를 확인한 뒤 기록한다.
 
 ```bash
-scripts/record_waypoint_pose.py <waypoint-id>
+scripts/tools/mapping/record_waypoint_pose.py <waypoint-id>
 scripts/validate_zones.py --scope field-e2e
 ```
 

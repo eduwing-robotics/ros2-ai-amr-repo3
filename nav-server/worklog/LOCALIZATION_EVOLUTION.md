@@ -473,7 +473,7 @@ Reliable-loc과 현재 구현은 공간 검증과 시간 검증을 함께 사용
 - 위치확정 gate: `nav_app/services/localization.py`
 - 초기 위치 탐색과 no-motion 수렴: `nav_app/services/logistics_navigator.py`
 - EKF 기본 실행값: `scripts/run_nav2_with_initial_pose.sh`
-- 회귀 테스트: `tests/test_localization.py`, `tests/test_global_localization_search.py`, `tests/test_scan_map_alignment.py`, `tests/test_robot_context_localization_history.py`
+- 회귀 테스트: `tests/integration/test_localization.py`, `tests/integration/test_global_localization_search.py`, `tests/integration/test_scan_map_alignment.py`, `tests/integration/test_robot_context_localization_history.py`
 - 현장 기록: `worklog/commissioning/TB3_2_VALIDATION_STATUS_2026-07-03.md`, `worklog/sessions/TB3_2_SLOT_APPROACH_INSERT_HANDOFF_2026-07-07.md`, `worklog/sessions/SESSION_20260708_EKF.md`
 - 최종 실차 실행 로그: `.runtime/sf-nav/tb2-live/20260720T092109Z-3077807-27626/runtime.log`
 - 최종 적용 설정: `.runtime/sf-nav/tb2-live/20260720T092109Z-3077807-27626/resolved-profile.json`
