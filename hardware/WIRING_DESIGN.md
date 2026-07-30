@@ -28,8 +28,6 @@ limit switch와 실제 배선 확인 항목을 정리한다.
 
 ## 3. Pinout 기록
 
-배선도에서 확인된 값만 기록한다. 확인되지 않은 값은 빈칸으로 둔다.
-
 | 신호 | Controller pin | 연결 대상 | 비고 |
 | --- | --- | --- | --- |
 | `STEP` | D2 | TMC2209 `STEP` | 800 pulses/mm |
