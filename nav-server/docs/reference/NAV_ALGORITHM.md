@@ -251,9 +251,10 @@ flowchart TD
 현재 Main dispatch 계약에 포함하지 않으며, 특히 `reverse_out`은 삽입 상태와
 후방 여유를 확인한 제한된 검증 절차에서만 사용한다.
 
-AGV graph planner와 orthogonal follower는 독립 실행 가능한 실험 기능이다.
-현재 Movement API dispatch와 연결되지 않았으므로 운영 알고리즘이나 합격
-근거로 사용하지 않는다.
+AGV graph planner와 orthogonal follower는
+[experiments/agv_graph](../../experiments/agv_graph/README.md)에 격리된 독립
+실험 기능이다. 현재 Movement API dispatch와 연결되지 않았으므로 운영
+알고리즘이나 합격 근거로 사용하지 않는다.
 
 ## 반드시 유지할 규칙
 

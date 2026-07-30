@@ -1,7 +1,13 @@
 from pathlib import Path
 
-from agv_graph_builder import CorridorGraph, GraphNode, graph_allowed_cells, load_corridor_graph, validate_graph
-from agv_grid_planner import GridMap, inflated_blocked_cells
+from experiments.agv_graph.agv_graph_builder import (
+    CorridorGraph,
+    GraphNode,
+    graph_allowed_cells,
+    load_corridor_graph,
+    validate_graph,
+)
+from experiments.agv_graph.agv_grid_planner import GridMap, inflated_blocked_cells
 
 
 def test_graph_allowed_cells_rasterizes_axis_aligned_edges():
@@ -59,7 +65,9 @@ def test_validate_graph_rejects_inflated_obstacle_crossing():
 
 
 def test_project_agv_graph_edges_are_axis_aligned():
-    graph = load_corridor_graph(Path(__file__).resolve().parents[1] / "map" / "agv_waypoint_graph.yaml")
+    graph = load_corridor_graph(
+        Path(__file__).resolve().parents[1] / "experiments" / "agv_graph" / "map" / "agv_waypoint_graph.yaml"
+    )
 
     diagonal_edges = []
     for start_name, end_name in graph.edges:

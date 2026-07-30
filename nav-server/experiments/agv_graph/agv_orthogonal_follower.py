@@ -3,37 +3,60 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 import os
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
 
-from agv_graph_builder import CorridorGraph, graph_allowed_cells, load_corridor_graph, validate_graph
-from agv_grid_planner import (
-    GridMap,
-    MotionSegment,
-    astar_4,
-    cells_to_motion_segments,
-    inflated_blocked_cells,
-    inflation_cells,
-)
+try:
+    from .agv_graph_builder import (
+        CorridorGraph,
+        graph_allowed_cells,
+        load_corridor_graph,
+        validate_graph,
+    )
+    from .agv_grid_planner import (
+        GridMap,
+        MotionSegment,
+        astar_4,
+        cells_to_motion_segments,
+        inflated_blocked_cells,
+        inflation_cells,
+    )
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from agv_graph_builder import (
+        CorridorGraph,
+        graph_allowed_cells,
+        load_corridor_graph,
+        validate_graph,
+    )
+    from agv_grid_planner import (
+        GridMap,
+        MotionSegment,
+        astar_4,
+        cells_to_motion_segments,
+        inflated_blocked_cells,
+        inflation_cells,
+    )
 
 import rclpy
-from rclpy.node import Node
 from geometry_msgs.msg import Point, Twist, TwistStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
+from rclpy.node import Node
 from std_msgs.msg import String
 from visualization_msgs.msg import Marker, MarkerArray
 
 try:
     import tf2_ros
+    from tf2_ros import ConnectivityException, ExtrapolationException, LookupException
 except ImportError:  # pragma: no cover - ROS environment dependency
     tf2_ros = None
 
 
-NAV_SERVER_ROOT = Path(os.environ.get("NAV_SERVER_ROOT", Path(__file__).resolve().parents[1])).resolve()
-DEFAULT_GRAPH_PATH = NAV_SERVER_ROOT / "map" / "agv_waypoint_graph.yaml"
+EXPERIMENT_ROOT = Path(__file__).resolve().parent
+NAV_SERVER_ROOT = Path(os.environ.get("NAV_SERVER_ROOT", EXPERIMENT_ROOT.parents[1])).resolve()
+DEFAULT_GRAPH_PATH = EXPERIMENT_ROOT / "map" / "agv_waypoint_graph.yaml"
 
 
 def resolve_repo_path(path_value: str) -> Path:
@@ -71,16 +94,16 @@ class AgvOrthogonalFollower(Node):
 
         self.graph_path = resolve_repo_path(self.get_parameter("graph_path").value)
         self.graph: CorridorGraph = load_corridor_graph(self.graph_path)
-        self.grid: Optional[GridMap] = None
+        self.grid: GridMap | None = None
         self.blocked = set()
         self.allowed = set()
-        self.odom_pose: Optional[Pose2D] = None
-        self.segments: List[MotionSegment] = []
+        self.odom_pose: Pose2D | None = None
+        self.segments: list[MotionSegment] = []
         self.segment_index = 0
         self.state = "IDLE"
         self.status = "IDLE"
         self.stop_until_time = None
-        self.current_goal_name: Optional[str] = None
+        self.current_goal_name: str | None = None
         self.cmd_vel_stamped = bool(self.get_parameter("cmd_vel_stamped").value)
 
         self.map_sub = self.create_subscription(OccupancyGrid, "/map", self._on_map, 1)
@@ -225,7 +248,7 @@ class AgvOrthogonalFollower(Node):
             self.stop_until_time = None
             self.segment_index += 1
 
-    def _current_map_pose(self) -> Optional[Pose2D]:
+    def _current_map_pose(self) -> Pose2D | None:
         if self.tf_buffer is not None:
             try:
                 transform = self.tf_buffer.lookup_transform(
@@ -237,8 +260,9 @@ class AgvOrthogonalFollower(Node):
                 tr = transform.transform.translation
                 rot = transform.transform.rotation
                 return Pose2D(tr.x, tr.y, yaw_from_quaternion(rot.x, rot.y, rot.z, rot.w))
-            except Exception:
-                pass
+            except (LookupException, ConnectivityException, ExtrapolationException) as exc:
+                self.get_logger().debug(f"map TF lookup failed; using odom pose fallback: {exc}")
+                return self.odom_pose
         return self.odom_pose
 
     def _publish_cmd(self, linear_x: float, angular_z: float) -> None:
@@ -276,7 +300,7 @@ class AgvOrthogonalFollower(Node):
         msg.data = self.status
         self.status_pub.publish(msg)
 
-    def _publish_markers(self, path: Sequence[Tuple[int, int]]) -> None:
+    def _publish_markers(self, path: Sequence[tuple[int, int]]) -> None:
         if self.grid is None:
             return
         markers = MarkerArray()
@@ -320,7 +344,7 @@ class AgvOrthogonalFollower(Node):
         self.marker_pub.publish(markers)
 
 
-def nearest_allowed_cell(cell: Tuple[int, int], allowed: set[Tuple[int, int]]) -> Tuple[int, int]:
+def nearest_allowed_cell(cell: tuple[int, int], allowed: set[tuple[int, int]]) -> tuple[int, int]:
     if cell in allowed:
         return cell
     if not allowed:

@@ -3,13 +3,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import heapq
+import itertools
 import math
-from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 
-
-Cell = Tuple[int, int]
+Cell = tuple[int, int]
 
 
 @dataclass(frozen=True)
@@ -44,11 +44,11 @@ class GridMap:
 
     def world_to_cell(self, x: float, y: float) -> Cell:
         return (
-            int(math.floor((x - self.origin_x) / self.resolution)),
-            int(math.floor((y - self.origin_y) / self.resolution)),
+            math.floor((x - self.origin_x) / self.resolution),
+            math.floor((y - self.origin_y) / self.resolution),
         )
 
-    def cell_to_world(self, cell: Cell) -> Tuple[float, float]:
+    def cell_to_world(self, cell: Cell) -> tuple[float, float]:
         x, y = cell
         return (
             self.origin_x + (x + 0.5) * self.resolution,
@@ -69,11 +69,11 @@ def effective_radius(robot_radius: float, lift_width: float, safety_margin: floa
 
 
 def inflation_cells(grid: GridMap, robot_radius: float, lift_width: float, safety_margin: float) -> int:
-    return int(math.ceil(effective_radius(robot_radius, lift_width, safety_margin) / grid.resolution))
+    return math.ceil(effective_radius(robot_radius, lift_width, safety_margin) / grid.resolution)
 
 
-def inflated_blocked_cells(grid: GridMap, radius_cells: int) -> Set[Cell]:
-    blocked: Set[Cell] = set()
+def inflated_blocked_cells(grid: GridMap, radius_cells: int) -> set[Cell]:
+    blocked: set[Cell] = set()
     raw_blocked = [
         (x, y)
         for y in range(grid.height)
@@ -92,7 +92,7 @@ def inflated_blocked_cells(grid: GridMap, radius_cells: int) -> Set[Cell]:
     return blocked
 
 
-def four_neighbors(cell: Cell) -> Tuple[Cell, Cell, Cell, Cell]:
+def four_neighbors(cell: Cell) -> tuple[Cell, Cell, Cell, Cell]:
     x, y = cell
     return ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1))
 
@@ -105,9 +105,9 @@ def astar_4(
     grid: GridMap,
     start: Cell,
     goal: Cell,
-    blocked: Optional[Set[Cell]] = None,
-    allowed_cells: Optional[Set[Cell]] = None,
-) -> List[Cell]:
+    blocked: set[Cell] | None = None,
+    allowed_cells: set[Cell] | None = None,
+) -> list[Cell]:
     """Run A* using only up/down/left/right neighbors."""
     blocked = blocked or set()
     if not grid.in_bounds(start) or not grid.in_bounds(goal):
@@ -117,10 +117,10 @@ def astar_4(
     if allowed_cells is not None and (start not in allowed_cells or goal not in allowed_cells):
         raise ValueError("start or goal is outside the allowed corridor graph")
 
-    frontier: List[Tuple[int, int, Cell]] = []
+    frontier: list[tuple[int, int, Cell]] = []
     heapq.heappush(frontier, (manhattan(start, goal), 0, start))
-    came_from: Dict[Cell, Optional[Cell]] = {start: None}
-    cost_so_far: Dict[Cell, int] = {start: 0}
+    came_from: dict[Cell, Cell | None] = {start: None}
+    cost_so_far: dict[Cell, int] = {start: 0}
 
     while frontier:
         _, _, current = heapq.heappop(frontier)
@@ -142,7 +142,7 @@ def astar_4(
     raise ValueError("no 4-neighbor path found")
 
 
-def reconstruct_path(came_from: Dict[Cell, Optional[Cell]], goal: Cell) -> List[Cell]:
+def reconstruct_path(came_from: dict[Cell, Cell | None], goal: Cell) -> list[Cell]:
     path = [goal]
     current = goal
     while came_from[current] is not None:
@@ -152,7 +152,7 @@ def reconstruct_path(came_from: Dict[Cell, Optional[Cell]], goal: Cell) -> List[
     return path
 
 
-def rasterize_axis_aligned(start: Cell, end: Cell) -> List[Cell]:
+def rasterize_axis_aligned(start: Cell, end: Cell) -> list[Cell]:
     sx, sy = start
     ex, ey = end
     if sx != ex and sy != ey:
@@ -164,13 +164,13 @@ def rasterize_axis_aligned(start: Cell, end: Cell) -> List[Cell]:
     return [(x, sy) for x in range(sx, ex + step, step)]
 
 
-def cells_to_motion_segments(path: Sequence[Cell], grid: GridMap) -> List[MotionSegment]:
+def cells_to_motion_segments(path: Sequence[Cell], grid: GridMap) -> list[MotionSegment]:
     """Compress a cell path into stop/rotate/straight-drive primitives."""
     if len(path) < 2:
         return []
 
-    segments: List[MotionSegment] = []
-    current_heading: Optional[int] = None
+    segments: list[MotionSegment] = []
+    current_heading: int | None = None
     run_start = path[0]
     run_heading = heading_from_step(path[0], path[1])
 
@@ -214,5 +214,5 @@ def heading_from_step(a: Cell, b: Cell) -> int:
 
 def assert_cardinal_path(path: Iterable[Cell]) -> None:
     cells = list(path)
-    for prev, cell in zip(cells, cells[1:]):
+    for prev, cell in itertools.pairwise(cells):
         heading_from_step(prev, cell)

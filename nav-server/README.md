@@ -123,7 +123,7 @@ R1의 hardware domain `2`와 Nav local domain `42`는 domain bridge로 연결됩
 ```text
 nav-server/
 ├── nav_app/              # Movement API, 실행·상태·안전 로직
-├── scripts/              # sf_nav runtime, ROS adapter, 현장 검증
+├── scripts/              # sf_nav runtime, ROS adapter, 현장 검증 ([guide](scripts/README.md))
 ├── config/               # 로봇, runtime profile, domain bridge, Nav2
 ├── launch/               # ROS launch entrypoint
 ├── map/                  # 지도, waypoint, zone, traffic segment
@@ -157,8 +157,7 @@ ROS_SETUP=/opt/ros/jazzy/setup.bash ./scripts/sf_nav.sh --profile all-live up
 ./scripts/sf_nav.sh --profile all-live down
 ```
 
-현재 정본은 `sf_nav.sh`의 runtime profile 방식입니다. `start_nav_servers.sh`는 호환
-wrapper이며 `start_all_tb3_2.sh`는 SBC·카메라·Lift까지 함께 확인하는 현장 helper입니다.
+현재 정본은 `scripts/sf_nav.sh` (`sf_nav.sh`)의 runtime profile 방식입니다. `scripts/nav_ops.sh` (`nav_ops.sh`)는 convenience/helper entrypoint입니다. `start_nav_servers.sh`는 호환 wrapper이며 `start_all_tb3_2.sh`는 현장 helper입니다. 자세한 분류는 [Scripts Guide](scripts/README.md)를 따릅니다.
 
 ## 설정과 인터페이스
 
@@ -209,6 +208,7 @@ ROS_SETUP=/opt/ros/jazzy/setup.bash ./scripts/verify_gazebo_nav2_e2e.sh --check
 | [Nav Algorithm](docs/reference/NAV_ALGORITHM.md) | 이동·현지화·도킹·안전 알고리즘 |
 | [Interfaces](docs/reference/INTERFACES.md) | 명령, callback, 상태 계약 |
 | [Runtime](docs/reference/RUNTIME.md) | profile, readiness, 프로세스 수명주기 |
+| [Scripts Guide](scripts/README.md) | operator surface, compatibility wrapper, internal runtime component 분류 |
 | [Operations](docs/runbook/OPERATIONS.md) | 현장 실행과 실패 복구 |
 | [Responsibility](docs/responsibility.md) | Main·Nav·AI 책임 경계 |
 | [Hardware](../hardware/README.md) | Lift·Rack·Pallet 기구와 Lift 전장 설계 |

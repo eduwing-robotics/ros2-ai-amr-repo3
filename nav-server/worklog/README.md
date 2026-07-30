@@ -14,3 +14,4 @@
 ## 분석 기록
 
 - [위치추정 기술 발전과 운용 설계 변화](LOCALIZATION_EVOLUTION.md)
+- [Nav server 구조 정리](NAV_SERVER_STRUCTURE_CLEANUP_2026-07-30.md) — e2d-docing nav-server 간소화 근거

@@ -9,13 +9,36 @@ from pathlib import Path
 
 import yaml
 
-from agv_graph_builder import graph_allowed_cells, load_corridor_graph, validate_graph
-from agv_grid_planner import GridMap, astar_4, inflated_blocked_cells, inflation_cells
+try:
+    from .agv_graph_builder import (
+        graph_allowed_cells,
+        load_corridor_graph,
+        validate_graph,
+    )
+    from .agv_grid_planner import (
+        GridMap,
+        astar_4,
+        inflated_blocked_cells,
+        inflation_cells,
+    )
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from agv_graph_builder import (
+        graph_allowed_cells,
+        load_corridor_graph,
+        validate_graph,
+    )
+    from agv_grid_planner import (
+        GridMap,
+        astar_4,
+        inflated_blocked_cells,
+        inflation_cells,
+    )
 
 
-NAV_SERVER_ROOT = Path(os.environ.get("NAV_SERVER_ROOT", Path(__file__).resolve().parents[1])).resolve()
+EXPERIMENT_ROOT = Path(__file__).resolve().parent
+NAV_SERVER_ROOT = Path(os.environ.get("NAV_SERVER_ROOT", EXPERIMENT_ROOT.parents[1])).resolve()
 DEFAULT_MAP_YAML = NAV_SERVER_ROOT / "map" / "robot2_map.yaml"
-DEFAULT_GRAPH_PATH = NAV_SERVER_ROOT / "map" / "agv_waypoint_graph.yaml"
+DEFAULT_GRAPH_PATH = EXPERIMENT_ROOT / "map" / "agv_waypoint_graph.yaml"
 
 
 def resolve_repo_path(path_value: str) -> Path:
@@ -59,7 +82,7 @@ def main() -> int:
             goal_cell = nearest_allowed(grid.world_to_cell(graph.nodes[goal].x, graph.nodes[goal].y), allowed)
             path = astar_4(grid, start_cell, goal_cell, blocked=blocked, allowed_cells=allowed)
             print(f"path {start}->{goal}: OK {len(path)} cells")
-        except Exception as exc:
+        except (KeyError, ValueError) as exc:
             print(f"path {start}->{goal}: FAILED {exc}")
 
     return 1 if errors else 0

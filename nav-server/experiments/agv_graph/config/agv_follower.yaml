@@ -1,6 +1,6 @@
 agv_orthogonal_follower:
   ros__parameters:
-    graph_path: map/agv_waypoint_graph.yaml
+    graph_path: experiments/agv_graph/map/agv_waypoint_graph.yaml
     robot_radius: 0.11
     lift_width: 0.34
     safety_margin: 0.08

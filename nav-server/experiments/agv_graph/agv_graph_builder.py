@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Set, Tuple
 
-from agv_grid_planner import Cell, GridMap, rasterize_axis_aligned
+try:
+    from .agv_grid_planner import Cell, GridMap, rasterize_axis_aligned
+except ImportError:  # pragma: no cover - direct script execution fallback
+    from agv_grid_planner import Cell, GridMap, rasterize_axis_aligned
 
 
 @dataclass(frozen=True)
@@ -21,8 +24,8 @@ class GraphNode:
 @dataclass(frozen=True)
 class CorridorGraph:
     frame_id: str
-    nodes: Dict[str, GraphNode]
-    edges: List[Tuple[str, str]]
+    nodes: dict[str, GraphNode]
+    edges: list[tuple[str, str]]
 
 
 def load_corridor_graph(path: Path) -> CorridorGraph:
@@ -42,8 +45,8 @@ def load_corridor_graph(path: Path) -> CorridorGraph:
     return CorridorGraph(frame_id=raw.get("frame_id", "map"), nodes=nodes, edges=edges)
 
 
-def graph_allowed_cells(graph: CorridorGraph, grid: GridMap) -> Set[Cell]:
-    allowed: Set[Cell] = set()
+def graph_allowed_cells(graph: CorridorGraph, grid: GridMap) -> set[Cell]:
+    allowed: set[Cell] = set()
     for start_name, end_name in graph.edges:
         start = _node_cell(graph, grid, start_name)
         end = _node_cell(graph, grid, end_name)
@@ -51,8 +54,8 @@ def graph_allowed_cells(graph: CorridorGraph, grid: GridMap) -> Set[Cell]:
     return allowed
 
 
-def validate_graph(graph: CorridorGraph, grid: GridMap, blocked: Set[Cell]) -> List[str]:
-    errors: List[str] = []
+def validate_graph(graph: CorridorGraph, grid: GridMap, blocked: set[Cell]) -> list[str]:
+    errors: list[str] = []
     for name in graph.nodes:
         cell = _node_cell(graph, grid, name)
         if not grid.in_bounds(cell):
@@ -112,5 +115,5 @@ def _node_cell(graph: CorridorGraph, grid: GridMap, name: str) -> Cell:
     return grid.world_to_cell(node.x, node.y)
 
 
-def edge_names(edges: Iterable[Tuple[str, str]]) -> List[str]:
+def edge_names(edges: Iterable[tuple[str, str]]) -> list[str]:
     return [f"{start}->{end}" for start, end in edges]

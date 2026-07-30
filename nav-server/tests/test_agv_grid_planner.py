@@ -1,6 +1,6 @@
 import pytest
 
-from agv_grid_planner import (
+from experiments.agv_graph.agv_grid_planner import (
     GridMap,
     assert_cardinal_path,
     astar_4,

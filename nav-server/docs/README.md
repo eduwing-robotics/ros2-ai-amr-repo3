@@ -11,6 +11,7 @@ Nav가 직접 구현하는 이동·현지화·도킹·안전 기능의 현재 �
 4. [운영](runbook/OPERATIONS.md) — 어떻게 시작하고 확인하고 진단하는가
 5. [Hardware 문서](../../hardware/README.md) — Lift·Rack·Pallet 기구와 Lift 전장 설계
 6. [문서 체크리스트](reference/DOCUMENT_CHECKLIST.md) — 문서가 코드와 맞는지 어떻게 확인하는가
+7. [Scripts Guide](../scripts/README.md) — operator surface와 runtime helper 역할을 어떻게 구분하는가
 
 ## 경계
 

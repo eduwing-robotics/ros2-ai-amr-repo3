@@ -2,12 +2,12 @@
 
 from pathlib import Path
 
-from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.substitutions import LaunchConfiguration
 
+from launch import LaunchDescription
 
-NAV_SERVER_ROOT = Path(__file__).resolve().parents[1]
+EXPERIMENT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def generate_launch_description():
@@ -16,12 +16,12 @@ def generate_launch_description():
         [
             DeclareLaunchArgument(
                 "params_file",
-                default_value=str(NAV_SERVER_ROOT / "config" / "agv_follower.yaml"),
+                default_value=str(EXPERIMENT_ROOT / "config" / "agv_follower.yaml"),
             ),
             ExecuteProcess(
                 cmd=[
                     "python3",
-                    str(NAV_SERVER_ROOT / "scripts" / "agv_orthogonal_follower.py"),
+                    str(EXPERIMENT_ROOT / "agv_orthogonal_follower.py"),
                     "--ros-args",
                     "--params-file",
                     params_file,
