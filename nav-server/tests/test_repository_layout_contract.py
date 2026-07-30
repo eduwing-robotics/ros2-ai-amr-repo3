@@ -71,8 +71,9 @@ def test_scripts_guide_classifies_operator_entrypoints_by_role():
     )
 
 
-def test_scripts_guide_marks_runtime_components_as_internal_not_operator_commands():
+def test_scripts_guide_marks_package_first_runtime_components_not_operator_commands():
     guide = read_required_repo_text("scripts/README.md")
+    normalized = collapsed(guide)
 
     assert_mentions_role(
         guide,
@@ -80,15 +81,13 @@ def test_scripts_guide_marks_runtime_components_as_internal_not_operator_command
         r"`run_nav_servers\.sh`.*internal",
         r"`run_nav_servers\.sh`.*내부",
     )
-    assert_mentions_role(
-        guide,
-        "nav_server.py",
-        r"`nav_server\.py`.*internal",
-        r"`nav_server\.py`.*내부",
-    )
+    assert "`nav_app.app:app`" in normalized
+    assert "`nav_app/services/`" in normalized
+    assert "`nav_server.py`" not in normalized
+    assert not (ROOT / "scripts" / "nav_server.py").exists()
     assert re.search(
-        r"run_nav_servers\.sh.*nav_server\.py.*(not normal operator commands|operator commands가 아니다|운영자 명령이 아니다)",
-        collapsed(guide),
+        r"run_nav_servers\.sh.*(not a normal operator command|operator command가 아니다|운영자 명령이 아니다)",
+        normalized,
         flags=re.IGNORECASE,
     )
 
@@ -116,13 +115,32 @@ def test_nav_ops_forwards_api_lifecycle_commands_to_start_nav_servers():
     assert '"$SCRIPT_DIR/sf_nav.sh"' not in nav_ops
 
 
-def test_adr_001_retains_script_compatible_entrypoint_paths():
-    adr = read_repo_text("docs/adr/ADR_001_SCRIPTS_COMPATIBLE_PACKAGE_LAYOUT.md")
+def test_adr_001_defines_package_first_nav_layout_contract():
+    adr = read_repo_text("docs/adr/ADR_001_PACKAGE_FIRST_NAV_LAYOUT.md")
+    normalized = collapsed(adr)
 
-    assert "`scripts/nav_server.py`" in adr
-    assert "`uvicorn scripts.nav_server:app`" in adr
-    for entrypoint in ("start_nav_servers.sh", "nav_ops.sh", "smoke_*.sh"):
+    assert "import되는 애플리케이션 로직은 `nav_app/` 패키지에만 둔다" in adr
+    assert "`scripts/`에는 운영자가 직접 실행하는 시작·검증·현장 도구만 둔다" in adr
+    assert "`nav_app.app:app`" in normalized
+    assert "`python3 -m uvicorn nav_app.app:app`" in normalized
+    assert "애플리케이션 서비스는 `nav_app/services/`에서 import한다" in adr
+    for entrypoint in ("sf_nav.sh", "run_nav_servers.sh", "smoke_*.sh"):
         assert f"`{entrypoint}`" in adr
+
+
+def test_package_first_service_modules_live_under_nav_app_services_not_scripts():
+    moved_services = (
+        "route_builder.py",
+        "logistics_navigator.py",
+        "mission_manager.py",
+        "traffic_manager.py",
+        "zone_lock_manager.py",
+        "aruco_detector_activation.py",
+    )
+
+    for module_name in moved_services:
+        assert (ROOT / "nav_app" / "services" / module_name).is_file()
+        assert not (ROOT / "scripts" / module_name).exists()
 
 
 def test_active_agv_rviz_reference_is_detectable_from_nav2_launcher():
