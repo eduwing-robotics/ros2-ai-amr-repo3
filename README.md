@@ -188,16 +188,16 @@ https://github.com/user-attachments/assets/cf180907-ecb2-4e76-b309-d111dab5710c
   <img src="assets/Images/입출고.png" width="100%" alt="입출고 작업 상태 다이어그램">
 </p>
 
-### 9.2 State Diagram — 안전정지와 운영자 복구
-
-<p align="center">
-  <img src="assets/Images/복구.png" width="100%" alt="안전정지와 운영자 복구 다이어그램">
-</p>
-
-### 9.3 State Diagram — 로봇 상태
+### 9.2 State Diagram — 로봇 상태
 
 <p align="center">
   <img src="assets/Images/로봇.png" width="100%" alt="로봇 상태 다이어그램">
+</p>
+
+### 9.3 State Diagram — 안전정지와 운영자 복구
+
+<p align="center">
+  <img src="assets/Images/복구.png" width="100%" alt="안전정지와 운영자 복구 다이어그램">
 </p>
 
 ## 10. 물류센터 맵, 요소 지점
