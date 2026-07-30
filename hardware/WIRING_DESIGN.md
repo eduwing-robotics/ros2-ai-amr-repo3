@@ -26,13 +26,6 @@ limit switch와 실제 배선 확인 항목을 정리한다.
 ![Lift 전체 배선](<images/lift_turtlebot_final_wiring(1).png>)
 ![Lift STEP·DIR·EN 배선](images/lift_turtlebot_final_STEP-DIR-EN.png)
 
-> **이미지 추가 가이드**
->
-> - `wiring-overview.png`: controller, driver, motor, battery와 switch 전체 연결
-> - `wiring-rear-photo.jpg`: 후방 plate의 실제 배선
-> - `limit-switch-lower.jpg`: home 위치에서 눌린 lower switch
-> - 배선도와 실물 사진에 같은 부품 번호와 cable 색상을 표시한다.
-
 ## 3. Pinout 기록
 
 배선도에서 확인된 값만 기록한다. 확인되지 않은 값은 빈칸으로 둔다.
