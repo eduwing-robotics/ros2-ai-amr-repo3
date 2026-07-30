@@ -4,9 +4,7 @@
 
 Main Server, Nav Server, AI Server가 역할을 나누되, 두 대의 TurtleBot3가 각각의 `task_id`를 기준으로 작업의 시작부터 완료까지 추적할 수 있도록 구성했습니다.
 
-<p align="center">
-  <a href="assets/e2e_final.mp4"><strong>▶ E2E 통합 시연 영상 보기</strong></a>
-</p>
+https://github.com/user-attachments/assets/15a073e2-8948-4fe7-b6be-6fe8d27eaea7
 
 ---
 
