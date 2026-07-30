@@ -386,7 +386,7 @@ nav-server/scripts/robot_sbc/stop_stack.sh
 <p align="center">
   <img src="assets/Images/jira-task-history-2026-07-28.png" width="100%" alt="Jira 작업 이력">
 </p>
-프로젝트 기간 [ 2026년 5월 26일 ~ 2026년 7월 24일 ]
+**프로젝트 기간 [ 2026년 5월 26일 ~ 2026년 7월 24일 ]**
 
 ## 16. 프로젝트 기술 스택
 
