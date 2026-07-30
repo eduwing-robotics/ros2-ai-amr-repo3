@@ -21,16 +21,6 @@ limit switch와 실제 배선 확인 항목을 정리한다.
 | TB3 볼캐스터-A01 | 차체 하부 지지 | |
 | 아두이노 USB 케이블 30cm 2EA | Arduino 연결 | |
 
-최신 구성은 2026-06-26에 갱신된 Wiring 및 Arduino 제어 문서를 우선했다.
-Arduino Uno[^controller-history], 11.1 V 리튬이온 배터리[^battery-history],
-하부 리미트 스위치[^limit-history]를 현재 구성으로 정리했다. 실물 확인이
-필요한 항목은 별도 각주에 기록한다.[^physical-check]
-
-[^controller-history]: 2026-06-09 [Hardware](https://baksa2584.atlassian.net/wiki/spaces/KAN/pages/9109513/Hardware)에는 ESP32 DevKit V1 USB-C 38핀이 기록돼 있으나, 2026-06-26 [Arduino Uno - Lift Control](https://baksa2584.atlassian.net/wiki/spaces/KAN/pages/30539856/Arduino+uno+-+Lift+Control)은 Arduino Uno 기반 구현을 명시한다.
-[^battery-history]: 초기 Hardware 문서는 AA 알칼리 12 V 구성을 기록했지만, 2026-06-26 [Wiring Design](https://baksa2584.atlassian.net/wiki/spaces/KAN/pages/25985048/Wiring+Design)은 Li-ion 충전지 11.1 V를 기록한다.
-[^limit-history]: 2026-06-12 [3주차 작업내용](https://baksa2584.atlassian.net/wiki/spaces/KAN/pages/18841723/3)은 upper·lower limit switch를 계획했지만, 2026-06-26 Arduino 제어 문서는 lower switch의 home 동작만 구현하고 상승 방향에는 limit가 없다고 기록한다.
-[^physical-check]: 실물에서 확인할 항목은 스테퍼 모터 명판, TMC2209 보드 버전, Arduino Uno revision, 콘덴서 극성, 배터리 실측 전압·극성·커넥터, 리미트 스위치 단자와 cable 색상, DC 잭 규격·극성·허용 전류, 신호 connector pitch·pin 배열, USB cable 실제 사용 수량, ball caster 장착 위치이다.
-
 ## 2. 배선 자료
 
 ![Lift 전체 배선](<images/lift_turtlebot_final_wiring(1).png>)
