@@ -200,4 +200,4 @@ lock은 `zone_id + robot_id`와 선택 mission ID를 사용한다. release는 �
 - [`nav_app/models/requests.py`](../../nav_app/models/requests.py) — 요청 모델
 - [`nav_app/security.py`](../../nav_app/security.py) — Main HMAC
 - [`nav_app/adapters/callbacks.py`](../../nav_app/adapters/callbacks.py) — callback 제한
-- [`scripts/logistics_navigator.py`](../../scripts/logistics_navigator.py) — ROS/Nav2 adapter
+- [`nav_app/services/logistics_navigator.py`](../../nav_app/services/logistics_navigator.py) — ROS/Nav2 adapter

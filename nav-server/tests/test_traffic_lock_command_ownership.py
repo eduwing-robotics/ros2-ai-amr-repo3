@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from traffic_manager import TrafficManager
+from nav_app.services.traffic_manager import TrafficManager
 
 from nav_app.runtime import runtime
 from nav_app.services.command_state import release_traffic_locks_for_command

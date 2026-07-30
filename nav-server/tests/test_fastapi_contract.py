@@ -3,14 +3,10 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from nav_app.bootstrap import ensure_import_paths
-
-ensure_import_paths()
-
-from nav_app.runtime import runtime  # noqa: E402
-from nav_app.security import sign_headers  # noqa: E402
-from nav_app.server_core import register_app  # noqa: E402
-from nav_app.services import robot_context  # noqa: E402
+from nav_app.runtime import runtime
+from nav_app.security import sign_headers
+from nav_app.server_core import register_app
+from nav_app.services import robot_context
 
 
 def _mock_startup():

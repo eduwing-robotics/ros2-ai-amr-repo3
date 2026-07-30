@@ -6,7 +6,7 @@ Scenario Simulator (통합 테스트 시뮬레이터)
 로봇의 배터리, 장애물, 비상 정지 상태를 가상으로 만들어 전달합니다.
 
 사용 방법:
-1. 한쪽 터미널에서 mission_manager.py를 실행합니다.
+1. `python3 -m nav_app.services.mission_manager`로 미션 관리자를 실행합니다.
 2. 다른 터미널에서 이 스크립트를 실행하여 상황을 조작합니다.
 """
 

@@ -5,9 +5,6 @@ lock mutation requires the Main HMAC/replay boundary.
 """
 from fastapi import APIRouter, Depends, HTTPException
 
-from traffic_manager import TrafficLockConflict
-from zone_lock_manager import ZoneLockConflict
-
 from nav_app.models import (
     TrafficLockRequest,
     TrafficReleaseRequest,
@@ -17,6 +14,8 @@ from nav_app.models import (
 from nav_app.runtime import runtime
 from nav_app.security import require_main_signature
 from nav_app.services import mission_helpers
+from nav_app.services.traffic_manager import TrafficLockConflict
+from nav_app.services.zone_lock_manager import ZoneLockConflict
 
 router = APIRouter()
 

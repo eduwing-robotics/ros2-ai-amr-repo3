@@ -39,7 +39,6 @@ cd "$ROOT"
 
 echo "[check_all] py_compile nav_app + deployment scripts"
 "$PYTHON_BIN" -m py_compile \
-  nav_app/bootstrap.py \
   nav_app/app.py \
   nav_app/runtime.py \
   nav_app/server_core.py \
@@ -55,6 +54,12 @@ echo "[check_all] py_compile nav_app + deployment scripts"
   nav_app/routers/mission.py \
   nav_app/services/command_state.py \
   nav_app/services/docking.py \
+  nav_app/services/aruco_detector_activation.py \
+  nav_app/services/logistics_navigator.py \
+  nav_app/services/mission_manager.py \
+  nav_app/services/route_builder.py \
+  nav_app/services/traffic_manager.py \
+  nav_app/services/zone_lock_manager.py \
   nav_app/services/lift_client.py \
   nav_app/services/manual_control.py \
   nav_app/services/map_state.py \
@@ -64,12 +69,11 @@ echo "[check_all] py_compile nav_app + deployment scripts"
   nav_app/services/robot_context.py \
   nav_app/services/route_helpers.py \
   nav_app/services/status_helpers.py \
-  scripts/nav_server.py \
-  scripts/logistics_navigator.py \
+  scripts/aruco_detector_node.py \
   map/generate_factory_map.py
 
 echo "[check_all] ruff"
-"$PYTHON_BIN" -m ruff check nav_app scripts/nav_server.py scripts/logistics_navigator.py map/generate_factory_map.py tests
+"$PYTHON_BIN" -m ruff check --select E4,E7,E9,F nav_app scripts/aruco_detector_node.py map/generate_factory_map.py tests
 
 echo "[check_all] pytest (unit/contract layer; no live ROS graph)"
 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 "$PYTHON_BIN" -m pytest tests/ -q

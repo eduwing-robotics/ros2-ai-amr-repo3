@@ -33,10 +33,10 @@ def startup_runtime() -> None:
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
 
-    from logistics_navigator import LogisticsNavigator
-    from mission_manager import MissionManager
-    from traffic_manager import TrafficManager
-    from zone_lock_manager import ZoneLockManager
+    from nav_app.services.logistics_navigator import LogisticsNavigator
+    from nav_app.services.mission_manager import MissionManager
+    from nav_app.services.traffic_manager import TrafficManager
+    from nav_app.services.zone_lock_manager import ZoneLockManager
 
     domain_id = ensure_process_domain_matches_profile()
     profile = active_robot_profile()

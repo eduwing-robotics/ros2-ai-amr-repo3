@@ -3,12 +3,8 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from nav_app.bootstrap import ensure_import_paths
-
-ensure_import_paths()
-
-from nav_app.server_core import lifespan, register_app  # noqa: E402
-from nav_app.config import MAIN_PUBLIC_BASE_URL  # noqa: E402
+from nav_app.config import MAIN_PUBLIC_BASE_URL
+from nav_app.server_core import lifespan, register_app
 
 
 def _cors_origins() -> list[str]:

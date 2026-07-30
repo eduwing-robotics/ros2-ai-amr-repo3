@@ -49,10 +49,10 @@ PY
 check_processes() {
   echo
   echo "== Processes =="
-  if pgrep -af "uvicorn nav_server:app" >/dev/null; then
-    pgrep -af "uvicorn nav_server:app" | sed 's/^/  /'
+  if pgrep -af "uvicorn nav_app.app:app" >/dev/null; then
+    pgrep -af "uvicorn nav_app.app:app" | sed 's/^/  /'
   else
-    echo "  [FAIL] no uvicorn nav_server process found"
+    echo "  [FAIL] no uvicorn nav_app.app process found"
   fi
 }
 

@@ -11,13 +11,14 @@ stream, decode with cv2.imdecode, then run OpenCV ArUco detection.
 import json
 import math
 import os
+import sys
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
 import rclpy
-from aruco_detector_activation import activation_requested, processing_due
 from aruco_pose_geometry import estimate_marker_pose
 from camera_calibration import load_calibration, scale_camera_matrix
 from rclpy.executors import ExternalShutdownException
@@ -25,6 +26,12 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import String
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from nav_app.services.aruco_detector_activation import activation_requested, processing_due  # noqa: E402
 
 ARUCO_DICTIONARIES = {
     "DICT_4X4_50": cv2.aruco.DICT_4X4_50,

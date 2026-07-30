@@ -1,4 +1,4 @@
-from route_builder import RouteBuildError, build_movement_steps, list_inventory
+from nav_app.services.route_builder import RouteBuildError, build_movement_steps, list_inventory
 
 
 def test_list_inventory_has_items():

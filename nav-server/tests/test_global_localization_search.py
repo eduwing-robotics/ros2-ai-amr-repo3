@@ -6,9 +6,9 @@ from threading import Thread as RealThread
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import logistics_navigator as navigator_module
 import pytest
-from logistics_navigator import LogisticsNavigator
+from nav_app.services import logistics_navigator as navigator_module
+from nav_app.services.logistics_navigator import LogisticsNavigator
 
 
 def navigator_stub():

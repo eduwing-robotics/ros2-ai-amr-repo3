@@ -12,10 +12,53 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+MOVED_SERVICE_MODULES = {
+    "aruco_detector_activation",
+    "logistics_navigator",
+    "mission_manager",
+    "route_builder",
+    "traffic_manager",
+    "zone_lock_manager",
+}
+
+
+def test_importable_nav_services_live_only_in_the_package():
+    for module_name in MOVED_SERVICE_MODULES:
+        assert (ROOT / "nav_app" / "services" / f"{module_name}.py").is_file()
+        assert not (ROOT / "scripts" / f"{module_name}.py").exists()
+
+
+def test_canonical_app_import_does_not_add_scripts_to_sys_path():
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json, sys; "
+                "import nav_app.app; "
+                "print(json.dumps({'paths': sys.path, 'app': nav_app.app.__file__}))"
+            ),
+        ],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+    resolved_paths = {
+        Path(value or ROOT).resolve()
+        for value in payload["paths"]
+    }
+
+    assert (ROOT / "scripts").resolve() not in resolved_paths
+    assert Path(payload["app"]).resolve() == (ROOT / "nav_app" / "app.py").resolve()
 
 
 def _nav2_skip_policy():
-    source = (ROOT / "scripts" / "logistics_navigator.py").read_text(encoding="utf-8")
+    source = (ROOT / "nav_app" / "services" / "logistics_navigator.py").read_text(encoding="utf-8")
     module = ast.parse(source)
     function = next(
         node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "nav2_active_wait_is_skipped"
@@ -38,13 +81,13 @@ def test_nav2_active_wait_skip_is_simulation_only(monkeypatch):
 
 
 def test_nav2_cli_uses_the_guarded_readiness_path():
-    source = (ROOT / "scripts" / "logistics_navigator.py").read_text(encoding="utf-8")
+    source = (ROOT / "nav_app" / "services" / "logistics_navigator.py").read_text(encoding="utf-8")
     assert "if not navigator.ensure_nav2_ready():" in source
     assert "navigator.nav.waitUntilNav2Active(localizer=\"amcl\")" not in source
 
 
 def test_nav2_readiness_cannot_reenable_basic_navigator_amcl_seeding():
-    path = ROOT / "scripts" / "logistics_navigator.py"
+    path = ROOT / "nav_app" / "services" / "logistics_navigator.py"
     source = path.read_text(encoding="utf-8")
     module = ast.parse(source)
     method = next(

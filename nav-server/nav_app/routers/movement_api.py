@@ -2,8 +2,6 @@
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from route_builder import RouteBuildError, build_movement_steps, list_inventory
-from traffic_manager import TrafficLockConflict
 
 from nav_app.config import (
     current_ros_domain_id,
@@ -31,12 +29,14 @@ from nav_app.services import (
     robot_context,
 )
 from nav_app.services.lift_backends import synthetic_hil_admitted
+from nav_app.services.route_builder import RouteBuildError, build_movement_steps, list_inventory
 from nav_app.services.route_helpers import (
     raw_route_preview,
     raw_steps_from_route_request,
     traffic_segments_from_steps,
 )
 from nav_app.services.safety import engage_estop, stop_active_motion
+from nav_app.services.traffic_manager import TrafficLockConflict
 from nav_app.settings import (
     ACTIVE_ROBOT_ID,
     ARUCO_DETECTION_MAX_AGE_SEC,

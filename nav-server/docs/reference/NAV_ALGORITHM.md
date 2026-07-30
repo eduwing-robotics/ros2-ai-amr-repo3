@@ -273,4 +273,4 @@ AGV graph planner와 orthogonal follower는 독립 실행 가능한 실험 기�
 - [`nav_app/services/localization.py`](../../nav_app/services/localization.py) — 현지화 승인 상태 머신
 - [`nav_app/services/docking.py`](../../nav_app/services/docking.py) — ArUco 정렬과 도킹
 - [`nav_app/services/safety.py`](../../nav_app/services/safety.py) — 취소·E-stop·정지 확인
-- [`scripts/logistics_navigator.py`](../../scripts/logistics_navigator.py) — ROS/Nav2 adapter
+- [`nav_app/services/logistics_navigator.py`](../../nav_app/services/logistics_navigator.py) — ROS/Nav2 adapter

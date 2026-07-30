@@ -5,10 +5,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from logistics_navigator import LogisticsNavigator
 from nav_app.runtime import runtime
 from nav_app.services import robot_context
 from nav_app.services.localization import LocalizationGate
+from nav_app.services.logistics_navigator import LogisticsNavigator
 
 PROFILE = {
     "localization": {

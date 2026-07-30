@@ -5,7 +5,6 @@ import time
 from typing import Any, Dict, Optional
 
 from fastapi import HTTPException
-from traffic_manager import TrafficLockConflict
 
 from nav_app.adapters.callbacks import post_json_callback as _post_json_callback
 from nav_app.adapters.callbacks import post_main_callback as _post_main_callback
@@ -21,6 +20,7 @@ from nav_app.services.status_helpers import (
 from nav_app.services.status_helpers import (
     stage_for_step_action as _stage_for_step_action,
 )
+from nav_app.services.traffic_manager import TrafficLockConflict
 from nav_app.settings import ACTIVE_ROBOT_ID, GATE_TIMEOUT_SEC, is_simulation_mode
 from nav_app.util.time import utc_now as _utc_now
 

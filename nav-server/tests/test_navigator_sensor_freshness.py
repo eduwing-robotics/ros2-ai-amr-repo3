@@ -58,7 +58,10 @@ def navigator_class(monkeypatch):
     _module(monkeypatch, "std_msgs.msg", Bool=object, String=object)
     _module(monkeypatch, "std_srvs")
     _module(monkeypatch, "std_srvs.srv", Empty=object)
-    spec = importlib.util.spec_from_file_location("freshness_navigator", ROOT / "scripts" / "logistics_navigator.py")
+    spec = importlib.util.spec_from_file_location(
+        "freshness_navigator",
+        ROOT / "nav_app" / "services" / "logistics_navigator.py",
+    )
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(module)

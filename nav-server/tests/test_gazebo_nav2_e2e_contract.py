@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "verify_gazebo_nav2_e2e.sh"
 CLIENT = ROOT / "scripts" / "verify_gazebo_nav2_e2e_client.py"
-RUNBOOK = ROOT / "docs" / "runbook" / "RUNBOOK_GAZEBO_SIMULATION.md"
+RUNBOOK = ROOT / "docs" / "runbook" / "OPERATIONS.md"
 
 
 def test_headless_gazebo_acceptance_has_safe_orchestration_contract():

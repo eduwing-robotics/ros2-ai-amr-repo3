@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, PrivateAttr
-from route_builder import DEFAULT_RETURN_WAYPOINT
+from nav_app.services.route_builder import DEFAULT_RETURN_WAYPOINT
 
 
 class MovementStep(BaseModel):

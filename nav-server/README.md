@@ -6,13 +6,9 @@ Lift 적재·하역으로 실행하고 물리 결과를 보고하는 ROS 2 이�
 **담당 범위:** Command admission · Navigation · Docking · Lift · Traffic safety · Result reporting
 
 <p align="center">
-  <img src="../assets/robot_active_6x_30s.gif" width="800" alt="TurtleBot3 물류 이동과 도킹 데모">
-</p>
-
-<p align="center">
-  <b>실제 로봇 기반 물류 이동·도킹 데모</b><br>
+  <b>실제 로봇 기반 물류 이동·도킹 완결본</b><br>
   Nav2 이동 → ArUco 정렬 → Lift 작업 → 안전 복귀<br>
-  <a href="../assets/lift_nav_safety_full_e2e_combined.mp4">3분 36초 통합 MP4 보기</a>
+  <a href="../assets/e2e_final.mp4">▶ 3분 36초 완결본 MP4 재생</a>
 </p>
 
 ## 최종 성과
@@ -111,7 +107,7 @@ ACCEPTED → RUNNING
 | Command State | `nav_app/services/command_state.py` | 활성 명령, ARRIVED gate, 종료 상태 |
 | Movement | `nav_app/services/movement_executor.py` | step 실행과 Nav2 연계 |
 | Docking & Lift | `nav_app/services/docking.py`, `lift_backends.py` | ArUco 정렬, 삽입, Lift, 복귀 |
-| Traffic Safety | `scripts/traffic_manager.py`, `zone_lock_manager.py` | segment·zone 소유권 관리 |
+| Traffic Safety | `nav_app/services/traffic_manager.py`, `nav_app/services/zone_lock_manager.py` | segment·zone 소유권 관리 |
 | Runtime | `scripts/sf_nav.sh`, `config/runtime_profiles/` | profile 해석, 프로세스 수명주기 |
 
 | 로봇 | Robot ID | ROS domain | Nav local domain | Movement API | Capability |

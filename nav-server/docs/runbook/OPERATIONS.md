@@ -229,7 +229,8 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest -q \
 ## Gazebo 검증
 
 설치된 ROS 2 Jazzy stock package의 Nav2·AMCL·`NavigateToPose`를 격리된 domain에서
-검증한다.
+검증한다. 실행기는 `nav2_minimal_tb3_sim` 패키지를 사용하며 실제 ArUco·Lift
+hardware를 대신하지 않는다.
 
 ```bash
 scripts/verify_gazebo_nav2_e2e.sh --check

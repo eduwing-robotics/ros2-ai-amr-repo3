@@ -70,10 +70,10 @@ EKF 끄고 예전처럼: `WITH_EKF=0 scripts/start_all_tb3_2.sh restart`
 
 1. **nav_server 재시작** (코드 반영 후 필수):
    ```bash
-   pkill -f "uvicorn nav_server:app --host 0.0.0.0 --port 8002"
-   cd ~/slam_nav_ws/scripts && ROBOT_ID=tb3_burger_02 ROS_DOMAIN_ID=5 \
-     ACTIVE_MAP_YAML=../map/robot2_map.yaml \
-     python3 -m uvicorn nav_server:app --host 0.0.0.0 --port 8002
+   pkill -f "uvicorn nav_app.app:app --host 0.0.0.0 --port 8002"
+   cd ~/slam_nav_ws && ROBOT_ID=tb3_burger_02 ROS_DOMAIN_ID=5 \
+     ACTIVE_MAP_YAML=map/robot2_map.yaml \
+     python3 -m uvicorn nav_app.app:app --host 0.0.0.0 --port 8002
    ```
 2. 스택: `WITH_EKF=1 scripts/start_all_tb3_2.sh restart` (또는 이미 떠 있으면 status)
 3. 구역 테스트 재개:

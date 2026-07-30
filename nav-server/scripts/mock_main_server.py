@@ -7,7 +7,7 @@ Nav 서버의 MAIN_API_BASE 또는 command callback_url을 이 서버로 설정�
 
 사용 예:
   python3 scripts/mock_main_server.py --port 8088
-  MAIN_API_BASE=http://127.0.0.1:8088/api/v1 python3 scripts/nav_server.py
+  MAIN_API_BASE=http://127.0.0.1:8088/api/v1 python3 -m uvicorn nav_app.app:app
   callback_url=http://127.0.0.1:8088/api/v1/movement/command-events
 """
 

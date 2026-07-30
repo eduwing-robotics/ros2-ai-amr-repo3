@@ -1,4 +1,4 @@
-from aruco_detector_activation import activation_requested, processing_due, set_activation
+from nav_app.services.aruco_detector_activation import activation_requested, processing_due, set_activation
 
 
 def test_activation_file_is_off_by_default_and_tracks_dock_scope(tmp_path):
